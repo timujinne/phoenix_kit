@@ -104,6 +104,7 @@ defmodule PhoenixKit.Emails.RateLimiter do
   """
 
   alias PhoenixKit.Emails.{EmailBlocklist, Log}
+  alias PhoenixKit.RepoHelper
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   import Ecto.Query
@@ -820,7 +821,7 @@ defmodule PhoenixKit.Emails.RateLimiter do
 
   # Gets the configured repository for database operations
   defp repo do
-    PhoenixKit.RepoHelper.repo()
+    RepoHelper.repo()
   end
 end
 
