@@ -4,6 +4,7 @@ defmodule PhoenixKitWeb.BlogHTML do
   """
   use PhoenixKitWeb, :html
 
+  alias Phoenix.HTML
   alias PhoenixKit.Blogging.Renderer
   alias PhoenixKit.Config
   alias PhoenixKit.Module.Languages
@@ -136,8 +137,8 @@ defmodule PhoenixKitWeb.BlogHTML do
 
     # Strip HTML tags to get plain text
     html
-    |> Phoenix.HTML.raw()
-    |> Phoenix.HTML.safe_to_string()
+    |> HTML.raw()
+    |> HTML.safe_to_string()
     |> strip_html_tags()
     |> String.trim()
   end
@@ -174,13 +175,11 @@ defmodule PhoenixKitWeb.BlogHTML do
 
   defp single_language_mode? do
     enabled_count =
-      try do
-        Languages.enabled_locale_codes()
-        |> length()
-      rescue
-        _ -> 1
-      end
+      Languages.enabled_locale_codes()
+      |> length()
 
     enabled_count == 1
+  rescue
+    _ -> true
   end
 end

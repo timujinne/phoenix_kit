@@ -183,15 +183,13 @@ defmodule PhoenixKit.Config do
   def get_parent_endpoint_url do
     with {:ok, endpoint} <- get_parent_endpoint(),
          true <- function_exported?(endpoint, :url, 0) do
-      try do
-        url = endpoint.url()
-        {:ok, url}
-      rescue
-        _ -> :error
-      end
+      url = endpoint.url()
+      {:ok, url}
     else
       _ -> :error
     end
+  rescue
+    _ -> :error
   end
 
   @doc """

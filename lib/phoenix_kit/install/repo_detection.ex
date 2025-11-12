@@ -152,27 +152,25 @@ defmodule PhoenixKit.Install.RepoDetection do
   defp add_repo_config_to_files(igniter, repo_module) do
     alias Igniter.Project.Config
 
-    try do
-      igniter
-      # Add repo config to main config.exs
-      |> Config.configure_new(
-        "config.exs",
-        :phoenix_kit,
-        [:repo],
-        repo_module
-      )
-      # Also add repo config to test.exs for testing
-      |> Config.configure_new(
-        "test.exs",
-        :phoenix_kit,
-        [:repo],
-        repo_module
-      )
-    rescue
-      _ ->
-        # Fallback to simple file operations
-        add_repo_config_simple(igniter, repo_module)
-    end
+    igniter
+    # Add repo config to main config.exs
+    |> Config.configure_new(
+      "config.exs",
+      :phoenix_kit,
+      [:repo],
+      repo_module
+    )
+    # Also add repo config to test.exs for testing
+    |> Config.configure_new(
+      "test.exs",
+      :phoenix_kit,
+      [:repo],
+      repo_module
+    )
+  rescue
+    _ ->
+      # Fallback to simple file operations
+      add_repo_config_simple(igniter, repo_module)
   end
 
   # Simple file append for repo configuration when Igniter fails
@@ -183,49 +181,47 @@ defmodule PhoenixKit.Install.RepoDetection do
     config :phoenix_kit, repo: #{inspect(repo_module)}
     """
 
-    try do
-      # Try appending to config.exs using Igniter
-      igniter =
-        Igniter.update_file(igniter, "config/config.exs", fn source ->
-          content = Rewrite.Source.get(source, :content)
+    # Try appending to config.exs using Igniter
+    igniter =
+      Igniter.update_file(igniter, "config/config.exs", fn source ->
+        content = Rewrite.Source.get(source, :content)
 
-          # Check if already configured
-          if String.contains?(content, "config :phoenix_kit, repo:") do
-            source
-          else
-            # Find insertion point before import_config
-            updated_content =
-              case find_import_config_location_simple(content) do
-                {:before_import, before_content, after_content} ->
-                  before_content <> repo_config <> "\n" <> after_content
+        # Check if already configured
+        if String.contains?(content, "config :phoenix_kit, repo:") do
+          source
+        else
+          # Find insertion point before import_config
+          updated_content =
+            case find_import_config_location_simple(content) do
+              {:before_import, before_content, after_content} ->
+                before_content <> repo_config <> "\n" <> after_content
 
-                :append_to_end ->
-                  content <> repo_config
-              end
+              :append_to_end ->
+                content <> repo_config
+            end
 
-            Rewrite.Source.update(source, :content, updated_content)
-          end
-        end)
+          Rewrite.Source.update(source, :content, updated_content)
+        end
+      end)
 
-      # Try appending to test.exs using Igniter
-      igniter =
-        Igniter.update_file(igniter, "config/test.exs", fn source ->
-          content = Rewrite.Source.get(source, :content)
+    # Try appending to test.exs using Igniter
+    igniter =
+      Igniter.update_file(igniter, "config/test.exs", fn source ->
+        content = Rewrite.Source.get(source, :content)
 
-          if String.contains?(content, "config :phoenix_kit, repo:") do
-            source
-          else
-            updated_content = content <> repo_config
-            Rewrite.Source.update(source, :content, updated_content)
-          end
-        end)
+        if String.contains?(content, "config :phoenix_kit, repo:") do
+          source
+        else
+          updated_content = content <> repo_config
+          Rewrite.Source.update(source, :content, updated_content)
+        end
+      end)
 
-      igniter
-    rescue
-      e ->
-        IO.warn("Failed to configure repo automatically: #{inspect(e)}")
-        add_repo_config_manual_notice(igniter, repo_module)
-    end
+    igniter
+  rescue
+    e ->
+      IO.warn("Failed to configure repo automatically: #{inspect(e)}")
+      add_repo_config_manual_notice(igniter, repo_module)
   end
 
   # Helper to find import_config location (simplified version)
