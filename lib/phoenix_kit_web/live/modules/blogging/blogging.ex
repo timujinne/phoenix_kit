@@ -7,6 +7,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
   """
 
   alias PhoenixKit.Module.Languages
+  alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKitWeb.Live.Modules.Blogging.Storage
 
@@ -26,7 +27,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
   """
   @spec enabled?() :: boolean()
   def enabled? do
-    settings_call(:get_boolean_setting, [@enabled_key, false])
+    Settings.get_boolean_setting(@enabled_key, false)
   end
 
   @doc """
@@ -34,7 +35,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
   """
   @spec enable_system() :: {:ok, any()} | {:error, any()}
   def enable_system do
-    settings_call(:update_boolean_setting, [@enabled_key, true])
+    Settings.update_boolean_setting(@enabled_key, true)
   end
 
   @doc """
@@ -42,7 +43,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
   """
   @spec disable_system() :: {:ok, any()} | {:error, any()}
   def disable_system do
-    settings_call(:update_boolean_setting, [@enabled_key, false])
+    Settings.update_boolean_setting(@enabled_key, false)
   end
 
   @doc """
@@ -50,7 +51,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
   """
   @spec list_blogs() :: [blog()]
   def list_blogs do
-    case settings_call(:get_json_setting, [@blogs_key, nil]) do
+    case Settings.get_json_setting(@blogs_key, nil) do
       %{"blogs" => blogs} when is_list(blogs) ->
         normalize_blogs(blogs)
 
@@ -59,14 +60,14 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
 
       _ ->
         legacy =
-          case settings_call(:get_json_setting, [@legacy_categories_key, %{"types" => []}]) do
+          case Settings.get_json_setting(@legacy_categories_key, %{"types" => []}) do
             %{"types" => types} when is_list(types) -> types
             other when is_list(other) -> other
             _ -> []
           end
 
         if legacy != [] do
-          settings_call(:update_json_setting, [@blogs_key, %{"blogs" => legacy}])
+          Settings.update_json_setting(@blogs_key, %{"blogs" => legacy})
         end
 
         normalize_blogs(legacy)
@@ -98,7 +99,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
           updated = blogs ++ [blog]
           payload = %{"blogs" => updated}
 
-          with {:ok, _} <- settings_call(:update_json_setting, [@blogs_key, payload]),
+          with {:ok, _} <- Settings.update_json_setting(@blogs_key, payload),
                :ok <- Storage.ensure_blog_root(slug) do
             {:ok, blog}
           end
@@ -115,7 +116,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
       list_blogs()
       |> Enum.reject(&(&1["slug"] == slug))
 
-    settings_call(:update_json_setting, [@blogs_key, %{"blogs" => updated}])
+    Settings.update_json_setting(@blogs_key, %{"blogs" => updated})
   end
 
   @doc """
@@ -363,14 +364,6 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
     slug in language_codes
   end
 
-  defp settings_module do
-    Application.get_env(:phoenix_kit, :blogging_settings_module, PhoenixKit.Settings)
-  end
-
-  defp settings_call(fun, args) do
-    apply(settings_module(), fun, args)
-  end
-
   defp normalize_blogs(blogs) do
     blogs
     |> Enum.map(&normalize_blog_keys/1)
@@ -469,7 +462,7 @@ defmodule PhoenixKitWeb.Live.Modules.Blogging do
         other -> other
       end)
 
-    settings_call(:update_json_setting, [@blogs_key, %{"blogs" => updated}])
+    Settings.update_json_setting(@blogs_key, %{"blogs" => updated})
   end
 
   defp derive_requested_slug(nil, fallback_name) do
