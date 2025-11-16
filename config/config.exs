@@ -15,7 +15,23 @@ config :ueberauth, Ueberauth, providers: []
 config :phoenix_kit, Oban,
   repo: PhoenixKit.Repo,
   queues: [default: 10, emails: 50, file_processing: 20],
-  plugins: [Oban.Plugins.Pruner, {Oban.Plugins.Cron, crontab: []}]
+  plugins: [
+    Oban.Plugins.Pruner,
+    {Oban.Plugins.Cron,
+     crontab: [
+       # Clean up expired authentication tokens daily at 2 AM
+       {"0 2 * * *", PhoenixKit.Workers.TokenCleanupWorker, args: %{}}
+     ]}
+  ]
+
+# Configure Hammer rate limiting
+config :hammer,
+  backend:
+    {Hammer.Backend.ETS,
+     [
+       expiry_ms: 60_000 * 60 * 2,
+       cleanup_interval_ms: 60_000 * 10
+     ]}
 
 # Configure Logger metadata
 config :logger, :console,

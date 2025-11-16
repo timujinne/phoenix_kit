@@ -9,15 +9,23 @@ defmodule PhoenixKitWeb.Users.MagicLink do
 
   The magic link verification is handled by the controller, this LiveView
   handles the email input and confirmation flow.
+
+  ## Security Features
+
+  - Rate limiting to prevent abuse (3 requests per minute per IP)
+  - Timing attack protection via async processing and fake work simulation
+  - Generic messages to prevent user enumeration
+  - All operations logged for security monitoring
   """
   use PhoenixKitWeb, :live_view
+
+  require Logger
 
   alias PhoenixKit.Admin.Presence
   alias PhoenixKit.Config
   alias PhoenixKit.Mailer
   alias PhoenixKit.Users.MagicLink
-  alias PhoenixKit.Utils.IpAddress
-  alias PhoenixKit.Utils.Routes
+  alias PhoenixKit.Utils.{IpAddress, Routes}
 
   @impl true
   def mount(_params, session, socket) do
@@ -53,14 +61,37 @@ defmodule PhoenixKitWeb.Users.MagicLink do
   @impl true
   def handle_event("send_magic_link", %{"magic_link" => %{"email" => email}}, socket) do
     if valid_email?(email) do
-      form = to_form(%{"email" => email}, as: "magic_link")
+      # Check rate limit before processing
+      ip_address = get_connect_info(socket, :peer_data) |> IpAddress.extract_ip_address()
+      rate_limit_key = "auth:magic_link:#{ip_address}"
 
-      {:noreply,
-       socket
-       |> assign(:form, form)
-       |> assign(:loading, true)
-       |> assign(:error, nil)
-       |> send_magic_link_async(email)}
+      case Hammer.check_rate(rate_limit_key, 60_000, 3) do
+        {:allow, _count} ->
+          # Rate limit check passed - process request asynchronously
+          form = to_form(%{"email" => email}, as: "magic_link")
+
+          {:noreply,
+           socket
+           |> assign(:form, form)
+           |> assign(:loading, true)
+           |> assign(:error, nil)
+           |> send_magic_link_async(email)}
+
+        {:deny, _limit} ->
+          # Rate limit exceeded
+          Logger.warning("Magic link rate limit exceeded",
+            ip: ip_address,
+            email: email,
+            event: "rate_limit_violation"
+          )
+
+          form = to_form(%{"email" => email}, as: "magic_link")
+
+          {:noreply,
+           socket
+           |> assign(:form, form)
+           |> assign(:error, "Too many requests. Please try again in a minute.")}
+      end
     else
       form = to_form(%{"email" => email}, as: "magic_link")
 
@@ -109,7 +140,7 @@ defmodule PhoenixKitWeb.Users.MagicLink do
     end
   end
 
-  # Process the magic link sending in the background
+  # Process the magic link sending in the background with timing attack protection
   defp send_magic_link_async(socket, email) do
     Phoenix.LiveView.start_async(socket, :send_magic_link, fn ->
       case MagicLink.generate_magic_link(email) do
@@ -118,7 +149,13 @@ defmodule PhoenixKitWeb.Users.MagicLink do
 
         {:error, :user_not_found} ->
           # For security, we simulate the same delay as successful case
-          Process.sleep(100)
+          # Generate fake token to match real processing time
+          _fake_token = :crypto.strong_rand_bytes(32) |> Base.url_encode64(padding: false)
+
+          # Simulate email sending delay (50-150ms)
+          Process.sleep(:rand.uniform(100) + 50)
+
+          Logger.info("Magic link requested for non-existent email", email: email)
           {:error, :user_not_found}
 
         {:error, reason} ->

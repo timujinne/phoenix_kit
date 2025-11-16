@@ -572,6 +572,59 @@ defp format_time_ago(datetime), do: # logic...
 - **Race Condition Protection** - FOR UPDATE locking in Ecto transactions
 - **Test Database** - Separate test database with sandbox
 
+### Security Architecture
+
+PhoenixKit implements comprehensive security features to protect against common web vulnerabilities:
+
+#### Rate Limiting
+
+- **Login Protection** - 5 attempts per minute per IP (`lib/phoenix_kit_web/users/session.ex:25`)
+- **Password Reset** - 3 requests per 5 minutes per IP (`lib/phoenix_kit_web/users/forgot_password.ex:31`)
+- **Magic Link** - 3 requests per minute per IP (`lib/phoenix_kit_web/users/magic_link.ex:68`)
+- **Configurable Backend** - ETS (development) or Redis (production) via Hammer library
+- **Admin Control** - Can be toggled via `auth_rate_limiting_enabled` setting
+
+**Implementation**: `lib/phoenix_kit_web/plugs/rate_limiter.ex`
+
+#### Timing Attack Protection
+
+- **Login** - `Bcrypt.no_user_verify()` for non-existent users (`lib/phoenix_kit/users/auth/user.ex:226`)
+- **Password Reset** - Async processing + fake work simulation (`lib/phoenix_kit_web/users/forgot_password.ex:86`)
+- **Magic Link** - Async processing + simulated delays (`lib/phoenix_kit_web/users/magic_link.ex:144`)
+- **Generic Messages** - Prevents user enumeration
+
+#### Token Security
+
+- **Secure Storage** - SHA256 hashing for all tokens before database storage
+- **Strong Randomness** - 32 bytes of cryptographic randomness per token
+- **Short Expiry** - Password reset: 1 day, Magic link: 15 minutes, Sessions: 60 days
+- **Single-Use** - Tokens automatically deleted after successful use
+- **Email Verification** - Tokens invalidated if user email changes
+- **Automatic Cleanup** - Daily cron job removes expired tokens (`lib/phoenix_kit/workers/token_cleanup_worker.ex`)
+
+**Cron Schedule** (daily at 2 AM):
+```elixir
+{"0 2 * * *", PhoenixKit.Workers.TokenCleanupWorker}
+```
+
+#### Password Security
+
+- **Bcrypt Hashing** - Industry-standard password hashing
+- **Minimum Length** - 8 characters minimum
+- **Maximum Length** - 72 bytes to prevent DoS attacks
+- **Virtual Fields** - Plain passwords never persisted
+- **Session Invalidation** - All sessions terminated on password change
+
+#### Monitoring and Logging
+
+All security events are logged with structured metadata:
+- Successful/failed login attempts
+- Rate limit violations
+- Password reset requests
+- Token cleanup statistics
+
+**See Also**: `SECURITY.md` for complete security documentation
+
 ### Professional Features
 
 - **Hex Publishing** - Complete package.exs configuration

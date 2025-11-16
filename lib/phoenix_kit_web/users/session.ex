@@ -13,12 +13,24 @@ defmodule PhoenixKitWeb.Users.Session do
   - Prevents user enumeration by not disclosing whether an email is registered
   - Supports remember me functionality via UserAuth module
   - Session renewal on login/logout to prevent fixation attacks
+  - Rate limiting to prevent brute-force attacks (5 attempts per minute per IP)
   """
   use PhoenixKitWeb, :controller
 
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth, as: UserAuth
+
+  # Rate limiting: 5 login attempts per minute per IP
+  plug PhoenixKitWeb.Plugs.RateLimiter,
+       [
+         key: "auth:login",
+         limit: 5,
+         window_ms: 60_000,
+         by: :ip,
+         error_message: "Too many login attempts. Please try again in a minute."
+       ]
+       when action in [:create]
 
   def create(conn, %{"_action" => "registered"} = params) do
     create(conn, params, "Account created successfully!")

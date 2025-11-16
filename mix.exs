@@ -77,6 +77,10 @@ defmodule PhoenixKit.MixProject do
       {:swoosh, "~> 1.19.5"},
       {:gen_smtp, "~> 1.2"},
 
+      # Rate limiting
+      {:hammer, "~> 6.1"},
+      {:hammer_backend_ets, "~> 6.1"},
+
       # OAuth authentication
       {:ueberauth, "~> 0.10"},
       {:ueberauth_google, "~> 0.12"},
