@@ -1116,6 +1116,7 @@ defmodule PhoenixKit.Modules.Sync.Web.ConnectionsLive do
   end
 
   # Get all FK dependencies for a table (recursive)
+  @dialyzer [{:no_opaque, get_table_dependencies: 2}, {:no_opaque, get_table_dependencies: 3}]
   defp get_table_dependencies(table_name, tables) do
     get_table_dependencies(table_name, tables, MapSet.new())
     |> MapSet.to_list()
@@ -1165,6 +1166,7 @@ defmodule PhoenixKit.Modules.Sync.Web.ConnectionsLive do
 
   defp topo_sort(_graph, [], sorted, _visited), do: sorted
 
+  @dialyzer {:no_opaque, topo_sort: 4}
   defp topo_sort(graph, [node | rest], sorted, visited) do
     if MapSet.member?(visited, node) do
       topo_sort(graph, rest, sorted, visited)
@@ -1174,6 +1176,7 @@ defmodule PhoenixKit.Modules.Sync.Web.ConnectionsLive do
     end
   end
 
+  @dialyzer {:no_opaque, visit_node: 5}
   defp visit_node(graph, node, sorted, visited, path) do
     if MapSet.member?(visited, node) do
       {sorted, visited}
