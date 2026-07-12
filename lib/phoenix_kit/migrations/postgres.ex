@@ -529,7 +529,17 @@ defmodule PhoenixKit.Migrations.Postgres do
   - Replaces unique index with partial index (slug-mode only, WHERE slug IS NOT NULL)
   - Adds unique index on `(group_uuid, post_date, post_time)` for timestamp-mode posts
 
-  ### V142 - Wider role-permission keys ⚡ LATEST
+  ### V143 - CRM party roles (suppliers, clients) ⚡ LATEST
+  - Adds `phoenix_kit_crm_party_roles` for the `phoenix_kit_crm` module:
+    polymorphic role edge marking a CRM company or contact as `supplier`,
+    `client`, or other commercial role. One party can hold several roles
+    (rows), each with `valid_from`/`valid_to` lifecycle, `is_active` filter,
+    and role-scoped `metadata` (payment terms, tax id, currency).
+  - No FK on `roleable_uuid` (polymorphic company XOR contact target);
+    unique on `(roleable_type, roleable_uuid, role)`.
+  - Rollback drops the table (role assignments lost; companies/contacts kept).
+
+  ### V142 - Wider role-permission keys
   - Widens `phoenix_kit_role_permissions.module_key` from `VARCHAR(50)` to
     `VARCHAR(120)` so fine-grained sub-permissions can be stored as composed
     dotted keys (`"calendar.view_others"` — base and sub parts are each
@@ -1233,7 +1243,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   use Ecto.Migration
 
   @initial_version 1
-  @current_version 142
+  @current_version 143
   @default_prefix "public"
 
   @doc false
