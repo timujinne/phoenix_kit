@@ -529,7 +529,23 @@ defmodule PhoenixKit.Migrations.Postgres do
   - Replaces unique index with partial index (slug-mode only, WHERE slug IS NOT NULL)
   - Adds unique index on `(group_uuid, post_date, post_time)` for timestamp-mode posts
 
-  ### V143 - CRM party roles (suppliers, clients) ⚡ LATEST
+  ### V144 - Catalogue item-supplier info + primary supplier + CRM xref ⚡ LATEST
+  - Adds `primary_supplier_uuid` to `phoenix_kit_cat_items` (nullable, no
+    FK — soft ref) backing the `Item` schema's existing `belongs_to`, which
+    referenced this column before any migration created it.
+  - Adds `phoenix_kit_cat_item_supplier_info`: per-item sourcing info for
+    each supplier (SKU, unit cost, currency, lead time, MOQ). `supplier_uuid`
+    is a soft ref (no FK) resolving to a CRM party or a local
+    `cat_supplier` — this is where CRM federation lands. A partial unique
+    index on `item_uuid` (`WHERE is_primary`) keeps at most one primary
+    supplier per item.
+  - Adds `crm_company_uuid` to `phoenix_kit_cat_suppliers` (nullable, no
+    FK — soft cross-module xref) so a local supplier can be gradually
+    federated into CRM.
+  - Rollback drops the junction table and both soft-ref columns (per-item
+    sourcing info and CRM links are lost; items/suppliers are untouched).
+
+  ### V143 - CRM party roles (suppliers, clients)
   - Adds `phoenix_kit_crm_party_roles` for the `phoenix_kit_crm` module:
     polymorphic role edge marking a CRM company or contact as `supplier`,
     `client`, or other commercial role. One party can hold several roles
@@ -1243,7 +1259,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   use Ecto.Migration
 
   @initial_version 1
-  @current_version 143
+  @current_version 144
   @default_prefix "public"
 
   @doc false
