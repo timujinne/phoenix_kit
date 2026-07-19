@@ -131,6 +131,17 @@ defmodule PhoenixKitWeb.Live.Settings.EmailSending do
            gettext("Test email sent to %{recipient}", recipient: recipient)
          )}
 
+      {:error, {:incomplete_credentials, missing_fields}} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext(
+             "Could not send test email: the send integration is missing required field(s): %{fields}",
+             fields: Enum.map_join(missing_fields, ", ", &to_string/1)
+           )
+         )}
+
       {:error, reason} ->
         {:noreply,
          put_flash(

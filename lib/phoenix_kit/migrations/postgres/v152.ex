@@ -104,6 +104,14 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
   make the documented rollback-and-reapply dance (see the warning above)
   fail on exactly the data this section exists to create. Only the new
   columns are dropped.
+
+  A dropped `user_uuid` `NOT NULL` alone would let a delivery row be
+  addressable by neither identifier at all — `phoenix_kit_newsletters_deliveries_recipient_check`
+  (`CHECK (user_uuid IS NOT NULL OR recipient_email IS NOT NULL)`) closes
+  that gap; `down/1` drops it along with the columns. The Ecto-layer
+  `Broadcaster` insert path already guards the same invariant before this
+  constraint existed — this is a cheap, redundant DB-level backstop, not
+  a replacement for it.
   """
 
   use Ecto.Migration
@@ -311,7 +319,7 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
 
   # ── Section: broadcasts can source recipients from a CRM list ──
 
-  defp up_broadcast_crm_source(_opts, _prefix, p) do
+  defp up_broadcast_crm_source(opts, prefix, p) do
     Helpers.ensure_extension!("citext")
 
     # A crm_list broadcast has no newsletters list of its own.
@@ -351,11 +359,41 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
     ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
     ADD COLUMN IF NOT EXISTS recipient_email CITEXT
     """)
+
+    # Cheap integrity guard: with both NOT NULLs dropped above, a delivery
+    # row addressable by neither a core User nor a snapshotted email is
+    # unreachable by any send path — Postgres has no
+    # `ADD CONSTRAINT IF NOT EXISTS`, so guard on the constraint name (same
+    # pattern used elsewhere in this migration chain, e.g. V125's
+    # `add_status_entity_uuid_fk/2`). Deliberately no CHECK on `source_type`
+    # here — this repo's convention keeps enum-shaped columns Ecto-only
+    # (see `broadcasts.status`), not DB CHECK-constrained.
+    escaped_prefix = Map.get(opts, :escaped_prefix, prefix)
+
+    execute("""
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT FROM information_schema.table_constraints
+        WHERE table_schema = '#{escaped_prefix}'
+          AND table_name = 'phoenix_kit_newsletters_deliveries'
+          AND constraint_name = 'phoenix_kit_newsletters_deliveries_recipient_check'
+      ) THEN
+        ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
+          ADD CONSTRAINT phoenix_kit_newsletters_deliveries_recipient_check
+          CHECK (user_uuid IS NOT NULL OR recipient_email IS NOT NULL);
+      END IF;
+    END $$;
+    """)
   end
 
   defp down_broadcast_crm_source(_opts, _prefix, p) do
     # Deliberately does NOT restore the NOT NULLs — see the module doc's
     # "Section: broadcasts can source recipients from a CRM list" note.
+    execute(
+      "ALTER TABLE #{p}phoenix_kit_newsletters_deliveries DROP CONSTRAINT IF EXISTS phoenix_kit_newsletters_deliveries_recipient_check"
+    )
+
     execute("DROP INDEX IF EXISTS #{p}idx_newsletters_broadcasts_crm_list")
 
     execute(

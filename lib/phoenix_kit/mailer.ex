@@ -321,6 +321,14 @@ defmodule PhoenixKit.Mailer do
     atom when the credentials carry no provider key at all)
   - `{:error, {:invalid_smtp_port, term()}}` — the SMTP connection's port is
     not a number
+  - `{:error, {:incomplete_credentials, [atom()]}}` — a required field for the
+    resolved provider (e.g. `:aws_region`, `:host`, `:api_key`) is blank. This
+    can happen even on a `connected?/1`-passing integration: a status of
+    "connected" is sticky (`Integrations.save_setup/3` doesn't recompute it
+    on later edits), so a required field can be blanked out after the fact
+    without the connection ever un-connecting. The listed atoms are field
+    *names* only — never values, and never the raw creds map — since the
+    whole point is not leaking the other, still-present secrets alongside it.
   - `{:error, :no_ca_store}` — SMTP only, and a **behaviour change**: there is no
     system CA bundle, so the relay's certificate cannot be verified and the
     password would go out to an unauthenticated server. Sending stops. It used to
@@ -358,30 +366,74 @@ defmodule PhoenixKit.Mailer do
   # must never log or `inspect` it.
   @spec swoosh_config_for(map()) :: {:ok, {module(), keyword()}} | {:error, term()}
   def swoosh_config_for(%{"provider" => "aws_ses"} = creds) do
-    {:ok,
-     {Swoosh.Adapters.AmazonSES,
-      [
-        region: creds["aws_region"],
-        access_key: creds["access_key"],
-        secret: creds["secret_key"]
-      ]}}
+    with :ok <-
+           require_fields(creds, [
+             {"access_key", :access_key},
+             {"secret_key", :secret_key},
+             {"aws_region", :aws_region}
+           ]) do
+      {:ok,
+       {Swoosh.Adapters.AmazonSES,
+        [
+          region: creds["aws_region"],
+          access_key: creds["access_key"],
+          secret: creds["secret_key"]
+        ]}}
+    end
   end
 
   def swoosh_config_for(%{"provider" => "smtp"} = creds) do
-    case SmtpTransport.config(creds) do
-      {:ok, options} -> {:ok, {Swoosh.Adapters.SMTP, options}}
-      {:error, _reason} = error -> error
+    # Only `host` is gated here — it's the sole field Swoosh's own SMTP
+    # adapter declares `required_config` (`relay`), and therefore the only
+    # one whose absence trips `Swoosh.Adapter.validate_config/2`'s leak
+    # (see require_fields/2 below). `SmtpTransport.config/1` itself
+    # tolerates a blank host by design (the pre-save "test what you typed"
+    # probe in Integrations.Validators calls it directly, before a host has
+    # necessarily been filled in) — that call site is unaffected, since it
+    # never goes through this function.
+    with :ok <- require_fields(creds, [{"host", :host}]) do
+      case SmtpTransport.config(creds) do
+        {:ok, options} -> {:ok, {Swoosh.Adapters.SMTP, options}}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
   def swoosh_config_for(%{"provider" => "brevo_api"} = creds) do
-    {:ok, {Swoosh.Adapters.Brevo, [api_key: creds["api_key"]]}}
+    with :ok <- require_fields(creds, [{"api_key", :api_key}]) do
+      {:ok, {Swoosh.Adapters.Brevo, [api_key: creds["api_key"]]}}
+    end
   end
 
   def swoosh_config_for(%{"provider" => provider}),
     do: {:error, {:unsupported_provider, provider}}
 
   def swoosh_config_for(_creds), do: {:error, :unsupported_provider}
+
+  # Guards against building a secret-bearing Swoosh config with a required
+  # field missing. Without this, a connection whose status is "connected"
+  # (set once by a real Test Connection) but whose required field was
+  # blanked afterward — `Integrations.save_setup/3`'s `maybe_set_status/2`
+  # deliberately leaves an already-"connected" status untouched on later
+  # edits — still passes `connected?/1` and reaches `Swoosh.Mailer.deliver/2`,
+  # which calls the adapter's own `validate_config/1`
+  # (`Swoosh.Adapter.validate_config/2`). That raises `ArgumentError` with
+  # `inspect(config)` in the message — dumping every OTHER decrypted secret
+  # in the same config (access_key/secret/password/api_key) into the
+  # exception, and from there into crash logs, an error tracker, or a flash
+  # message. Reporting only field NAMES here, never values, keeps a
+  # missing-credential failure from becoming a credential leak.
+  @spec require_fields(map(), [{String.t(), atom()}]) ::
+          :ok | {:error, {:incomplete_credentials, [atom()]}}
+  defp require_fields(creds, fields) do
+    missing = for {key, name} <- fields, blank?(creds[key]), do: name
+
+    if missing == [], do: :ok, else: {:error, {:incomplete_credentials, missing}}
+  end
+
+  defp blank?(nil), do: true
+  defp blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank?(_), do: false
 
   defp check_recipient_allowed(%Swoosh.Email{} = email) do
     # cc/bcc too, not just to: a suppression list with a hole in it is a

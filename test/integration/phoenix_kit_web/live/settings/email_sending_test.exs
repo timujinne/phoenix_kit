@@ -178,5 +178,41 @@ defmodule PhoenixKitWeb.Live.Settings.EmailSendingTest do
 
       assert html =~ "Enter a recipient email address"
     end
+
+    test "a default integration with a since-blanked required field shows a safe, readable flash (security)",
+         %{conn: conn} do
+      # Same exploit chain as PhoenixKit.MailerTest's
+      # deliver_via_integration/3 test: a "connected" status is sticky, so
+      # blanking a required field afterward does not un-connect the
+      # integration. This proves the resulting flash names only the
+      # missing field, never the still-present secret.
+      {:ok, %{uuid: uuid}} = Integrations.add_connection("smtp", "flaky relay")
+      secret = "very-real-password-#{System.unique_integer([:positive])}"
+
+      {:ok, _} =
+        Integrations.save_setup(uuid, %{
+          "host" => "smtp.example.com",
+          "port" => "587",
+          "username" => "user",
+          "password" => secret
+        })
+
+      :ok = Integrations.record_validation(uuid, :ok)
+      {:ok, _} = Settings.update_setting("default_email_integration_uuid", uuid)
+
+      # Blank the host after the fact — status stays "connected".
+      {:ok, _} = Integrations.save_setup(uuid, %{"host" => ""})
+      assert Integrations.connected?(uuid)
+
+      {:ok, view, _html} = live(conn, @path)
+
+      html =
+        view
+        |> element("form[phx-submit=\"send_test_email\"]")
+        |> render_submit(%{"recipient" => "ops@example.com"})
+
+      assert html =~ "missing required field(s): host"
+      refute html =~ secret
+    end
   end
 end

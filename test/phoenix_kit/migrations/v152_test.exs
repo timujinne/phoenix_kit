@@ -17,6 +17,7 @@ defmodule PhoenixKit.Migrations.Postgres.V152Test do
   use PhoenixKit.DataCase, async: false
 
   alias PhoenixKit.Test.Repo
+  alias PhoenixKit.Users.Auth.User
 
   defp column(table, column) do
     %{rows: rows} =
@@ -580,6 +581,63 @@ defmodule PhoenixKit.Migrations.Postgres.V152Test do
 
       assert column_udt_name("phoenix_kit_newsletters_deliveries", "recipient_email") ==
                "citext"
+    end
+
+    defp insert_broadcast! do
+      %{rows: [[uuid]]} =
+        Repo.query!("""
+        INSERT INTO phoenix_kit_newsletters_broadcasts (subject)
+        VALUES ('V152 CHECK constraint test')
+        RETURNING uuid
+        """)
+
+      uuid
+    end
+
+    test "a row with neither user_uuid nor recipient_email is rejected" do
+      broadcast_uuid = insert_broadcast!()
+
+      assert {:error, %Postgrex.Error{postgres: %{code: :check_violation}}} =
+               Repo.query(
+                 """
+                 INSERT INTO phoenix_kit_newsletters_deliveries (broadcast_uuid, user_uuid, recipient_email)
+                 VALUES ($1, NULL, NULL)
+                 """,
+                 [broadcast_uuid]
+               )
+    end
+
+    test "a row with only recipient_email set is accepted (crm_list delivery)" do
+      broadcast_uuid = insert_broadcast!()
+
+      assert {:ok, %{num_rows: 1}} =
+               Repo.query(
+                 """
+                 INSERT INTO phoenix_kit_newsletters_deliveries (broadcast_uuid, user_uuid, recipient_email)
+                 VALUES ($1, NULL, 'crm-contact@example.com')
+                 """,
+                 [broadcast_uuid]
+               )
+    end
+
+    test "a row with only user_uuid set is accepted (newsletters_list delivery, unchanged behavior)" do
+      broadcast_uuid = insert_broadcast!()
+
+      user =
+        %User{}
+        |> User.guest_user_changeset(%{
+          email: "v152-check-test-#{System.unique_integer([:positive])}@example.com"
+        })
+        |> Repo.insert!()
+
+      assert {:ok, %{num_rows: 1}} =
+               Repo.query(
+                 """
+                 INSERT INTO phoenix_kit_newsletters_deliveries (broadcast_uuid, user_uuid, recipient_email)
+                 VALUES ($1, $2, NULL)
+                 """,
+                 [broadcast_uuid, Ecto.UUID.dump!(user.uuid)]
+               )
     end
   end
 

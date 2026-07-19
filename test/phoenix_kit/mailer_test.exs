@@ -199,6 +199,82 @@ defmodule PhoenixKit.MailerTest do
     end
   end
 
+  describe "swoosh_config_for/1 — incomplete credentials are rejected before a config is built (security)" do
+    # Without this guard, a missing required field reaches
+    # `Swoosh.Mailer.deliver/2`, which calls the adapter's own
+    # `validate_config/1` — that raises `ArgumentError` with `inspect(config)`
+    # in the message, dumping every OTHER still-present secret in the same
+    # config into the exception. These tests prove: (a) the error tuple names
+    # only the missing field, and (b) any real secret present elsewhere in
+    # the same creds map never appears in the returned term at all.
+    test "aws_ses: a blank region is rejected, secrets never surface in the error" do
+      creds = %{
+        "provider" => "aws_ses",
+        "access_key" => "AKIA_REAL_SECRET",
+        "secret_key" => "very-secret-value",
+        "aws_region" => ""
+      }
+
+      assert {:error, {:incomplete_credentials, [:aws_region]}} = Mailer.swoosh_config_for(creds)
+    end
+
+    test "aws_ses: a nil access_key and secret_key are both reported" do
+      creds = %{
+        "provider" => "aws_ses",
+        "access_key" => nil,
+        "secret_key" => nil,
+        "aws_region" => "eu-central-1"
+      }
+
+      assert {:error, {:incomplete_credentials, missing}} = Mailer.swoosh_config_for(creds)
+      assert Enum.sort(missing) == [:access_key, :secret_key]
+    end
+
+    test "smtp: a blank host is rejected even though username/password are present" do
+      creds = %{
+        "provider" => "smtp",
+        "host" => "",
+        "port" => "587",
+        "username" => "user",
+        "password" => "very-secret-password"
+      }
+
+      assert {:error, {:incomplete_credentials, [:host]}} = Mailer.swoosh_config_for(creds)
+    end
+
+    test "smtp: a blank username/password does not trip the guard (unauthenticated relays are valid)" do
+      creds = %{"provider" => "smtp", "host" => "localhost", "port" => 1025}
+
+      assert {:ok, {Swoosh.Adapters.SMTP, _config}} = Mailer.swoosh_config_for(creds)
+    end
+
+    test "brevo_api: a blank api_key is rejected" do
+      creds = %{"provider" => "brevo_api", "api_key" => ""}
+
+      assert {:error, {:incomplete_credentials, [:api_key]}} = Mailer.swoosh_config_for(creds)
+    end
+
+    test "the error term never contains the secret value, for any provider" do
+      secret = "super-secret-value-#{System.unique_integer([:positive])}"
+
+      cases = [
+        %{
+          "provider" => "aws_ses",
+          "access_key" => secret,
+          "secret_key" => "s",
+          "aws_region" => ""
+        },
+        %{"provider" => "smtp", "host" => "", "username" => "u", "password" => secret},
+        %{"provider" => "brevo_api", "api_key" => ""}
+      ]
+
+      for creds <- cases do
+        assert {:error, reason} = Mailer.swoosh_config_for(creds)
+        refute inspect(reason) =~ secret
+      end
+    end
+  end
+
   describe "deliver_email/2 — recipient blocklist enforcement (E2)" do
     test "a blocklisted recipient is rejected without attempting delivery" do
       email =
@@ -316,6 +392,45 @@ defmodule PhoenixKit.MailerTest do
       # the integration's provider, not the host app's static mailer adapter.
       assert intercept_opts[:provider] == "brevo_api"
       assert_received {:handle_after_send_called, {:ok, %{id: "test-message-id"}}}
+    end
+
+    test "a connection whose required field was blanked after going 'connected' fails safely, without raising or leaking the still-present secrets (security)" do
+      # Reproduces the exact exploit chain: `maybe_set_status/2` deliberately
+      # leaves an already-"connected" status untouched on a later
+      # `save_setup/3` edit, so blanking a required field afterward does NOT
+      # un-connect the integration — `connected?/1` stays true. Without the
+      # `require_fields/2` guard, the next send would hit
+      # `Swoosh.Adapter.validate_config/2`, which raises `ArgumentError` with
+      # `inspect(config)` — leaking access_key/secret_key in cleartext.
+      {:ok, %{uuid: uuid}} = Integrations.add_connection("aws_ses", "test")
+
+      secret = "very-real-secret-#{System.unique_integer([:positive])}"
+
+      {:ok, _} =
+        Integrations.save_setup(uuid, %{
+          "access_key" => "AKIA_REAL",
+          "secret_key" => secret,
+          "aws_region" => "eu-central-1"
+        })
+
+      :ok = Integrations.record_validation(uuid, :ok)
+      assert Integrations.connected?(uuid)
+
+      # Blank the region after the fact — status stays "connected".
+      {:ok, _} = Integrations.save_setup(uuid, %{"aws_region" => ""})
+      assert Integrations.connected?(uuid)
+
+      email =
+        new() |> to("to@example.com") |> Swoosh.Email.from("from@example.com") |> subject("Hi")
+
+      assert {:error, {:incomplete_credentials, [:aws_region]}} =
+               Mailer.deliver_via_integration(email, uuid)
+
+      # Belt-and-suspenders: prove the secret genuinely cannot be reached
+      # through this call at all, not just that this particular assertion
+      # shape doesn't show it.
+      result = Mailer.deliver_via_integration(email, uuid)
+      refute inspect(result) =~ secret
     end
   end
 
