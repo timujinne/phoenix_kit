@@ -172,6 +172,24 @@ defmodule PhoenixKit.Integration.Users.ProfileTest do
       assert {:error, :not_found} = Auth.merge_user_custom_fields(user, %{"key" => "value"})
     end
 
+    test "merging into a NULL custom_fields column keeps the additions (COALESCE guard)" do
+      user = create_user()
+      # The column is nullable (V18); NULL || jsonb would be NULL, so a
+      # missing COALESCE silently swallows the additions.
+      import Ecto.Query
+
+      PhoenixKit.RepoHelper.update_all(
+        from(u in PhoenixKit.Users.Auth.User,
+          where: u.uuid == ^user.uuid,
+          update: [set: [custom_fields: nil]]
+        ),
+        []
+      )
+
+      {:ok, merged} = Auth.merge_user_custom_fields(user, %{"survives" => "yes"})
+      assert merged.custom_fields == %{"survives" => "yes"}
+    end
+
     test "ensure_definitions: false skips field-definition registration, same as update_user_custom_fields/3" do
       user = create_user()
       unique_key = "merge_check_#{System.unique_integer([:positive])}"
@@ -201,6 +219,24 @@ defmodule PhoenixKit.Integration.Users.ProfileTest do
 
       assert {:ok, unchanged} = Auth.delete_user_custom_field(user, "never_set")
       assert unchanged.custom_fields == (user.custom_fields || %{})
+    end
+
+    test "deleting from a NULL custom_fields column normalizes it to an empty map" do
+      user = create_user()
+      import Ecto.Query
+
+      PhoenixKit.RepoHelper.update_all(
+        from(u in PhoenixKit.Users.Auth.User,
+          where: u.uuid == ^user.uuid,
+          update: [set: [custom_fields: nil]]
+        ),
+        []
+      )
+
+      # Mirrors the old Map.delete(nil || %{}, key) side effect: any
+      # delete leaves the column at '{}', never NULL.
+      assert {:ok, normalized} = Auth.delete_user_custom_field(user, "anything")
+      assert normalized.custom_fields == %{}
     end
 
     test "returns {:error, :not_found} for a deleted user" do

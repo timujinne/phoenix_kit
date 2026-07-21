@@ -1550,7 +1550,13 @@ defmodule PhoenixKit.Users.Auth do
   while URLs continue to use base codes (e.g., /en/).
   The locale is stored in the `custom_fields` JSONB column.
 
-  Uses `update_user_custom_fields/2` internally for consistency.
+  Writes through the atomic single-key primitives —
+  `merge_user_custom_fields/3` to set, `delete_user_custom_field/3` to
+  clear — so a concurrent writer of a different custom_fields key is
+  never lost. Passes `ensure_definitions: false` deliberately: the
+  locale is an internal preference, not an admin-managed custom field,
+  so the first write no longer auto-registers a field definition
+  (the old whole-map path did, as a side effect).
 
   ## Examples
 
@@ -1673,7 +1679,14 @@ defmodule PhoenixKit.Users.Auth do
       from(u in User,
         where: u.uuid == ^user.uuid,
         update: [
-          set: [custom_fields: fragment("? || ?", u.custom_fields, type(^additions, :map))]
+          set: [
+            # COALESCE first: the column is nullable (V18) and
+            # `NULL || jsonb` is NULL — without it a NULL row would
+            # swallow the additions with no error. Same defensive idiom
+            # the V30 migration uses for its own atomic merge.
+            custom_fields:
+              fragment("COALESCE(?, '{}'::jsonb) || ?", u.custom_fields, type(^additions, :map))
+          ]
         ],
         select: u
       )
@@ -2007,6 +2020,10 @@ defmodule PhoenixKit.Users.Auth do
 
       iex> set_user_custom_field(user, "department", "Product")
       {:ok, %User{}}
+
+  Returns `{:error, :not_found}` (not a changeset error) if the user
+  row was deleted concurrently — same contract as
+  `merge_user_custom_fields/3`, which this delegates to.
   """
   def set_user_custom_field(%User{} = user, key, value) when is_binary(key) do
     # Delegates to the atomic merge rather than the historical
@@ -2039,7 +2056,12 @@ defmodule PhoenixKit.Users.Auth do
       from(u in User,
         where: u.uuid == ^user.uuid,
         update: [
-          set: [custom_fields: fragment("? - ?::text", u.custom_fields, ^key)]
+          set: [
+            # COALESCE for the same NULL gap as the merge (`NULL - key`
+            # stays NULL); also preserves the old path's side effect of
+            # normalizing a NULL column to '{}' on any delete.
+            custom_fields: fragment("COALESCE(?, '{}'::jsonb) - ?::text", u.custom_fields, ^key)
+          ]
         ],
         select: u
       )
