@@ -545,10 +545,12 @@ defmodule PhoenixKit.Modules.Languages do
   end
 
   # Only an enabled language can be a request-scoped default; the override
-  # code may be a full locale ("fr-FR") or a base URL code ("fr").
+  # code and the configured code may each be a full locale ("fr-FR") or a
+  # base URL code ("fr") — match on the base either way.
   defp request_override_matches?(%Language{code: lang_code, is_enabled: enabled?}, code) do
     enabled? and
-      (lang_code == code or DialectMapper.extract_base(lang_code) == code)
+      (lang_code == code or
+         DialectMapper.extract_base(lang_code) == DialectMapper.extract_base(code))
   end
 
   @request_default_language_key :phoenix_kit_request_default_language
