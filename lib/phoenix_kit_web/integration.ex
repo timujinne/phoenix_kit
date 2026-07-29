@@ -278,7 +278,11 @@ defmodule PhoenixKitWeb.Integration do
         pipe_through [:browser, :phoenix_kit_auto_setup]
 
         live_session :phoenix_kit_maintenance,
-          on_mount: [{PhoenixKitWeb.Users.Auth, :phoenix_kit_mount_current_scope}] do
+          on_mount:
+            unquote(
+              [{PhoenixKitWeb.Users.Auth, :phoenix_kit_mount_current_scope}] ++
+                extra_on_mount()
+            ) do
           live "/maintenance", Live.Modules.Maintenance.Page, :index
         end
       end
@@ -709,10 +713,13 @@ defmodule PhoenixKitWeb.Integration do
     quote do
       if unquote(PhoenixKit.Config.user_dashboard_enabled?()) do
         live_session unquote(session_name),
-          on_mount: [
-            {PhoenixKitWeb.Users.Auth, :phoenix_kit_ensure_authenticated_scope},
-            {PhoenixKitWeb.Dashboard.ContextProvider, :default}
-          ] do
+          on_mount:
+            unquote(
+              [
+                {PhoenixKitWeb.Users.Auth, :phoenix_kit_ensure_authenticated_scope},
+                {PhoenixKitWeb.Dashboard.ContextProvider, :default}
+              ] ++ extra_on_mount()
+            ) do
           live "/dashboard", Live.Dashboard.Index, :index
           live "/dashboard/settings", Live.Dashboard.Settings, :edit
 
@@ -1146,7 +1153,8 @@ defmodule PhoenixKitWeb.Integration do
     root_routes = {route_macro, [], [:""]}
 
     quote do
-      live_session unquote(session_name), on_mount: unquote(on_mount) do
+      live_session unquote(session_name),
+        on_mount: unquote(on_mount ++ extra_on_mount()) do
         scope "#{unquote(url_prefix)}/:locale", PhoenixKitWeb,
           locale: ~r/^(#{unquote(pattern)})$/ do
           pipe_through unquote(pipelines)
@@ -1159,6 +1167,17 @@ defmodule PhoenixKitWeb.Integration do
         end
       end
     end
+  end
+
+  # Extra on_mount hooks the HOST app appends to every PhoenixKit
+  # live_session (e.g., a multi-domain default-language hook):
+  #
+  #     config :phoenix_kit, extra_live_session_on_mount:
+  #       [{MyAppWeb.DomainLanguageHook, :default}]
+  #
+  # Read at router compile time, like the rest of this macro's config.
+  defp extra_on_mount do
+    Application.get_env(:phoenix_kit, :extra_live_session_on_mount, [])
   end
 
   # Pipeline for the public and admin surfaces — neither has a plug-level
