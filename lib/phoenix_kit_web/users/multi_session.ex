@@ -211,6 +211,84 @@ defmodule PhoenixKitWeb.Users.MultiSession do
 
   def add_authenticated_user(_conn, %Auth.User{}), do: {:error, :inactive}
 
+  @doc """
+  Adds `target` to the session stack on an administrator's authority, without
+  their password — "log in as this user".
+
+  Shares every invariant of `add_authenticated_user/2` and adds the authority
+  checks that separate support access from account takeover:
+
+  - the **root** account decides, never the active one. Otherwise an
+    administrator could impersonate a user and, from inside that session,
+    impersonate someone the user could never reach;
+  - the root must hold the Owner or Admin **role**. Deliberately not
+    `can_access_admin_area?/1`: that is true for *any* permission holder, so a
+    customer granted one self-service permission would qualify — and could then
+    borrow another customer's account;
+  - an Owner is never a target. The one account that can undo anything must not
+    be reachable by borrowing it;
+  - an Admin root cannot take another Admin either — support access is for the
+    people being supported, not sideways between staff. An Owner root may,
+    because there is nothing above it to escalate to.
+
+  Logged as `session.impersonated` on the activity feed, always, before the
+  session changes — an impersonation nobody can see afterwards is the thing that
+  makes this feature dangerous.
+  """
+  @spec impersonate(Plug.Conn.t(), Auth.User.t()) ::
+          {:ok, Plug.Conn.t()}
+          | {:error,
+             :not_allowed
+             | :target_is_owner
+             | :target_is_staff
+             | :stack_full
+             | :already_in_stack
+             | :inactive
+             | :self}
+  def impersonate(conn, %Auth.User{} = target) do
+    session = get_session(conn)
+    actor = root_user(session)
+
+    with :ok <- authorize_impersonation(actor, target) do
+      case add_authenticated_user(conn, target) do
+        {:ok, conn} ->
+          log_event("session.impersonated", actor, target)
+          {:ok, conn}
+
+        {:error, _reason} = error ->
+          error
+      end
+    end
+  end
+
+  defp authorize_impersonation(nil, _target), do: {:error, :not_allowed}
+
+  defp authorize_impersonation(%Auth.User{} = actor, %Auth.User{} = target) do
+    system = Role.system_roles()
+    actor_roles = Auth.User.get_roles(actor)
+    target_roles = Auth.User.get_roles(target)
+
+    cond do
+      actor.uuid == target.uuid ->
+        {:error, :self}
+
+      not (system.owner in actor_roles or system.admin in actor_roles) ->
+        {:error, :not_allowed}
+
+      system.owner in target_roles ->
+        {:error, :target_is_owner}
+
+      system.owner in actor_roles ->
+        :ok
+
+      system.admin in target_roles ->
+        {:error, :target_is_staff}
+
+      true ->
+        :ok
+    end
+  end
+
   @doc "Activates a token already present in the stack, identified by `ref`."
   def switch_to(conn, ref) do
     session = get_session(conn)

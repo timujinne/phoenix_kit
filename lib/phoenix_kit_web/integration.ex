@@ -233,6 +233,7 @@ defmodule PhoenixKitWeb.Integration do
         delete "/users/log-out", Users.Session, :delete
         get "/users/log-out", Users.Session, :get_logout
         post "/users/session/accounts", Users.Session, :add_account
+        post "/users/session/impersonate/:user_uuid", Users.Session, :impersonate
         put "/users/session/active", Users.Session, :set_active_account
         delete "/users/session/accounts/:ref", Users.Session, :remove_account
         get "/users/magic-link/:token", Users.MagicLinkVerify, :verify
@@ -1114,6 +1115,7 @@ defmodule PhoenixKitWeb.Integration do
         delete "/users/log-out", Users.Session, :delete
         get "/users/log-out", Users.Session, :get_logout
         post "/users/session/accounts", Users.Session, :add_account
+        post "/users/session/impersonate/:user_uuid", Users.Session, :impersonate
         put "/users/session/active", Users.Session, :set_active_account
         delete "/users/session/accounts/:ref", Users.Session, :remove_account
         get "/users/magic-link/:token", Users.MagicLinkVerify, :verify

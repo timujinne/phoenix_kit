@@ -328,4 +328,74 @@ defmodule PhoenixKit.Integration.Users.MultiSessionTest do
       assert {:error, :inactive} = MultiSession.add_authenticated_user(conn, inactive)
     end
   end
+
+  describe "impersonate/2" do
+    defp admin_user do
+      {:ok, user} = Auth.register_user(%{email: unique_email(), password: "ValidPassword123!"})
+      {:ok, user} = Auth.admin_confirm_user(user)
+      Roles.assign_role(user, "Admin")
+      Repo.get!(Auth.User, user.uuid)
+    end
+
+    test "an admin can take a plain user's account without their password" do
+      admin = admin_user()
+      target = plain_user()
+
+      assert {:ok, conn} = MultiSession.impersonate(conn_for(admin), target)
+
+      accounts = MultiSession.list_accounts(Plug.Conn.get_session(conn))
+      assert length(accounts) == 2
+      assert Enum.find(accounts, & &1.active?).email == target.email
+      # the admin's own account stays, and stays the root
+      assert Enum.find(accounts, & &1.root?).email == admin.email
+    end
+
+    test "the Owner account is never a target" do
+      assert {:error, :target_is_owner} =
+               MultiSession.impersonate(conn_for(admin_user()), owner_user())
+    end
+
+    test "an admin cannot take another admin — that is sideways, not support" do
+      assert {:error, :target_is_staff} =
+               MultiSession.impersonate(conn_for(admin_user()), admin_user())
+    end
+
+    test "an owner can take an admin, because there is nothing above it to reach" do
+      assert {:ok, _conn} = MultiSession.impersonate(conn_for(owner_user()), admin_user())
+    end
+
+    test "a permission holder who is not staff cannot impersonate at all" do
+      # The hole this guards: `can_access_admin_area?/1` is true for ANY
+      # permission holder, so a customer granted one self-service permission
+      # would qualify under a permission-based check and could borrow another
+      # customer's account. The rule is role-based for exactly this reason.
+      assert {:error, :not_allowed} =
+               MultiSession.impersonate(conn_for(custom_role_user("Client")), plain_user())
+    end
+
+    test "an anonymous session cannot impersonate" do
+      conn = Phoenix.ConnTest.build_conn() |> Phoenix.ConnTest.init_test_session(%{})
+      assert {:error, :not_allowed} = MultiSession.impersonate(conn, plain_user())
+    end
+
+    test "taking your own account is refused rather than duplicated" do
+      admin = admin_user()
+      assert {:error, :self} = MultiSession.impersonate(conn_for(admin), admin)
+    end
+
+    test "the same account cannot be taken twice" do
+      admin = admin_user()
+      target = plain_user()
+
+      assert {:ok, conn} = MultiSession.impersonate(conn_for(admin), target)
+      assert {:error, :already_in_stack} = MultiSession.impersonate(conn, target)
+    end
+
+    test "a deactivated account is refused" do
+      target = plain_user()
+      {:ok, target} = Auth.update_user_status(target, %{"is_active" => false})
+
+      assert {:error, :inactive} = MultiSession.impersonate(conn_for(admin_user()), target)
+    end
+  end
 end

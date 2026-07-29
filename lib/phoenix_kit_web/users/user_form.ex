@@ -134,10 +134,6 @@ defmodule PhoenixKitWeb.Users.UserForm do
       if socket.assigns.mode == :edit do
         filtered_params = Map.put_new(filtered_params, "username", socket.assigns.user.username)
 
-        Logger.info(
-          "validate_user - user_params username: #{inspect(Map.get(user_params, "username"))}, filtered_params username: #{inspect(Map.get(filtered_params, "username"))}"
-        )
-
         filtered_params
       else
         filtered_params
@@ -620,19 +616,10 @@ defmodule PhoenixKitWeb.Users.UserForm do
   end
 
   defp update_user_profile_without_validation(user, attrs) do
-    Logger.info(
-      "update_user_profile_without_validation - attrs username: #{inspect(Map.get(attrs, "username"))}"
-    )
-
     changeset = Auth.User.profile_changeset(user, attrs, validate_email: false)
-
-    Logger.info(
-      "After profile_changeset, changeset changes username: #{inspect(Ecto.Changeset.get_change(changeset, :username))}, field: #{inspect(Ecto.Changeset.get_field(changeset, :username))}"
-    )
 
     case changeset |> PhoenixKit.RepoHelper.repo().update() do
       {:ok, updated_user} ->
-        Logger.info("After DB update, saved username: #{inspect(updated_user.username)}")
         Events.broadcast_user_updated(updated_user)
 
         {:ok, updated_user}
@@ -679,10 +666,6 @@ defmodule PhoenixKitWeb.Users.UserForm do
     # In both cases, we need to reload the user from the database to get the fresh data
     user_uuid = socket.assigns.user.uuid
     fresh_user = Auth.get_user!(user_uuid)
-
-    Logger.info(
-      "handle_update_result - fresh_user username from DB: #{inspect(fresh_user.username)}"
-    )
 
     socket =
       socket
@@ -818,14 +801,8 @@ defmodule PhoenixKitWeb.Users.UserForm do
   defp load_form_data(%{assigns: %{mode: :edit, user: user}} = socket) do
     # For edit mode, use profile_changeset instead of registration_changeset
     # profile_changeset doesn't call maybe_generate_username_from_email like registration_changeset does
-    Logger.info("Loading form for user #{user.uuid}: DB username=#{inspect(user.username)}")
-
     changeset =
       Auth.User.profile_changeset(user, %{"username" => user.username}, validate_email: false)
-
-    Logger.info(
-      "After creating changeset, changeset changes: #{inspect(Ecto.Changeset.get_change(changeset, :username))}, changeset field: #{inspect(Ecto.Changeset.get_field(changeset, :username))}"
-    )
 
     account_type = user.account_type || "person"
 

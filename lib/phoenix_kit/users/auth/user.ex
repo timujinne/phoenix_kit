@@ -694,27 +694,8 @@ defmodule PhoenixKit.Users.Auth.User do
 
   defp maybe_generate_username_from_email(changeset) do
     case get_change(changeset, :username) do
-      nil ->
-        email = get_change(changeset, :email) || get_field(changeset, :email)
-
-        # Only generate username if email contains "@" to ensure user finishes typing
-        if email && String.contains?(email, "@") do
-          generated_username = generate_unique_username_from_email(email)
-          put_change(changeset, :username, generated_username)
-        else
-          changeset
-        end
-
-      "" ->
-        # Treat empty string same as nil - allow generation if email has "@"
-        email = get_change(changeset, :email) || get_field(changeset, :email)
-
-        if email && String.contains?(email, "@") do
-          generated_username = generate_unique_username_from_email(email)
-          put_change(changeset, :username, generated_username)
-        else
-          changeset
-        end
+      username when username in [nil, ""] ->
+        maybe_put_generated_username(changeset)
 
       _ ->
         # User has manually entered a username, don't override it
@@ -722,22 +703,53 @@ defmodule PhoenixKit.Users.Auth.User do
     end
   end
 
+  # Generating is for a user who does not have a username yet. An existing one
+  # must never be rewritten here: this step runs on every registration changeset,
+  # including the ones the admin user form rebuilds while editing (toggling the
+  # password field, for one), and those carry no `username` param — so without
+  # this guard, opening an existing user and saving renamed them.
+  defp maybe_put_generated_username(changeset) do
+    email = get_change(changeset, :email) || get_field(changeset, :email)
+
+    cond do
+      present?(changeset.data.username) ->
+        changeset
+
+      # Only generate once the email looks finished, so a half-typed address
+      # does not mint a username from it.
+      is_binary(email) and String.contains?(email, "@") ->
+        put_change(
+          changeset,
+          :username,
+          generate_unique_username_from_email(email, changeset.data)
+        )
+
+      true ->
+        changeset
+    end
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(_value), do: false
+
   # Generate a unique username from email by checking for collisions
-  defp generate_unique_username_from_email(email) do
+  defp generate_unique_username_from_email(email, data) do
     base_username = generate_username_from_email(email)
-    ensure_unique_username(base_username, 0)
+    ensure_unique_username(base_username, 0, data.uuid)
   end
 
   # Recursively ensure username is unique by adding numeric suffix if needed
-  defp ensure_unique_username(base_username, attempt) do
+  # `own_uuid` is the user the name is being generated for, when there is one:
+  # the row that already holds `maria` must not make `maria` look taken to
+  # maria herself, or every regeneration would walk her one suffix further
+  # (`maria` → `maria_1` → `maria_2`).
+  defp ensure_unique_username(base_username, attempt, own_uuid) do
     username = if attempt == 0, do: base_username, else: "#{base_username}_#{attempt}"
 
-    repo = PhoenixKit.RepoHelper.repo()
-
-    if repo.get_by(__MODULE__, username: username) do
-      ensure_unique_username(base_username, attempt + 1)
-    else
-      username
+    case PhoenixKit.RepoHelper.repo().get_by(__MODULE__, username: username) do
+      nil -> username
+      %__MODULE__{uuid: ^own_uuid} when not is_nil(own_uuid) -> username
+      %__MODULE__{} -> ensure_unique_username(base_username, attempt + 1, own_uuid)
     end
   end
 

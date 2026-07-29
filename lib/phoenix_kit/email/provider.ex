@@ -25,14 +25,22 @@ defmodule PhoenixKit.Email.Provider do
   Optional: it is skipped when the provider does not export it, so a package
   built against an older core still satisfies this behaviour.
 
-  > #### The worker's re-send is intercepted again {: .warning}
+  The message handed here is the **intercepted** one, so whatever
+  `intercept_before_send/2` recorded or stamped on it is already in place and
+  should be carried through the queue.
+
+  > #### Sending the queued message back out {: .info}
   >
-  > `skip_queue: true` skips only *this* callback, not `intercept_before_send/2`
-  > — the interceptor still runs on the way back out, so a queued message passes
-  > through it twice: once when it was accepted here, once when the worker
-  > delivers it. A provider that creates a tracking row per interception has to
-  > recognise its own message (its tracking header is already on the email by
-  > then) or it will log the same send twice.
+  > The worker must pass `skip_queue: true`, or its own send would be offered
+  > straight back to it, and `already_intercepted: true`, which suppresses the
+  > second interception — interception is not required to be idempotent, so core
+  > does not run it twice and hope.
+  >
+  > Against a core that predates `already_intercepted` the opt is simply
+  > unknown, the interceptor runs again on the way out, and a provider that
+  > creates a tracking row per interception has to recognise its own message
+  > (its tracking header is already on the email by then) or it will log the
+  > same send twice.
   """
   @callback maybe_enqueue(Swoosh.Email.t(), keyword()) :: :continue | {:queued, term()}
 

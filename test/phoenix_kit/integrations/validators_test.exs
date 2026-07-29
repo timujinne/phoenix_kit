@@ -258,6 +258,27 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
       assert {:error, _reason} = Validators.smtp(creds)
     end
 
+    test "a malformed setting is reported instead of raising out of the LiveView" do
+      # These translations sit OUTSIDE Probe.run and its rescue, so an unmatched
+      # reason would surface as a CaseClauseError in the caller's callback.
+      base = %{"host" => "127.0.0.1", "port" => "587", "username" => "u", "password" => "p"}
+
+      assert {:error, security} = Validators.smtp(Map.put(base, "security", "tls-please"))
+      assert security =~ "security"
+
+      assert {:error, verify} = Validators.smtp(Map.put(base, "verify_cert", "sometimes"))
+      assert verify =~ "verify_cert"
+
+      assert {:error, auth} = Validators.smtp(Map.put(base, "auth", "maybe"))
+      assert auth =~ "auth"
+
+      assert {:error, timeout} = Validators.smtp(Map.put(base, "timeout", "soon"))
+      assert timeout =~ "timeout" or timeout =~ "Timeout"
+
+      assert {:error, ca} = Validators.smtp(Map.put(base, "ca_cert", "not a certificate"))
+      assert ca =~ "PEM" or ca =~ "certificate"
+    end
+
     test "an unparseable port is reported as such" do
       creds = %{"host" => "127.0.0.1", "port" => "nope", "username" => "u", "password" => "p"}
       assert {:error, message} = Validators.smtp(creds)

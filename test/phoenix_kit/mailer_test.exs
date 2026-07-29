@@ -76,6 +76,56 @@ defmodule PhoenixKit.MailerTest.TrackingProvider do
   def adapter_to_provider_name(_adapter, default), do: default
 end
 
+defmodule PhoenixKit.MailerTest.QueuingProvider do
+  @moduledoc false
+  # Implements the OPTIONAL `maybe_enqueue/2` callback, to prove the queue seam:
+  # the offer short-circuits the send, the caller gets the queued shape back, and
+  # a worker re-sending with `skip_queue: true` / `already_intercepted: true`
+  # reaches the adapter without being offered (or intercepted) a second time.
+  @behaviour PhoenixKit.Email.Provider
+
+  @impl true
+  def intercept_before_send(email, opts) do
+    send(self(), {:intercept_before_send_called, opts})
+    email
+  end
+
+  @impl true
+  def maybe_enqueue(_email, opts) do
+    send(self(), {:maybe_enqueue_called, opts})
+    {:queued, "queue-ref-1"}
+  end
+
+  @impl true
+  def handle_after_send(_email, result) do
+    send(self(), {:handle_after_send_called, result})
+    :ok
+  end
+
+  @impl true
+  def get_active_template_by_name(_name), do: nil
+  @impl true
+  def render_template(_t, _v), do: %{subject: "", html_body: "", text_body: ""}
+  @impl true
+  def render_template(_t, _v, _l), do: %{subject: "", html_body: "", text_body: ""}
+  @impl true
+  def track_usage(_template), do: :ok
+  @impl true
+  def get_source_module(_template), do: nil
+  @impl true
+  def get_aws_region, do: ""
+  @impl true
+  def get_aws_access_key, do: ""
+  @impl true
+  def get_aws_secret_key, do: ""
+  @impl true
+  def aws_configured?, do: false
+  @impl true
+  def send_test_tracking_email(_recipient_email, _user_uuid), do: {:error, :not_supported}
+  @impl true
+  def adapter_to_provider_name(_adapter, default), do: default
+end
+
 defmodule PhoenixKit.MailerTest do
   # async: false — one test swaps the global `:swoosh, :api_client` and
   # `:phoenix_kit, :email_provider` app env, which `Mailer.deliver_email/2`
@@ -434,6 +484,60 @@ defmodule PhoenixKit.MailerTest do
 
       assert {:error, {:blocked, :blocklist}} = Mailer.deliver_email(email)
       refute_received {:email, _}
+    end
+  end
+
+  describe "deliver_email/2 — provider queue seam" do
+    setup do
+      previous = Application.get_env(:phoenix_kit, :email_provider)
+      Application.put_env(:phoenix_kit, :email_provider, PhoenixKit.MailerTest.QueuingProvider)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:phoenix_kit, :email_provider, previous),
+          else: Application.delete_env(:phoenix_kit, :email_provider)
+      end)
+
+      :ok
+    end
+
+    defp queue_test_email do
+      new()
+      |> to("queued@example.com")
+      |> Swoosh.Email.from("from@example.com")
+      |> subject("Hi")
+    end
+
+    test "a provider that queues short-circuits the send and reports the queue ref" do
+      assert {:ok, %{id: "queue-ref-1", queued: true}} = Mailer.deliver_email(queue_test_email())
+
+      assert_received {:intercept_before_send_called, _opts}
+      assert_received {:maybe_enqueue_called, _opts}
+      # Neither the adapter nor the after-send hook runs for a queued message.
+      refute_received {:email, _}
+      refute_received {:handle_after_send_called, _}
+    end
+
+    test "skip_queue sends on this process instead of offering the message" do
+      assert {:ok, _metadata} = Mailer.deliver_email(queue_test_email(), skip_queue: true)
+
+      assert_received {:intercept_before_send_called, _opts}
+      refute_received {:maybe_enqueue_called, _opts}
+      assert_received {:handle_after_send_called, {:ok, _}}
+    end
+
+    test "already_intercepted skips interception, so a worker's re-send is not tracked twice" do
+      assert {:ok, _metadata} =
+               Mailer.deliver_email(queue_test_email(),
+                 skip_queue: true,
+                 already_intercepted: true
+               )
+
+      refute_received {:intercept_before_send_called, _opts}
+      refute_received {:maybe_enqueue_called, _opts}
+      # The after-send hook still runs — that is what closes out the log row the
+      # message already carries.
+      assert_received {:handle_after_send_called, {:ok, _}}
     end
   end
 end

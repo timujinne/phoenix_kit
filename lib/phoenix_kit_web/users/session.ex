@@ -247,6 +247,58 @@ defmodule PhoenixKitWeb.Users.Session do
     end)
   end
 
+  @doc """
+  Adds a user to the session stack on an administrator's authority — the
+  "log in as this user" button in the admin area.
+
+  The authority checks live in `MultiSession.impersonate/2`; this action only
+  translates their outcome into a flash. Each refusal says which rule stopped it,
+  because "could not do that" on a support tool is how an operator ends up
+  guessing at permissions.
+  """
+  def impersonate(conn, %{"user_uuid" => user_uuid} = params) do
+    with_gate(conn, params, fn conn ->
+      case Auth.get_user(user_uuid) do
+        nil ->
+          conn |> put_flash(:error, gettext("User not found.")) |> redirect_back(params)
+
+        user ->
+          do_impersonate(conn, user, params)
+      end
+    end)
+  end
+
+  defp do_impersonate(conn, user, params) do
+    case MultiSession.impersonate(conn, user) do
+      {:ok, conn} ->
+        conn
+        |> put_flash(:info, gettext("You are now signed in as %{email}.", email: user.email))
+        |> redirect_back(params)
+
+      {:error, reason} ->
+        conn |> put_flash(:error, impersonation_error(reason)) |> redirect_back(params)
+    end
+  end
+
+  defp impersonation_error(:not_allowed),
+    do: gettext("You do not have permission to sign in as another user.")
+
+  defp impersonation_error(:target_is_owner), do: gettext("An owner account cannot be used.")
+
+  defp impersonation_error(:target_is_staff),
+    do: gettext("Only an owner can sign in as another administrator.")
+
+  defp impersonation_error(:self), do: gettext("That is already your account.")
+  defp impersonation_error(:inactive), do: gettext("That account is deactivated.")
+
+  defp impersonation_error(:stack_full),
+    do: gettext("Maximum number of accounts reached — remove one first.")
+
+  defp impersonation_error(:already_in_stack),
+    do: gettext("That account is already in your session — switch to it instead.")
+
+  defp impersonation_error(_reason), do: gettext("Could not sign in as that user.")
+
   def remove_account(conn, %{"ref" => ref} = params) do
     with_gate(conn, params, fn conn ->
       case MultiSession.remove_account(conn, ref) do

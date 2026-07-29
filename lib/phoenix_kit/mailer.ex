@@ -379,14 +379,37 @@ defmodule PhoenixKit.Mailer do
   # send without being handed back its own job.
   defp intercept_and_offer_queue(email, opts) do
     provider = Provider.current()
-    tracked_email = provider.intercept_before_send(email, opts)
+
+    # `already_intercepted: true` says this message has been through
+    # `intercept_before_send/2` once already — it is a queue worker re-sending
+    # what it dequeued, and the tracking headers added the first time travelled
+    # with it. Interception is not required to be idempotent, so core must not
+    # run it twice and hope.
+    tracked_email =
+      if Keyword.get(opts, :already_intercepted, false) do
+        email
+      else
+        provider.intercept_before_send(email, opts)
+      end
 
     if Keyword.get(opts, :skip_queue, false) do
       {:continue, tracked_email}
     else
       case offer_to_queue(provider, tracked_email, opts) do
-        {:queued, ref} -> {:ok, %{id: ref, queued: true}}
-        _ -> {:continue, tracked_email}
+        {:queued, ref} ->
+          {:ok, %{id: ref, queued: true}}
+
+        :continue ->
+          {:continue, tracked_email}
+
+        other ->
+          # Outside the callback's contract. Send it — a provider bug must not
+          # eat the message — but do not let the bug stay invisible.
+          Logger.warning(
+            "[PhoenixKit.Mailer] #{inspect(provider)}.maybe_enqueue/2 returned #{inspect(other)}; sending inline"
+          )
+
+          {:continue, tracked_email}
       end
     end
   end

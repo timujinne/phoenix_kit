@@ -232,4 +232,62 @@ defmodule PhoenixKit.Users.UserOrgChangesetTest do
       assert errors_on_field(changeset, :organization_name) == []
     end
   end
+
+  # --- username generation on an EXISTING user ---
+
+  describe "registration_changeset/3 — username of a saved user" do
+    setup do
+      {:ok, user} =
+        PhoenixKit.Users.Auth.register_user(%{
+          email: "maria@example.com",
+          password: "ValidPassword123!"
+        })
+
+      %{user: user}
+    end
+
+    test "editing a saved user without a username param leaves the username alone", %{user: user} do
+      # The admin user form rebuilds this changeset while editing (toggling the
+      # password field, for one) and sends no `username`. Before the fix the
+      # generator ran anyway, found the user's OWN row holding `maria`, decided
+      # the name was taken and renamed them to `maria_1`.
+      assert user.username == "maria"
+
+      changeset = User.registration_changeset(user, %{"email" => user.email})
+
+      assert get_change(changeset, :username) == nil
+      assert get_field(changeset, :username) == "maria"
+    end
+
+    test "an explicit username still wins", %{user: user} do
+      changeset = User.registration_changeset(user, %{"username" => "maria_updated"})
+      assert get_change(changeset, :username) == "maria_updated"
+    end
+
+    test "a brand new user still gets one generated from the email" do
+      changeset =
+        User.registration_changeset(%User{}, %{
+          "email" => "newcomer@example.com",
+          "password" => "ValidPassword123!"
+        })
+
+      assert get_change(changeset, :username) == "newcomer"
+    end
+
+    test "a second user with a colliding base name gets a suffix, not the taken name", %{
+      user: user
+    } do
+      # The suffix logic itself must keep working — it just must not fire for
+      # the holder of the name.
+      changeset =
+        User.registration_changeset(%User{}, %{
+          "email" => "maria@other.example.com",
+          "password" => "ValidPassword123!"
+        })
+
+      generated = get_change(changeset, :username)
+      assert generated != user.username
+      assert String.starts_with?(generated, "maria")
+    end
+  end
 end
