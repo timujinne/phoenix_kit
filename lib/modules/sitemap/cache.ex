@@ -127,6 +127,10 @@ defmodule PhoenixKit.Modules.Sitemap.Cache do
     FileStorage.delete()
     FileStorage.delete_all_modules()
 
+    # Domain mode inherits the delete-on-invalidate freshness guarantee:
+    # every generated per-host set goes too (current AND stale hosts).
+    Enum.each(FileStorage.list_domain_hosts(), &FileStorage.delete_domain_files/1)
+
     # Clear generation stats
     Sitemap.clear_generation_stats()
 

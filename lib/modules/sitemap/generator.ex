@@ -34,6 +34,7 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
   alias PhoenixKit.Modules.SEO
   alias PhoenixKit.Modules.Sitemap
   alias PhoenixKit.Modules.Sitemap.Cache
+  alias PhoenixKit.Modules.Sitemap.DomainMode
   alias PhoenixKit.Modules.Sitemap.FileStorage
   alias PhoenixKit.Modules.Sitemap.HtmlGenerator
   alias PhoenixKit.Modules.Sitemap.SchedulerWorker
@@ -118,6 +119,15 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
     FileStorage.save_index(xml)
     FileStorage.delete_all_modules()
 
+    # Domain mode inherits noindex: an empty urlset per mapped host, so
+    # previously-generated real-URL files stop being served the moment
+    # noindex flips on (mirrors delete_all_modules for the legacy set).
+    for %{host: host} <- DomainMode.domains() do
+      FileStorage.write_domain_sitemap(host, "sitemap", xml)
+    end
+
+    cleanup_stale_domain_dirs()
+
     {:ok, %{index_xml: xml, modules: [], total_urls: 0}}
   end
 
@@ -126,6 +136,87 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
     SEO.no_index_enabled?()
   rescue
     _ -> false
+  end
+
+  # Multi-domain post-processing (DomainMode): one flat urlset per mapped
+  # host (its language's entries, re-hosted prefix-free, cross-domain
+  # alternates), with the 50k splitter per host. `entries` may be passed in
+  # (flat mode reuses its collection) or nil (index mode — collected here).
+  # Inactive provider ⇒ no-op; stale host dirs are always cleaned up.
+  defp generate_domain_sitemaps(entries, base_url, opts, xsl_style, xsl_enabled) do
+    if DomainMode.active?() do
+      entries =
+        entries || collect_all_entries(Keyword.put(opts, :force, true), get_sources())
+
+      per_host = DomainMode.rebuild_for_domains(entries, base_url)
+
+      for {host, host_entries} <- per_host do
+        write_domain_files(host, host_entries, xsl_style, xsl_enabled)
+      end
+
+      Logger.info("Sitemap: Generated domain sitemaps for #{map_size(per_host)} hosts")
+    end
+
+    cleanup_stale_domain_dirs()
+    :ok
+  end
+
+  defp write_domain_files(host, entries, xsl_style, xsl_enabled) do
+    if length(entries) > @max_urls_per_file do
+      chunks = Enum.chunk_every(entries, @max_urls_per_file)
+
+      filenames =
+        chunks
+        |> Enum.with_index(1)
+        |> Enum.map(fn {chunk, i} ->
+          filename = "sitemap-#{i}"
+          xml = build_urlset_xml(chunk, xsl_style, xsl_enabled)
+          FileStorage.write_domain_sitemap(host, filename, xml)
+          Cache.put({:domain_xml, host, filename}, xml)
+          filename
+        end)
+
+      index_xml = build_domain_index_xml(host, filenames, xsl_style, xsl_enabled)
+      FileStorage.write_domain_sitemap(host, "sitemap", index_xml)
+      Cache.put({:domain_xml, host, "sitemap"}, index_xml)
+    else
+      xml = build_urlset_xml(entries, xsl_style, xsl_enabled)
+      FileStorage.write_domain_sitemap(host, "sitemap", xml)
+      Cache.put({:domain_xml, host, "sitemap"}, xml)
+    end
+  end
+
+  defp build_domain_index_xml(host, filenames, xsl_style, xsl_enabled) do
+    lastmod = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    entries_xml =
+      Enum.map_join(filenames, "\n", fn filename ->
+        "  <sitemap>\n    <loc>https://#{host}/sitemaps/#{filename}.xml</loc>\n    <lastmod>#{lastmod}</lastmod>\n  </sitemap>"
+      end)
+
+    [
+      @xml_declaration,
+      build_index_xsl_line(xsl_style, xsl_enabled),
+      @sitemapindex_open,
+      entries_xml,
+      @sitemapindex_close
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  # Hosts with generated dirs that are no longer in the provider list.
+  defp cleanup_stale_domain_dirs do
+    active_hosts = MapSet.new(DomainMode.domains(), & &1.host)
+
+    for host <- FileStorage.list_domain_hosts(),
+        host not in active_hosts do
+      FileStorage.delete_domain_files(host)
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   defp do_generate_index(base_url, opts, sources, xsl_style, xsl_enabled) do
@@ -145,6 +236,8 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
     # Clean up stale module files from disabled sources
     cleanup_stale_modules(module_infos)
 
+    generate_domain_sitemaps(nil, base_url, opts, xsl_style, xsl_enabled)
+
     total_urls = Enum.reduce(module_infos, 0, fn info, acc -> acc + info.url_count end)
 
     Logger.info(
@@ -159,7 +252,7 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
      }}
   end
 
-  defp do_generate_flat(_base_url, opts, sources, xsl_style, xsl_enabled) do
+  defp do_generate_flat(base_url, opts, sources, xsl_style, xsl_enabled) do
     Logger.info("Sitemap: Generating flat sitemap from #{length(sources)} sources")
 
     flat_opts = Keyword.put(opts, :force, true)
@@ -169,6 +262,8 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
 
     # Clean up any leftover per-module files
     FileStorage.delete_all_modules()
+
+    generate_domain_sitemaps(entries, base_url, opts, xsl_style, xsl_enabled)
 
     total_urls = length(entries)
 

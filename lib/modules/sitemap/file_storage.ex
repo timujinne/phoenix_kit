@@ -193,6 +193,72 @@ defmodule PhoenixKit.Modules.Sitemap.FileStorage do
     Path.join(sitemaps_dir(), "#{filename}.xml")
   end
 
+  # ── Multi-domain files (DomainMode) ─────────────────────────────────
+  #
+  # Per-host sitemap sets live under sitemaps/domains/{host}/. Hosts come
+  # exclusively from the validated DomainMode provider list (never raw user
+  # input), and are additionally path-sanitized here as defense in depth.
+
+  @domains_subdir "domains"
+  @domain_host_re ~r/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/
+
+  @doc "Directory holding all per-domain sitemap sets."
+  @spec domains_dir() :: String.t()
+  def domains_dir, do: Path.join(sitemaps_dir(), @domains_subdir)
+
+  @doc "Full path of one host's sitemap file (filename without .xml)."
+  @spec domain_file_path(String.t(), String.t()) :: {:ok, String.t()} | {:error, :bad_host}
+  def domain_file_path(host, filename \\ "sitemap") do
+    if Regex.match?(@domain_host_re, host) do
+      {:ok, Path.join([domains_dir(), host, "#{filename}.xml"])}
+    else
+      {:error, :bad_host}
+    end
+  end
+
+  @doc "Writes one host's sitemap file."
+  @spec write_domain_sitemap(String.t(), String.t(), String.t()) :: :ok | {:error, term()}
+  def write_domain_sitemap(host, filename, xml_content) when is_binary(xml_content) do
+    with {:ok, path} <- domain_file_path(host, filename),
+         :ok <- ensure_directory_exists(path),
+         :ok <- File.write(path, xml_content) do
+      :ok
+    else
+      error ->
+        Logger.warning(
+          "FileStorage: Failed to write domain sitemap for #{host}: #{inspect(error)}"
+        )
+
+        error
+    end
+  end
+
+  @doc "Deletes one host's entire sitemap directory."
+  @spec delete_domain_files(String.t()) :: :ok
+  def delete_domain_files(host) do
+    with {:ok, path} <- domain_file_path(host) do
+      path |> Path.dirname() |> File.rm_rf()
+    end
+
+    :ok
+  rescue
+    _ -> :ok
+  end
+
+  @doc "Hosts that currently have generated domain sitemap directories."
+  @spec list_domain_hosts() :: [String.t()]
+  def list_domain_hosts do
+    dir = domains_dir()
+
+    if File.dir?(dir) do
+      dir |> File.ls!() |> Enum.filter(&File.dir?(Path.join(dir, &1)))
+    else
+      []
+    end
+  rescue
+    _ -> []
+  end
+
   # ── Legacy / backward-compatible API ───────────────────────────────
 
   @doc """
