@@ -15,6 +15,9 @@ defmodule PhoenixKit.Integration.Sitemap.DomainModeProviderStub do
 
   def raising, do: raise("boom")
   def empty, do: []
+
+  def malformed_host,
+    do: [%{host: "../etc/passwd", language: "en", primary: true}]
 end
 
 defmodule PhoenixKit.Integration.Sitemap.DomainModeTest do
@@ -61,8 +64,15 @@ defmodule PhoenixKit.Integration.Sitemap.DomainModeTest do
       assert DomainMode.active?()
     end
 
-    test "no primary / two primaries / duplicate language / raising / empty ⇒ inactive" do
-      for fun <- [:no_primary, :two_primaries, :duplicate_language, :raising, :empty] do
+    test "no primary / two primaries / duplicate language / raising / empty / bad host ⇒ inactive" do
+      for fun <- [
+            :no_primary,
+            :two_primaries,
+            :duplicate_language,
+            :raising,
+            :empty,
+            :malformed_host
+          ] do
         put_provider(fun)
         assert DomainMode.domains() == [], "expected inactive for #{fun}"
       end

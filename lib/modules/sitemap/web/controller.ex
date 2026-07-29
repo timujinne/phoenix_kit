@@ -74,9 +74,23 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Controller do
   The `.xml` extension is appended automatically.
   """
   def module_sitemap(conn, %{"filename" => raw_filename}) do
+    # Strip .xml extension if provided in URL
+    filename = String.trim_trailing(raw_filename, ".xml")
+
     cond do
       !Sitemap.enabled?() ->
         send_plain_error(conn, 404, "Sitemap not available")
+
+      not Regex.match?(@filename_pattern, filename) ->
+        send_plain_error(conn, 400, "Invalid filename")
+
+      host = domain_host(conn) ->
+        # A mapped host only ever resolves inside its own domain dir (split
+        # chunks like sitemap-2); never the legacy module files. Checked
+        # BEFORE the flat-mode 404 — domain sets are always flat-with-split,
+        # independent of the legacy mode, so a >50k domain's chunk files
+        # must stay reachable even when the site runs in flat mode.
+        serve_domain_file(conn, host, filename, nil)
 
       Sitemap.flat_mode?() ->
         send_plain_error(
@@ -86,21 +100,7 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Controller do
         )
 
       true ->
-        # Strip .xml extension if provided in URL
-        filename = String.trim_trailing(raw_filename, ".xml")
-
-        cond do
-          not Regex.match?(@filename_pattern, filename) ->
-            send_plain_error(conn, 400, "Invalid filename")
-
-          host = domain_host(conn) ->
-            # A mapped host only ever resolves inside its own domain dir
-            # (split chunks like sitemap-2); never the legacy module files.
-            serve_domain_file(conn, host, filename, nil)
-
-          true ->
-            serve_module_file(conn, filename)
-        end
+        serve_module_file(conn, filename)
     end
   end
 

@@ -145,6 +145,11 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
   # Inactive provider ⇒ no-op; stale host dirs are always cleaned up.
   defp generate_domain_sitemaps(entries, base_url, opts, xsl_style, xsl_enabled) do
     if DomainMode.active?() do
+      # Index mode re-collects here (flat mode passes its entries through).
+      # Accepted trade-off: one extra collection pass per scheduled/on-demand
+      # generation, in exchange for zero restructuring of the per-module
+      # legacy path. Content changing between the two passes within one run
+      # can skew module stats vs domain files until the next generation.
       entries =
         entries || collect_all_entries(Keyword.put(opts, :force, true), get_sources())
 
@@ -189,9 +194,17 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
   defp build_domain_index_xml(host, filenames, xsl_style, xsl_enabled) do
     lastmod = DateTime.utc_now() |> DateTime.to_iso8601()
 
+    # Same prefix handling as the legacy generate_index/4 — hosts served
+    # under a non-root url_prefix must reference their chunks there too.
+    prefix =
+      case PhoenixKit.Config.get_url_prefix() do
+        "/" -> ""
+        p -> String.trim_trailing(p, "/")
+      end
+
     entries_xml =
       Enum.map_join(filenames, "\n", fn filename ->
-        "  <sitemap>\n    <loc>https://#{host}/sitemaps/#{filename}.xml</loc>\n    <lastmod>#{lastmod}</lastmod>\n  </sitemap>"
+        "  <sitemap>\n    <loc>https://#{host}#{prefix}/sitemaps/#{filename}.xml</loc>\n    <lastmod>#{lastmod}</lastmod>\n  </sitemap>"
       end)
 
     [
