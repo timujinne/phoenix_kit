@@ -100,6 +100,7 @@ defmodule PhoenixKit.Modules.Languages do
 
   alias PhoenixKit.Config
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Languages.Language
   alias PhoenixKit.Settings
 
@@ -529,12 +530,57 @@ defmodule PhoenixKit.Modules.Languages do
   """
   def get_default_language do
     if enabled?() do
-      get_languages()
-      |> Enum.find(& &1.is_default)
+      languages = get_languages()
+
+      request_override =
+        case request_default_language() do
+          nil -> nil
+          code -> Enum.find(languages, &request_override_matches?(&1, code))
+        end
+
+      request_override || Enum.find(languages, & &1.is_default)
     else
       nil
     end
   end
+
+  # Only an enabled language can be a request-scoped default; the override
+  # code may be a full locale ("fr-FR") or a base URL code ("fr").
+  defp request_override_matches?(%Language{code: lang_code, is_enabled: enabled?}, code) do
+    enabled? and
+      (lang_code == code or DialectMapper.extract_base(lang_code) == code)
+  end
+
+  @request_default_language_key :phoenix_kit_request_default_language
+
+  @doc """
+  Sets a request/process-scoped default-language override, for multi-domain
+  hosts where each domain has its own canonical language.
+
+  While set, `get_default_language/0` prefers the named language (when it is
+  enabled) over the site-wide `is_default` flag, which every URL generator
+  and content-language lookup in the workspace already delegates to.
+
+  Process-scoped: set it per conn (a Plug) and per LiveView socket (an
+  `on_mount` hook). Spawned tasks and Oban jobs do NOT inherit it. Pass
+  `nil` to clear.
+  """
+  @spec put_request_default_language(String.t() | nil) :: :ok
+  def put_request_default_language(nil) do
+    Process.delete(@request_default_language_key)
+    :ok
+  end
+
+  def put_request_default_language(code) when is_binary(code) do
+    Process.put(@request_default_language_key, code)
+    :ok
+  end
+
+  @doc """
+  Returns the request/process-scoped default-language override, if any.
+  """
+  @spec request_default_language() :: String.t() | nil
+  def request_default_language, do: Process.get(@request_default_language_key)
 
   @doc """
   Returns true when public + admin URLs should omit the locale segment
