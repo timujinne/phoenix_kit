@@ -413,15 +413,11 @@ defmodule PhoenixKitWeb.Integration do
     # so plugin LiveViews don't need to wrap with LayoutWrapper themselves
     plugin_admin_routes = compile_plugin_admin_routes(__CALLER__.module)
 
-    # Shop admin routes via safe_route_call (only when phoenix_kit_ecommerce is installed)
-    shop_admin =
-      if suffix == :_locale do
-        safe_route_call(PhoenixKitEcommerce.Web.Routes, :admin_locale_routes, [])
-      else
-        safe_route_call(PhoenixKitEcommerce.Web.Routes, :admin_routes, [])
-      end
-
-    # External route modules with complex routes (beyond simple admin tabs)
+    # External route modules with complex routes (beyond simple admin tabs).
+    # phoenix_kit_ecommerce's admin routes arrive through this discovery too
+    # (PhoenixKitEcommerce.route_module/0) — no explicit inclusion, or every
+    # /admin/shop route is generated twice and trips
+    # "this clause cannot match" warnings in the host router.
     external_admin_routes = compile_external_admin_routes(suffix)
 
     quote do
@@ -511,9 +507,6 @@ defmodule PhoenixKitWeb.Integration do
              PhoenixKit.Modules.Sitemap.Web.Settings,
              :index,
              as: :sitemap_settings
-
-        # Shop admin routes (only when phoenix_kit_ecommerce is installed)
-        unquote(shop_admin)
 
         # Custom admin routes from :admin_dashboard_tabs config
         # Tabs with live_view: {Module, :action} get auto-generated routes
