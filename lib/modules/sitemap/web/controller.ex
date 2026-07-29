@@ -117,7 +117,7 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Controller do
   defp serve_domain_file(conn, host, filename, xsl_style) do
     with {:ok, path} <- FileStorage.domain_file_path(host, filename),
          true <- File.exists?(path) do
-      serve_file_with_etag(conn, path, File.stat(path, time: :posix))
+      serve_file_with_etag(conn, path, domain_file_stat(path))
     else
       _ ->
         style = xsl_style || get_xsl_style(Sitemap.get_config())
@@ -126,7 +126,7 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Controller do
           {:ok, _} ->
             with {:ok, path} <- FileStorage.domain_file_path(host, filename),
                  true <- File.exists?(path) do
-              serve_file_with_etag(conn, path, File.stat(path, time: :posix))
+              serve_file_with_etag(conn, path, domain_file_stat(path))
             else
               _ -> send_plain_error(conn, 404, "Sitemap not found")
             end
@@ -134,6 +134,16 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Controller do
           {:error, _} ->
             send_plain_error(conn, 500, "Sitemap generation failed")
         end
+    end
+  end
+
+  # generate_etag_from_stat/1 expects the {:ok, mtime, size} shape
+  # (FileStorage.get_file_stat/0's contract) — a raw File.stat result would
+  # silently degrade every domain file to the shared "default" ETag.
+  defp domain_file_stat(path) do
+    case File.stat(path) do
+      {:ok, %{mtime: mtime, size: size}} -> {:ok, mtime, size}
+      _ -> :error
     end
   end
 
