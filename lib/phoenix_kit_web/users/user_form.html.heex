@@ -5,33 +5,15 @@
   page_title={@page_title}
   page_section={@page_section}
   page_section_path={@page_section_path}
+  page_subtitle={
+    if @mode == :new,
+      do: gettext("Create a new user account"),
+      else: gettext("Edit user information")
+  }
   current_path={@url_path}
   current_locale={@current_locale}
 >
-  <div class="container flex-col mx-auto px-4 py-6">
-    <%!-- Header Section --%>
-    <header class="w-full mb-6">
-      <%!-- Back Button (Left aligned) --%>
-      <.link
-        navigate={PhoenixKit.Utils.Routes.path("/admin/users")}
-        class="btn btn-ghost btn-sm"
-      >
-        <.icon name="hero-arrow-left" class="w-4 h-4" /> Users
-      </.link>
-
-      <%!-- Title Section --%>
-      <div class="text-center">
-        <h1 class="text-2xl sm:text-4xl font-bold text-base-content mb-3">{@page_title}</h1>
-        <p class="text-base sm:text-lg text-base-content">
-          <%= if @mode == :new do %>
-            Create a new user account
-          <% else %>
-            Edit user information
-          <% end %>
-        </p>
-      </div>
-    </header>
-
+  <div class="flex-col px-4 py-6">
     <%!-- User Form --%>
     <div class="max-w-2xl mx-auto">
       <div class="bg-base-100 rounded-lg shadow-md p-6">
@@ -247,17 +229,12 @@
                   <span class="label-text font-semibold">{gettext("Organization")}</span>
                   <span class="label-text-alt text-base-content/60">{gettext("Optional")}</span>
                 </label>
-                <select name="user[organization_uuid]" class="select select-bordered w-full">
-                  <option value="">— No organization —</option>
-                  <%= for org <- @organizations do %>
-                    <option
-                      value={org.uuid}
-                      selected={Map.get(@form_data, "organization_uuid") == to_string(org.uuid)}
-                    >
-                      {org.organization_name}
-                    </option>
-                  <% end %>
-                </select>
+                <.select
+                  name="user[organization_uuid]"
+                  value={Map.get(@form_data, "organization_uuid")}
+                  prompt="— No organization —"
+                  options={Enum.map(@organizations, &{&1.organization_name, to_string(&1.uuid)})}
+                />
                 <div class="text-xs text-base-content/60 mt-1">
                   Link this person to an organization account
                 </div>
@@ -539,18 +516,19 @@
                 <%!-- Dynamic input based on field type --%>
                 <%= case field_def["type"] do %>
                   <% "textarea" -> %>
-                    <textarea
+                    <.textarea
                       name={"user[custom_fields][#{field_key}]"}
-                      class={"textarea textarea-bordered w-full #{if field_error, do: "textarea-error", else: ""}"}
+                      value={field_value}
+                      class={field_error && "textarea-error"}
                       placeholder={field_def["label"]}
                       required={field_def["required"]}
-                    >{field_value}</textarea>
+                    />
                   <% "number" -> %>
-                    <input
+                    <.input
                       type="number"
                       name={"user[custom_fields][#{field_key}]"}
                       value={field_value}
-                      class={"input input-bordered w-full #{if field_error, do: "input-error", else: ""}"}
+                      class={field_error && "input-error"}
                       placeholder={field_def["label"]}
                       required={field_def["required"]}
                     />
@@ -562,63 +540,55 @@
                       wrapper_class="mt-2"
                     />
                   <% "date" -> %>
-                    <input
+                    <.input
                       type="date"
                       name={"user[custom_fields][#{field_key}]"}
                       value={field_value}
-                      class={"input input-bordered w-full #{if field_error, do: "input-error", else: ""}"}
+                      class={field_error && "input-error"}
                       required={field_def["required"]}
                     />
                   <% "email" -> %>
-                    <input
+                    <.input
                       type="email"
                       name={"user[custom_fields][#{field_key}]"}
                       value={field_value}
-                      class={"input input-bordered w-full #{if field_error, do: "input-error", else: ""}"}
+                      class={field_error && "input-error"}
                       placeholder="user@example.com"
                       required={field_def["required"]}
                     />
                   <% "url" -> %>
-                    <input
+                    <.input
                       type="url"
                       name={"user[custom_fields][#{field_key}]"}
                       value={field_value}
-                      class={"input input-bordered w-full #{if field_error, do: "input-error", else: ""}"}
+                      class={field_error && "input-error"}
                       placeholder="https://example.com"
                       required={field_def["required"]}
                     />
                   <% "uuid" -> %>
-                    <input
+                    <.input
                       type="text"
                       name={"user[custom_fields][#{field_key}]"}
                       value={field_value}
-                      class={"input input-bordered w-full #{if field_error, do: "input-error", else: ""} font-mono text-sm"}
+                      class={["font-mono text-sm", field_error && "input-error"]}
                       readonly
                     />
                   <% "select" -> %>
-                    <label class={"select w-full #{if field_error, do: "select-error", else: ""}"}>
-                      <select
-                        name={"user[custom_fields][#{field_key}]"}
-                        required={field_def["required"]}
-                      >
-                        <option value="">Select an option</option>
-                        <%= for {option, index} <- Enum.with_index(field_def["options"] || []) do %>
-                          <option
-                            value={index}
-                            selected={to_string(field_value) == to_string(index)}
-                          >
-                            {option}
-                          </option>
-                        <% end %>
-                      </select>
-                    </label>
+                    <.select
+                      name={"user[custom_fields][#{field_key}]"}
+                      value={field_value}
+                      required={field_def["required"]}
+                      class={field_error && "select-error"}
+                      prompt="Select an option"
+                      options={(field_def["options"] || []) |> Enum.with_index()}
+                    />
                   <% _default -> %>
                     <%!-- text, radio, checkbox, and other types default to text input --%>
-                    <input
+                    <.input
                       type="text"
                       name={"user[custom_fields][#{field_key}]"}
                       value={field_value}
-                      class={"input input-bordered w-full #{if field_error, do: "input-error", else: ""}"}
+                      class={field_error && "input-error"}
                       placeholder={field_def["label"]}
                       required={field_def["required"]}
                     />

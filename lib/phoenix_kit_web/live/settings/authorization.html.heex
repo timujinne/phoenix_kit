@@ -8,7 +8,7 @@
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex flex-col mx-auto px-4 py-6">
+  <div class="flex flex-col px-4 py-6">
     <%!-- Settings Form --%>
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
@@ -216,11 +216,11 @@
                 {gettext("Background Color")}
               </span>
             </label>
-            <input
+            <.input
               name="settings[auth_background_color]"
               type="text"
               value={@settings["auth_background_color"]}
-              class="input input-bordered w-full focus:input-primary"
+              class="focus:input-primary"
               placeholder={gettext("#1a1a2e or linear-gradient(135deg, #667eea, #764ba2)")}
               phx-debounce="500"
             />
@@ -275,18 +275,12 @@
               <div class="text-sm font-semibold text-base-content/70 mb-2">
                 {gettext("QR Code")}
               </div>
-              <div class="flex items-center gap-3 ml-4">
-                <input name="settings[qr_login_enabled]" type="hidden" value="false" />
-                <input
+              <div class="ml-4">
+                <.checkbox
                   name="settings[qr_login_enabled]"
-                  type="checkbox"
-                  value="true"
                   checked={@settings["qr_login_enabled"] == "true"}
-                  class="checkbox checkbox-primary"
+                  label={gettext("Enable QR code sign-in (scan from a signed-in phone)")}
                 />
-                <span class="label-text">
-                  {gettext("Enable QR code sign-in (scan from a signed-in phone)")}
-                </span>
               </div>
             </div>
 
@@ -360,28 +354,22 @@
 
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div class="form-control">
-                      <label class="label">
-                        <span class="label-text">{gettext("Client ID")}</span>
-                      </label>
-                      <input
+                      <.input
                         type="text"
                         name="settings[oauth_google_client_id]"
                         value={@settings["oauth_google_client_id"] || ""}
+                        label={gettext("Client ID")}
                         placeholder={gettext("Your Google OAuth Client ID")}
-                        class="input input-bordered"
                       />
                     </div>
 
                     <div class="form-control">
-                      <label class="label">
-                        <span class="label-text">{gettext("Client Secret")}</span>
-                      </label>
-                      <input
+                      <.input
                         type="password"
                         name="settings[oauth_google_client_secret]"
                         value={@settings["oauth_google_client_secret"] || ""}
+                        label={gettext("Client Secret")}
                         placeholder={gettext("Your Google OAuth Client Secret")}
-                        class="input input-bordered"
                       />
                     </div>
                   </div>
@@ -446,28 +434,22 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div class="form-control">
-                    <label class="label">
-                      <span class="label-text">{gettext("Client ID")}</span>
-                    </label>
-                    <input
+                    <.input
                       type="text"
                       name="settings[oauth_github_client_id]"
                       value={@settings["oauth_github_client_id"] || ""}
+                      label={gettext("Client ID")}
                       placeholder={gettext("Your GitHub OAuth Client ID")}
-                      class="input input-bordered"
                     />
                   </div>
 
                   <div class="form-control">
-                    <label class="label">
-                      <span class="label-text">{gettext("Client Secret")}</span>
-                    </label>
-                    <input
+                    <.input
                       type="password"
                       name="settings[oauth_github_client_secret]"
                       value={@settings["oauth_github_client_secret"] || ""}
+                      label={gettext("Client Secret")}
                       placeholder={gettext("Your GitHub OAuth Client Secret")}
-                      class="input input-bordered"
                     />
                   </div>
                 </div>
@@ -535,28 +517,22 @@
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div class="form-control">
-                    <label class="label">
-                      <span class="label-text">{gettext("App ID")}</span>
-                    </label>
-                    <input
+                    <.input
                       type="text"
                       name="settings[oauth_facebook_app_id]"
                       value={@settings["oauth_facebook_app_id"] || ""}
+                      label={gettext("App ID")}
                       placeholder={gettext("Your Facebook App ID")}
-                      class="input input-bordered"
                     />
                   </div>
 
                   <div class="form-control">
-                    <label class="label">
-                      <span class="label-text">{gettext("App Secret")}</span>
-                    </label>
-                    <input
+                    <.input
                       type="password"
                       name="settings[oauth_facebook_app_secret]"
                       value={@settings["oauth_facebook_app_secret"] || ""}
+                      label={gettext("App Secret")}
                       placeholder={gettext("Your Facebook App Secret")}
-                      class="input input-bordered"
                     />
                   </div>
                 </div>

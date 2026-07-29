@@ -718,11 +718,16 @@ defmodule PhoenixKit.Users.Auth.User do
       # Only generate once the email looks finished, so a half-typed address
       # does not mint a username from it.
       is_binary(email) and String.contains?(email, "@") ->
-        put_change(
-          changeset,
-          :username,
-          generate_unique_username_from_email(email, changeset.data)
-        )
+        changeset
+        |> put_change(:username, generate_unique_username_from_email(email, changeset.data))
+        # This step runs at the END of `registration_changeset/3`, after
+        # `validate_username/2` has already decided there was no username change
+        # to guard — so a GENERATED name reaches the database with no constraint
+        # on it. And the walk below reads committed rows only: two registrations
+        # from `maria@a.com` and `maria@b.com` racing each see `maria` free and
+        # both take it, leaving the loser with an `Ecto.ConstraintError` raised
+        # out of `Repo.insert/1` rather than an `{:error, changeset}`.
+        |> unique_constraint(:username, name: :phoenix_kit_users_username_uidx)
 
       true ->
         changeset

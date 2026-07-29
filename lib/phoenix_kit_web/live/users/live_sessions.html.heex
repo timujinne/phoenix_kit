@@ -7,7 +7,7 @@
   current_path={@url_path}
   project_title={@project_title}
 >
-  <div class="container mx-auto px-4 py-8">
+  <div class="px-4 py-8">
     <%!-- Slim action bar: title/subtitle now live in the navbar; keep the
          live-updated timestamp and the live-monitoring controls. --%>
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4 sm:mb-6">
@@ -119,20 +119,15 @@
       <:toolbar_title>
         <div class="flex flex-wrap items-center gap-2">
           <%!-- Search --%>
-          <form id="live-sessions-search-form" phx-change="search" class="contents">
-            <label class="input input-sm w-40 sm:w-52 lg:w-64 min-w-0">
-              <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50" />
-              <input
-                type="search"
-                name="search"
-                value={@search_query}
-                placeholder={gettext("Search by IP, User-Agent, email...")}
-                class="grow"
-                phx-debounce="300"
-              />
-            </label>
-          </form>
-          <%!-- Filter Tabs --%>
+          <.search_toolbar
+            value={@search_query}
+            placeholder={gettext("Search by IP, User-Agent, email...")}
+            class="w-40 sm:w-52 lg:w-64 min-w-0"
+          />
+          <%!-- Filter Tabs (kept hand-rolled: <.nav_tabs> hardcodes phx-value-tab,
+               but this page's handler reads phx-value-type — converting would
+               desync the param key from handle_event("filter_by", %{"type" => ...}),
+               and live_sessions.ex is outside this batch's file scope) --%>
           <div class="tabs tabs-boxed tabs-sm">
             <button
               phx-click="filter_by"
@@ -207,16 +202,12 @@
       <.table_default_body>
         <%= if Enum.empty?(@sessions) do %>
           <.table_default_row>
-            <.table_default_cell class="text-center py-12" colspan={6}>
-              <div class="text-base-content/50 mb-4">
-                <.icon name="hero-inbox" class="w-16 h-16 mx-auto" />
-              </div>
-              <h3 class="text-lg font-medium text-base-content mb-2">
-                {gettext("No active sessions")}
-              </h3>
-              <p class="text-base-content/70">
-                {gettext("There are currently no active sessions to display.")}
-              </p>
+            <.table_default_cell colspan={6}>
+              <.empty_state
+                icon="hero-inbox"
+                title={gettext("No active sessions")}
+                description={gettext("There are currently no active sessions to display.")}
+              />
             </.table_default_cell>
           </.table_default_row>
         <% else %>

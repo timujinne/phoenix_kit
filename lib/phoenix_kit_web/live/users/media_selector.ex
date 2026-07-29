@@ -54,7 +54,7 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
       |> assign(:current_locale, locale)
       |> assign(:current_path, Routes.path("/admin/media/selector"))
       |> assign(:project_title, project_title)
-      |> assign(:page_title, "Select Media")
+      |> assign(:page_title, gettext("Select Media"))
       |> assign(:return_to, return_to)
       |> assign(:selection_mode, mode)
       |> assign(:selected_uuids, selected_uuids)
@@ -425,6 +425,17 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
   defp parse_filter(_), do: :all
 
   defp format_file_size(bytes), do: Format.bytes(bytes, decimals: 2, unknown: "0 B")
+
+  # Folds the old in-body subtitle text + selection-count badge into a single
+  # string for `page_subtitle` (string-only attr, can't carry a colored pill).
+  defp selection_subtitle(:single, _count), do: gettext("Click on an image to select it")
+
+  defp selection_subtitle(:multiple, 0), do: gettext("Select one or more images")
+
+  defp selection_subtitle(:multiple, count) do
+    gettext("Select one or more images") <>
+      " — " <> ngettext("%{count} selected", "%{count} selected", count, count: count)
+  end
 
   defp pagination_range(current_page, total_pages) do
     cond do

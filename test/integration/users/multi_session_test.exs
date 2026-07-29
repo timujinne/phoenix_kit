@@ -1,6 +1,7 @@
 defmodule PhoenixKit.Integration.Users.MultiSessionTest do
   use PhoenixKitWeb.ConnCase, async: true
 
+  alias PhoenixKit.Activity
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.RoleAssignment
@@ -396,6 +397,98 @@ defmodule PhoenixKit.Integration.Users.MultiSessionTest do
       {:ok, target} = Auth.update_user_status(target, %{"is_active" => false})
 
       assert {:error, :inactive} = MultiSession.impersonate(conn_for(admin_user()), target)
+    end
+  end
+
+  describe "impersonate/2 — the audit trail" do
+    # Only the session.* family — registering and confirming the fixtures logs
+    # its own `user.*` rows against the same resource_uuid.
+    defp session_actions_for(target_uuid) do
+      %{entries: entries} = Activity.list(action: "session.*", resource_uuid: target_uuid)
+      Enum.map(entries, & &1.action)
+    end
+
+    test "a success writes ONE row, and it says impersonated — not account_added" do
+      admin = admin_user()
+      target = plain_user()
+
+      assert {:ok, _conn} = MultiSession.impersonate(conn_for(admin), target)
+
+      # `session.account_added` is what a user adding a second account of their
+      # own writes. An impersonation that also wrote one would be indexed in the
+      # feed under the sentence it is precisely not.
+      assert ["session.impersonated"] = session_actions_for(target.uuid)
+    end
+
+    test "the impersonation row names the actor and the target" do
+      admin = admin_user()
+      target = plain_user()
+
+      assert {:ok, _conn} = MultiSession.impersonate(conn_for(admin), target)
+
+      assert %{entries: [entry]} = Activity.list(action: "session.impersonated")
+      assert entry.actor_uuid == admin.uuid
+      assert entry.resource_uuid == target.uuid
+      # target_uuid drives the inbox: the person whose account was borrowed is
+      # told about it.
+      assert entry.target_uuid == target.uuid
+    end
+
+    test "a refusal is recorded too, with the rule that stopped it" do
+      # The entry a security review most wants to find is the attempt that was
+      # turned away — before this it left no trace at all.
+      admin = admin_user()
+      owner = owner_user()
+
+      assert {:error, :target_is_owner} = MultiSession.impersonate(conn_for(admin), owner)
+
+      assert %{entries: [entry]} = Activity.list(action: "session.impersonation_refused")
+      assert entry.actor_uuid == admin.uuid
+      assert entry.resource_uuid == owner.uuid
+      assert entry.metadata["reason"] == "target_is_owner"
+    end
+
+    test "a refusal does not notify the account it named" do
+      admin = admin_user()
+      owner = owner_user()
+
+      assert {:error, :target_is_owner} = MultiSession.impersonate(conn_for(admin), owner)
+
+      assert %{entries: [entry]} = Activity.list(action: "session.impersonation_refused")
+      # `Activity.log/1` fans a row with a target_uuid out to that user's inbox.
+      # "Someone tried to sign in as you and was refused" is a feed entry, not a
+      # message to send the owner.
+      assert entry.target_uuid == nil
+    end
+
+    test "a non-staff actor's refusal is recorded as well" do
+      client = custom_role_user("Client")
+      target = plain_user()
+
+      assert {:error, :not_allowed} = MultiSession.impersonate(conn_for(client), target)
+
+      assert %{entries: [entry]} = Activity.list(action: "session.impersonation_refused")
+      assert entry.actor_uuid == client.uuid
+      assert entry.metadata["reason"] == "not_allowed"
+    end
+  end
+
+  describe "may_impersonate?/1" do
+    # The controller asks this BEFORE it resolves the target uuid, so that a
+    # non-staff caller cannot tell an existing account from an unused uuid by
+    # the flash it gets back. It must agree with `impersonate/2`'s own rule.
+    test "true for the roles impersonate/2 accepts" do
+      assert MultiSession.may_impersonate?(Plug.Conn.get_session(conn_for(owner_user())))
+      assert MultiSession.may_impersonate?(Plug.Conn.get_session(conn_for(admin_user())))
+    end
+
+    test "false for a permission holder who is not staff, and for anonymous" do
+      refute MultiSession.may_impersonate?(
+               Plug.Conn.get_session(conn_for(custom_role_user("Client")))
+             )
+
+      refute MultiSession.may_impersonate?(Plug.Conn.get_session(conn_for(plain_user())))
+      refute MultiSession.may_impersonate?(%{})
     end
   end
 end

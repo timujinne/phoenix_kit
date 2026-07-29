@@ -210,12 +210,13 @@
                 <div class="flex-1">
                   <.form for={%{}} phx-submit="search" phx-target={@myself} class="w-full">
                     <div class="join w-full">
-                      <input
+                      <.input
                         type="text"
                         name="search[query]"
                         value={@search_query}
                         placeholder={gettext("Search by filename...")}
-                        class="input input-bordered input-sm join-item flex-1"
+                        class="input-sm join-item flex-1"
+                        wrapper_class="contents"
                       />
                       <button type="submit" class="btn btn-primary btn-sm join-item">
                         <.icon name="hero-magnifying-glass" class="w-4 h-4" />
@@ -225,23 +226,18 @@
                 </div>
                 <%!-- Filter by Type --%>
                 <div class="w-full md:w-40">
-                  <label class="select select-sm w-full">
-                    <select
-                      phx-change="filter_type"
-                      phx-target={@myself}
-                      name="filter"
-                    >
-                      <option value="all" selected={@file_type_filter == :all}>
-                        {gettext("All Files")}
-                      </option>
-                      <option value="image" selected={@file_type_filter == :image}>
-                        {gettext("Images Only")}
-                      </option>
-                      <option value="video" selected={@file_type_filter == :video}>
-                        {gettext("Videos Only")}
-                      </option>
-                    </select>
-                  </label>
+                  <.select
+                    name="filter"
+                    phx-change="filter_type"
+                    phx-target={@myself}
+                    value={@file_type_filter}
+                    options={[
+                      {gettext("All Files"), "all"},
+                      {gettext("Images Only"), "image"},
+                      {gettext("Videos Only"), "video"}
+                    ]}
+                    class="select-sm"
+                  />
                 </div>
               </div>
             </div>

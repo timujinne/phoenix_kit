@@ -2,31 +2,14 @@
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={gettext("Instance Dimensions")}
+  page_section={gettext("Media")}
+  page_section_path={PhoenixKit.Utils.Routes.path("/admin/settings/media")}
+  page_subtitle={gettext("Manage dimension presets for automatic file instance generation")}
   current_path={@current_path}
   current_locale={@current_locale}
   project_title={@project_title}
 >
-  <div class="container mx-auto px-4 py-8 max-w-6xl">
-    <.admin_page_header
-      back={PhoenixKit.Utils.Routes.path("/admin/settings/media")}
-      title={gettext("Instance Dimensions")}
-      subtitle={gettext("Manage dimension presets for automatic file instance generation")}
-    >
-      <:actions>
-        <button
-          phx-click="reset_dimensions_to_defaults"
-          data-confirm={
-            gettext(
-              "Are you sure? This will delete all current dimensions and restore the default 8 dimensions. This action cannot be undone."
-            )
-          }
-          class="btn btn-outline btn-error btn-sm"
-        >
-          <.icon name="hero-arrow-path" class="w-4 h-4 mr-1" /> {gettext("Reset to Defaults")}
-        </button>
-      </:actions>
-    </.admin_page_header>
-
+  <div class="px-4 py-8">
     <%!-- Info Alert --%>
     <div class="alert alert-info mb-6">
       <.icon name="hero-information-circle" class="w-5 h-5" />
@@ -43,18 +26,34 @@
       </div>
     </div>
 
+    <%!-- Page-level actions. Deliberately NOT in the image table's
+         `:toolbar_actions` slot: that table only renders when dimensions exist,
+         and restoring the defaults is exactly what an empty list needs. --%>
+    <div class="flex flex-wrap items-center gap-2 justify-end mb-4">
+      <button
+        phx-click="reset_dimensions_to_defaults"
+        data-confirm={
+          gettext(
+            "Are you sure? This will delete all current dimensions and restore the default 8 dimensions. This action cannot be undone."
+          )
+        }
+        class="btn btn-outline btn-error btn-sm"
+      >
+        <.icon name="hero-arrow-path" class="w-4 h-4 mr-1" /> {gettext("Reset to Defaults")}
+      </button>
+    </div>
+
     <%!-- Dimensions List --%>
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
         <%= if length(@dimensions) == 0 do %>
-          <div class="text-center py-12">
-            <.icon name="hero-photo" class="w-16 h-16 mx-auto mb-4 text-base-content/30" />
-            <p class="text-lg text-base-content/70 mb-2">
-              {gettext("No dimensions configured")}
-            </p>
-            <p class="text-sm text-base-content/50 mb-4">
-              {gettext("Create your first dimension preset to start generating file variants.")}
-            </p>
+          <.empty_state
+            icon="hero-photo"
+            title={gettext("No dimensions configured")}
+            description={
+              gettext("Create your first dimension preset to start generating file variants.")
+            }
+          >
             <div class="flex justify-center gap-4">
               <.link
                 navigate={
@@ -73,7 +72,7 @@
                 <.icon name="hero-plus" class="w-4 h-4 mr-1" /> {gettext("Add Video Dimension")}
               </.link>
             </div>
-          </div>
+          </.empty_state>
         <% else %>
           <%!-- Image Dimensions --%>
           <div class="mb-8">

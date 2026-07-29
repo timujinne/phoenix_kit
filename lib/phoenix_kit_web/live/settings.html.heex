@@ -8,7 +8,7 @@
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex flex-col mx-auto px-4 py-6">
+  <div class="flex flex-col px-4 py-6">
     <%!-- Settings Form --%>
     <div class="card bg-base-100 shadow-xl">
       <div class="card-body">
@@ -55,11 +55,11 @@
                 {gettext("Application name display")}
               </span>
             </label>
-            <input
+            <.input
               name="settings[project_title]"
               type="text"
               value={@settings["project_title"]}
-              class="input input-bordered w-full focus:input-primary"
+              class="focus:input-primary"
               placeholder={gettext("Enter project title")}
               phx-debounce="500"
             />
@@ -253,11 +253,11 @@
                       {gettext("Default Tab Title")}
                     </span>
                   </label>
-                  <input
+                  <.input
                     name="settings[default_tab_title]"
                     type="text"
                     value={@settings["default_tab_title"]}
-                    class="input input-bordered w-full focus:input-primary"
+                    class="focus:input-primary"
                     placeholder={@settings["project_title"] || gettext("e.g. Welcome to My Site")}
                     phx-debounce="300"
                   />
@@ -291,11 +291,11 @@
                 {gettext("Public base URL of this application")}
               </span>
             </label>
-            <input
+            <.input
               name="settings[site_url]"
               type="url"
               value={@settings["site_url"]}
-              class="input input-bordered w-full focus:input-primary"
+              class="focus:input-primary"
               placeholder="https://site.com"
               phx-debounce="500"
             />
@@ -337,12 +337,12 @@
             <label class="label pt-3">
               <span class="label-text">{gettext("Default notification link")}</span>
             </label>
-            <input
+            <.input
               type="text"
               name="settings[notification_default_link]"
               value={@settings["notification_default_link"] || "/dashboard"}
               placeholder="/dashboard"
-              class="input input-bordered input-sm w-full max-w-md"
+              class="input-sm max-w-md"
             />
             <div class="label">
               <span class="label-text-alt text-xs text-base-content/50">
@@ -366,15 +366,12 @@
                   {gettext("Mode every content editor opens in")}
                 </span>
               </label>
-              <label class="select w-full focus:select-primary">
-                <select name="settings[editor_default_mode]">
-                  <%= for {label, value} <- @setting_options["editor_default_mode"] do %>
-                    <option value={value} selected={value == @settings["editor_default_mode"]}>
-                      {label}
-                    </option>
-                  <% end %>
-                </select>
-              </label>
+              <.select
+                name="settings[editor_default_mode]"
+                value={@settings["editor_default_mode"]}
+                options={@setting_options["editor_default_mode"]}
+                class="focus-within:select-primary"
+              />
               <div class="label">
                 <span class="label-text-alt text-xs text-base-content/50">
                   {gettext(
@@ -405,15 +402,12 @@
                   {gettext("First day of the week")}
                 </span>
               </label>
-              <label class="select w-full focus:select-primary">
-                <select name="settings[week_start_day]">
-                  <%= for {label, value} <- @setting_options["week_start_day"] do %>
-                    <option value={value} selected={value == @settings["week_start_day"]}>
-                      {label}
-                    </option>
-                  <% end %>
-                </select>
-              </label>
+              <.select
+                name="settings[week_start_day]"
+                value={@settings["week_start_day"]}
+                options={@setting_options["week_start_day"]}
+                class="focus-within:select-primary"
+              />
               <.unsaved_hint
                 dirty={@settings["week_start_day"] != @saved_settings["week_start_day"]}
                 saved={
@@ -433,15 +427,12 @@
                   {gettext("System default timezone")}
                 </span>
               </label>
-              <label class="select w-full focus:select-primary">
-                <select name="settings[time_zone]">
-                  <%= for {label, value} <- @setting_options["time_zone"] do %>
-                    <option value={value} selected={value == @settings["time_zone"]}>
-                      {label}
-                    </option>
-                  <% end %>
-                </select>
-              </label>
+              <.select
+                name="settings[time_zone]"
+                value={@settings["time_zone"]}
+                options={@setting_options["time_zone"]}
+                class="focus-within:select-primary"
+              />
               <.unsaved_hint
                 dirty={@settings["time_zone"] != @saved_settings["time_zone"]}
                 saved={get_timezone_label(@saved_settings["time_zone"], @setting_options)}
@@ -456,15 +447,12 @@
                   {gettext("How dates are displayed")}
                 </span>
               </label>
-              <label class="select w-full focus:select-primary">
-                <select name="settings[date_format]">
-                  <%= for {label, value} <- @setting_options["date_format"] do %>
-                    <option value={value} selected={value == @settings["date_format"]}>
-                      {label}
-                    </option>
-                  <% end %>
-                </select>
-              </label>
+              <.select
+                name="settings[date_format]"
+                value={@settings["date_format"]}
+                options={@setting_options["date_format"]}
+                class="focus-within:select-primary"
+              />
               <div class="label">
                 <span class="label-text-alt text-xs text-base-content/50">
                   {gettext("Example:")} {get_current_date_example(@settings["date_format"])}
@@ -489,15 +477,12 @@
                   {gettext("How times are displayed")}
                 </span>
               </label>
-              <label class="select w-full focus:select-primary">
-                <select name="settings[time_format]">
-                  <%= for {label, value} <- @setting_options["time_format"] do %>
-                    <option value={value} selected={value == @settings["time_format"]}>
-                      {label}
-                    </option>
-                  <% end %>
-                </select>
-              </label>
+              <.select
+                name="settings[time_format]"
+                value={@settings["time_format"]}
+                options={@setting_options["time_format"]}
+                class="focus-within:select-primary"
+              />
               <div class="label">
                 <span class="label-text-alt text-xs text-base-content/50">
                   {gettext("Example:")} {get_current_time_example(@settings["time_format"])}

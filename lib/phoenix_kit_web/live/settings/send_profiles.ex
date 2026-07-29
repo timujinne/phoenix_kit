@@ -10,6 +10,11 @@ defmodule PhoenixKitWeb.Live.Settings.SendProfiles do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  # Imported per-LiveView rather than from `PhoenixKitWeb, :live_view`: a host
+  # app that defines its own `row_link/1` would get an ambiguous import the
+  # moment core wired this one in project-wide.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Email.SendProfiles
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Routes

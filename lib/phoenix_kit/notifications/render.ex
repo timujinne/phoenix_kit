@@ -132,6 +132,19 @@ defmodule PhoenixKit.Notifications.Render do
     {"hero-user-plus", "Someone started following you."}
   end
 
+  # Both session actions reach the inbox because `Activity.log/1` fans out on
+  # `target_uuid`, and both name the account that was ADDED — so the recipient
+  # is the person whose account someone else is now signed into. Without these
+  # clauses they render as the humanized action string ("Session impersonated"),
+  # which reads like a system log line rather than a notice addressed to them.
+  defp icon_and_text("session.impersonated", _meta) do
+    {"hero-identification", "An administrator signed in to your account for support."}
+  end
+
+  defp icon_and_text("session.account_added", _meta) do
+    {"hero-user-plus", "Your account was added to another sign-in session."}
+  end
+
   defp icon_and_text(action, _meta) when is_binary(action) do
     {"hero-bell", humanize(action)}
   end

@@ -237,30 +237,15 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
     <PhoenixKitWeb.Components.LayoutWrapper.app_layout
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-      page_title="{@project_title} - Maintenance Mode Settings"
+      page_title={gettext("Maintenance Mode Settings")}
+      page_section={gettext("Modules")}
+      page_section_path={PhoenixKit.Utils.Routes.path("/admin/modules")}
+      page_subtitle={gettext("Customize the maintenance page and schedule")}
       current_path={@current_path}
       project_title={@project_title}
       current_locale={@current_locale}
     >
-      <div class="container mx-auto px-4 py-6">
-        <%!-- Header Section --%>
-        <header class="w-full relative mb-6">
-          <.link
-            navigate={PhoenixKit.Utils.Routes.path("/admin/modules")}
-            class="btn btn-ghost btn-sm"
-          >
-            <.icon name="hero-arrow-left" class="w-4 h-4" />
-          </.link>
-          <div class="text-center">
-            <h1 class="text-4xl font-bold text-base-content mb-3">
-              {gettext("Maintenance Mode Settings")}
-            </h1>
-            <p class="text-lg text-base-content/70">
-              {gettext("Customize the maintenance page and schedule")}
-            </p>
-          </div>
-        </header>
-
+      <div class="px-4 py-6">
         <%!-- Overall Status --%>
         <%= if @active do %>
           <div class="alert alert-warning mb-6">
@@ -324,29 +309,21 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
             <form phx-submit="save_schedule" class="space-y-4">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div class="form-control">
-                  <label class="label">
-                    <span class="label-text font-semibold">
-                      {gettext("Start Time")} ({@tz_label})
-                    </span>
-                  </label>
-                  <input
+                  <.input
                     type="datetime-local"
                     name="start"
                     value={@scheduled_start}
                     min={@min_datetime}
-                    class="input input-bordered w-full"
+                    label={"#{gettext("Start Time")} (#{@tz_label})"}
                   />
                 </div>
                 <div class="form-control">
-                  <label class="label">
-                    <span class="label-text font-semibold">{gettext("End Time")} ({@tz_label})</span>
-                  </label>
-                  <input
+                  <.input
                     type="datetime-local"
                     name="end"
                     value={@scheduled_end}
                     min={@min_datetime}
-                    class="input input-bordered w-full"
+                    label={"#{gettext("End Time")} (#{@tz_label})"}
                   />
                 </div>
               </div>
@@ -387,15 +364,12 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
                 class="space-y-4"
               >
                 <div class="form-control">
-                  <label class="label">
-                    <span class="label-text font-semibold">{gettext("Header Text")}</span>
-                  </label>
-                  <input
+                  <.input
                     type="text"
                     name="header"
                     value={@header}
                     phx-debounce="150"
-                    class="input input-bordered w-full"
+                    label={gettext("Header Text")}
                     placeholder={gettext("Maintenance Mode")}
                     required
                   />
@@ -407,16 +381,15 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
                 </div>
 
                 <div class="form-control">
-                  <label class="label">
-                    <span class="label-text font-semibold">{gettext("Message Text")}</span>
-                  </label>
-                  <textarea
+                  <.textarea
                     name="subtext"
+                    value={@subtext}
                     phx-debounce="150"
-                    class="textarea textarea-bordered w-full h-32"
+                    label={gettext("Message Text")}
+                    class="h-32"
                     placeholder={gettext("We'll be back soon...")}
                     required
-                  >{@subtext}</textarea>
+                  />
                   <label class="label">
                     <span class="label-text-alt">
                       {gettext("Detailed message shown below the header")}

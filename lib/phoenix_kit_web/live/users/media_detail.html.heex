@@ -2,35 +2,33 @@
   socket={@socket}
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-  page_title="Media Detail"
+  page_title={gettext("Media Detail")}
   current_path={Routes.path("/admin/media/#{@file_uuid}")}
   project_title={@project_title}
   current_locale={@current_locale}
 >
   <div class="p-6">
-    <.admin_page_header>
-      <div class="flex items-center gap-3">
-        <%!--
-          Browser-back so the user returns to exactly where they were before
-          opening this file — the folder grid they came from (the MediaBrowser
-          keeps the open folder in the `?folder=` query, and the click here was
-          a push_navigate, so the previous history entry is that folder view).
-          Falls back to the media root for a direct/shared load with no history.
-        --%>
-        <button
-          type="button"
-          onclick={"if (window.history.length > 1) { window.history.back() } else { window.location.href = '#{Routes.path("/admin/media")}' }"}
-          class="btn btn-ghost btn-circle"
-          title={gettext("Back")}
-          aria-label={gettext("Back")}
-        >
-          <.icon name="hero-arrow-left" class="w-7 h-7" />
-        </button>
-        <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content">
-          Media Detail
-        </h1>
-      </div>
-    </.admin_page_header>
+    <%!--
+      Browser-back so the user returns to exactly where they were before
+      opening this file — the folder grid they came from (the MediaBrowser
+      keeps the open folder in the `?folder=` query, and the click here was
+      a push_navigate, so the previous history entry is that folder view).
+      Falls back to the media root for a direct/shared load with no history.
+      Left-aligned (not the toolbar's default right-alignment): a lone back
+      affordance flush against the right edge reads oddly with nothing else
+      in the row.
+    --%>
+    <div class="flex items-center gap-2 mb-4">
+      <button
+        type="button"
+        onclick={"if (window.history.length > 1) { window.history.back() } else { window.location.href = '#{Routes.path("/admin/media")}' }"}
+        class="btn btn-ghost btn-sm btn-circle"
+        title={gettext("Back")}
+        aria-label={gettext("Back")}
+      >
+        <.icon name="hero-arrow-left" class="w-7 h-7" />
+      </button>
+    </div>
 
     <%= if @file_data do %>
       <%!-- Main Layout: 3/4 Preview + 1/4 Info --%>
@@ -125,39 +123,38 @@
               <%= if @edit_mode do %>
                 <form phx-submit="save_metadata" class="space-y-3">
                   <div>
-                    <label for="title" class="label label-text text-xs">Title</label>
-                    <input
+                    <.input
                       type="text"
                       id="title"
                       name="title"
                       value={@file_data.title}
-                      class="input input-bordered input-sm w-full"
+                      label="Title"
                       placeholder="Enter title"
+                      class="input-sm"
                     />
                   </div>
 
                   <div>
-                    <label for="description" class="label label-text text-xs">Description</label>
-                    <textarea
+                    <.textarea
                       id="description"
                       name="description"
-                      class="textarea textarea-bordered textarea-sm w-full"
-                      rows="3"
+                      value={@file_data.description}
+                      label="Description"
                       placeholder="Enter description"
-                    >{@file_data.description}</textarea>
+                      rows="3"
+                      class="textarea-sm"
+                    />
                   </div>
 
                   <div>
-                    <label for="tags" class="label label-text text-xs">
-                      Tags (comma-separated)
-                    </label>
-                    <input
+                    <.input
                       type="text"
                       id="tags"
                       name="tags"
                       value={Enum.join(@file_data.tags, ", ")}
-                      class="input input-bordered input-sm w-full"
+                      label="Tags (comma-separated)"
                       placeholder="tag1, tag2"
+                      class="input-sm"
                     />
                   </div>
 

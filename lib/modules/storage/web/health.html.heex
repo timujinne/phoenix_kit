@@ -2,17 +2,14 @@
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={@page_title}
+  page_section={gettext("Media")}
+  page_section_path={PhoenixKit.Utils.Routes.path("/admin/settings/media")}
+  page_subtitle={gettext("Check file redundancy against configured target")}
   current_path={@current_path}
   current_locale={@current_locale}
   project_title={@project_title}
 >
-  <div class="container mx-auto px-4 py-8 max-w-5xl">
-    <.admin_page_header
-      back={PhoenixKit.Utils.Routes.path("/admin/settings/media")}
-      title={@page_title}
-      subtitle={gettext("Check file redundancy against configured target")}
-    />
-
+  <div class="px-4 py-8">
     <%!-- Stats --%>
     <div class="stats stats-vertical lg:stats-horizontal shadow w-full mb-6">
       <div class="stat">

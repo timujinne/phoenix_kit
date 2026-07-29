@@ -10718,3 +10718,53 @@ msgstr "База данных"
 #, elixir-autogen, elixir-format
 msgid "Dashboards"
 msgstr "Панели"
+
+#: lib/modules/storage/web/bucket_form.ex:294
+#, elixir-autogen, elixir-format
+msgid "Add Storage Bucket"
+msgstr "Добавить бакет хранилища"
+
+#: lib/modules/storage/web/bucket_form.ex:295
+#, elixir-autogen, elixir-format
+msgid "Edit Storage Bucket"
+msgstr "Изменить бакет хранилища"
+
+#: lib/modules/storage/web/dimension_form.ex:177
+#, elixir-autogen, elixir-format
+msgid "Add Storage Dimension"
+msgstr "Добавить размер хранилища"
+
+#: lib/modules/storage/web/dimension_form.ex:146
+#, elixir-autogen, elixir-format
+msgid "Edit Storage Dimension"
+msgstr "Изменить размер хранилища"
+
+#: lib/modules/storage/web/dimension_form.ex:147
+#, elixir-autogen, elixir-format
+msgid "Update Dimension"
+msgstr "Обновить размер"
+
+#: lib/phoenix_kit_web/users/user_form.ex:825
+#, elixir-autogen, elixir-format
+msgid "Create User"
+msgstr "Создать пользователя"
+
+#: lib/phoenix_kit_web/users/user_form.ex:826
+#, elixir-autogen, elixir-format
+msgid "Edit User"
+msgstr "Изменить пользователя"
+
+#: lib/phoenix_kit_web/users/user_form.html.heex:10
+#, elixir-autogen, elixir-format
+msgid "Create a new user account"
+msgstr "Создание новой учётной записи пользователя"
+
+#: lib/phoenix_kit_web/users/user_form.html.heex:11
+#, elixir-autogen, elixir-format
+msgid "Edit user information"
+msgstr "Изменение информации о пользователе"
+
+#: lib/phoenix_kit_web/live/users/media_detail.html.heex:5
+#, elixir-autogen, elixir-format
+msgid "Media Detail"
+msgstr "Сведения о медиафайле"

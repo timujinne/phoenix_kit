@@ -5,133 +5,95 @@
   page_title={@page_title}
   page_section={@page_section}
   page_section_path={@page_section_path}
+  page_subtitle={@user.email}
+  page_action={
+    %{
+      icon: "hero-pencil",
+      label: gettext("Edit"),
+      navigate: PhoenixKit.Utils.Routes.path("/admin/users/edit/#{@user.uuid}?return_to=view")
+    }
+  }
   current_path={@url_path}
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex-col mx-auto px-4 py-6">
-    <.admin_page_header back={PhoenixKit.Utils.Routes.path("/admin/users")}>
-      <h1 class="text-xl sm:text-2xl lg:text-3xl font-bold text-base-content break-words min-w-0">
-        {@page_title}
-      </h1>
-      <p class="text-sm text-base-content/60 mt-0.5 break-words">{@user.email}</p>
-      <:actions>
-        <.link
-          navigate={
-            PhoenixKit.Utils.Routes.path("/admin/users/edit/#{@user.uuid}?return_to=view")
-          }
-          class="btn btn-primary btn-sm"
-        >
-          <PhoenixKitWeb.Components.Core.Icons.icon_edit /> {gettext("Edit")}
-        </.link>
-
-        <%!-- Same actions offered by the "..." menu on the Users list, so nothing
-             there is unreachable from this page. --%>
-        <.table_row_menu id="user-detail-actions" label={gettext("More actions")}>
-          <%= if @user.uuid != @phoenix_kit_current_user.uuid do %>
-            <.table_row_menu_button
-              phx-click="show_role_management"
-              icon="hero-user-group"
-              label={gettext("Roles")}
-              variant="primary"
-            />
-          <% else %>
-            <.table_row_menu_link
-              navigate={PhoenixKit.Utils.Routes.path("/dashboard/settings")}
-              icon="hero-cog-6-tooth"
-              label={gettext("Settings")}
-              variant="info"
-            />
-          <% end %>
-          <%= if @user.uuid != @phoenix_kit_current_user.uuid && !target_is_owner?(@user) do %>
-            <.table_row_menu_divider />
-            <.table_row_menu_button
-              phx-click="request_confirmation_toggle"
-              phx-value-is_confirmed={to_string(!!@user.confirmed_at)}
-              icon={if @user.confirmed_at, do: "hero-envelope-open", else: "hero-envelope"}
-              label={
-                if @user.confirmed_at,
-                  do: gettext("Unconfirm Email"),
-                  else: gettext("Confirm Email")
-              }
-              variant={if @user.confirmed_at, do: "success", else: "warning"}
-            />
-            <.table_row_menu_button
-              phx-click="request_status_toggle"
-              phx-value-is_active={to_string(@user.is_active)}
-              icon={if @user.is_active, do: "hero-check-circle", else: "hero-x-circle"}
-              label={if @user.is_active, do: gettext("Deactivate"), else: gettext("Activate")}
-              variant={if @user.is_active, do: "success", else: "warning"}
-            />
-          <% end %>
-        </.table_row_menu>
-
-        <%= if Auth.can_delete_user?(@user, @phoenix_kit_current_user) do %>
-          <button
-            type="button"
-            class="btn btn-error btn-sm btn-outline"
-            phx-click="show_delete_modal"
-          >
-            <PhoenixKitWeb.Components.Core.Icons.icon_trash /> {gettext("Delete")}
-          </button>
+  <div class="flex-col px-4 py-6">
+    <%!-- Actions row: user-level actions that must stay visible regardless of
+         which tab is active or the user's account type (the org-members table
+         below is tab-gated and organization-only, so it can't own these). --%>
+    <div class="flex flex-wrap items-center gap-2 justify-end mb-4">
+      <%!-- Same actions offered by the "..." menu on the Users list, so nothing
+           there is unreachable from this page. --%>
+      <.table_row_menu id="user-detail-actions" label={gettext("More actions")}>
+        <%= if @user.uuid != @phoenix_kit_current_user.uuid do %>
+          <.table_row_menu_button
+            phx-click="show_role_management"
+            icon="hero-user-group"
+            label={gettext("Roles")}
+            variant="primary"
+          />
+        <% else %>
+          <.table_row_menu_link
+            navigate={PhoenixKit.Utils.Routes.path("/dashboard/settings")}
+            icon="hero-cog-6-tooth"
+            label={gettext("Settings")}
+            variant="info"
+          />
         <% end %>
-      </:actions>
-    </.admin_page_header>
+        <%= if @user.uuid != @phoenix_kit_current_user.uuid && !target_is_owner?(@user) do %>
+          <.table_row_menu_divider />
+          <.table_row_menu_button
+            phx-click="request_confirmation_toggle"
+            phx-value-is_confirmed={to_string(!!@user.confirmed_at)}
+            icon={if @user.confirmed_at, do: "hero-envelope-open", else: "hero-envelope"}
+            label={
+              if @user.confirmed_at,
+                do: gettext("Unconfirm Email"),
+                else: gettext("Confirm Email")
+            }
+            variant={if @user.confirmed_at, do: "success", else: "warning"}
+          />
+          <.table_row_menu_button
+            phx-click="request_status_toggle"
+            phx-value-is_active={to_string(@user.is_active)}
+            icon={if @user.is_active, do: "hero-check-circle", else: "hero-x-circle"}
+            label={if @user.is_active, do: gettext("Deactivate"), else: gettext("Activate")}
+            variant={if @user.is_active, do: "success", else: "warning"}
+          />
+        <% end %>
+      </.table_row_menu>
+
+      <%= if Auth.can_delete_user?(@user, @phoenix_kit_current_user) do %>
+        <button
+          type="button"
+          class="btn btn-error btn-sm btn-outline"
+          phx-click="show_delete_modal"
+        >
+          <PhoenixKitWeb.Components.Core.Icons.icon_trash /> {gettext("Delete")}
+        </button>
+      <% end %>
+    </div>
 
     <%!-- Tabs Navigation --%>
+    <% user_detail_tabs =
+      [
+        %{id: "profile", label: gettext("Profile"), icon: "hero-user"},
+        @connections_enabled &&
+          %{id: "connections", label: gettext("Connections"), icon: "hero-user-group"},
+        Map.merge(
+          %{id: "notes", label: gettext("Notes"), icon: "hero-document-text"},
+          (length(@admin_notes) > 0 && %{badge: length(@admin_notes)}) || %{}
+        ),
+        @org_accounts_enabled && @user.account_type == "organization" &&
+          Map.merge(
+            %{id: "members", label: gettext("Members"), icon: "hero-user-group"},
+            (length(@organization_members) > 0 &&
+               %{badge: length(@organization_members)}) || %{}
+          )
+      ]
+      |> Enum.filter(& &1) %>
     <div class="flex justify-center mb-6">
-      <div role="tablist" class="tabs tabs-boxed bg-base-200 p-1">
-        <button
-          type="button"
-          role="tab"
-          class={"tab gap-2 #{if @active_tab == "profile", do: "tab-active"}"}
-          phx-click="change_tab"
-          phx-value-tab="profile"
-        >
-          <.icon name="hero-user" class="w-4 h-4" />
-          {gettext("Profile")}
-        </button>
-        <%= if @connections_enabled do %>
-          <button
-            type="button"
-            role="tab"
-            class={"tab gap-2 #{if @active_tab == "connections", do: "tab-active"}"}
-            phx-click="change_tab"
-            phx-value-tab="connections"
-          >
-            <.icon name="hero-user-group" class="w-4 h-4" />
-            {gettext("Connections")}
-          </button>
-        <% end %>
-        <button
-          type="button"
-          role="tab"
-          class={"tab gap-2 #{if @active_tab == "notes", do: "tab-active"}"}
-          phx-click="change_tab"
-          phx-value-tab="notes"
-        >
-          <.icon name="hero-document-text" class="w-4 h-4" />
-          {gettext("Notes")}
-          <%= if length(@admin_notes) > 0 do %>
-            <span class="badge badge-sm h-auto">{length(@admin_notes)}</span>
-          <% end %>
-        </button>
-        <%= if @org_accounts_enabled && @user.account_type == "organization" do %>
-          <button
-            type="button"
-            role="tab"
-            class={"tab gap-2 #{if @active_tab == "members", do: "tab-active"}"}
-            phx-click="change_tab"
-            phx-value-tab="members"
-          >
-            <.icon name="hero-user-group" class="w-4 h-4" />
-            {gettext("Members")}
-            <%= if length(@organization_members) > 0 do %>
-              <span class="badge badge-sm h-auto">{length(@organization_members)}</span>
-            <% end %>
-          </button>
-        <% end %>
-      </div>
+      <.nav_tabs active_tab={@active_tab} on_change="change_tab" tabs={user_detail_tabs} />
     </div>
 
     <%!-- Tab Content --%>
@@ -521,12 +483,12 @@
                 class="space-y-4"
               >
                 <div class="form-control">
-                  <textarea
-                    name="admin_note[content]"
-                    class="textarea textarea-bordered w-full h-24"
+                  <.textarea
+                    field={@note_form[:content]}
                     placeholder={gettext("Write a note about this user...")}
+                    class="h-24"
                     required
-                  >{Phoenix.HTML.Form.input_value(@note_form, :content)}</textarea>
+                  />
                 </div>
                 <div class="flex justify-end gap-2">
                   <%= if @editing_note_uuid do %>
@@ -634,78 +596,81 @@
           <div class="card-body">
             <h3 class="card-title text-lg mb-4">{gettext("Organization Members")}</h3>
             <%= if Enum.empty?(@organization_members) do %>
-              <div class="text-center py-8 text-base-content/70">
-                <.icon name="hero-user-group" class="w-12 h-12 mx-auto mb-2 opacity-50" />
-                <p>{gettext("No members yet")}</p>
-                <p class="text-sm mt-1">{gettext("Add members from the user edit page")}</p>
-              </div>
+              <.empty_state
+                icon="hero-user-group"
+                title={gettext("No members yet")}
+                description={gettext("Add members from the user edit page")}
+              />
             <% else %>
-              <div class="overflow-x-auto">
-                <table class="table table-zebra">
-                  <thead>
-                    <tr>
-                      <th>{gettext("Name")}</th>
-                      <th>{gettext("Email")}</th>
-                      <th>{gettext("Status")}</th>
-                      <th>{gettext("Actions")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for member <- @organization_members do %>
-                      <tr>
-                        <td>
-                          <div class="flex items-center gap-3">
-                            <.user_avatar user={member} size="sm" />
-                            <div>
-                              <div class="font-medium">
-                                {PhoenixKit.Users.Auth.User.full_name(member) || "-"}
-                              </div>
-                              <%= if member.username do %>
-                                <div class="text-xs text-base-content/60">@{member.username}</div>
-                              <% end %>
-                            </div>
+              <.table_default variant="zebra">
+                <.table_default_header>
+                  <.table_default_row>
+                    <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+                    <.table_default_header_cell>{gettext("Email")}</.table_default_header_cell>
+                    <.table_default_header_cell>{gettext("Status")}</.table_default_header_cell>
+                    <.table_default_header_cell>{gettext("Actions")}</.table_default_header_cell>
+                  </.table_default_row>
+                </.table_default_header>
+                <.table_default_body>
+                  <.table_default_row
+                    :for={member <- @organization_members}
+                    class="relative transform-gpu cursor-pointer"
+                  >
+                    <.table_default_cell>
+                      <.row_link
+                        navigate={
+                          PhoenixKit.Utils.Routes.path("/admin/users/view/#{member.uuid}")
+                        }
+                        label={PhoenixKit.Users.Auth.User.full_name(member) || member.email}
+                      />
+                      <div class="flex items-center gap-3">
+                        <.user_avatar user={member} size="sm" />
+                        <div>
+                          <div class="font-medium">
+                            {PhoenixKit.Users.Auth.User.full_name(member) || "-"}
                           </div>
-                        </td>
-                        <td>{member.email}</td>
-                        <td>
-                          <%= if member.is_active do %>
-                            <span class="badge badge-success badge-sm h-auto">
-                              {gettext("Active")}
-                            </span>
-                          <% else %>
-                            <span class="badge badge-error badge-sm h-auto">
-                              {gettext("Inactive")}
-                            </span>
+                          <%= if member.username do %>
+                            <div class="text-xs text-base-content/60">@{member.username}</div>
                           <% end %>
-                        </td>
-                        <td>
-                          <div class="flex gap-1">
-                            <.pk_link
-                              navigate={"/admin/users/view/#{member.uuid}"}
-                              class="btn btn-ghost btn-xs"
-                              title={gettext("View")}
-                            >
-                              <.icon name="hero-eye" class="w-4 h-4" />
-                            </.pk_link>
-                            <button
-                              type="button"
-                              class="btn btn-ghost btn-xs text-error"
-                              phx-click="remove_member"
-                              phx-value-uuid={member.uuid}
-                              title={gettext("Remove from organization")}
-                              data-confirm={
-                                gettext("Are you sure you want to remove this member?")
-                              }
-                            >
-                              <.icon name="hero-x-mark" class="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
-              </div>
+                        </div>
+                      </div>
+                    </.table_default_cell>
+                    <.table_default_cell>{member.email}</.table_default_cell>
+                    <.table_default_cell>
+                      <%= if member.is_active do %>
+                        <span class="badge badge-success badge-sm h-auto">
+                          {gettext("Active")}
+                        </span>
+                      <% else %>
+                        <span class="badge badge-error badge-sm h-auto">
+                          {gettext("Inactive")}
+                        </span>
+                      <% end %>
+                    </.table_default_cell>
+                    <.table_default_cell class="relative z-10">
+                      <div class="flex gap-1">
+                        <.pk_link
+                          navigate={"/admin/users/view/#{member.uuid}"}
+                          class="btn btn-ghost btn-xs"
+                          title={gettext("View")}
+                        >
+                          <.icon name="hero-eye" class="w-4 h-4" />
+                        </.pk_link>
+                        <button
+                          type="button"
+                          class="btn btn-ghost btn-xs text-error"
+                          phx-click="remove_member"
+                          phx-value-uuid={member.uuid}
+                          title={gettext("Remove from organization")}
+                          data-confirm={gettext("Are you sure you want to remove this member?")}
+                        >
+                          <.icon name="hero-x-mark" class="w-4 h-4" />
+                        </button>
+                      </div>
+                    </.table_default_cell>
+                  </.table_default_row>
+                </.table_default_body>
+              </.table_default>
             <% end %>
           </div>
         </div>
@@ -785,6 +750,11 @@
             <%= for role <- @all_roles do %>
               <% owner_role? = role.name == PhoenixKit.Users.Role.system_roles().owner %>
               <div class="form-control">
+                <%!-- DO NOT convert to <.checkbox>: the submitted VALUE is the payload.
+                     `sync_user_roles` reads Map.values(params["roles"]) and diffs that
+                     list against the user's current roles, so a component hardcoding
+                     "true"/"false" strips every role the user holds. render_submit
+                     injects params directly, so no test catches it. --%>
                 <label
                   class={[
                     "label justify-start gap-3",

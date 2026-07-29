@@ -822,8 +822,8 @@ defmodule PhoenixKitWeb.Users.UserForm do
     |> assign(:custom_fields_data, user.custom_fields || %{})
   end
 
-  defp page_title(:new), do: "Create User"
-  defp page_title(:edit), do: "Edit User"
+  defp page_title(:new), do: gettext("Create User")
+  defp page_title(:edit), do: gettext("Edit User")
 
   defp reload_changeset_with_password(socket, show_password_field) do
     case socket.assigns.mode do

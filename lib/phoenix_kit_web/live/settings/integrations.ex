@@ -9,6 +9,11 @@ defmodule PhoenixKitWeb.Live.Settings.Integrations do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  # Imported per-LiveView rather than from `PhoenixKitWeb, :live_view`: a host
+  # app that defines its own `row_link/1` would get an ambiguous import the
+  # moment core wired this one in project-wide.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Integrations
   alias PhoenixKit.Integrations.Events
   alias PhoenixKit.Integrations.Providers

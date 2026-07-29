@@ -3,50 +3,28 @@
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={@page_title}
+  page_subtitle={selection_subtitle(@selection_mode, length(@selected_uuids))}
   current_path={@current_path}
   current_locale={@current_locale}
   project_title={@project_title}
 >
-  <div class="container mx-auto px-4 py-8 max-w-7xl">
-    <%!-- Header with Actions --%>
-    <header class="w-full mb-6">
-      <div class="flex justify-between items-center">
-        <div>
-          <h1 class="text-2xl sm:text-4xl font-bold text-base-content mb-2">
-            {gettext("Select Media")}
-          </h1>
-          <p class="text-base sm:text-lg text-base-content/70">
-            <%= if @selection_mode == :single do %>
-              {gettext("Click on an image to select it")}
-            <% else %>
-              {gettext("Select one or more images")}
-            <% end %>
-            <%= if @selected_uuids != [] do %>
-              <span class="badge badge-primary ml-2">
-                {ngettext(
-                  "%{count} selected",
-                  "%{count} selected",
-                  length(@selected_uuids),
-                  count: length(@selected_uuids)
-                )}
-              </span>
-            <% end %>
-          </p>
-        </div>
-        <div class="flex gap-2">
-          <button phx-click="cancel_selection" class="btn btn-outline">
-            <.icon name="hero-x-mark" class="w-4 h-4 mr-1" /> {gettext("Cancel")}
-          </button>
-          <button
-            phx-click="confirm_selection"
-            class="btn btn-primary"
-            disabled={@selected_uuids == []}
-          >
-            <.icon name="hero-check" class="w-4 h-4 mr-1" /> {gettext("Confirm Selection")}
-          </button>
-        </div>
-      </div>
-    </header>
+  <div class="px-4 py-8">
+    <%!-- Actions row: Cancel / Confirm Selection. The count badge from the old
+         in-body subtitle doesn't survive as markup here (page_subtitle is
+         string-only) — folded into the subtitle text instead, see
+         selection_subtitle/2. --%>
+    <div class="flex flex-wrap items-center gap-2 justify-end mb-4">
+      <button phx-click="cancel_selection" class="btn btn-outline">
+        <.icon name="hero-x-mark" class="w-4 h-4 mr-1" /> {gettext("Cancel")}
+      </button>
+      <button
+        phx-click="confirm_selection"
+        class="btn btn-primary"
+        disabled={@selected_uuids == []}
+      >
+        <.icon name="hero-check" class="w-4 h-4 mr-1" /> {gettext("Confirm Selection")}
+      </button>
+    </div>
 
     <%!-- Upload Section --%>
     <div class="card bg-base-100 shadow-xl mb-6">
@@ -100,12 +78,13 @@
           <div class="flex-1">
             <.form for={%{}} phx-submit="search" class="w-full">
               <div class="join w-full">
-                <input
+                <.input
                   type="text"
                   name="search[query]"
                   value={@search_query}
                   placeholder={gettext("Search by filename...")}
-                  class="input input-bordered join-item flex-1"
+                  class="join-item flex-1"
+                  wrapper_class="contents"
                 />
                 <button type="submit" class="btn btn-primary join-item">
                   <.icon name="hero-magnifying-glass" class="w-4 h-4" />
@@ -116,22 +95,16 @@
 
           <%!-- Filter by Type --%>
           <div class="w-full md:w-48">
-            <label class="select w-full">
-              <select
-                phx-change="filter_type"
-                name="filter"
-              >
-                <option value="all" selected={@file_type_filter == :all}>
-                  {gettext("All Files")}
-                </option>
-                <option value="image" selected={@file_type_filter == :image}>
-                  {gettext("Images Only")}
-                </option>
-                <option value="video" selected={@file_type_filter == :video}>
-                  {gettext("Videos Only")}
-                </option>
-              </select>
-            </label>
+            <.select
+              name="filter"
+              phx-change="filter_type"
+              value={@file_type_filter}
+              options={[
+                {gettext("All Files"), "all"},
+                {gettext("Images Only"), "image"},
+                {gettext("Videos Only"), "video"}
+              ]}
+            />
           </div>
         </div>
       </div>

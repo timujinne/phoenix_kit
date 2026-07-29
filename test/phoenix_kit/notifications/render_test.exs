@@ -6,6 +6,7 @@ defmodule PhoenixKit.Notifications.RenderTest do
   alias PhoenixKit.Activity.Entry
   alias PhoenixKit.Notifications.Notification
   alias PhoenixKit.Notifications.Render
+  alias PhoenixKit.Notifications.Types
   alias PhoenixKit.Utils.Routes
 
   defp notif(action, metadata \\ %{}) do
@@ -47,6 +48,33 @@ defmodule PhoenixKit.Notifications.RenderTest do
 
       assert view.icon == "hero-exclamation-circle"
       assert view.text == "Your email is no longer confirmed."
+    end
+  end
+
+  describe "render/2 — session actions reach the recipient's inbox" do
+    # Both are logged with `target_uuid` set to the account that was ADDED, so
+    # `maybe_create_from_activity/1` delivers them to that person. Without a
+    # clause they rendered as the humanized action ("Session impersonated"),
+    # which reads as a log line rather than a notice addressed to them.
+    test "session.impersonated says who did what, not the raw action name" do
+      view = Render.render(notif("session.impersonated"), "en")
+
+      assert view.icon == "hero-identification"
+      assert view.text == "An administrator signed in to your account for support."
+    end
+
+    test "session.account_added has its own copy too" do
+      view = Render.render(notif("session.account_added"), "en")
+
+      assert view.icon == "hero-user-plus"
+      assert view.text == "Your account was added to another sign-in session."
+    end
+
+    test "both are claimed by a preference type, so they can be muted" do
+      # An action no type claims is fail-open and therefore unmuteable — it
+      # never appears in the preferences UI for the user to switch off.
+      assert Types.type_for_action("session.impersonated") == "security"
+      assert Types.type_for_action("session.account_added") == "security"
     end
   end
 

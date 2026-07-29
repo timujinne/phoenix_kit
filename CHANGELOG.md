@@ -1,3 +1,140 @@
+## 1.7.220 - 2026-07-29
+
+### i18n
+- **The ten strings #673 newly wrapped in `gettext/1` are translated** (#673
+  review) — `Add`/`Edit Storage Bucket`, `Add`/`Edit Storage Dimension`,
+  `Update Dimension`, `Create`/`Edit User`, `Create a new user account`,
+  `Edit user information`, `Media Detail`. The PR wrapped them without touching
+  the catalogs, so ru and et — the two locales kept at 100% — rendered them in
+  English. Appended by hand to `default.pot` + `ru` + `et`: a full
+  `gettext.extract --merge` reports 246 new / 53 fuzzy across 28k lines, a
+  repo-wide backlog #673 did not cause, and the fuzzy re-marks would push ru and
+  et off 100% rather than toward it.
+
+## 1.7.219 - 2026-07-29
+
+### Added
+- **Admin UI standards sweep** (#673) — the admin area moved onto the
+  framework's own components. Page-local `<header>` / `<.admin_page_header>`
+  blocks fold into the `LayoutWrapper` breadcrumb (`page_section`,
+  `page_section_path`, `page_subtitle`, `page_action`), `container mx-auto`
+  width caps are gone, hand-rolled form controls are now
+  `<.input>` / `<.select>` / `<.textarea>` / `<.checkbox>`, and list views adopt
+  `<.table_default>`, `<.empty_state>`, `<.pagination>`, `<.search_toolbar>` and
+  `<.nav_tabs>`.
+- **`<.row_link>`** (#673) — new core component making a whole table row or card
+  clickable with one real `<a>` and a stretched `::after` overlay. A `<tr>` host
+  needs `relative transform-gpu`: WebKit ignores `position: relative` on `<tr>`,
+  so without a containing block every row's overlay collapses onto the last row
+  and every tap on iOS opens that one. Interactive siblings need `relative z-10`.
+
+### Changed
+- **`<.select>` and `<.textarea>` render the required marker** (#673 review) —
+  `<.input>` grew a red `*` for `required` fields and the sweep deleted the
+  hand-rolled markers it replaced, but the other two components never gained
+  one. Country on `/admin/settings/organization` was left reading as optional.
+- **`<.textarea field={...}>` renders its validation errors** (#673 review) —
+  the `FormField` clause mapped `id`/`name`/`value` but not `field.errors`, so a
+  field-bound textarea showed no message and no `textarea-error` however the
+  changeset failed. The admin-note box on the user detail page was the fourth
+  call site to inherit it.
+- **`<.pagination_controls>` uses daisyUI 5 `join`** (#673) — `btn-group` was
+  removed in daisyUI 5, so the page buttons had lost their grouping.
+- **`<.search_toolbar>` takes an `id`** (#673) — defaults to one derived from the
+  change event; without a form id LiveView form recovery is silently disabled.
+
+### Fixed
+- **The user detail page no longer 500s on a structured custom field** (#673) —
+  `custom_fields` is free-form JSONB, and `to_string/1` raises on a map, so any
+  user who had ever used the media browser (`media_expanded_folders`, a list) or
+  the etcher (`etcher_line_params`, a map) took the whole page down. Structured
+  values now render as JSON, lists join.
+- **Organization-members rows are clickable on Safari/iOS** (#673 review) — the
+  row used `row-link-host`, a class that lives in one host app's `app.css` and
+  exists nowhere in this repo, instead of `transform-gpu`. Every member row's
+  overlay collapsed onto the last one.
+- **Users list rows stay clickable without the Email column** (#673 review) — the
+  `row_link` was rendered only inside the `email` cell, but `email` is
+  `required: false` in the column picker. Dropping it left every row wearing
+  `cursor-pointer` with nothing to click. The overlay now hosts in the first
+  visible non-`actions` column.
+- **The custom-field "add option" input fills its row again** (#673 review) —
+  `class="flex-1"` lands on the `<input>`, but `<.input>`'s
+  `<div phx-feedback-for>` wrapper is the flex item; it needed
+  `wrapper_class="contents"`.
+- **`focus:input-primary` on `<.textarea>`** (#673) — was the input's focus class,
+  never the textarea's, so a focused textarea never took the primary border.
+
+## 1.7.218 - 2026-07-29
+
+### Added
+- **Sign in as another user** (#672) — `MultiSession.impersonate/2`, a
+  `POST /users/session/impersonate/:user_uuid` action, and the authority layer
+  over the existing multi-account stack. The rules are role-based on purpose:
+  `Scope.can_access_admin_area?/1` is true for **any** permission holder, so a
+  permission check would have let a customer with one self-service grant borrow
+  another customer's account. Instead the **root** account decides (never the
+  active one, or an impersonated session could chain) and must hold Owner or
+  Admin; an Owner is never a target; an Admin cannot take another Admin, while
+  an Owner can, because there is nothing above it to escalate to. Requires
+  `multi_session_enabled`.
+
+### Changed
+- **`MultiSession.add_authenticated_user/3`** (#672 review) — takes the
+  activity-feed action to write, defaulting to `session.account_added`. Existing
+  `/2` callers are unaffected.
+- **`already_intercepted: true` now implies `skip_queue: true`** (#670 review) —
+  the opt can only mean "a queue worker is re-sending what it dequeued", so
+  leaving the two independent let a worker that set one and forgot the other
+  offer its own job straight back to the queue that handed it over.
+- **`session.impersonated` and `session.account_added` render as notifications**
+  (#672 review) — both are claimed by the `security` preference type (so they
+  appear in the preferences UI and can be muted) and both have recipient-facing
+  copy instead of the humanized raw action string ("Session impersonated").
+
+### Fixed
+- **Impersonation refusals are recorded** (#672 review) — the feed was written
+  only on success, and only after the session had already changed, despite the
+  documented promise of "every attempt, before the session changes". An Admin
+  reaching for the Owner's account, reaching sideways for another Admin, or a
+  non-staff user hitting the endpoint directly all left no trace at all. They now
+  write `session.impersonation_refused` with the deciding rule in
+  `metadata["reason"]`, and carry no `target_uuid` so a refused attempt is a feed
+  entry rather than a message sent to the account it named.
+- **One activity row per impersonation, saying what happened** (#672 review) — a
+  success wrote both `session.account_added` and `session.impersonated`, and the
+  first is indistinguishable from a user voluntarily adding an account of their
+  own.
+- **Impersonation authority is settled before the uuid is resolved** (#672
+  review) — checking existence first answered "User not found." for an unused
+  uuid and a permission message for a live one, turning the deliberately precise
+  operator copy into an account-existence oracle for every signed-in user. New
+  `MultiSession.may_impersonate?/1` shares its rule with
+  `authorize_impersonation/2` so the two cannot drift.
+- **Existing users are no longer renamed when the admin form rebuilds its
+  changeset** (#671) — `maybe_generate_username_from_email/1` ran on every
+  registration changeset and minted a username whenever the params carried none,
+  which is exactly what the admin edit form sends; and the uniqueness walk asked
+  the database whether the name was taken without excluding the user it was
+  generating for, so `maria`'s own row made `maria` look unavailable to maria.
+  Opening a user and saving turned `maria` into `maria_1`, then `maria_2`.
+- **A generated username carries its uniqueness constraint** (#671 review) —
+  generation runs at the end of `registration_changeset/3`, after
+  `validate_username/2` has already decided there was no username change to
+  guard, so the generated name reached the database unprotected. Two
+  registrations racing on the same local part both settled on it and the loser
+  got an `Ecto.ConstraintError` raised out of `Repo.insert/1` instead of an
+  `{:error, changeset}`.
+- **A queued message is intercepted once** (#670) — `skip_queue: true` skipped
+  only the queue offer, so a queued-then-drained message went through
+  `intercept_before_send/2` twice and a provider that logs per interception
+  recorded every send twice.
+- **Out-of-contract `maybe_enqueue/2` returns are logged** (#670) — a provider
+  bug returning anything other than `:continue` / `{:queued, ref}` still sends
+  (a bug must not eat the message) but no longer does so invisibly.
+- Removed seven `Logger.info` calls left in the admin user form from debugging
+  the username rewrite (#671).
+
 ## 1.7.217 - 2026-07-28
 
 ### Added

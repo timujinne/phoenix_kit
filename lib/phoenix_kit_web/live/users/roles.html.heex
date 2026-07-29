@@ -2,13 +2,13 @@
   socket={@socket}
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-  page_title={gettext("Role Management")}
+  page_title={@page_title}
   page_subtitle={gettext("Create and manage user roles")}
   current_path={@url_path}
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex-col mx-auto px-4 py-6">
+  <div class="flex-col px-4 py-6">
     <%!-- Create Role Modal --%>
     <.modal show={@show_create_form} on_close="hide_form" max_width="2xl">
       <:title>{gettext("Create New Role")}</:title>
@@ -239,21 +239,15 @@
         </.table_default>
       <% else %>
         <%!-- Empty state --%>
-        <div class="text-center py-12">
-          <.icon name="hero-shield-check" class="h-16 w-16 mx-auto text-base-content/40 mb-4" />
-          <h3 class="text-lg font-medium text-base-content mb-2">
-            {gettext("No roles found")}
-          </h3>
-          <p class="text-base-content/70 mb-4">
-            {gettext("Start by creating your first custom role.")}
-          </p>
-          <button
-            phx-click="show_create_form"
-            class="btn btn-primary"
-          >
+        <.empty_state
+          icon="hero-shield-check"
+          title={gettext("No roles found")}
+          description={gettext("Start by creating your first custom role.")}
+        >
+          <button phx-click="show_create_form" class="btn btn-primary">
             {gettext("Create First Role")}
           </button>
-        </div>
+        </.empty_state>
       <% end %>
     </div>
 
@@ -356,16 +350,14 @@
           </h4>
           <div class="space-y-2">
             <%= for key <- PhoenixKit.Users.Permissions.core_section_keys(), MapSet.member?(@permissions_grantable_keys, key) do %>
-              <label class="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-base-200 transition-colors">
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
-                  checked={MapSet.member?(@permissions_role_keys, key)}
-                  phx-click="toggle_permission"
-                  phx-value-key={key}
-                />
-                <span class="text-sm">{PhoenixKit.Users.Permissions.localized_module_label(key)}</span>
-              </label>
+              <.checkbox
+                name={"perm_#{key}"}
+                checked={MapSet.member?(@permissions_role_keys, key)}
+                phx-click="toggle_permission"
+                phx-value-key={key}
+                class="checkbox-sm checkbox-primary"
+                label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+              />
             <% end %>
           </div>
         </div>
@@ -377,32 +369,27 @@
           </h4>
           <div class="space-y-2 max-h-80 overflow-y-auto">
             <%= for key <- PhoenixKit.Users.Permissions.feature_module_keys(), MapSet.member?(@permissions_grantable_keys, key) do %>
-              <label class="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-base-200 transition-colors">
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
-                  checked={MapSet.member?(@permissions_role_keys, key)}
-                  phx-click="toggle_permission"
-                  phx-value-key={key}
-                />
-                <span class="text-sm">{PhoenixKit.Users.Permissions.localized_module_label(key)}</span>
-              </label>
+              <.checkbox
+                name={"perm_#{key}"}
+                checked={MapSet.member?(@permissions_role_keys, key)}
+                phx-click="toggle_permission"
+                phx-value-key={key}
+                class="checkbox-sm checkbox-primary"
+                label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+              />
               <%!-- Fine-grained sub-permissions, indented under their module.
                    Checking one also checks the module; unchecking the module
                    unchecks these with it (mirrors the save-time invariant). --%>
               <%= for sub <- PhoenixKit.Users.Permissions.sub_permissions_for(key), MapSet.member?(@permissions_grantable_keys, sub.key) do %>
-                <label class="flex items-center gap-3 cursor-pointer p-2 pl-8 rounded-lg hover:bg-base-200 transition-colors">
-                  <input
-                    type="checkbox"
-                    class="checkbox checkbox-xs checkbox-primary"
-                    checked={MapSet.member?(@permissions_role_keys, sub.key)}
-                    phx-click="toggle_permission"
-                    phx-value-key={sub.key}
-                  />
-                  <span class="text-sm text-base-content/80">
-                    {PhoenixKit.Users.Permissions.localized_module_label(sub.key)}
-                  </span>
-                </label>
+                <.checkbox
+                  name={"perm_#{sub.key}"}
+                  checked={MapSet.member?(@permissions_role_keys, sub.key)}
+                  phx-click="toggle_permission"
+                  phx-value-key={sub.key}
+                  class="checkbox-xs checkbox-primary"
+                  wrapper_class="pl-8"
+                  label={PhoenixKit.Users.Permissions.localized_module_label(sub.key)}
+                />
               <% end %>
             <% end %>
           </div>
@@ -417,16 +404,15 @@
           </h4>
           <div class="columns-1 md:columns-2 gap-x-6">
             <%= for key <- PhoenixKit.Users.Permissions.custom_keys(), MapSet.member?(@permissions_grantable_keys, key) do %>
-              <label class="flex items-center gap-3 cursor-pointer p-2 rounded-lg hover:bg-base-200 transition-colors break-inside-avoid">
-                <input
-                  type="checkbox"
-                  class="checkbox checkbox-sm checkbox-primary"
-                  checked={MapSet.member?(@permissions_role_keys, key)}
-                  phx-click="toggle_permission"
-                  phx-value-key={key}
-                />
-                <span class="text-sm">{PhoenixKit.Users.Permissions.localized_module_label(key)}</span>
-              </label>
+              <.checkbox
+                name={"perm_#{key}"}
+                checked={MapSet.member?(@permissions_role_keys, key)}
+                phx-click="toggle_permission"
+                phx-value-key={key}
+                class="checkbox-sm checkbox-primary"
+                wrapper_class="break-inside-avoid"
+                label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+              />
             <% end %>
           </div>
         </div>

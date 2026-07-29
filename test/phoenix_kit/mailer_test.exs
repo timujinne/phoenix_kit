@@ -539,5 +539,17 @@ defmodule PhoenixKit.MailerTest do
       # message already carries.
       assert_received {:handle_after_send_called, {:ok, _}}
     end
+
+    test "already_intercepted alone still skips the queue, so a worker cannot loop" do
+      # `already_intercepted: true` can only be a worker re-sending what it
+      # dequeued. If it did not imply `skip_queue`, a worker that set one opt and
+      # forgot the other would hand its own job straight back to the queue.
+      assert {:ok, _metadata} =
+               Mailer.deliver_email(queue_test_email(), already_intercepted: true)
+
+      refute_received {:intercept_before_send_called, _opts}
+      refute_received {:maybe_enqueue_called, _opts}
+      assert_received {:handle_after_send_called, {:ok, _}}
+    end
   end
 end

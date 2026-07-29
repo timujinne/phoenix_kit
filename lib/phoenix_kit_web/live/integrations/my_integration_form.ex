@@ -364,17 +364,14 @@ defmodule PhoenixKitWeb.Live.Integrations.MyIntegrationForm do
       flash={@flash}
       phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
       page_title={@page_title}
+      page_section={gettext("Integrations")}
+      page_section_path={Routes.path("/admin/settings/integrations")}
+      page_subtitle={if @provider == nil, do: gettext("Choose a service to connect")}
       current_path={@url_path}
       project_title={@project_title}
       current_locale={assigns[:current_locale]}
     >
-      <div class="container mx-auto px-4 py-6">
-        <.admin_page_header
-          back={Routes.path("/admin/settings/integrations")}
-          title={@page_title}
-          subtitle={if @provider == nil, do: gettext("Choose a service to connect")}
-        />
-
+      <div class="px-4 py-6">
         <%!-- Step 1: Provider picker (new mode, no provider selected yet) --%>
         <div :if={@live_action == :new && @selected_provider == nil} class="max-w-4xl mx-auto">
           <.provider_picker providers={@providers} />

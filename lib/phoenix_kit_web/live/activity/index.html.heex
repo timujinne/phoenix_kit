@@ -8,7 +8,7 @@
   project_title={@project_title}
   current_locale={assigns[:current_locale]}
 >
-  <div class="container flex flex-col mx-auto px-4 py-6">
+  <div class="flex flex-col px-4 py-6">
     <%!-- Activity List --%>
     <.table_default
       id="activity-table"
@@ -342,7 +342,7 @@
           </.table_default_row>
         <% end %>
         <%= for entry <- @entries do %>
-          <.table_default_row>
+          <.table_default_row class="relative transform-gpu cursor-pointer">
             <.table_default_cell class="text-sm hidden md:table-cell">
               <%= if entry.module do %>
                 <span class="badge badge-outline badge-xs">{entry.module}</span>
@@ -360,6 +360,10 @@
               <% end %>
             </.table_default_cell>
             <.table_default_cell>
+              <.row_link
+                navigate={Routes.path("/admin/activity/#{entry.uuid}")}
+                label={entry.action}
+              />
               <span class={"badge badge-sm #{action_badge_color(entry.action)}"}>
                 {entry.action}
               </span>
@@ -438,7 +442,7 @@
                 {UtilsDate.format_time_with_user_format(entry.inserted_at)}
               </div>
             </.table_default_cell>
-            <.table_default_cell>
+            <.table_default_cell class="relative z-10">
               <.link
                 navigate={Routes.path("/admin/activity/#{entry.uuid}")}
                 class="btn btn-ghost btn-xs btn-square"
@@ -453,23 +457,18 @@
     </.table_default>
 
     <%!-- Pagination --%>
-    <%= if @total_pages > 1 do %>
-      <div class="flex justify-center mt-6">
-        <div class="join">
-          <%= for page <- max(1, @page - 2)..min(@total_pages, @page + 2) do %>
-            <.link
-              patch={
-                Routes.path(
-                  "/admin/activity?#{URI.encode_query(Enum.reject([{"page", page}, {"module", @filter_module}, {"mode", @filter_mode}, {"action", @filter_action}, {"resource_type", @filter_resource_type}], fn {_k, v} -> is_nil(v) or v == "" end))}"
-                )
-              }
-              class={["join-item btn btn-sm", if(page == @page, do: "btn-active", else: "")]}
-            >
-              {page}
-            </.link>
-          <% end %>
-        </div>
-      </div>
-    <% end %>
+    <.pagination
+      current_page={@page}
+      total_pages={@total_pages}
+      base_path={Routes.path("/admin/activity")}
+      params={
+        %{
+          "module" => @filter_module,
+          "mode" => @filter_mode,
+          "action" => @filter_action,
+          "resource_type" => @filter_resource_type
+        }
+      }
+    />
   </div>
 </PhoenixKitWeb.Components.LayoutWrapper.app_layout>

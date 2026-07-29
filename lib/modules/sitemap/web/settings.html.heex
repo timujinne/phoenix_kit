@@ -2,30 +2,27 @@
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={gettext("Sitemap Settings")}
+  page_section={gettext("Modules")}
+  page_section_path={Routes.path("/admin/modules", locale: @current_locale)}
+  page_subtitle={gettext("Configure sitemap generation and scheduling")}
   current_path={@current_path}
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex flex-col mx-auto px-4 py-6">
-    <.admin_page_header
-      back={Routes.path("/admin/modules", locale: @current_locale)}
-      title={gettext("Sitemap Settings")}
-      subtitle={gettext("Configure sitemap generation and scheduling")}
-    >
-      <:actions>
-        <label class="label cursor-pointer gap-2">
-          <span class="label-text font-medium">
-            {if @config.enabled, do: gettext("Enabled"), else: gettext("Disabled")}
-          </span>
-          <input
-            type="checkbox"
-            class="toggle toggle-primary"
-            checked={@config.enabled}
-            phx-click="toggle_sitemap"
-          />
-        </label>
-      </:actions>
-    </.admin_page_header>
+  <div class="flex flex-col px-4 py-6">
+    <div class="flex items-center gap-2 justify-end mb-4">
+      <label class="label cursor-pointer gap-2">
+        <span class="label-text font-medium">
+          {if @config.enabled, do: gettext("Enabled"), else: gettext("Disabled")}
+        </span>
+        <input
+          type="checkbox"
+          class="toggle toggle-primary"
+          checked={@config.enabled}
+          phx-click="toggle_sitemap"
+        />
+      </label>
+    </div>
 
     <div class="space-y-6">
       <%!-- Stats Cards --%>
@@ -545,19 +542,17 @@
                 <label class="label">
                   <span class="label-text font-medium">{gettext("Display Style")}</span>
                 </label>
-                <label class="select w-full">
-                  <select
-                    name="style"
-                    disabled={!@config.html_enabled}
-                  >
-                    <option value="table" selected={@config.html_style in ["table", "grouped"]}>
-                      {gettext("Table (Clean table layout)")}
-                    </option>
-                    <option value="minimal" selected={@config.html_style in ["minimal", "flat"]}>
-                      {gettext("Minimal (Simple list)")}
-                    </option>
-                  </select>
-                </label>
+                <.select
+                  name="style"
+                  disabled={!@config.html_enabled}
+                  value={
+                    if @config.html_style in ["table", "grouped"], do: "table", else: "minimal"
+                  }
+                  options={[
+                    {gettext("Table (Clean table layout)"), "table"},
+                    {gettext("Minimal (Simple list)"), "minimal"}
+                  ]}
+                />
               </form>
             </div>
           </div>
@@ -584,31 +579,20 @@
               class="flex items-center gap-4 mt-4"
             >
               <span class="text-sm">{gettext("Regenerate every")}</span>
-              <label class="select select-sm">
-                <select
-                  name="interval"
-                  disabled={!@config.schedule_enabled}
-                >
-                  <option value="1" selected={@config.schedule_interval_hours == 1}>
-                    {gettext("1 hour")}
-                  </option>
-                  <option value="6" selected={@config.schedule_interval_hours == 6}>
-                    {gettext("6 hours")}
-                  </option>
-                  <option value="12" selected={@config.schedule_interval_hours == 12}>
-                    {gettext("12 hours")}
-                  </option>
-                  <option value="24" selected={@config.schedule_interval_hours == 24}>
-                    {gettext("24 hours")}
-                  </option>
-                  <option value="48" selected={@config.schedule_interval_hours == 48}>
-                    {gettext("48 hours")}
-                  </option>
-                  <option value="168" selected={@config.schedule_interval_hours == 168}>
-                    {gettext("Weekly")}
-                  </option>
-                </select>
-              </label>
+              <.select
+                name="interval"
+                disabled={!@config.schedule_enabled}
+                value={@config.schedule_interval_hours}
+                options={[
+                  {gettext("1 hour"), "1"},
+                  {gettext("6 hours"), "6"},
+                  {gettext("12 hours"), "12"},
+                  {gettext("24 hours"), "24"},
+                  {gettext("48 hours"), "48"},
+                  {gettext("Weekly"), "168"}
+                ]}
+                class="select-sm"
+              />
             </form>
           </div>
         </div>
@@ -710,11 +694,12 @@
                   "One regular expression per line. Replaces the built-in defaults entirely when saved — an empty list means nothing is excluded."
                 )}
               </p>
-              <textarea
+              <.textarea
                 name="patterns"
+                value={@exclude_patterns_text}
                 rows="6"
-                class="textarea textarea-bordered font-mono text-xs w-full"
-              >{@exclude_patterns_text}</textarea>
+                class="font-mono text-xs"
+              />
               <div :if={@exclude_patterns_error} class="alert alert-error mt-2 py-2 text-xs">
                 {@exclude_patterns_error}
               </div>
@@ -732,11 +717,12 @@
                 {gettext("One pipeline name per line. Added on top of the built-in defaults:")}
                 <span class="font-mono">{@protected_pipelines_defaults_text}</span>
               </p>
-              <textarea
+              <.textarea
                 name="pipelines"
+                value={@protected_pipelines_text}
                 rows="6"
-                class="textarea textarea-bordered font-mono text-xs w-full"
-              >{@protected_pipelines_text}</textarea>
+                class="font-mono text-xs"
+              />
               <div :if={@protected_pipelines_error} class="alert alert-error mt-2 py-2 text-xs">
                 {@protected_pipelines_error}
               </div>
@@ -755,11 +741,12 @@
                   "JSON array of extra static URL entries (path, priority, changefreq, title, category)."
                 )}
               </p>
-              <textarea
+              <.textarea
                 name="json"
+                value={@custom_urls_text}
                 rows="8"
-                class="textarea textarea-bordered font-mono text-xs w-full"
-              >{@custom_urls_text}</textarea>
+                class="font-mono text-xs"
+              />
               <div :if={@custom_urls_error} class="alert alert-error mt-2 py-2 text-xs">
                 {@custom_urls_error}
               </div>
@@ -778,11 +765,12 @@
                   "JSON array of route configurations (plug or path, priority, changefreq, title, category). Replaces the built-in defaults entirely when saved — an empty list removes the homepage entry too."
                 )}
               </p>
-              <textarea
+              <.textarea
                 name="json"
+                value={@static_routes_text}
                 rows="8"
-                class="textarea textarea-bordered font-mono text-xs w-full"
-              >{@static_routes_text}</textarea>
+                class="font-mono text-xs"
+              />
               <div :if={@static_routes_error} class="alert alert-error mt-2 py-2 text-xs">
                 {@static_routes_error}
               </div>

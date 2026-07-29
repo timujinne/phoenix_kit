@@ -2,21 +2,18 @@
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={gettext("Media Settings")}
+  page_section={gettext("Modules")}
+  page_section_path={PhoenixKit.Utils.Routes.path("/admin/modules")}
+  page_subtitle={
+    gettext(
+      "Media is a core system module that is always enabled and cannot be disabled — it provides essential file management functionality across PhoenixKit. Configure its storage buckets and file processing settings here."
+    )
+  }
   current_path={@current_path}
   current_locale={@current_locale}
   project_title={@project_title}
 >
-  <div class="container mx-auto px-4 py-8">
-    <.admin_page_header
-      back={PhoenixKit.Utils.Routes.path("/admin/modules")}
-      title={gettext("Media Settings")}
-      subtitle={
-        gettext(
-          "Media is a core system module that is always enabled and cannot be disabled — it provides essential file management functionality across PhoenixKit. Configure its storage buckets and file processing settings here."
-        )
-      }
-    />
-
+  <div class="px-4 py-8">
     <%!-- System Dependencies Check --%>
     <%= if match?({:error, :not_installed}, @imagemagick_status) do %>
       <div class="alert alert-error mb-6">
@@ -350,13 +347,13 @@
                   </span>
                 </div>
               <% end %>
-              <input
+              <.input
                 type="number"
                 name="form_redundancy"
                 value={@form_redundancy}
                 min="1"
                 max={@max_redundancy}
-                class={"input input-bordered #{if @form_redundancy > @max_redundancy, do: "input-warning", else: ""}"}
+                class={@form_redundancy > @max_redundancy && "input-warning"}
               />
               <p class="text-xs text-base-content/70 mt-1">
                 {gettext("Enter number of copies")} (1-{@max_redundancy}).
@@ -376,70 +373,51 @@
 
           <%!-- Auto-Variant Generation --%>
           <div class="form-control">
-            <label class="flex items-start gap-3 cursor-pointer py-2">
-              <input
-                type="checkbox"
-                name="form_auto_generate_variants"
-                checked={@form_auto_generate_variants}
-                phx-click="toggle_form_variants"
-                value="true"
-                class="checkbox checkbox-primary mt-0.5 flex-shrink-0"
-              />
-              <span>
-                <span class="font-semibold text-sm">{gettext("Auto-Generate Variants")}</span>
-                <span class="block text-xs text-base-content/70 mt-0.5">
-                  {gettext("Automatically resize images and videos to configured dimensions")}
-                </span>
-              </span>
-            </label>
+            <.checkbox
+              name="form_auto_generate_variants"
+              checked={@form_auto_generate_variants}
+              phx-click="toggle_form_variants"
+              class="mt-0.5 flex-shrink-0"
+              label={gettext("Auto-Generate Variants")}
+            >
+              <:description>
+                {gettext("Automatically resize images and videos to configured dimensions")}
+              </:description>
+            </.checkbox>
           </div>
 
           <%!-- Deep Zoom Tile Generation --%>
           <div class="form-control">
-            <label class="flex items-start gap-3 cursor-pointer py-2">
-              <input
-                type="checkbox"
-                name="form_tile_generation_enabled"
-                checked={@form_tile_generation_enabled}
-                phx-click="toggle_form_tile_generation"
-                value="true"
-                class="checkbox checkbox-primary mt-0.5 flex-shrink-0"
-              />
-              <span>
-                <span class="font-semibold text-sm">
-                  {gettext("Deep Zoom Tile Generation")}
-                </span>
-                <span class="block text-xs text-base-content/70 mt-0.5">
-                  {gettext(
-                    "Lazily generate DZI tile pyramids when users zoom deeply into images. With this off the MediaBrowser still swaps between medium/large variants while zooming, but never generates tiles or hits the lazy tile endpoint. ImageMagick is required when enabled."
-                  )}
-                </span>
-              </span>
-            </label>
+            <.checkbox
+              name="form_tile_generation_enabled"
+              checked={@form_tile_generation_enabled}
+              phx-click="toggle_form_tile_generation"
+              class="mt-0.5 flex-shrink-0"
+              label={gettext("Deep Zoom Tile Generation")}
+            >
+              <:description>
+                {gettext(
+                  "Lazily generate DZI tile pyramids when users zoom deeply into images. With this off the MediaBrowser still swaps between medium/large variants while zooming, but never generates tiles or hits the lazy tile endpoint. ImageMagick is required when enabled."
+                )}
+              </:description>
+            </.checkbox>
           </div>
 
           <%!-- Annotated Thumbnails --%>
           <div class="form-control">
-            <label class="flex items-start gap-3 cursor-pointer py-2">
-              <input
-                type="checkbox"
-                name="form_annotated_thumbnails_enabled"
-                checked={@form_annotated_thumbnails_enabled}
-                phx-click="toggle_form_annotated_thumbnails"
-                value="true"
-                class="checkbox checkbox-primary mt-0.5 flex-shrink-0"
-              />
-              <span>
-                <span class="font-semibold text-sm">
-                  {gettext("Annotated Thumbnails")}
-                </span>
-                <span class="block text-xs text-base-content/70 mt-0.5">
-                  {gettext(
-                    "Bake Etcher annotation shapes (rectangles, marker strokes, etc.) into a file's grid thumbnail, regenerated in the background when annotations change. With this off the grid shows the plain thumbnail and no annotated variant is generated. ImageMagick is required when enabled."
-                  )}
-                </span>
-              </span>
-            </label>
+            <.checkbox
+              name="form_annotated_thumbnails_enabled"
+              checked={@form_annotated_thumbnails_enabled}
+              phx-click="toggle_form_annotated_thumbnails"
+              class="mt-0.5 flex-shrink-0"
+              label={gettext("Annotated Thumbnails")}
+            >
+              <:description>
+                {gettext(
+                  "Bake Etcher annotation shapes (rectangles, marker strokes, etc.) into a file's grid thumbnail, regenerated in the background when annotations change. With this off the grid shows the plain thumbnail and no annotated variant is generated. ImageMagick is required when enabled."
+                )}
+              </:description>
+            </.checkbox>
           </div>
 
           <%!-- Max Upload Size --%>
@@ -450,12 +428,11 @@
                 {gettext("Maximum file size allowed per upload")}
               </span>
             </div>
-            <input
+            <.input
               type="number"
               name="form_max_upload_size_mb"
               value={@form_max_upload_size_mb}
               min="1"
-              class="input input-bordered"
             />
             <p class="text-xs text-base-content/70 mt-1">
               {gettext("Current limit: %{size} MB", size: @form_max_upload_size_mb)}

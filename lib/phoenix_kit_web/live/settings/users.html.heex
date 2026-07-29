@@ -8,7 +8,7 @@
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex flex-col mx-auto px-4 py-6">
+  <div class="flex flex-col px-4 py-6">
     <%!-- Settings Form --%>
     <div class="space-y-6">
       <%!-- User Configuration Settings Card --%>
@@ -177,13 +177,12 @@
                       {gettext("After-login path")}
                     </span>
                   </label>
-                  <input
+                  <.input
                     id="settings_after_login_path"
                     type="text"
                     name="settings[after_login_path]"
                     value={@settings["after_login_path"]}
                     placeholder="/"
-                    class="input input-bordered w-full"
                   />
                   <div class="text-xs text-base-content/60 mt-1">
                     {gettext("Local path users land on after signing in.")}
@@ -195,13 +194,12 @@
                       {gettext("After-registration path")}
                     </span>
                   </label>
-                  <input
+                  <.input
                     id="settings_after_registration_path"
                     type="text"
                     name="settings[after_registration_path]"
                     value={@settings["after_registration_path"]}
                     placeholder={gettext("Same as after login")}
-                    class="input input-bordered w-full"
                   />
                   <div class="text-xs text-base-content/60 mt-1">
                     {gettext(
@@ -231,15 +229,12 @@
                     {gettext("Role assigned to new user registrations")}
                   </span>
                 </label>
-                <label class="select w-full focus:select-primary">
-                  <select name="settings[new_user_default_role]">
-                    <%= for {label, value} <- @setting_options["new_user_default_role"] do %>
-                      <option value={value} selected={value == @settings["new_user_default_role"]}>
-                        {label}
-                      </option>
-                    <% end %>
-                  </select>
-                </label>
+                <.select
+                  name="settings[new_user_default_role]"
+                  value={@settings["new_user_default_role"]}
+                  options={@setting_options["new_user_default_role"]}
+                  class="focus-within:select-primary"
+                />
                 <.unsaved_hint
                   dirty={
                     @settings["new_user_default_role"] != @saved_settings["new_user_default_role"]
@@ -281,18 +276,12 @@
                     {gettext("Active status for new user registrations")}
                   </span>
                 </label>
-                <label class="select w-full focus:select-primary">
-                  <select name="settings[new_user_default_status]">
-                    <%= for {label, value} <- @setting_options["new_user_default_status"] do %>
-                      <option
-                        value={value}
-                        selected={value == @settings["new_user_default_status"]}
-                      >
-                        {label}
-                      </option>
-                    <% end %>
-                  </select>
-                </label>
+                <.select
+                  name="settings[new_user_default_status]"
+                  value={@settings["new_user_default_status"]}
+                  options={@setting_options["new_user_default_status"]}
+                  class="focus-within:select-primary"
+                />
                 <.unsaved_hint
                   dirty={
                     @settings["new_user_default_status"] !=
@@ -578,11 +567,10 @@
                     <label class="label">
                       <span class="label-text">{gettext("Field Key")} *</span>
                     </label>
-                    <input
+                    <.input
                       type="text"
                       name="field[key]"
                       value={if @editing_field, do: @editing_field["key"], else: ""}
-                      class="input input-bordered"
                       placeholder="phone_number"
                       required
                       disabled={!!@editing_field}
@@ -599,11 +587,10 @@
                     <label class="label">
                       <span class="label-text">{gettext("Label")} *</span>
                     </label>
-                    <input
+                    <.input
                       type="text"
                       name="field[label]"
                       value={if @editing_field, do: @editing_field["label"], else: ""}
-                      class="input input-bordered"
                       placeholder={gettext("Phone Number")}
                       required
                     />
@@ -614,22 +601,18 @@
                     <label class="label">
                       <span class="label-text">{gettext("Type")} *</span>
                     </label>
-                    <label class="select">
-                      <select
-                        name="field[type]"
-                        required
-                        phx-change="field_type_changed"
-                      >
-                        <%= for type <- ~w(text textarea number boolean date email url uuid select radio checkbox) do %>
-                          <option
-                            value={type}
-                            selected={@field_form_type == type}
-                          >
-                            {String.capitalize(type)}
-                          </option>
-                        <% end %>
-                      </select>
-                    </label>
+                    <.select
+                      name="field[type]"
+                      value={@field_form_type}
+                      phx-change="field_type_changed"
+                      required
+                      options={
+                        Enum.map(
+                          ~w(text textarea number boolean date email url uuid select radio checkbox),
+                          &{String.capitalize(&1), &1}
+                        )
+                      }
+                    />
                   </div>
 
                   <%!-- Required Checkbox --%>
@@ -692,13 +675,15 @@
 
                       <%!-- Add option input --%>
                       <div class="flex gap-2">
-                        <input
+                        <.input
                           type="text"
+                          id="new_option_input"
+                          name="new_option_value"
                           value={@new_option_value}
-                          class="input input-bordered input-sm flex-1"
                           placeholder={gettext("Enter option value")}
                           phx-keyup="update_new_option"
-                          id="new_option_input"
+                          class="input-sm flex-1"
+                          wrapper_class="contents"
                         />
                         <button
                           type="button"

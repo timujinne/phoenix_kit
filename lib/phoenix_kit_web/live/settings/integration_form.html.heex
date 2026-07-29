@@ -2,22 +2,15 @@
   socket={@socket}
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-  page_title={"#{@project_title} - #{@page_title}"}
+  page_title={@page_title}
+  page_section={gettext("Integrations")}
+  page_section_path={PhoenixKit.Utils.Routes.path("/admin/settings/integrations/website")}
+  page_subtitle={if @provider == nil, do: gettext("Choose a service to connect")}
   current_path={@current_path}
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container mx-auto px-4 py-6">
-    <%!-- Page header — title only. Provider name + description + status
-         live in the provider info card below; repeating the name as a
-         subtitle here just doubled it visually. The picker step gets
-         a subtitle since there's no provider context yet. --%>
-    <.admin_page_header
-      back={PhoenixKit.Utils.Routes.path("/admin/settings/integrations/website")}
-      title={@page_title}
-      subtitle={if @provider == nil, do: gettext("Choose a service to connect")}
-    />
-
+  <div class="px-4 py-6">
     <%!-- Flash messages --%>
     <div :if={@success} class="alert alert-success mb-4" phx-click="dismiss">
       <span>{@success}</span>
@@ -199,15 +192,12 @@
                  current name pre-filled. Backend's `save_form`
                  detects rename via params["name"] vs @name. --%>
             <div class="form-control">
-              <label class="label" for="field-name">
-                <span class="label-text">{gettext("Connection Name")}</span>
-              </label>
-              <input
+              <.input
                 type="text"
                 id="field-name"
                 name="name"
                 value={@name || @new_name}
-                class="input input-bordered w-full"
+                label={gettext("Connection Name")}
                 placeholder={gettext("e.g. Main, Personal, My Company Drive")}
                 required
               />

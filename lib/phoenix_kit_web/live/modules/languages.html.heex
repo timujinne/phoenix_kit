@@ -10,7 +10,7 @@
 >
   <div
     id="languages-content"
-    class="container flex flex-col mx-auto px-4 py-6"
+    class="flex flex-col px-4 py-6"
     phx-hook="PreserveScroll"
   >
     <%!-- Summary Section --%>
@@ -169,13 +169,13 @@
 
         <%!-- Search Input --%>
         <div class="mb-4">
-          <input
+          <.input
             type="text"
+            name="search_query"
+            value={@search_query}
             placeholder="Search countries or languages..."
-            class="input input-bordered w-full"
             phx-keyup="search_countries"
             phx-debounce="150"
-            value={@search_query}
           />
         </div>
 

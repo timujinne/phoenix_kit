@@ -9,6 +9,11 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
   """
   use PhoenixKitWeb, :live_view
 
+  # Imported per-LiveView rather than from `PhoenixKitWeb, :live_view`: a host
+  # app that defines its own `row_link/1` would get an ambiguous import the
+  # moment core wired this one in project-wide.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   @compile {:no_warn_undefined, PhoenixKitUserConnections}
 
   alias PhoenixKit.Admin.Events
@@ -653,14 +658,30 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
       "true" -> gettext("Yes")
       false -> gettext("No")
       "false" -> gettext("No")
-      _ -> to_string(value)
+      _ -> printable(value)
     end
   end
 
   defp format_custom_field_value(value, type, field_key)
        when type in ["select", "radio", "checkbox"] do
-    CustomFields.get_option_text(field_key, value) || to_string(value)
+    CustomFields.get_option_text(field_key, value) || printable(value)
   end
 
-  defp format_custom_field_value(value, _type, _field_key), do: to_string(value)
+  defp format_custom_field_value(value, _type, _field_key), do: printable(value)
+
+  # `custom_fields` is free-form JSONB, so a value can be a map or a list — the
+  # media browser stores `media_expanded_folders` as a list and the etcher stores
+  # `etcher_line_params` as a map. `to_string/1` raises Protocol.UndefinedError on
+  # a map, which took the whole user page down with a 500 for any user who had
+  # ever used those features. Render structured values as JSON instead of
+  # crashing; a list of strings is joined, since `to_string/1` would silently
+  # concatenate it into one unreadable run.
+  defp printable(value) when is_map(value), do: Jason.encode!(value)
+
+  defp printable(value) when is_list(value) do
+    Enum.map_join(value, ", ", &printable/1)
+  end
+
+  defp printable(value) when is_binary(value), do: value
+  defp printable(value), do: to_string(value)
 end

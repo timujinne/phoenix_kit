@@ -184,8 +184,15 @@ defmodule PhoenixKitWeb.Users.MultiSession do
 
   Used by the OAuth add-account callback so the same logic applies whether the
   user was authenticated via password or via OAuth.
+
+  `event` names the activity-feed action written on success. It exists so
+  `impersonate/2` can record what actually happened instead of a second row
+  saying `session.account_added` — in the feed those two are the same sentence,
+  and one of them is a user adding an account of their own.
   """
-  def add_authenticated_user(conn, %Auth.User{is_active: true} = user) do
+  def add_authenticated_user(conn, user, event \\ "session.account_added")
+
+  def add_authenticated_user(conn, %Auth.User{is_active: true} = user, event) do
     session = get_session(conn)
     stack = stack_tokens(session)
 
@@ -204,12 +211,12 @@ defmodule PhoenixKitWeb.Users.MultiSession do
           |> put_session(@stack_key, stack ++ [token])
           |> renew_and_put_active_token(token)
 
-        log_event("session.account_added", root_user(session), user)
+        log_event(event, root_user(session), user)
         {:ok, conn}
     end
   end
 
-  def add_authenticated_user(_conn, %Auth.User{}), do: {:error, :inactive}
+  def add_authenticated_user(_conn, %Auth.User{}, _event), do: {:error, :inactive}
 
   @doc """
   Adds `target` to the session stack on an administrator's authority, without
@@ -231,9 +238,16 @@ defmodule PhoenixKitWeb.Users.MultiSession do
     people being supported, not sideways between staff. An Owner root may,
     because there is nothing above it to escalate to.
 
-  Logged as `session.impersonated` on the activity feed, always, before the
-  session changes — an impersonation nobody can see afterwards is the thing that
-  makes this feature dangerous.
+  A success is logged as `session.impersonated` — one row, written in place of
+  the `session.account_added` the stack append would otherwise have written. A
+  refusal is logged as `session.impersonation_refused` with the deciding rule in
+  `metadata["reason"]`: an impersonation nobody can see afterwards is the thing
+  that makes this feature dangerous, and a *rejected* attempt to borrow the
+  owner's account is the entry whoever watches the feed most wants to find.
+
+  Refusal rows carry no `target_uuid` on purpose. `Activity.log/1` fans a row
+  with one out to that user's notification inbox, and a refused attempt is a
+  signal for the feed, not a message to the person it named.
   """
   @spec impersonate(Plug.Conn.t(), Auth.User.t()) ::
           {:ok, Plug.Conn.t()}
@@ -249,16 +263,51 @@ defmodule PhoenixKitWeb.Users.MultiSession do
     session = get_session(conn)
     actor = root_user(session)
 
-    with :ok <- authorize_impersonation(actor, target) do
-      case add_authenticated_user(conn, target) do
-        {:ok, conn} ->
-          log_event("session.impersonated", actor, target)
-          {:ok, conn}
+    case authorize_impersonation(actor, target) do
+      :ok ->
+        case add_authenticated_user(conn, target, "session.impersonated") do
+          {:ok, conn} ->
+            {:ok, conn}
 
-        {:error, _reason} = error ->
-          error
-      end
+          {:error, reason} = error ->
+            log_impersonation_refused(actor, target, reason)
+            error
+        end
+
+      {:error, reason} = error ->
+        log_impersonation_refused(actor, target, reason)
+        error
     end
+  end
+
+  @doc """
+  True when the session's ROOT account holds the authority `impersonate/2`
+  requires before it will look at a target at all.
+
+  Exposed so the controller can refuse an unauthorized actor *before* it resolves
+  the uuid: resolving first answers "does this account exist?" with a distinct
+  message, and this endpoint is reachable by every signed-in user, not only by
+  staff. Shares `staff?/1` with `authorize_impersonation/2` so the two rules
+  cannot drift apart.
+  """
+  @spec may_impersonate?(map()) :: boolean()
+  def may_impersonate?(session) when is_map(session) do
+    case root_user(session) do
+      %Auth.User{} = actor -> staff?(actor)
+      _ -> false
+    end
+  end
+
+  @doc """
+  Records an impersonation attempt refused before a target was resolved, so the
+  controller's authority-first ordering does not cost the feed an entry.
+  """
+  @spec log_impersonation_refusal(Plug.Conn.t(), String.t()) :: :ok
+  def log_impersonation_refusal(conn, target_uuid) do
+    conn
+    |> get_session()
+    |> root_user()
+    |> log_impersonation_refused(target_uuid, :not_allowed)
   end
 
   defp authorize_impersonation(nil, _target), do: {:error, :not_allowed}
@@ -272,7 +321,7 @@ defmodule PhoenixKitWeb.Users.MultiSession do
       actor.uuid == target.uuid ->
         {:error, :self}
 
-      not (system.owner in actor_roles or system.admin in actor_roles) ->
+      not staff?(actor) ->
         {:error, :not_allowed}
 
       system.owner in target_roles ->
@@ -287,6 +336,15 @@ defmodule PhoenixKitWeb.Users.MultiSession do
       true ->
         :ok
     end
+  end
+
+  # Owner or Admin by ROLE. Deliberately not `can_access_admin_area?/1` — see
+  # `impersonate/2`'s docstring for why a permission check opens the door to
+  # any customer holding one self-service permission.
+  defp staff?(%Auth.User{} = user) do
+    system = Role.system_roles()
+    roles = Auth.User.get_roles(user)
+    system.owner in roles or system.admin in roles
   end
 
   @doc "Activates a token already present in the stack, identified by `ref`."
@@ -433,4 +491,33 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   end
 
   defp log_event(_action, _actor, _target), do: :ok
+
+  # A refused impersonation. `target` is a `%User{}` when one was resolved and a
+  # bare uuid when the actor was turned away before the lookup; either way the
+  # row names what was reached for. No `target_uuid` — see `impersonate/2`.
+  defp log_impersonation_refused(%Auth.User{} = actor, target, reason) do
+    {target_uuid, target_email} = refusal_target(target)
+
+    PhoenixKit.Activity.log(%{
+      action: "session.impersonation_refused",
+      module: "users",
+      mode: "auto",
+      actor_uuid: actor.uuid,
+      resource_type: "user",
+      resource_uuid: target_uuid,
+      target_uuid: nil,
+      metadata:
+        %{"reason" => to_string(reason), "email" => target_email}
+        |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+        |> Map.new()
+    })
+  rescue
+    _ -> :ok
+  end
+
+  defp log_impersonation_refused(_actor, _target, _reason), do: :ok
+
+  defp refusal_target(%Auth.User{uuid: uuid, email: email}), do: {uuid, email}
+  defp refusal_target(uuid) when is_binary(uuid), do: {uuid, nil}
+  defp refusal_target(_target), do: {nil, nil}
 end

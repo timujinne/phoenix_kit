@@ -385,14 +385,21 @@ defmodule PhoenixKit.Mailer do
     # what it dequeued, and the tracking headers added the first time travelled
     # with it. Interception is not required to be idempotent, so core must not
     # run it twice and hope.
+    already_intercepted = Keyword.get(opts, :already_intercepted, false)
+
     tracked_email =
-      if Keyword.get(opts, :already_intercepted, false) do
+      if already_intercepted do
         email
       else
         provider.intercept_before_send(email, opts)
       end
 
-    if Keyword.get(opts, :skip_queue, false) do
+    # `already_intercepted: true` can only mean "a worker is re-sending what it
+    # dequeued", so it implies `skip_queue`. Left independent, a worker that
+    # sets one opt and forgets the other offers its own job straight back to the
+    # queue that handed it over — an enqueue loop out of a contract it is
+    # possible to get half right.
+    if already_intercepted or Keyword.get(opts, :skip_queue, false) do
       {:continue, tracked_email}
     else
       case offer_to_queue(provider, tracked_email, opts) do

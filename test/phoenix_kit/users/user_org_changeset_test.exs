@@ -8,6 +8,7 @@ defmodule PhoenixKit.Users.UserOrgChangesetTest do
 
   import Ecto.Changeset
 
+  alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
 
   defp errors_on_field(changeset, field) do
@@ -238,7 +239,7 @@ defmodule PhoenixKit.Users.UserOrgChangesetTest do
   describe "registration_changeset/3 — username of a saved user" do
     setup do
       {:ok, user} =
-        PhoenixKit.Users.Auth.register_user(%{
+        Auth.register_user(%{
           email: "maria@example.com",
           password: "ValidPassword123!"
         })

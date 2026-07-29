@@ -173,8 +173,14 @@ defmodule PhoenixKit.Notifications.Types do
       %{
         key: "security",
         label: "Security",
-        description: "New sign-ins to your account from an unrecognized device",
-        actions: ["user.new_login_detected"],
+        description:
+          "New sign-ins to your account from an unrecognized device, " <>
+            "and sessions opened on your account by someone else",
+        actions: [
+          "user.new_login_detected",
+          "session.account_added",
+          "session.impersonated"
+        ],
         default: true
       },
       %{

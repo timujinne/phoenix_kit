@@ -8,151 +8,151 @@
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container flex-col mx-auto px-4 py-6">
+  <div class="flex-col px-4 py-6">
     <%!-- Matrix Table --%>
     <div class="bg-base-100">
-      <div class="rounded-lg shadow-md overflow-x-auto overflow-y-clip">
-        <table class="table table-sm table-zebra">
-          <thead class="bg-primary text-primary-content">
-            <tr>
-              <th class="sticky left-0 z-0 whitespace-nowrap">{gettext("Module")}</th>
-              <%= for role <- @roles do %>
-                <th class="text-center min-w-[100px]">
-                  <.pk_link navigate="/admin/users/roles" class="link link-hover">
-                    {role.name}
-                  </.pk_link>
-                </th>
-              <% end %>
-            </tr>
-          </thead>
-          <tbody>
-            <%!-- Full Access (wildcard superadmin key) — a single blanket grant
+      <.table_default variant="zebra" size="sm">
+        <.table_default_header class="bg-primary text-primary-content">
+          <.table_default_row hover={false}>
+            <.table_default_header_cell class="sticky left-0 z-0 whitespace-nowrap">
+              {gettext("Module")}
+            </.table_default_header_cell>
+            <%= for role <- @roles do %>
+              <.table_default_header_cell class="text-center min-w-[100px]">
+                <.pk_link navigate="/admin/users/roles" class="link link-hover">
+                  {role.name}
+                </.pk_link>
+              </.table_default_header_cell>
+            <% end %>
+          </.table_default_row>
+        </.table_default_header>
+        <.table_default_body>
+          <%!-- Full Access (wildcard superadmin key) — a single blanket grant
                  that makes a role Owner-equivalent and stays complete as new
                  modules are added. Only Owner or an existing holder can grant it
                  (the toggle authorizes against the editor's own held keys). --%>
-            <tr class="bg-warning/10">
-              <td
-                colspan={length(@roles) + 1}
-                class="sticky left-0 bg-warning/10 font-semibold text-xs uppercase tracking-wide text-warning py-2"
-              >
-                {gettext("Full Access")}
-              </td>
-            </tr>
+          <tr class="bg-warning/10">
+            <td
+              colspan={length(@roles) + 1}
+              class="sticky left-0 bg-warning/10 font-semibold text-xs uppercase tracking-wide text-warning py-2"
+            >
+              {gettext("Full Access")}
+            </td>
+          </tr>
+          <.permission_row
+            :for={key <- @superadmin_keys}
+            key={key}
+            label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+            roles={@roles}
+            matrix={@matrix}
+            uneditable_role_uuids={@uneditable_role_uuids}
+          />
+
+          <%!-- Core Sections Header --%>
+          <tr class="bg-primary/10">
+            <td
+              colspan={length(@roles) + 1}
+              class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
+            >
+              {gettext("Core Sections")}
+            </td>
+          </tr>
+          <.permission_row
+            :for={key <- @core_keys}
+            key={key}
+            label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+            roles={@roles}
+            matrix={@matrix}
+            uneditable_role_uuids={@uneditable_role_uuids}
+          />
+
+          <%!-- Integrations Header (two independent keys: personal + system) --%>
+          <tr class="bg-primary/10">
+            <td
+              colspan={length(@roles) + 1}
+              class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
+            >
+              {gettext("Integrations")}
+            </td>
+          </tr>
+          <.permission_row
+            :for={key <- @integration_keys}
+            key={key}
+            label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+            roles={@roles}
+            matrix={@matrix}
+            uneditable_role_uuids={@uneditable_role_uuids}
+          />
+
+          <%!-- Feature Modules Header --%>
+          <tr class="bg-primary/10">
+            <td
+              colspan={length(@roles) + 1}
+              class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
+            >
+              {gettext("Feature Modules")}
+            </td>
+          </tr>
+          <%= for key <- @feature_keys do %>
             <.permission_row
-              :for={key <- @superadmin_keys}
               key={key}
               label={PhoenixKit.Users.Permissions.localized_module_label(key)}
               roles={@roles}
               matrix={@matrix}
               uneditable_role_uuids={@uneditable_role_uuids}
             />
-
-            <%!-- Core Sections Header --%>
-            <tr class="bg-primary/10">
-              <td
-                colspan={length(@roles) + 1}
-                class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
-              >
-                {gettext("Core Sections")}
-              </td>
-            </tr>
-            <.permission_row
-              :for={key <- @core_keys}
-              key={key}
-              label={PhoenixKit.Users.Permissions.localized_module_label(key)}
-              roles={@roles}
-              matrix={@matrix}
-              uneditable_role_uuids={@uneditable_role_uuids}
-            />
-
-            <%!-- Integrations Header (two independent keys: personal + system) --%>
-            <tr class="bg-primary/10">
-              <td
-                colspan={length(@roles) + 1}
-                class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
-              >
-                {gettext("Integrations")}
-              </td>
-            </tr>
-            <.permission_row
-              :for={key <- @integration_keys}
-              key={key}
-              label={PhoenixKit.Users.Permissions.localized_module_label(key)}
-              roles={@roles}
-              matrix={@matrix}
-              uneditable_role_uuids={@uneditable_role_uuids}
-            />
-
-            <%!-- Feature Modules Header --%>
-            <tr class="bg-primary/10">
-              <td
-                colspan={length(@roles) + 1}
-                class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
-              >
-                {gettext("Feature Modules")}
-              </td>
-            </tr>
-            <%= for key <- @feature_keys do %>
-              <.permission_row
-                key={key}
-                label={PhoenixKit.Users.Permissions.localized_module_label(key)}
-                roles={@roles}
-                matrix={@matrix}
-                uneditable_role_uuids={@uneditable_role_uuids}
-              />
-              <%!-- Fine-grained sub-permissions, indented under their module.
+            <%!-- Fine-grained sub-permissions, indented under their module.
                    Granting one auto-grants the module key; revoking the module
                    key cascades these off. --%>
-              <.permission_row
-                :for={sub <- Map.get(@sub_permissions, key, [])}
-                key={sub.key}
-                label={PhoenixKit.Users.Permissions.localized_module_label(sub.key)}
-                sub
-                roles={@roles}
-                matrix={@matrix}
-                uneditable_role_uuids={@uneditable_role_uuids}
-              />
-            <% end %>
-            <%!-- Custom (permission keys registered by parent app) --%>
-            <%= if length(@custom_keys) > 0 do %>
-              <tr class="bg-primary/10">
-                <td
-                  colspan={length(@roles) + 1}
-                  class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
-                >
-                  {gettext("Custom")}
-                </td>
-              </tr>
-              <.permission_row
-                :for={key <- @custom_keys}
-                key={key}
-                label={PhoenixKit.Users.Permissions.localized_module_label(key)}
-                roles={@roles}
-                matrix={@matrix}
-                uneditable_role_uuids={@uneditable_role_uuids}
-              />
-            <% end %>
-
-            <%!-- Summary Row --%>
-            <tr class="font-semibold">
-              <td class="sticky left-0 z-[1] whitespace-nowrap">
-                {gettext("Total")}
+            <.permission_row
+              :for={sub <- Map.get(@sub_permissions, key, [])}
+              key={sub.key}
+              label={PhoenixKit.Users.Permissions.localized_module_label(sub.key)}
+              sub
+              roles={@roles}
+              matrix={@matrix}
+              uneditable_role_uuids={@uneditable_role_uuids}
+            />
+          <% end %>
+          <%!-- Custom (permission keys registered by parent app) --%>
+          <%= if length(@custom_keys) > 0 do %>
+            <tr class="bg-primary/10">
+              <td
+                colspan={length(@roles) + 1}
+                class="sticky left-0 bg-primary/10 font-semibold text-xs uppercase tracking-wide text-primary py-2"
+              >
+                {gettext("Custom")}
               </td>
-              <%= for role <- @roles do %>
-                <td class="text-center">
-                  <%= if role.name == "Owner" do %>
-                    {MapSet.size(@visible_keys)} / {MapSet.size(@visible_keys)}
-                  <% else %>
-                    {Map.get(@matrix, to_string(role.uuid), MapSet.new())
-                    |> MapSet.intersection(@visible_keys)
-                    |> MapSet.size()} / {MapSet.size(@visible_keys)}
-                  <% end %>
-                </td>
-              <% end %>
             </tr>
-          </tbody>
-        </table>
-      </div>
+            <.permission_row
+              :for={key <- @custom_keys}
+              key={key}
+              label={PhoenixKit.Users.Permissions.localized_module_label(key)}
+              roles={@roles}
+              matrix={@matrix}
+              uneditable_role_uuids={@uneditable_role_uuids}
+            />
+          <% end %>
+
+          <%!-- Summary Row --%>
+          <tr class="font-semibold">
+            <td class="sticky left-0 z-[1] whitespace-nowrap">
+              {gettext("Total")}
+            </td>
+            <%= for role <- @roles do %>
+              <td class="text-center">
+                <%= if role.name == "Owner" do %>
+                  {MapSet.size(@visible_keys)} / {MapSet.size(@visible_keys)}
+                <% else %>
+                  {Map.get(@matrix, to_string(role.uuid), MapSet.new())
+                  |> MapSet.intersection(@visible_keys)
+                  |> MapSet.size()} / {MapSet.size(@visible_keys)}
+                <% end %>
+              </td>
+            <% end %>
+          </tr>
+        </.table_default_body>
+      </.table_default>
     </div>
 
     <%!-- Help Info --%>

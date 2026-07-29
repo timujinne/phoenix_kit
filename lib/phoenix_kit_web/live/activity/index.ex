@@ -8,6 +8,11 @@ defmodule PhoenixKitWeb.Live.Activity.Index do
 
   use PhoenixKitWeb, :live_view
 
+  # Imported per-LiveView rather than from `PhoenixKitWeb, :live_view`: a host
+  # app that defines its own `row_link/1` would get an ambiguous import the
+  # moment core wired this one in project-wide.
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Activity
   alias PhoenixKit.PubSub.Manager, as: PubSubManager
   alias PhoenixKit.Settings

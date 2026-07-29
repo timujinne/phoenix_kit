@@ -2,17 +2,14 @@
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={@page_title}
+  page_section={gettext("Dimensions")}
+  page_section_path={PhoenixKit.Utils.Routes.path("/admin/settings/media/dimensions")}
+  page_subtitle={gettext("Configure dimension presets for automatic file variant generation")}
   current_path={@current_path}
   current_locale={@current_locale}
   project_title={@project_title}
 >
-  <div class="container mx-auto px-4 py-8 max-w-3xl">
-    <.admin_page_header
-      back={PhoenixKit.Utils.Routes.path("/admin/settings/media/dimensions")}
-      title={@page_title}
-      subtitle={gettext("Configure dimension presets for automatic file variant generation")}
-    />
-
+  <div class="mx-auto px-4 py-8 max-w-3xl">
     <.form for={@changeset} phx-change="validate" phx-submit="save" class="space-y-6">
       <%!-- Basic Information --%>
       <div class="card bg-base-100 shadow-sm">
@@ -25,12 +22,12 @@
             <legend class="fieldset-legend font-semibold">
               {gettext("Dimension Name")} *
             </legend>
-            <input
+            <.input
               type="text"
               name="dimension[name]"
               phx-debounce="blur"
               value={get_field_value(@changeset, :name)}
-              class={"input input-bordered w-full #{input_class(@changeset, :name)}"}
+              class={input_class(@changeset, :name)}
               placeholder={gettext("e.g., thumbnail, medium, 720p")}
               required
             />
@@ -78,12 +75,12 @@
                   {gettext("Width (px)")} *
                 <% end %>
               </legend>
-              <input
+              <.input
                 type="number"
                 name="dimension[width]"
                 phx-debounce="blur"
                 value={get_field_value(@changeset, :width)}
-                class={"input input-bordered w-full #{input_class(@changeset, :width)}"}
+                class={input_class(@changeset, :width)}
                 placeholder="800"
                 min="1"
                 required
@@ -96,12 +93,12 @@
                 <legend class="fieldset-legend font-semibold">
                   {gettext("Height (px)")} *
                 </legend>
-                <input
+                <.input
                   type="number"
                   name="dimension[height]"
                   phx-debounce="blur"
                   value={get_field_value(@changeset, :height)}
-                  class={"input input-bordered w-full #{input_class(@changeset, :height)}"}
+                  class={input_class(@changeset, :height)}
                   placeholder="600"
                   min="1"
                   required
@@ -130,12 +127,12 @@
                   {gettext("Quality")}
                 <% end %>
               </legend>
-              <input
+              <.input
                 type="number"
                 name="dimension[quality]"
                 phx-debounce="blur"
                 value={get_field_value(@changeset, :quality)}
-                class={"input input-bordered w-full #{input_class(@changeset, :quality)}"}
+                class={input_class(@changeset, :quality)}
                 placeholder={if @dimension_type == "video", do: "23", else: "85"}
                 min={if @dimension_type == "video", do: "0", else: "1"}
                 max={if @dimension_type == "video", do: "51", else: "100"}
@@ -159,19 +156,19 @@
                 <% end %>
               </legend>
               <% format_value = get_field_value(@changeset, :format) %>
-              <label class={"select w-full #{input_class(@changeset, :format)}"}>
-                <select name="dimension[format]">
-                  <option value="">{gettext("Preserve original")}</option>
-                  <%= if @dimension_type != "video" do %>
-                    <option value="jpg" selected={format_value == "jpg"}>JPEG</option>
-                    <option value="png" selected={format_value == "png"}>PNG</option>
-                    <option value="webp" selected={format_value == "webp"}>WebP</option>
-                  <% end %>
-                  <%= if @dimension_type == "video" do %>
-                    <option value="mp4" selected={format_value == "mp4"}>MP4</option>
-                  <% end %>
-                </select>
-              </label>
+              <.select
+                name="dimension[format]"
+                value={format_value}
+                class={input_class(@changeset, :format)}
+                prompt={gettext("Preserve original")}
+                options={
+                  if @dimension_type == "video" do
+                    [{"MP4", "mp4"}]
+                  else
+                    [{"JPEG", "jpg"}, {"PNG", "png"}, {"WebP", "webp"}]
+                  end
+                }
+              />
               {render_error(@changeset, :format)}
               <p class="text-xs text-base-content/50 mt-1">
                 {gettext("Leave empty to preserve the original file format")}

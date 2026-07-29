@@ -44,9 +44,9 @@ defmodule PhoenixKitWeb.Components.Core.Pagination do
 
   def pagination_controls(assigns) do
     ~H"""
-    <div :if={@total_pages > 1} class={["btn-group", @class]}>
+    <div :if={@total_pages > 1} class={["join", @class]}>
       <%= if @page > 1 do %>
-        <.link patch={@build_url.(@page - 1)} class="btn btn-sm">
+        <.link patch={@build_url.(@page - 1)} class="join-item btn btn-sm">
           « Prev
         </.link>
       <% end %>
@@ -54,14 +54,14 @@ defmodule PhoenixKitWeb.Components.Core.Pagination do
       <%= for page_num <- pagination_range(@page, @total_pages) do %>
         <.link
           patch={@build_url.(page_num)}
-          class={["btn btn-sm", page_num == @page && "btn-active"]}
+          class={["join-item btn btn-sm", page_num == @page && "btn-active"]}
         >
           {page_num}
         </.link>
       <% end %>
 
       <%= if @page < @total_pages do %>
-        <.link patch={@build_url.(@page + 1)} class="btn btn-sm">
+        <.link patch={@build_url.(@page + 1)} class="join-item btn btn-sm">
           Next »
         </.link>
       <% end %>

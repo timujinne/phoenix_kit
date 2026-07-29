@@ -31,10 +31,11 @@ defmodule PhoenixKit.Email.Provider do
 
   > #### Sending the queued message back out {: .info}
   >
-  > The worker must pass `skip_queue: true`, or its own send would be offered
-  > straight back to it, and `already_intercepted: true`, which suppresses the
-  > second interception — interception is not required to be idempotent, so core
-  > does not run it twice and hope.
+  > The worker passes `already_intercepted: true`, which suppresses the second
+  > interception — interception is not required to be idempotent, so core does
+  > not run it twice and hope — and implies `skip_queue: true`, so the send is
+  > not offered straight back to the queue it came from. Passing `skip_queue:
+  > true` as well is harmless and still the clearer thing to write.
   >
   > Against a core that predates `already_intercepted` the opt is simply
   > unknown, the interceptor runs again on the way out, and a provider that

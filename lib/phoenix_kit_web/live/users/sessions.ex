@@ -39,7 +39,7 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
       |> assign(:per_page, @per_page)
       |> assign(:search_query, "")
       |> assign(:filter_user_status, "all")
-      |> assign(:page_title, gettext("Sessions"))
+      |> assign(:page_title, gettext("Session Management"))
       |> assign(:project_title, project_title)
       |> assign(:current_locale, locale)
       |> assign(:show_revoke_modal, false)

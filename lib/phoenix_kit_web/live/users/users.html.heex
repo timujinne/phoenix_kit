@@ -22,6 +22,12 @@
               <%= for role <- @all_roles do %>
                 <% owner_role? = role.name == PhoenixKit.Users.Role.system_roles().owner %>
                 <div class="form-control">
+                  <%!-- DO NOT convert to <.checkbox>: the submitted VALUE is the
+                       payload here. `sync_user_roles` reads Map.values(params["roles"])
+                       and the context diffs that list against the user's current roles,
+                       so a component that hardcodes "true"/"false" makes every held role
+                       look absent and strips them all. Tests do not catch it —
+                       render_submit injects params and never serializes the DOM. --%>
                   <label
                     class={[
                       "label justify-start gap-3",
@@ -333,35 +339,53 @@
               <.table_default_cell colspan={
                 Enum.count(@selected_columns, &should_render_column?/1)
               }>
-                <div class="text-center py-12">
-                  <PhoenixKitWeb.Components.Core.Icons.icon_users_multiple class="h-16 w-16 mx-auto text-base-content/40 mb-4" />
-                  <h3 class="text-lg font-medium text-base-content mb-2">
-                    {gettext("No users found")}
-                  </h3>
-                  <% filters_active? =
-                    @search_query != "" or @filter_role != "all" or
-                      @filter_account_type != "all" %>
-                  <p class="text-base-content/70 mb-4">
-                    <%= if filters_active? do %>
-                      {gettext("Try adjusting your search or filter criteria.")}
-                    <% else %>
-                      {gettext("No users are registered yet.")}
-                    <% end %>
-                  </p>
-                  <%= if filters_active? do %>
-                    <button class="btn btn-outline btn-sm" phx-click="clear_filters">
-                      {gettext("Clear Filters")}
-                    </button>
-                  <% end %>
-                </div>
+                <% filters_active? =
+                  @search_query != "" or @filter_role != "all" or
+                    @filter_account_type != "all" %>
+                <.empty_state
+                  icon="hero-users"
+                  title={gettext("No users found")}
+                  description={
+                    if filters_active?,
+                      do: gettext("Try adjusting your search or filter criteria."),
+                      else: gettext("No users are registered yet.")
+                  }
+                >
+                  <button
+                    :if={filters_active?}
+                    class="btn btn-outline btn-sm"
+                    phx-click="clear_filters"
+                  >
+                    {gettext("Clear Filters")}
+                  </button>
+                </.empty_state>
               </.table_default_cell>
             </.table_default_row>
           <% else %>
+            <%!-- Host cell for the row_link overlay. Not pinned to "email": that
+                 column is `required: false`, so an admin who drops it from the
+                 column picker would leave every row wearing `cursor-pointer`
+                 with nothing to click. Skip "actions" too — that cell is
+                 `relative z-10`, which would float the overlay above its own
+                 buttons. --%>
+            <% link_column =
+              Enum.find(@selected_columns, &(should_render_column?(&1) and &1 != "actions")) %>
             <%= for user <- @users do %>
-              <.table_default_row>
+              <.table_default_row class={[
+                "relative transform-gpu",
+                link_column && "cursor-pointer"
+              ]}>
                 <%= for column_id <- @selected_columns do %>
                   <%= if should_render_column?(column_id) do %>
-                    <.table_default_cell class={mobile_col_class(column_id)}>
+                    <.table_default_cell class={[
+                      mobile_col_class(column_id),
+                      column_id == "actions" && "relative z-10"
+                    ]}>
+                      <.row_link
+                        :if={column_id == link_column}
+                        navigate={PhoenixKit.Utils.Routes.path("/admin/users/view/#{user.uuid}")}
+                        label={user.email}
+                      />
                       <%= cond do %>
                         <% column_id == "email" -> %>
                           <.link
@@ -485,11 +509,14 @@
                                       )
                                     }
                                   >
+                                    <%!-- relative z-10: this link sits inside a row that
+                                         carries the row_link overlay, and without it the
+                                         overlay swallows the click and opens the user. --%>
                                     <.link
                                       navigate={
                                         PhoenixKit.Utils.Routes.path("/admin/settings/users")
                                       }
-                                      class="inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-primary hover:underline"
+                                      class="relative z-10 inline-flex items-center gap-1 text-xs text-base-content/50 hover:text-primary hover:underline"
                                     >
                                       <.icon name="hero-information-circle" class="w-3.5 h-3.5" />
                                       {gettext("Tracking disabled")}

@@ -291,8 +291,8 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.BucketForm do
     Storage.get_bucket(bucket_uuid)
   end
 
-  defp page_title(:new), do: "Add Storage Bucket"
-  defp page_title(:edit), do: "Edit Storage Bucket"
+  defp page_title(:new), do: gettext("Add Storage Bucket")
+  defp page_title(:edit), do: gettext("Edit Storage Bucket")
 
   # Helper function to get current path for navigation
   defp get_current_path(_socket, _session) do

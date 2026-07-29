@@ -44,7 +44,7 @@ defmodule PhoenixKitWeb.Live.Users.Roles do
       |> assign(:permissions_role_keys, MapSet.new())
       |> assign(:permissions_grantable_keys, MapSet.new())
       |> assign(:permissions_preserved_keys, MapSet.new())
-      |> assign(:page_title, gettext("Roles"))
+      |> assign(:page_title, gettext("Role Management"))
       |> assign(:role_stats, role_stats)
       |> assign(:project_title, project_title)
       |> assign(:can_manage_permissions, false)

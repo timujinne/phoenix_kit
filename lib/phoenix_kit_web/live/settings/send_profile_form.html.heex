@@ -8,7 +8,7 @@
   current_path={@current_path}
   project_title={@project_title}
 >
-  <div class="container flex-col mx-auto px-4 py-6">
+  <div class="flex-col px-4 py-6">
     <div class="max-w-2xl">
       <.form_section title={gettext("Profile Details")} icon="hero-adjustments-horizontal">
         <.form id="send-profile-form" for={@form} phx-change="validate" phx-submit="save">
@@ -123,16 +123,13 @@
 
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div :for={field <- @provider_fields}>
-                  <label class="label" for={"send_profile_advanced_#{field.key}"}>
-                    {field.label}
-                  </label>
-                  <input
+                  <.input
                     type={if field.type == :number, do: "number", else: "text"}
                     id={"send_profile_advanced_#{field.key}"}
                     name={"send_profile[advanced][#{field.key}]"}
                     value={ProviderOptions.to_input_value(field, @advanced)}
+                    label={field.label}
                     placeholder={field.placeholder}
-                    class="input w-full"
                   />
                   <p class="text-xs text-base-content/60 mt-1">{field.help}</p>
                 </div>

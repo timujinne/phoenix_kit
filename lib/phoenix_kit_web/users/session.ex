@@ -255,17 +255,35 @@ defmodule PhoenixKitWeb.Users.Session do
   translates their outcome into a flash. Each refusal says which rule stopped it,
   because "could not do that" on a support tool is how an operator ends up
   guessing at permissions.
+
+  The precise refusals are for operators, so the actor's authority is settled
+  BEFORE the uuid is resolved. The other order hands every signed-in user — the
+  gate admits all of them, it only asks that the root session be real — a
+  distinct "User not found." for an unused uuid and a different message for a
+  used one, which is an account-existence oracle wearing a support tool's copy.
   """
   def impersonate(conn, %{"user_uuid" => user_uuid} = params) do
     with_gate(conn, params, fn conn ->
-      case Auth.get_user(user_uuid) do
-        nil ->
-          conn |> put_flash(:error, gettext("User not found.")) |> redirect_back(params)
+      if MultiSession.may_impersonate?(get_session(conn)) do
+        lookup_and_impersonate(conn, user_uuid, params)
+      else
+        MultiSession.log_impersonation_refusal(conn, user_uuid)
 
-        user ->
-          do_impersonate(conn, user, params)
+        conn
+        |> put_flash(:error, impersonation_error(:not_allowed))
+        |> redirect_back(params)
       end
     end)
+  end
+
+  defp lookup_and_impersonate(conn, user_uuid, params) do
+    case Auth.get_user(user_uuid) do
+      nil ->
+        conn |> put_flash(:error, gettext("User not found.")) |> redirect_back(params)
+
+      user ->
+        do_impersonate(conn, user, params)
+    end
   end
 
   defp do_impersonate(conn, user, params) do
@@ -297,7 +315,10 @@ defmodule PhoenixKitWeb.Users.Session do
   defp impersonation_error(:already_in_stack),
     do: gettext("That account is already in your session — switch to it instead.")
 
-  defp impersonation_error(_reason), do: gettext("Could not sign in as that user.")
+  # No catch-all: `MultiSession.impersonate/2`'s spec enumerates the reasons, so
+  # Dialyzer proves one unreachable (`pattern_match_cov`) and fails the gate. A
+  # new reason has to be given copy here, which is the point — the refusals are
+  # for operators, and a generic fallback is how one ends up guessing.
 
   def remove_account(conn, %{"ref" => ref} = params) do
     with_gate(conn, params, fn conn ->

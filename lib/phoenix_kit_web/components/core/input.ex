@@ -80,7 +80,11 @@ defmodule PhoenixKitWeb.Components.Core.Input do
     ~H"""
     <div phx-feedback-for={@name} class={@wrapper_class}>
       <label :if={@label && @label != ""} class="label mb-2" for={@id}>
-        <span class="label-text font-semibold">{@label}</span>
+        <span class="font-semibold">{@label}</span>
+        <%!-- Required marker, rendered by the component so callers don't have to
+             append " *" to the label string — a plain string cannot carry the
+             error colour, and the hand-rolled markup this component replaced did. --%>
+        <span :if={@rest[:required]} class="text-error ml-0.5" aria-hidden="true">*</span>
       </label>
       <%!-- Icon-inside variant: daisyUI 5 puts the `input` class on a <label>
            wrapper so the icon sits inside the field. Focus color comes from

@@ -817,6 +817,11 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
   attr :name, :string, default: "search"
   attr :target, :any, default: nil
 
+  attr :id, :string,
+    default: nil,
+    doc:
+      "Id for the wrapping `<form>`. Without one, LiveView form recovery is silently disabled and host suites warn `missing_form_id`. Defaults to a value derived from the change event, which is unique per page in practice; pass an explicit id when two search toolbars share a page."
+
   attr :loading_indicator, :boolean,
     default: true,
     doc:
@@ -829,9 +834,11 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
       assigns
       |> assign(:placeholder, assigns.placeholder || dgettext("default", "Search..."))
       |> assign(:submit_event, assigns.on_submit || assigns.on_change)
+      |> assign(:id, assigns.id || "pk-search-toolbar-#{assigns.on_change}")
 
     ~H"""
     <form
+      id={@id}
       phx-submit={@submit_event}
       phx-target={@target}
       class={["flex items-center gap-2", @class]}

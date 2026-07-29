@@ -8,7 +8,7 @@
   project_title={@project_title}
   current_locale={@current_locale}
 >
-  <div class="container mx-auto px-4 py-6">
+  <div class="px-4 py-6">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <%!-- Company Information --%>
       <div class="card bg-base-100 shadow-xl">
@@ -25,40 +25,26 @@
             <%!-- Row: Company Name + Country --%>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">
-                    {gettext("Company Name")} <span class="text-error">*</span>
-                  </span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="company_name"
                   value={@company_name}
-                  class="input input-bordered w-full"
+                  label={gettext("Company Name")}
                   placeholder={gettext("Your Company Name")}
                   required
                 />
               </div>
 
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">
-                    {gettext("Country")} <span class="text-error">*</span>
-                  </span>
-                </label>
-                <select
+                <.select
                   name="company_country"
-                  class="select select-bordered w-full"
+                  value={@company_country}
                   phx-change="country_changed"
                   required
-                >
-                  <option value="">{gettext("Select country...")}</option>
-                  <%= for {name, code} <- @countries do %>
-                    <option value={code} selected={@company_country == code}>
-                      {name}
-                    </option>
-                  <% end %>
-                </select>
+                  label={gettext("Country")}
+                  prompt={gettext("Select country...")}
+                  options={@countries}
+                />
               </div>
             </div>
 
@@ -66,16 +52,11 @@
 
             <%!-- Row: Street Address --%>
             <div class="form-control">
-              <label class="label">
-                <span class="label-text">
-                  {gettext("Street Address")} <span class="text-error">*</span>
-                </span>
-              </label>
-              <input
+              <.input
                 type="text"
                 name="company_address_line1"
                 value={@company_address_line1}
-                class="input input-bordered w-full"
+                label={gettext("Street Address")}
                 placeholder={gettext("123 Business Street")}
                 required
               />
@@ -83,14 +64,11 @@
 
             <%!-- Row: Address Line 2 --%>
             <div class="form-control">
-              <label class="label">
-                <span class="label-text">{gettext("Address Line 2")}</span>
-              </label>
-              <input
+              <.input
                 type="text"
                 name="company_address_line2"
                 value={@company_address_line2}
-                class="input input-bordered w-full"
+                label={gettext("Address Line 2")}
                 placeholder={gettext("Suite, Floor, Building (optional)")}
               />
             </div>
@@ -98,44 +76,34 @@
             <%!-- Row: City + State/Province + Postal Code --%>
             <div class="grid grid-cols-3 gap-4">
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">
-                    {gettext("City")} <span class="text-error">*</span>
-                  </span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="company_city"
                   value={@company_city}
-                  class="input input-bordered w-full"
+                  label={gettext("City")}
                   placeholder={gettext("City")}
                   required
                 />
               </div>
 
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">{@subdivision_label}</span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="company_state"
                   value={@company_state}
-                  class="input input-bordered w-full"
+                  label={@subdivision_label}
                   placeholder={gettext("(optional)")}
                 />
               </div>
 
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">{gettext("Postal Code")}</span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="company_postal_code"
                   value={@company_postal_code}
-                  class="input input-bordered w-full font-mono"
+                  label={gettext("Postal Code")}
                   placeholder="10115"
+                  class="font-mono"
                 />
               </div>
             </div>
@@ -145,20 +113,16 @@
             <%!-- Row: VAT Number + Registration Number --%>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">
-                    {gettext("VAT Number")} <span class="text-error">*</span>
-                  </span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="company_vat"
                   value={@company_vat}
-                  class="input input-bordered w-full font-mono"
+                  label={gettext("VAT Number")}
                   placeholder={
                     if @eu_country, do: "#{@company_country}123456789", else: gettext("Tax ID")
                   }
                   required
+                  class="font-mono"
                 />
                 <%= if @eu_country do %>
                   <label class="label">
@@ -171,15 +135,13 @@
               </div>
 
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">{gettext("Registration Number")}</span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="company_registration"
                   value={@company_registration}
-                  class="input input-bordered w-full font-mono"
+                  label={gettext("Registration Number")}
                   placeholder={gettext("Business reg. number (optional)")}
+                  class="font-mono"
                 />
               </div>
             </div>
@@ -209,14 +171,11 @@
 
             <form phx-submit="save_bank" class="space-y-4 mt-4">
               <div class="form-control">
-                <label class="label">
-                  <span class="label-text">{gettext("Bank Name")}</span>
-                </label>
-                <input
+                <.input
                   type="text"
                   name="bank_name"
                   value={@bank_name}
-                  class="input input-bordered w-full"
+                  label={gettext("Bank Name")}
                   placeholder={gettext("Bank Name")}
                 />
               </div>
@@ -224,28 +183,24 @@
               <%!-- Row: IBAN + SWIFT --%>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div class="form-control sm:col-span-2">
-                  <label class="label">
-                    <span class="label-text">{gettext("IBAN")}</span>
-                  </label>
-                  <input
+                  <.input
                     type="text"
                     name="bank_iban"
                     value={@bank_iban}
-                    class="input input-bordered w-full font-mono"
+                    label={gettext("IBAN")}
                     placeholder="EE00 0000 0000 0000 0000"
+                    class="font-mono"
                   />
                 </div>
 
                 <div class="form-control">
-                  <label class="label">
-                    <span class="label-text">{gettext("SWIFT/BIC")}</span>
-                  </label>
-                  <input
+                  <.input
                     type="text"
                     name="bank_swift"
                     value={@bank_swift}
-                    class="input input-bordered w-full font-mono"
+                    label={gettext("SWIFT/BIC")}
                     placeholder="XXXXEEHH"
+                    class="font-mono"
                   />
                 </div>
               </div>
@@ -285,14 +240,15 @@
                     <span class="label-text">{gettext("Default Tax Rate")}</span>
                   </label>
                   <div class="join">
-                    <input
+                    <.input
                       type="number"
                       name="tax_rate"
                       value={@tax_rate}
                       min="0"
                       max="100"
                       step="0.01"
-                      class="input input-bordered join-item w-24 font-mono"
+                      class="join-item w-24 font-mono"
+                      wrapper_class="contents"
                       phx-change="tax_rate_changed"
                       phx-debounce="300"
                     />

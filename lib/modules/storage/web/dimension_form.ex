@@ -143,8 +143,8 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.DimensionForm do
     socket
     |> assign(:changeset, changeset)
     |> assign(:dimension_type, dimension_type)
-    |> assign(:page_title, "Edit Storage Dimension")
-    |> assign(:form_action, "Update Dimension")
+    |> assign(:page_title, gettext("Edit Storage Dimension"))
+    |> assign(:form_action, gettext("Update Dimension"))
     |> assign_format_fields(changeset)
   end
 
@@ -172,9 +172,9 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.DimensionForm do
     end)
   end
 
-  defp page_title_with_type(:new, "image"), do: "Add Image Dimension"
-  defp page_title_with_type(:new, "video"), do: "Add Video Dimension"
-  defp page_title_with_type(:new, _), do: "Add Storage Dimension"
+  defp page_title_with_type(:new, "image"), do: gettext("Add Image Dimension")
+  defp page_title_with_type(:new, "video"), do: gettext("Add Video Dimension")
+  defp page_title_with_type(:new, _), do: gettext("Add Storage Dimension")
 
   # Helper function for input validation styling
   defp input_class(changeset, field) do

@@ -10678,3 +10678,53 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "Dashboards"
 msgstr ""
+
+#: lib/modules/storage/web/bucket_form.ex:294
+#, elixir-autogen, elixir-format
+msgid "Add Storage Bucket"
+msgstr ""
+
+#: lib/modules/storage/web/bucket_form.ex:295
+#, elixir-autogen, elixir-format
+msgid "Edit Storage Bucket"
+msgstr ""
+
+#: lib/modules/storage/web/dimension_form.ex:177
+#, elixir-autogen, elixir-format
+msgid "Add Storage Dimension"
+msgstr ""
+
+#: lib/modules/storage/web/dimension_form.ex:146
+#, elixir-autogen, elixir-format
+msgid "Edit Storage Dimension"
+msgstr ""
+
+#: lib/modules/storage/web/dimension_form.ex:147
+#, elixir-autogen, elixir-format
+msgid "Update Dimension"
+msgstr ""
+
+#: lib/phoenix_kit_web/users/user_form.ex:825
+#, elixir-autogen, elixir-format
+msgid "Create User"
+msgstr ""
+
+#: lib/phoenix_kit_web/users/user_form.ex:826
+#, elixir-autogen, elixir-format
+msgid "Edit User"
+msgstr ""
+
+#: lib/phoenix_kit_web/users/user_form.html.heex:10
+#, elixir-autogen, elixir-format
+msgid "Create a new user account"
+msgstr ""
+
+#: lib/phoenix_kit_web/users/user_form.html.heex:11
+#, elixir-autogen, elixir-format
+msgid "Edit user information"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/users/media_detail.html.heex:5
+#, elixir-autogen, elixir-format
+msgid "Media Detail"
+msgstr ""
