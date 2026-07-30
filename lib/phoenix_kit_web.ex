@@ -123,7 +123,11 @@ defmodule PhoenixKitWeb do
       import PhoenixKitWeb.Components.Core.Chart
       import PhoenixKitWeb.Components.Core.StatusDot
       import PhoenixKitWeb.Components.Core.ConnectAccountButton
-      import PhoenixKitWeb.Components.Core.EmailStatusBadge
+      # Import only the component — its internal helpers (format_status/1,
+      # status_class/1) must not leak into the shared html helpers, or they
+      # collide with a local format_status/1 in downstream modules (e.g.
+      # phoenix_kit_posts' Details), breaking their compile.
+      import PhoenixKitWeb.Components.Core.EmailStatusBadge, only: [email_status_badge: 1]
       import PhoenixKitWeb.Components.Core.TimeDisplay
       import PhoenixKitWeb.Components.Core.EventTimelineItem
       import PhoenixKitWeb.Components.Core.UserInfo
