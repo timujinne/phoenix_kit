@@ -48,27 +48,31 @@ defmodule PhoenixKitWeb.Components.Core.EmailStatusBadge do
     """
   end
 
-  # Private helper functions
-
+  # Public to the other core email components (EmailActivityBadges) so the
+  # status → colour and status → label mappings live in exactly one place. A
+  # second copy drifts: the first one written spelled the spam-complaint status
+  # "complained", which no writer ever sets.
+  @doc false
   # Email status badge classes
-  defp status_class("queued"), do: "badge-ghost"
-  defp status_class("sent"), do: "badge-info"
-  defp status_class("delivered"), do: "badge-success"
-  defp status_class("opened"), do: "badge-primary"
-  defp status_class("clicked"), do: "badge-secondary"
-  defp status_class("bounced"), do: "badge-error"
-  defp status_class("hard_bounced"), do: "badge-error"
-  defp status_class("soft_bounced"), do: "badge-warning"
-  defp status_class("rejected"), do: "badge-error"
-  defp status_class("delayed"), do: "badge-warning"
-  defp status_class("complaint"), do: "badge-error"
-  defp status_class("failed"), do: "badge-error"
-  defp status_class(_), do: "badge-ghost"
+  def status_class("queued"), do: "badge-ghost"
+  def status_class("sent"), do: "badge-info"
+  def status_class("delivered"), do: "badge-success"
+  def status_class("opened"), do: "badge-primary"
+  def status_class("clicked"), do: "badge-secondary"
+  def status_class("bounced"), do: "badge-error"
+  def status_class("hard_bounced"), do: "badge-error"
+  def status_class("soft_bounced"), do: "badge-warning"
+  def status_class("rejected"), do: "badge-error"
+  def status_class("delayed"), do: "badge-warning"
+  def status_class("complaint"), do: "badge-error"
+  def status_class("failed"), do: "badge-error"
+  def status_class(_), do: "badge-ghost"
 
+  @doc false
   # Format status text for display
-  defp format_status("hard_bounced"), do: "Hard Bounced"
-  defp format_status("soft_bounced"), do: "Soft Bounced"
-  defp format_status(status), do: String.capitalize(status)
+  def format_status("hard_bounced"), do: "Hard Bounced"
+  def format_status("soft_bounced"), do: "Soft Bounced"
+  def format_status(status), do: String.capitalize(status)
 
   # Size classes
   defp size_class(:xs), do: "badge-xs"

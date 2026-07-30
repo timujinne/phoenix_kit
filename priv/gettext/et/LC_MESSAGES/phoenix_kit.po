@@ -14,34 +14,34 @@ msgstr ""
 #: lib/phoenix_kit/users/invitations.ex:259
 #, elixir-autogen, elixir-format
 msgid "A pending invitation already exists for this email"
-msgstr ""
+msgstr "Sellele e-posti aadressile on juba ootel kutse"
 
 #: lib/phoenix_kit/users/invitations.ex:245
 #, elixir-autogen, elixir-format
 msgid "This user already belongs to an organization"
-msgstr ""
+msgstr "See kasutaja kuulub juba organisatsiooni"
 
 #: lib/phoenix_kit/users/auth.ex:993
 #, elixir-autogen, elixir-format
 msgid "cannot change to person while organization has members"
-msgstr ""
+msgstr "ei saa muuta isikuks, kuni organisatsioonil on liikmeid"
 
 #: lib/phoenix_kit/users/auth.ex:973
 #, elixir-autogen, elixir-format
 msgid "cannot reference self"
-msgstr ""
+msgstr "ei saa viidata iseendale"
 
 #: lib/phoenix_kit/users/auth.ex:981
 #, elixir-autogen, elixir-format
 msgid "only person accounts can join an organization"
-msgstr ""
+msgstr "organisatsiooniga saavad liituda ainult isikukontod"
 
 #: lib/phoenix_kit/users/auth.ex:968
 #, elixir-autogen, elixir-format
 msgid "organization not found"
-msgstr ""
+msgstr "organisatsiooni ei leitud"
 
 #: lib/phoenix_kit/users/auth.ex:967
 #, elixir-autogen, elixir-format
 msgid "target user is not an organization"
-msgstr ""
+msgstr "sihtkasutaja ei ole organisatsioon"

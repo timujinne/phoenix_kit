@@ -1,3 +1,161 @@
+## 1.7.224 - 2026-07-30
+
+### i18n
+- **Every shipped locale is now 100% translated with no fuzzy flags** — `de`, `es`,
+  `it` and `pl` were stubs (~2106 untranslated each; es ~1967) and are now
+  complete: 0 untranslated, 0 fuzzy across `default` (2182), `errors` (24) and
+  `phoenix_kit` (7). Together with ru, et and fr, all seven translated locales are
+  at 100%. ~8,500 strings.
+- **Terminology follows each catalog's own prior entries** rather than being
+  invented — e.g. `pl` already used "zasobnik" for *bucket* where de/es/it keep
+  "Bucket", and that split was preserved. daisyUI theme names follow the existing
+  `fr` precedent: descriptive names translated (`Winter` → Invierno / Inverno /
+  Zima), genre and proper nouns kept (`Nord`, `Cyberpunk`, `Lo-Fi`, `CMYK`).
+- **`en` fuzzy flags cleared** — `en` is untranslated by design (empty msgstr ⇒
+  Gettext falls back to the msgid, already English), but it carried 512 fuzzy
+  flags on those empty entries. They were inert, and they made a fuzzy count
+  useless as a signal. **"0 fuzzy anywhere in `priv/gettext`" is now a true,
+  checkable invariant**, so any future non-zero count means a reword really
+  happened and needs a human.
+- **Existing good translations were never clobbered** — writes were filtered to
+  each locale's untranslated ∪ fuzzy set, which is what preserved the ~139 entries
+  `es` already had.
+
+### Fixed
+- **`should be %{count} byte(s)` and friends now exist in de/es/it/pl** — the
+  entire `errors` domain was untranslated in de, it and pl, so every Ecto
+  validation message fell back to English in those locales.
+
+### Verification
+- Bidirectional placeholder audit over all 24 catalog files: 0 extra, 0 dropped.
+- `mix gettext.extract --merge` reports `0 new, 0 removed, 0 reworded` for all 24
+  files and leaves the tree byte-identical.
+
+## 1.7.223 - 2026-07-30
+
+### Fixed
+- **fr carried the same live fuzzy-carryover defects as ru/et** — the sign-out
+  control read "S'inscrire" (**Sign up**), `Email Unconfirmed` rendered as "E-mail
+  **confirmé**", `Integration added` as "Intégration **supprimée**" (removed),
+  `Approve` as "avr." (April), `Restore` as "Rétro" (the theme), `unlimited` as
+  "sans titre" (untitled), `Full Access` as "Succès", `Port` as "Trier" (Sort),
+  `Custom URLs` as "Rôles personnalisés" (Custom **roles**), `Device` as
+  "Service", `Create User` as "Créer un dossier" (Create **folder**),
+  `No unread notifications` as "Activer les notifications utilisateur", and both
+  `%{n}h ago` and `%{n}m ago` as "il y a %{n} **jours**". The xAI key-setup steps
+  had inherited Mistral's URLs here too.
+- **Placeholders dropped by a fuzzy carryover** — `Requires %{module}` rendered as
+  a bare "Required" in de, es, it, pl (and `Active today at %{time}` as "Activo"
+  in es), losing the interpolated value. These are worse than being untranslated:
+  an empty msgstr falls back to correct English, while these render wrong text
+  with the value silently missing. Fixed in all four locales.
+
+### i18n
+- **fr is complete** — 0 untranslated, 0 fuzzy across all three domains
+  (`default` 2182, `errors` 24, `phoenix_kit` 7). 301 strings translated and 126
+  fuzzy entries reviewed individually, 90 rewritten. ru, et and fr are now all at
+  100% with no fuzzy flags.
+- **The placeholder audit now checks both directions** — the 1.7.222 version only
+  caught msgstrs referencing a binding the msgid never supplies; it now also
+  catches ones that *drop* a binding the msgid does supply. Plural entries are
+  handled correctly (form 0 against `msgid`, the rest against `msgid_plural`),
+  since English singulars routinely hardcode "1" and carry no `%{count}`.
+  Result across all 24 catalog files: 0 extra, 0 dropped.
+- `de`, `es`, `it`, `pl` remain deliberate stubs and still carry ~463–533 fuzzy
+  flags that were **not** audited string-by-string — only the provably-broken
+  placeholder cases above were fixed. Promoting any of them to a supported locale
+  needs the same pass ru/et/fr got. `en` is untranslated by design.
+
+## 1.7.222 - 2026-07-29
+
+### Fixed
+- **Fuzzy translations were serving wrong text in ru and et** — Elixir's Gettext
+  compiles and serves entries flagged `fuzzy` (the flag is only a translator
+  hint), so every translation gettext had auto-carried from a similar-looking
+  msgid was live in the UI. `Approve` rendered as "Апр"/"Apr" (April), `Port` as
+  "Sort by", `unlimited` as "untitled", `Full Access` as "Success", `Large` as
+  "Target", `Preview` as "Back"/"Previous", `Custom URLs` as "Custom roles",
+  `%{n}h ago` and `%{n}m ago` both as "…days ago", and the `Nord`/`Winter`/`Black`
+  theme names as "No"/"Enter"/"Back". Worst of the set, both stating the opposite
+  of the truth on an auth surface: `Email Unconfirmed` rendered as
+  "Email **confirmed**" and `Sign up` as "Sign **in**".
+- **Provider setup instructions pointed at the wrong vendors** — the xAI and
+  OpenAI key-setup steps had inherited Mistral's and DeepSeek's URLs, telling
+  ru/et users to fetch an xAI key from `console.mistral.ai` and an OpenAI key
+  from `platform.deepseek.com`.
+- **`errors.po` had unresolvable interpolation bindings** — six `validate_length`
+  messages in both ru and et carried `%{min}`/`%{max}` while Ecto only ever
+  supplies `%{count}`, so every min/max length validation error interpolated a
+  binding that does not exist. `should have %{count} item(s)` also said "bytes".
+
+### i18n
+- **Catalogs resynced with the source** — `mix gettext.extract --merge` across all
+  8 locales: 195 msgids that existed in source but in no catalog were added and 12
+  dead entries removed. A full merge is now a **no-op** (`0 new, 0 removed, 0
+  reworded`) and byte-idempotent, which is what makes the drift actually gone
+  rather than deferred.
+- **ru and et are back at 100%** — 0 untranslated, 0 fuzzy across all three
+  domains (`default` 2182, `errors` 24, `phoenix_kit` 7). 282 ru / 281 et strings
+  newly translated; 304 ru / 305 et fuzzy entries reviewed individually, ~136 per
+  locale rewritten and the rest confirmed correct and unflagged. Terminology was
+  taken from each catalog's existing non-fuzzy usage rather than invented (ru
+  "бакет" for bucket, since "Хранилище" is already Storage; et "dimensioon" and
+  "teavitus", both already dominant). daisyUI theme names follow the existing fr
+  precedent: descriptive names translated, genre/proper nouns kept.
+- **Placeholder audit added over all 24 catalog files** — every `%{…}` in every
+  msgstr, including each plural form, is bound by its msgid. 0 problems remaining.
+- `de`, `es`, `it`, `pl`, `en` are synced but remain stubs by design. `fr` (~86%,
+  126 fuzzy) is maintained but incomplete and still carries the same class of
+  fuzzy defect — left for its own pass rather than half-done here.
+
+## 1.7.221 - 2026-07-29
+
+### Added
+- **A failed email never renders as merely sent** (#674) — the activity badges
+  carry their whole meaning in colour (the text is only ever a timestamp), so a
+  log whose `status` says the send failed but whose matching timestamp or event
+  is missing rendered as the plain blue "sent" badge, contradicting the detail
+  page for the same log. A status-only badge now covers that gap.
+- **CRM contact card on the user detail page** (#674) — when the optional CRM
+  module is installed and enabled, a user linked to a CRM contact gets a card
+  linking straight to it.
+
+### Fixed
+- **Spam complaints were left showing as sent** (#674 review) — the new failure
+  whitelist spelled the status `complained`, which no writer in the tree sets,
+  and omitted `complaint`, which is what `SqsProcessor` actually writes and what
+  `Emails.Log`'s changeset validates. Five of the six failure statuses were
+  covered and the dead entry made the list look complete.
+- **Soft bounces stay amber in the activity column** (#674 review) — the
+  status-only badge hardcoded `badge-error` for every failure status, repainting
+  a retryable soft bounce red in the list while the detail page showed it amber.
+  Colour and label now come from `EmailStatusBadge`, so core holds one status →
+  colour/label map instead of two that drift.
+- **The CRM card checks the viewer's `crm` permission** (#674 review) — every
+  admin route shares one `live_session` gated only by `can_access_admin_area?/1`,
+  so a role holding `users` but not `crm` rendered a contact's name and was then
+  bounced to `/` by `enforce_admin_view_permission/2` on clicking through. The
+  permission check also skips the query for viewers who would never see the card.
+- **A contact with no name renders a visible link** (#674 review) —
+  `phoenix_kit_crm_contacts.name` is nullable, and the card read `.name` directly
+  instead of CRM's own `display_name/1` fallback chain, so such a contact
+  rendered the card's only link as empty text.
+
+### Tests
+- **`email_activity_badges_test.exs`** (new) — the component had none. Enumerates
+  the canonical status list from `Emails.Log`'s changeset and asserts the failure
+  subset against it both ways, so a whitelist that invents or drops a status
+  fails a test whose message says why. Also pins colour parity with
+  `EmailStatusBadge`, the labels, and the no-duplicate path.
+
+### i18n
+- **The CRM card's new strings are translated** (#674 review) — `This user is
+  linked to a CRM contact.` and `Unnamed contact` reached neither `default.pot`
+  nor ru/et, the two locales kept at 100%. Appended by hand for the same reason
+  as 1.7.220: a full `gettext.extract --merge` now reports 195 new / 53 fuzzy per
+  locale, a repo-wide backlog this PR did not cause. `CRM` needed nothing — it
+  already exists as a msgid and is translated in both.
+
 ## 1.7.220 - 2026-07-29
 
 ### i18n

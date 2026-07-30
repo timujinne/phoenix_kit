@@ -32,7 +32,7 @@ msgstr "on vale formaadiga"
 
 ## From Ecto.Changeset.validate_subset/3
 msgid "has an invalid entry"
-msgstr ""
+msgstr "sisaldab vigast kirjet"
 
 ## From Ecto.Changeset.validate_exclusion/3
 msgid "is reserved"
@@ -44,17 +44,16 @@ msgstr "ei ühti kinnitusega"
 
 ## From Ecto.Changeset.no_assoc_constraint/3
 msgid "is still associated with this entry"
-msgstr ""
+msgstr "on selle kirjega endiselt seotud"
 
 msgid "are still associated with this entry"
-msgstr ""
+msgstr "on selle kirjega endiselt seotud"
 
 ## From Ecto.Changeset.validate_length/3, when: opts = [count: :bytes]
-#, fuzzy
 msgid "should have %{count} item(s)"
 msgid_plural "should have %{count} item(s)"
-msgstr[0] "peab olema %{count} bait"
-msgstr[1] "peab olema %{count} baiti"
+msgstr[0] "peab olema %{count} element"
+msgstr[1] "peab olema %{count} elementi"
 
 ## From Ecto.Changeset.validate_length/3, when: opts = [count: :graphemes]
 msgid "should be %{count} character(s)"
@@ -70,41 +69,37 @@ msgstr[1] "peab olema %{count} baiti"
 
 msgid "should have at least %{count} item(s)"
 msgid_plural "should have at least %{count} item(s)"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "peab olema vähemalt %{count} element"
+msgstr[1] "peab olema vähemalt %{count} elementi"
 
 ## From Ecto.Changeset.validate_length/3, when: opts = [min: _]
-#, fuzzy
 msgid "should be at least %{count} character(s)"
 msgid_plural "should be at least %{count} character(s)"
-msgstr[0] "peab olema vähemalt %{min} tähemärk"
-msgstr[1] "peab olema vähemalt %{min} tähemärki"
+msgstr[0] "peab olema vähemalt %{count} tähemärk"
+msgstr[1] "peab olema vähemalt %{count} tähemärki"
 
 ## From Ecto.Changeset.validate_length/3, when: opts = [min: _]
-#, fuzzy
 msgid "should be at least %{count} byte(s)"
 msgid_plural "should be at least %{count} byte(s)"
-msgstr[0] "peab olema vähemalt %{min} tähemärk"
-msgstr[1] "peab olema vähemalt %{min} tähemärki"
+msgstr[0] "peab olema vähemalt %{count} bait"
+msgstr[1] "peab olema vähemalt %{count} baiti"
 
 msgid "should have at most %{count} item(s)"
 msgid_plural "should have at most %{count} item(s)"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "peab olema kuni %{count} element"
+msgstr[1] "peab olema kuni %{count} elementi"
 
 ## From Ecto.Changeset.validate_length/3, when: opts = [max: _]
-#, fuzzy
 msgid "should be at most %{count} character(s)"
 msgid_plural "should be at most %{count} character(s)"
-msgstr[0] "peab olema kuni %{max} tähemärk"
-msgstr[1] "peab olema kuni %{max} tähemärki"
+msgstr[0] "peab olema kuni %{count} tähemärk"
+msgstr[1] "peab olema kuni %{count} tähemärki"
 
 ## From Ecto.Changeset.validate_length/3, when: opts = [max: _]
-#, fuzzy
 msgid "should be at most %{count} byte(s)"
 msgid_plural "should be at most %{count} byte(s)"
-msgstr[0] "peab olema kuni %{max} tähemärk"
-msgstr[1] "peab olema kuni %{max} tähemärki"
+msgstr[0] "peab olema kuni %{count} bait"
+msgstr[1] "peab olema kuni %{count} baiti"
 
 ## From Ecto.Changeset.validate_number/3
 msgid "must be less than %{number}"
