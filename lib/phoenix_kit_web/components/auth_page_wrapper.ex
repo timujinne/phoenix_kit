@@ -13,6 +13,7 @@ defmodule PhoenixKitWeb.Components.AuthPageWrapper do
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Settings
+  alias PhoenixKit.Utils.CssValue
   alias PhoenixKitWeb.Components.Core.DevNotice
   alias PhoenixKitWeb.Components.Core.LanguageSwitcher
   alias PhoenixKitWeb.Components.LayoutWrapper
@@ -40,17 +41,30 @@ defmodule PhoenixKitWeb.Components.AuthPageWrapper do
       end)
       |> assign_new(:auth_bg_image, fn ->
         case Settings.get_setting("auth_background_image_file_uuid", "") do
-          uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, "original")
-          _ -> ""
+          uuid when is_binary(uuid) and uuid != "" ->
+            CssValue.url(URLSigner.signed_url(uuid, "original"))
+
+          _ ->
+            ""
         end
       end)
       |> assign_new(:auth_bg_image_mobile, fn ->
         case Settings.get_setting("auth_background_image_mobile_file_uuid", "") do
-          uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, "original")
-          _ -> ""
+          uuid when is_binary(uuid) and uuid != "" ->
+            CssValue.url(URLSigner.signed_url(uuid, "original"))
+
+          _ ->
+            ""
         end
       end)
-      |> assign_new(:auth_bg_color, fn -> Settings.get_setting("auth_background_color", "") end)
+      # Sanitised on READ, not only on write: these values reach a `<style>`
+      # element, whose contents are raw character data — HTML escaping does not
+      # apply there, so a value containing `</style>` closes the element and
+      # opens whatever follows. Guarding here also neutralises anything a
+      # previous release already stored. See `PhoenixKit.Utils.CssValue`.
+      |> assign_new(:auth_bg_color, fn ->
+        CssValue.color(Settings.get_setting("auth_background_color", ""))
+      end)
       |> assign_new(:project_title, fn -> Settings.get_project_title() end)
       |> assign_new(:show_language_switcher, fn ->
         Languages.enabled?() and length(Languages.get_enabled_languages()) > 1
@@ -59,14 +73,25 @@ defmodule PhoenixKitWeb.Components.AuthPageWrapper do
     assigns = assign(assigns, :bg_style_tag, bg_style_tag(assigns))
 
     ~H"""
-    <LayoutWrapper.app_layout
+    <LayoutWrapper.auth_layout
       flash={@flash}
       phoenix_kit_current_scope={@phoenix_kit_current_scope}
       page_title={@page_title}
       current_path={@current_path}
     >
       {raw(@bg_style_tag)}
-      <div class="auth-bg min-h-[calc(100vh-4rem)] flex items-center justify-center px-4 -mx-[calc(50vw-50%)] w-[100vw] -my-8">
+      <%!-- Sizing here is deliberately free of viewport units.
+            `w-[100vw]` overflowed by exactly the scrollbar-gutter width — the
+            host root sets `scrollbar-gutter: stable`, so the gutter is always
+            reserved and 100vw counts it, producing a horizontal scrollbar on a
+            page that has nothing to scroll. `w-full` is a percentage of the
+            containing block and excludes it.
+            `min-h-full` for the same reason: a percentage can never exceed its
+            parent, so it cannot manufacture a vertical scrollbar either. The
+            parent's height comes from `auth_layout`'s `min-h-dvh`.
+            The old `-my-8` / `-mx-[calc(50vw-50%)]` compensated for a chrome
+            wrapper that auth no longer renders inside. --%>
+      <div class="auth-bg min-h-full w-full flex items-center justify-center px-4 py-8">
         <div class="card bg-base-100 w-full max-w-sm shadow-2xl">
           <div class="card-body">
             <%= if @auth_logo_url != "" do %>
@@ -89,18 +114,27 @@ defmodule PhoenixKitWeb.Components.AuthPageWrapper do
           </div>
         </div>
       </div>
-    </LayoutWrapper.app_layout>
+    </LayoutWrapper.auth_layout>
     """
   end
 
+  # This function builds markup by string concatenation and its result is
+  # emitted through `raw/1`, so EVERY value interpolated here must already be
+  # known-safe. The assigns are sanitised on read above, and re-sanitised here
+  # because `assign_new/3` lets a caller supply them directly — this is the one
+  # place the stylesheet is assembled, so this is where the guarantee belongs.
+  # `CssValue.color/1` and `CssValue.url/1` return `""` for anything they do not
+  # recognise, and `""` degrades to "no background", never to broken markup.
   defp bg_style_tag(assigns) do
-    desktop = bg_css(assigns.auth_bg_image, assigns.auth_bg_color)
+    desktop = bg_css(CssValue.url(assigns.auth_bg_image), CssValue.color(assigns.auth_bg_color))
 
     mobile =
-      if assigns.auth_bg_image_mobile != "" do
-        "@media (max-width: 768px) { .auth-bg { background-image: url('#{assigns.auth_bg_image_mobile}'); } }"
-      else
-        ""
+      case CssValue.url(assigns.auth_bg_image_mobile) do
+        "" ->
+          ""
+
+        url ->
+          "@media (max-width: 768px) { .auth-bg { background-image: url('#{url}'); } }"
       end
 
     "<style>.auth-bg { #{desktop} background-size: cover; background-position: center; } #{mobile}</style>"

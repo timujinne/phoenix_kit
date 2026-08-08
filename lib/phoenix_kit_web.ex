@@ -123,10 +123,14 @@ defmodule PhoenixKitWeb do
       import PhoenixKitWeb.Components.Core.Chart
       import PhoenixKitWeb.Components.Core.StatusDot
       import PhoenixKitWeb.Components.Core.ConnectAccountButton
-      # Import only the component — its internal helpers (format_status/1,
-      # status_class/1) must not leak into the shared html helpers, or they
-      # collide with a local format_status/1 in downstream modules (e.g.
-      # phoenix_kit_posts' Details), breaking their compile.
+      # Only the component. This module also exports `format_status/1` and
+      # `status_class/1`, and blanket-importing those puts two of the most
+      # generic names imaginable into every LiveView in the ecosystem — any
+      # consumer with its own `format_status/1` fails to compile with
+      # "imported ... conflicts with local function", pointing at code that
+      # never mentioned email. phoenix_kit_posts hit exactly that. Core's own
+      # caller (EmailActivityBadges) qualifies them, so nothing needs them
+      # unqualified.
       import PhoenixKitWeb.Components.Core.EmailStatusBadge, only: [email_status_badge: 1]
       import PhoenixKitWeb.Components.Core.TimeDisplay
       import PhoenixKitWeb.Components.Core.EventTimelineItem

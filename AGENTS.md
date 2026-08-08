@@ -5,7 +5,7 @@
 ## Workflow
 
 1. Make changes
-2. `mix precommit` (runs format + compile + credo --strict)
+2. `mix precommit` — compile (warnings as errors) + `deps.unlock --check-unused` + `quality.ci` (format-check, credo --strict, dialyzer) + JS tests. **It does not run `mix test`** — run that separately, see "CI/CD" below.
 3. Fix problems
 4. `git diff` / `git status` → commit
 
@@ -64,8 +64,20 @@ ast-grep --lang elixir --pattern 'def $FUNC($$$ARGS) do $$$BODY end' lib/
 
 ## Pull Requests
 
-- **Branch:** core integrates on **`main`** — open PRs against `main` (`gh pr create --base main --head mdon:main`). The `dev` branch was **retired 2026-06-01**; do not target it.
-- **CI/CD:** `.github/workflows/ci.yml` is **manual-only** (`workflow_dispatch`) — the equivalent checks run locally via `mix precommit` / `mix quality.ci` (format, credo, dialyzer, compile with warnings as errors, deps audit, tests with PostgreSQL).
+- **Branch:** core integrates on **`main`** — open PRs against `main` (`gh pr create --base main --head <your-fork-owner>:<branch>`; the previous example hardcoded one contributor's fork and branch). The `dev` branch was **retired 2026-06-01**; do not target it.
+- **CI/CD:** `.github/workflows/ci.yml` is **manual-only** (`on: workflow_dispatch`) — nothing runs on push or on a PR. When dispatched it provisions `postgres:16` and runs `mix format --check-formatted`, `mix credo --strict`, `mix dialyzer`, `mix deps.unlock --check-unused`, and `mix test.setup` + `mix test`.
+
+  ⚠️ **Nothing runs the Elixir suite automatically — not CI, and not `precommit`.** `mix precommit` covers compile-with-warnings-as-errors, unused deps, `quality.ci` and the JS tests, but **not `mix test`** (this section previously claimed otherwise). Running the suite is a manual step, and for anything touching the schema it is not optional: with no database reachable, `test_helper.exs` prints a warning banner and excludes every `:integration` test — but the run still **exits 0 and reports success**, so a green summary proves nothing about a migration.
+
+  Pointing the suite at a database: `PGHOST`/`PGUSER`/`PGPASSWORD` were always read, and `PGDATABASE`/`PGPOOL` were added so you can use a database you already have. The old code hardcoded `phoenix_kit_test`, which forced a role with `CREATEDB` — precisely what a shared or managed instance withholds. On a busy shared server also bound the concurrency, or the pool starves and the failures look like product bugs:
+
+  ```bash
+  PGHOST=… PGUSER=… PGPASSWORD=… PGDATABASE=my_scratch_db PGPOOL=20 mix test --max-cases 8
+  ```
+
+  Adding `mix test` to `precommit` was tried and reverted: the suite is not green from a clean checkout (with no database ~5 "unit" tests still fail, because `Settings` reads hit the DB on a cache miss), so the gate would be permanently red. Fixing that is worth doing separately — until then, treat the suite as a deliberate manual step, not an oversight.
+
+  ⚠️ **A database-less run now sets `config :phoenix_kit, :update_mode, true`** (`test_helper.exs`, only when the repo is unreachable). That is what closed the "~5 unit tests fail" gap above: it short-circuits every `PhoenixKit.Settings` read to `nil` instead of queueing 4 s against a dead pool. The consequence is that on the unit half **every settings-dependent assertion runs against "nothing is configured"** — a test that needs a *value* cannot get one from the database and must prime the settings cache itself (start `PhoenixKit.Cache.Registry` + `{PhoenixKit.Cache, name: :settings}` and `PhoenixKit.Cache.put/3`; the cache is consulted before the short-circuit). `test/phoenix_kit/utils/safe_destination_settings_test.exs` is the worked example. Without that, an assertion about a configured setting is vacuously true.
 - **Commit messages:** start with `Add`, `Update`, `Fix`, `Remove`, `Merge`.
 - **Version management:** `mix.exs` `@version` + `CHANGELOG.md`. Run `mix compile`, `mix test`, `mix format`, `mix credo --strict` before committing. Get current versions:
   ```bash
@@ -150,8 +162,11 @@ settings live on the admin Users settings page (`/admin/settings/users`).
   use `Auth.remember_me_params/0`. **Never hardcode `%{"remember_me" => "true"}`**.
 - **Post-auth destination:** one resolver, `Routes.post_auth_path/1`. Precedence:
   explicit `return_to` (param or gate-stashed session key) > `after_registration_path`
-  > `after_login_path` > `"/"`. `log_in_user/3` honors a `"return_to"` param too.
-  Both settings validate as local paths on save and are re-guarded on read.
+  > `after_login_path` > `/admin`. `log_in_user/3` honors a `"return_to"` param too.
+  Both settings validate as local paths on save and are re-guarded on read. The
+  tail is `/admin`, not `"/"`: core declares that route unconditionally and admits
+  every authenticated visitor to it, while `"/"` belongs to the host and 404s
+  wherever no root route was declared.
 - ⚠️ **`Routes.local_path?/1` is the only redirect guard** — it rejects `//`,
   `/\`, and **ASCII control characters** (browsers strip tab/CR/LF, so
   `"/\t/evil.com"` lands as `//evil.com`; `Phoenix.Controller.redirect/2` blocks
@@ -400,5 +415,6 @@ Surfaced 2026-06-11 by an adversarial audit of `phoenix_kit_publishing` (which e
 - **Tokens never expire**, yet the 401 says *"Invalid or expired token."* Either add real expiry or fix the message so it doesn't imply time-limited capability URLs.
 - **`/api/files/:uuid/info` is unauthenticated** and returns a valid signed URL for any uuid — defeats the signing scheme. Lock it down.
 - **Fails open on a nil `secret_key_base`** — the token degrades to a predictable no-secret hash. Fail closed.
+- **`POST /api/upload` is unauthenticated and takes the file owner from a request parameter.** Added 2026-08-07 by a security review of the whole workspace; this one is a write, not a read, so it belongs at the top of this list. The storage routes are declared in `integration.ex` inside the scope that pipes through `[:browser, :phoenix_kit_auto_setup]` — no auth plug, unlike the `:phoenix_kit_require_authenticated` and `:phoenix_kit_admin_only` pipelines defined a few lines above. `UploadController.create/2` then resolves the owner as: authenticated user from assigns, *else* `params["user_uuid"]`, taken verbatim under the comment `# Verify admin permission here if needed` — the check was never written. Confirmed against the running app: an anonymous client that fetches a CSRF token from the public login page reaches the controller and is answered by the user-resolution branch (401 with no `user_uuid`), so supplying one attributes a 100 MB upload to any account and starts variant processing for it. Fix: drop the params fallback outright, honour a `user_uuid` override only for an authenticated admin, and rate-limit the action.
 
-Not urgent (current use is public images), but record so the false sense of "capability URL" security isn't relied on for sensitive files.
+Only the read half is "not urgent" (current use is public images); the upload half is a live unauthenticated write. Recorded together so the false sense of "capability URL" security isn't relied on for sensitive files.

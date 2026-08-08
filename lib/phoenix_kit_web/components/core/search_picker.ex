@@ -157,8 +157,12 @@ defmodule PhoenixKitWeb.Components.Core.SearchPicker do
         ]}
       >
       </div>
-      <%!-- Keep the hook's client-rendered classes in the CSS bundle. --%>
-      <span class="hidden loading loading-spinner loading-xs hero-user hero-plus-mini"></span>
+      <%!-- Keep the hook's client-rendered classes in the CSS bundle.
+           `cursor-pointer` is in here because Tailwind v4's preflight stopped
+           giving buttons a pointer, so the dropdown rows read as decoration
+           without it — and a host that never writes the class by hand would
+           otherwise not have it compiled at all. --%>
+      <span class="hidden loading loading-spinner loading-xs hero-user hero-plus-mini cursor-pointer"></span>
     </div>
     """
   end

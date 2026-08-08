@@ -234,4 +234,38 @@ defmodule PhoenixKit.Users.Auth.ScopeTest do
       assert Scope.user_uuid(scope) == nil
     end
   end
+
+  describe "nil scopes" do
+    # Host layouts render on kit auth pages with phoenix_kit_current_scope
+    # unset, so these are ordinary calls rather than programmer errors. They
+    # used to raise FunctionClauseError, which meant a host could not write the
+    # obvious `if Scope.authenticated?(@phoenix_kit_current_scope)` in its own
+    # layout without nil-guarding first.
+    test "every predicate and accessor answers as unauthenticated" do
+      assert Scope.authenticated?(nil) == false
+      assert Scope.anonymous?(nil) == true
+      assert Scope.user(nil) == nil
+      assert Scope.user_uuid(nil) == nil
+      assert Scope.user_email(nil) == nil
+      assert Scope.user_full_name(nil) == nil
+      assert Scope.user_active?(nil) == false
+    end
+
+    test "a scope with no user answers the same way as no scope" do
+      # These are the same situation to a caller deciding what to render, so
+      # answering one and raising on the other would be arbitrary.
+      empty = Scope.for_user(nil)
+
+      assert Scope.authenticated?(empty) == Scope.authenticated?(nil)
+      assert Scope.anonymous?(empty) == Scope.anonymous?(nil)
+      assert Scope.user_uuid(empty) == Scope.user_uuid(nil)
+      assert Scope.user_email(empty) == Scope.user_email(nil)
+      assert Scope.user_active?(empty) == Scope.user_active?(nil)
+    end
+
+    # to_map/1 is deliberately NOT nil-tolerant, but there is no test for it:
+    # its spec is `t()`, so Elixir's type checker rejects `to_map(nil)` at
+    # compile time. A static guarantee beats a runtime assertion, and asserting
+    # it here would itself be a typing violation under --warnings-as-errors.
+  end
 end

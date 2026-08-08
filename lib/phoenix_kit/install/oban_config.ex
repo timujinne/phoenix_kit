@@ -1,1198 +1,1262 @@
-defmodule PhoenixKit.Install.ObanConfig do
-  @moduledoc """
-  Handles Oban configuration for PhoenixKit installation.
+# Igniter-only helper: every caller is a `mix phoenix_kit.*` igniter task,
+# which is itself guarded the same way. Igniter is an OPTIONAL dependency
+# (see mix.exs), so a host that scopes it to `only: [:dev, :test]` compiles
+# :prod without it — unguarded, this module emitted a wall of
+# "Igniter.X is undefined" warnings on every production build.
+if Code.ensure_loaded?(Igniter) do
+  defmodule PhoenixKit.Install.ObanConfig do
+    @moduledoc """
+    Handles Oban configuration for PhoenixKit installation.
 
-  This module provides functionality to:
-  - Configure Oban for background job processing
-  - Set up required queues (default, file_processing)
-  - Add Oban.Plugins.Pruner for job cleanup
-  - Add Oban to application supervisor tree
-  - Ensure configuration exists during updates
-  """
-  use PhoenixKit.Install.IgniterCompat
-
-  # Mix functions only available at compile-time during installation
-  @dialyzer {:nowarn_function, update_existing_oban_config: 3}
-  @dialyzer {:nowarn_function, ensure_posts_queue: 2}
-  @dialyzer {:nowarn_function, ensure_sitemap_queue: 2}
-  @dialyzer {:nowarn_function, ensure_shop_imports_queue: 2}
-  @dialyzer {:nowarn_function, ensure_newsletters_delivery_queue: 2}
-  @dialyzer {:nowarn_function, ensure_catalogue_pdf_queue: 2}
-  @dialyzer {:nowarn_function, ensure_notifications_queue: 2}
-  @dialyzer {:nowarn_function, ensure_cron_plugin: 2}
-  @dialyzer {:nowarn_function, ensure_digest_cron_entries: 2}
-  @dialyzer {:nowarn_function, add_digest_entries_to_crontab: 3}
-  @dialyzer {:nowarn_function, ensure_pruner_max_age: 2}
-  @dialyzer {:nowarn_function, ensure_lifeline_plugin: 2}
-  @dialyzer {:nowarn_function, maybe_raise_lifeline_rescue_after: 1}
-  @dialyzer {:nowarn_function, add_cron_plugin_to_plugins: 2}
-
-  alias Igniter.Libs.Phoenix
-  alias Igniter.Project.Application
-  alias PhoenixKit.Install.IgniterHelpers
-
-  # Lifeline rescues purely by elapsed time, with no check that the node
-  # executing the job is still alive, so rescue_after must stay above the
-  # longest job a host can legitimately run or that job is rescued mid-flight
-  # and executes a second time concurrently. 60 minutes is Oban's own default;
-  # 30 is the longest timeout/1 PhoenixKit itself ships
-  # (Storage.Workers.SyncFilesJob), and is therefore the floor below which an
-  # existing entry gets raised rather than left alone.
-  @lifeline_rescue_after_minutes 60
-  @lifeline_min_rescue_after_minutes 30
-
-  @doc """
-  Adds or verifies Oban configuration.
-
-  This function ensures that Oban is properly configured for PhoenixKit's
-  background job processing, including:
-  1. Repo configuration (auto-detected from PhoenixKit config)
-  2. Required queues for file processing
-  3. Pruner plugin for automatic job cleanup
-
-  ## Parameters
-  - `igniter` - The igniter context
-
-  ## Returns
-  Updated igniter with Oban configuration and notices.
-  """
-  def add_oban_configuration(igniter, prefix \\ nil) do
-    igniter
-    |> add_oban_config(prefix)
-    |> maybe_warn_missing_oban_prefix(prefix)
-    |> add_oban_configuration_notice()
-  end
-
-  @doc """
-  Whether the given config content has a `config :app, Oban` block that
-  lacks a `prefix:` key.
-
-  Scoped to the Oban block on purpose: a whole-file scan is defeated by
-  the `config :phoenix_kit, prefix: "..."` entry (which matches a naive
-  `prefix:` grep) and false-positives on unrelated config. Any `prefix:`
-  inside the block counts — including computed values like
-  `System.get_env(...)`. Returns false when the content has no Oban
-  block at all (nothing to judge).
-  """
-  @spec oban_block_missing_prefix?(String.t()) :: boolean()
-  def oban_block_missing_prefix?(content) when is_binary(content) do
-    case Regex.scan(
-           ~r/config\s+:\w+,\s+Oban\b(.*?)(?=\n(?:config\s|import_config\s)|\z)/s,
-           strip_comment_lines(content)
-         ) do
-      [] -> false
-      blocks -> Enum.all?(blocks, fn [_, body] -> not String.contains?(body, "prefix:") end)
-    end
-  end
-
-  # Drops comment-only lines before block scanning — otherwise a
-  # commented-out example Oban block can false-positive a "missing
-  # prefix" warning for a file with no active block, or a commented block
-  # that happens to mention `prefix:` can mask a genuinely unprefixed
-  # active block (false negative, defeating the check).
-  defp strip_comment_lines(content) do
-    content
-    |> String.split("\n")
-    |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
-    |> Enum.join("\n")
-  end
-
-  # Existing Oban configs on a prefixed install must carry prefix: — the
-  # migrations put oban_jobs into the named schema, and without the option
-  # Oban looks for public.oban_jobs. add_oban_config only injects prefix:
-  # into freshly generated blocks, so warn about pre-existing ones. Reads
-  # from disk (the igniter buffer isn't flushed yet), which is exactly
-  # right: a freshly generated block isn't on disk and produces no
-  # false warning.
-  defp maybe_warn_missing_oban_prefix(igniter, prefix) when prefix in [nil, "public"], do: igniter
-
-  defp maybe_warn_missing_oban_prefix(igniter, prefix) do
-    contents =
-      ["config/config.exs", "config/runtime.exs"]
-      |> Enum.filter(&File.exists?/1)
-      |> Enum.map(&File.read!/1)
-
-    has_block? = fn content ->
-      Regex.match?(~r/config\s+:\w+,\s+Oban\b/, strip_comment_lines(content))
-    end
-
-    any_block = Enum.any?(contents, has_block?)
-
-    any_block_with_prefix =
-      Enum.any?(contents, fn content ->
-        has_block?.(content) and not oban_block_missing_prefix?(content)
-      end)
-
-    if any_block and not any_block_with_prefix do
-      Igniter.add_warning(igniter, """
-      Your existing Oban config appears to lack this install's schema prefix.
-      PhoenixKit's Oban tables live in the "#{prefix}" schema — add:
-
-        config :your_app, Oban,
-          prefix: "#{prefix}",
-          ...
-      """)
-    else
-      igniter
-    end
-  rescue
-    _ -> igniter
-  end
-
-  @doc """
-  Checks if Oban configuration exists in config.exs.
-
-  ## Parameters
-  - `igniter` - The igniter context for detecting parent app name
-
-  ## Returns
-  Boolean indicating if configuration exists.
-  """
-  def oban_config_exists?(igniter) do
-    config_path = "config/config.exs"
-    app_name = IgniterHelpers.get_parent_app_name(igniter)
-
-    if File.exists?(config_path) do
-      content = File.read!(config_path)
-      lines = String.split(content, "\n")
-
-      # Check for active (non-commented) Oban configuration with parent app namespace
-      has_oban_config =
-        Enum.any?(lines, fn line ->
-          trimmed = String.trim(line)
-          # Not a comment and contains config :app_name, Oban
-          !String.starts_with?(trimmed, "#") and
-            String.contains?(line, "config :#{app_name}, Oban")
-        end)
-
-      has_queues =
-        Enum.any?(lines, fn line ->
-          trimmed = String.trim(line)
-          # Not a comment and contains queues:
-          !String.starts_with?(trimmed, "#") and String.contains?(line, "queues:")
-        end)
-
-      has_oban_config and has_queues
-    else
-      false
-    end
-  rescue
-    _ -> false
-  end
-
-  # Clean up broken Oban config syntax from previous failed updates
-  # NOTE: Previously this function attempted to fix syntax issues with greedy
-  # regexes, but they could corrupt valid commented config. The regexes have
-  # been removed as they caused more harm than good. If syntax issues occur
-  # from failed updates, they should be fixed manually or with more targeted
-  # approaches.
-  defp cleanup_oban_config_syntax do
-    :ok
-  end
-
-  # Add Oban configuration to config.exs
-  defp add_oban_config(igniter, prefix) do
-    # First, clean up any broken syntax from previous failed updates
-    cleanup_oban_config_syntax()
-
-    # Get parent app name and repo
-    app_name = IgniterHelpers.get_parent_app_name(igniter)
-    repo_module = get_repo_module(igniter)
-
-    # Prefixed installs put oban_jobs into the named schema (V27), so Oban
-    # must be pointed at it — without this it looks for public.oban_jobs.
-    prefix_line =
-      if prefix in [nil, "public"] do
-        ""
-      else
-        "\n  prefix: \"#{prefix}\","
-      end
-
-    oban_config = """
-
-    # Configure Oban for PhoenixKit background jobs
-    # Required for file processing (storage system), posts, and sitemap
-    config :#{app_name}, Oban,
-      repo: #{repo_module},#{prefix_line}
-      queues: [
-        default: 10,           # General purpose queue
-        file_processing: 20,   # File variant generation (storage system)
-        posts: 10,             # Posts scheduled publishing
-        scheduled_jobs: 1,     # Scheduled jobs cron
-        sitemap: 5,            # Sitemap generation
-        newsletters_delivery: 10, # Newsletters broadcast deliveries
-        catalogue_pdf: 2,      # phoenix_kit_catalogue PDF text extraction
-        notifications: 10      # Notification delivery channels (Telegram, etc.)
-      ],
-      plugins: [
-        # Pruner: delete completed/discarded jobs after 30 days
-        {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30},
-        # Lifeline: rescue jobs orphaned in :executing by a hard crash
-        # (BEAM kill -9, OOM, node failure) back to :available so they
-        # run again — without it, an orphaned job sits stuck forever.
-        # rescue_after MUST stay above your longest-running job: Lifeline
-        # rescues purely by elapsed time, with no check that the node is
-        # still alive, so a job that legitimately runs longer is rescued
-        # mid-flight and executes a second time concurrently. 60 minutes
-        # is Oban's own default and 2x PhoenixKit's longest worker
-        # timeout (SyncFilesJob, 30 min).
-        #{lifeline_entry()},
-        {Oban.Plugins.Cron,
-         crontab: [
-           {"* * * * *", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker},
-           {"0 3 * * *", PhoenixKit.Modules.Storage.Workers.PruneTrashJob},
-           {"0 4 * * *", PhoenixKit.Notifications.PruneWorker},
-           {"0 * * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "hourly"}},
-           {"0 */12 * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "12h"}},
-           {"0 6 * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "daily"}},
-           {"0 6 * * 1", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "weekly"}}
-         ]}
-      ]
+    This module provides functionality to:
+    - Configure Oban for background job processing
+    - Set up required queues (default, file_processing)
+    - Add Oban.Plugins.Pruner for job cleanup
+    - Add Oban to application supervisor tree
+    - Ensure configuration exists during updates
     """
+    use PhoenixKit.Install.IgniterCompat
 
-    try do
-      Igniter.update_file(igniter, "config/config.exs", fn source ->
-        content = Rewrite.Source.get(source, :content)
+    # Mix functions only available at compile-time during installation
+    @dialyzer {:nowarn_function, update_existing_oban_config: 3}
+    @dialyzer {:nowarn_function, ensure_posts_queue: 2}
+    @dialyzer {:nowarn_function, ensure_sitemap_queue: 2}
+    @dialyzer {:nowarn_function, ensure_shop_imports_queue: 2}
+    @dialyzer {:nowarn_function, ensure_newsletters_delivery_queue: 2}
+    @dialyzer {:nowarn_function, ensure_catalogue_pdf_queue: 2}
+    @dialyzer {:nowarn_function, ensure_notifications_queue: 2}
+    @dialyzer {:nowarn_function, ensure_cron_plugin: 2}
+    @dialyzer {:nowarn_function, ensure_digest_cron_entries: 2}
+    @dialyzer {:nowarn_function, add_digest_entries_to_crontab: 3}
+    @dialyzer {:nowarn_function, ensure_worker_cron_entries: 2}
+    @dialyzer {:nowarn_function, add_worker_entries_to_crontab: 3}
+    @dialyzer {:nowarn_function, ensure_pruner_max_age: 2}
+    @dialyzer {:nowarn_function, ensure_lifeline_plugin: 2}
+    @dialyzer {:nowarn_function, maybe_raise_lifeline_rescue_after: 1}
+    @dialyzer {:nowarn_function, add_cron_plugin_to_plugins: 2}
 
-        # Check if Oban config already exists (with more robust detection)
-        if oban_config_already_exists?(content, app_name) do
-          # Update existing config to add posts queue and cron plugin
-          update_existing_oban_config(source, content, app_name)
-        else
-          # Find insertion point before import_config statements
-          insertion_point = find_import_config_location(content)
+    alias Igniter.Libs.Phoenix
+    alias Igniter.Project.Application
+    alias PhoenixKit.Install.IgniterHelpers
 
-          updated_content =
-            case insertion_point do
-              {:before_import, before_content, after_content} ->
-                # Insert before import_config
-                before_content <> oban_config <> "\n" <> after_content
+    # Lifeline rescues purely by elapsed time, with no check that the node
+    # executing the job is still alive, so rescue_after must stay above the
+    # longest job a host can legitimately run or that job is rescued mid-flight
+    # and executes a second time concurrently. 60 minutes is Oban's own default;
+    # 30 is the longest timeout/1 PhoenixKit itself ships
+    # (Storage.Workers.SyncFilesJob), and is therefore the floor below which an
+    # existing entry gets raised rather than left alone.
+    @lifeline_rescue_after_minutes 60
+    @lifeline_min_rescue_after_minutes 30
 
-              :append_to_end ->
-                # No import_config found, append to end
-                content <> oban_config
-            end
+    @doc """
+    Adds or verifies Oban configuration.
 
-          Rewrite.Source.update(source, :content, updated_content)
-        end
-      end)
-    rescue
-      e ->
-        IO.warn("Failed to add Oban configuration: #{inspect(e)}")
-        add_manual_config_notice(igniter, repo_module)
-    end
-  end
+    This function ensures that Oban is properly configured for PhoenixKit's
+    background job processing, including:
+    1. Repo configuration (auto-detected from PhoenixKit config)
+    2. Required queues for file processing
+    3. Pruner plugin for automatic job cleanup
 
-  # Update existing Oban configuration to add posts/sitemap queues and cron plugin
-  defp update_existing_oban_config(source, content, app_name) do
-    Mix.shell().info("🔍 Updating existing Oban configuration for :#{app_name}...")
+    ## Parameters
+    - `igniter` - The igniter context
 
-    updated_content =
-      content
-      |> ensure_posts_queue(app_name)
-      |> ensure_sitemap_queue(app_name)
-      |> ensure_shop_imports_queue(app_name)
-      |> ensure_newsletters_delivery_queue(app_name)
-      |> ensure_catalogue_pdf_queue(app_name)
-      |> ensure_notifications_queue(app_name)
-      |> ensure_cron_plugin(app_name)
-      |> ensure_digest_cron_entries(app_name)
-      |> ensure_pruner_max_age(app_name)
-      |> ensure_lifeline_plugin(app_name)
-
-    if updated_content == content do
-      Mix.shell().info(
-        "✅ Oban configuration already up-to-date (queues, cron plugin, pruner max_age, and Lifeline present)"
-      )
-    else
-      Mix.shell().info(
-        "✅ Updated Oban configuration (queues, cron plugin, pruner retention, Lifeline)"
-      )
+    ## Returns
+    Updated igniter with Oban configuration and notices.
+    """
+    def add_oban_configuration(igniter, prefix \\ nil) do
+      igniter
+      |> add_oban_config(prefix)
+      |> maybe_warn_missing_oban_prefix(prefix)
+      |> add_oban_configuration_notice()
     end
 
-    Rewrite.Source.update(source, :content, updated_content)
-  end
+    @doc """
+    Whether the given config content has a `config :app, Oban` block that
+    lacks a `prefix:` key.
 
-  # Ensure posts queue exists in the queues list
-  defp ensure_posts_queue(content, app_name) do
-    # Check if posts queue already exists
-    if Regex.match?(~r/posts:\s*\d+/, content) do
-      Mix.shell().info("  ℹ️  Posts queue already configured")
-      content
-    else
-      Mix.shell().info("  ➕ Adding posts queue to Oban configuration...")
-
-      # Find the ACTIVE queues configuration (not commented out)
-      # Pattern: line starts with 'config' (not #), then matches queues block
-      case Regex.run(
-             ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-             content,
-             capture: :all
+    Scoped to the Oban block on purpose: a whole-file scan is defeated by
+    the `config :phoenix_kit, prefix: "..."` entry (which matches a naive
+    `prefix:` grep) and false-positives on unrelated config. Any `prefix:`
+    inside the block counts — including computed values like
+    `System.get_env(...)`. Returns false when the content has no Oban
+    block at all (nothing to judge).
+    """
+    @spec oban_block_missing_prefix?(String.t()) :: boolean()
+    def oban_block_missing_prefix?(content) when is_binary(content) do
+      case Regex.scan(
+             ~r/config\s+:\w+,\s+Oban\b(.*?)(?=\n(?:config\s|import_config\s)|\z)/s,
+             strip_comment_lines(content)
            ) do
-        [full_match, before_queues, queues_content, after_queues] ->
-          Mix.shell().info("  ✓ Found queues block, adding posts queue")
-
-          # Remove trailing whitespace and check for comma
-          trimmed_content = String.trim_trailing(queues_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-          # Add posts queue with proper formatting (no comments to avoid syntax issues)
-          new_queue_entry =
-            if has_trailing_comma do
-              "\n    posts: 10"
-            else
-              ",\n    posts: 10"
-            end
-
-          updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-          String.replace(content, full_match, updated_queues, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse queues block for :#{app_name} - skipping posts queue update"
-          )
-
-          Mix.shell().error("     Please manually add: posts: 10")
-          content
+        [] -> false
+        blocks -> Enum.all?(blocks, fn [_, body] -> not String.contains?(body, "prefix:") end)
       end
     end
-  end
 
-  # Ensure sitemap queue exists in the queues list
-  defp ensure_sitemap_queue(content, app_name) do
-    # Check if sitemap queue already exists
-    if Regex.match?(~r/sitemap:\s*\d+/, content) do
-      Mix.shell().info("  ℹ️  Sitemap queue already configured")
+    # Drops comment-only lines before block scanning — otherwise a
+    # commented-out example Oban block can false-positive a "missing
+    # prefix" warning for a file with no active block, or a commented block
+    # that happens to mention `prefix:` can mask a genuinely unprefixed
+    # active block (false negative, defeating the check).
+    defp strip_comment_lines(content) do
       content
-    else
-      Mix.shell().info("  ➕ Adding sitemap queue to Oban configuration...")
-
-      # Find the ACTIVE queues configuration (not commented out)
-      case Regex.run(
-             ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-             content,
-             capture: :all
-           ) do
-        [full_match, before_queues, queues_content, after_queues] ->
-          Mix.shell().info("  ✓ Found queues block, adding sitemap queue")
-
-          # Remove trailing whitespace and check for comma
-          trimmed_content = String.trim_trailing(queues_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-          # Add sitemap queue with proper formatting (no comments to avoid syntax issues)
-          new_queue_entry =
-            if has_trailing_comma do
-              "\n    sitemap: 5"
-            else
-              ",\n    sitemap: 5"
-            end
-
-          updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-          String.replace(content, full_match, updated_queues, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse queues block for :#{app_name} - skipping sitemap queue update"
-          )
-
-          Mix.shell().error("     Please manually add: sitemap: 5")
-          content
-      end
+      |> String.split("\n")
+      |> Enum.reject(&String.starts_with?(String.trim(&1), "#"))
+      |> Enum.join("\n")
     end
-  end
 
-  # Ensure shop_imports queue exists in the queues list
-  defp ensure_shop_imports_queue(content, app_name) do
-    # Check if shop_imports queue already exists
-    if Regex.match?(~r/shop_imports:\s*\d+/, content) do
-      Mix.shell().info("  ℹ️  shop_imports queue already configured")
-      content
-    else
-      Mix.shell().info("  ➕ Adding shop_imports queue to Oban configuration...")
+    # Existing Oban configs on a prefixed install must carry prefix: — the
+    # migrations put oban_jobs into the named schema, and without the option
+    # Oban looks for public.oban_jobs. add_oban_config only injects prefix:
+    # into freshly generated blocks, so warn about pre-existing ones. Reads
+    # from disk (the igniter buffer isn't flushed yet), which is exactly
+    # right: a freshly generated block isn't on disk and produces no
+    # false warning.
+    defp maybe_warn_missing_oban_prefix(igniter, prefix) when prefix in [nil, "public"],
+      do: igniter
 
-      # Find the ACTIVE queues configuration (not commented out)
-      case Regex.run(
-             ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-             content,
-             capture: :all
-           ) do
-        [full_match, before_queues, queues_content, after_queues] ->
-          Mix.shell().info("  ✓ Found queues block, adding shop_imports queue")
+    defp maybe_warn_missing_oban_prefix(igniter, prefix) do
+      contents =
+        ["config/config.exs", "config/runtime.exs"]
+        |> Enum.filter(&File.exists?/1)
+        |> Enum.map(&File.read!/1)
 
-          # Remove trailing whitespace and check for comma
-          trimmed_content = String.trim_trailing(queues_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-          # Add shop_imports queue with proper formatting
-          new_queue_entry =
-            if has_trailing_comma do
-              "\n    shop_imports: 2"
-            else
-              ",\n    shop_imports: 2"
-            end
-
-          updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-          String.replace(content, full_match, updated_queues, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse queues block for :#{app_name} - skipping shop_imports queue update"
-          )
-
-          Mix.shell().error("     Please manually add: shop_imports: 2")
-          content
+      has_block? = fn content ->
+        Regex.match?(~r/config\s+:\w+,\s+Oban\b/, strip_comment_lines(content))
       end
-    end
-  end
 
-  # Ensure newsletters_delivery queue exists in the queues list
-  defp ensure_newsletters_delivery_queue(content, app_name) do
-    if Regex.match?(~r/newsletters_delivery:\s*\d+/, content) do
-      Mix.shell().info("  ℹ️  newsletters_delivery queue already configured")
-      content
-    else
-      Mix.shell().info("  ➕ Adding newsletters_delivery queue to Oban configuration...")
+      any_block = Enum.any?(contents, has_block?)
 
-      case Regex.run(
-             ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-             content,
-             capture: :all
-           ) do
-        [full_match, before_queues, queues_content, after_queues] ->
-          Mix.shell().info("  ✓ Found queues block, adding newsletters_delivery queue")
+      any_block_with_prefix =
+        Enum.any?(contents, fn content ->
+          has_block?.(content) and not oban_block_missing_prefix?(content)
+        end)
 
-          trimmed_content = String.trim_trailing(queues_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
+      if any_block and not any_block_with_prefix do
+        Igniter.add_warning(igniter, """
+        Your existing Oban config appears to lack this install's schema prefix.
+        PhoenixKit's Oban tables live in the "#{prefix}" schema — add:
 
-          new_queue_entry =
-            if has_trailing_comma do
-              "\n    newsletters_delivery: 10"
-            else
-              ",\n    newsletters_delivery: 10"
-            end
-
-          updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-          String.replace(content, full_match, updated_queues, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse queues block for :#{app_name} - skipping newsletters_delivery queue update"
-          )
-
-          Mix.shell().error("     Please manually add: newsletters_delivery: 10")
-          content
-      end
-    end
-  end
-
-  # Ensure catalogue_pdf queue exists in the queues list.
-  #
-  # phoenix_kit_catalogue's PDF library enqueues a `:catalogue_pdf` job
-  # per uploaded PDF (pdfinfo + pdftotext text extraction). Oban only
-  # processes queues listed here, so without this entry every upload's
-  # job sits `available` forever — uploads look fine but text search
-  # never works. Added unconditionally (an idle queue costs nothing) so
-  # a host that later adds the catalogue module is already wired.
-  defp ensure_catalogue_pdf_queue(content, app_name) do
-    if Regex.match?(~r/catalogue_pdf:\s*\d+/, content) do
-      Mix.shell().info("  ℹ️  catalogue_pdf queue already configured")
-      content
-    else
-      Mix.shell().info("  ➕ Adding catalogue_pdf queue to Oban configuration...")
-
-      case Regex.run(
-             ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-             content,
-             capture: :all
-           ) do
-        [full_match, before_queues, queues_content, after_queues] ->
-          Mix.shell().info("  ✓ Found queues block, adding catalogue_pdf queue")
-
-          trimmed_content = String.trim_trailing(queues_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-          new_queue_entry =
-            if has_trailing_comma do
-              "\n    catalogue_pdf: 2"
-            else
-              ",\n    catalogue_pdf: 2"
-            end
-
-          updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-          String.replace(content, full_match, updated_queues, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse queues block for :#{app_name} - skipping catalogue_pdf queue update"
-          )
-
-          Mix.shell().error("     Please manually add: catalogue_pdf: 2")
-          content
-      end
-    end
-  end
-
-  # Ensure notifications queue exists in the queues list.
-  #
-  # `PhoenixKit.Notifications.DeliveryWorker` enqueues a `:notifications` job
-  # per external delivery (Telegram, …) so a slow bot API call never blocks the
-  # request that logged the activity. Oban only processes queues listed here, so
-  # without this entry those jobs sit `available` forever and external
-  # notifications silently never arrive. Added unconditionally (an idle queue
-  # costs nothing) so a host that later enables a channel is already wired.
-  defp ensure_notifications_queue(content, app_name) do
-    if Regex.match?(~r/notifications:\s*\d+/, content) do
-      Mix.shell().info("  ℹ️  notifications queue already configured")
-      content
-    else
-      Mix.shell().info("  ➕ Adding notifications queue to Oban configuration...")
-
-      case Regex.run(
-             ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-             content,
-             capture: :all
-           ) do
-        [full_match, before_queues, queues_content, after_queues] ->
-          Mix.shell().info("  ✓ Found queues block, adding notifications queue")
-
-          trimmed_content = String.trim_trailing(queues_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-          new_queue_entry =
-            if has_trailing_comma do
-              "\n    notifications: 10"
-            else
-              ",\n    notifications: 10"
-            end
-
-          updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-          String.replace(content, full_match, updated_queues, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse queues block for :#{app_name} - skipping notifications queue update"
-          )
-
-          Mix.shell().error("     Please manually add: notifications: 10")
-          content
-      end
-    end
-  end
-
-  # Ensure Pruner has max_age configured for 30-day retention
-  defp ensure_pruner_max_age(content, _app_name) do
-    # Check if max_age is already configured
-    if Regex.match?(~r/Oban\.Plugins\.Pruner.*max_age:/s, content) do
-      Mix.shell().info("  ℹ️  Pruner max_age already configured")
-      content
-    else
-      # Check for bare Oban.Plugins.Pruner (without tuple)
-      if Regex.match?(~r/Oban\.Plugins\.Pruner\s*[,\]]/, content) do
-        Mix.shell().info("  ➕ Adding max_age to Oban.Plugins.Pruner...")
-
-        # Replace bare Pruner with tuple form including max_age
-        Regex.replace(
-          ~r/Oban\.Plugins\.Pruner(\s*)(,|\])/,
-          content,
-          "{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30}\\1\\2  # Keep jobs for 30 days"
-        )
+          config :your_app, Oban,
+            prefix: "#{prefix}",
+            ...
+        """)
       else
-        # Check for tuple form without max_age: {Oban.Plugins.Pruner}
-        if Regex.match?(~r/\{Oban\.Plugins\.Pruner\}/, content) do
-          Mix.shell().info("  ➕ Adding max_age to {Oban.Plugins.Pruner}...")
-
-          String.replace(
-            content,
-            "{Oban.Plugins.Pruner}",
-            "{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30}  # Keep jobs for 30 days"
-          )
-        else
-          Mix.shell().info("  ℹ️  Pruner configuration not found or already has options")
-          content
-        end
+        igniter
       end
+    rescue
+      _ -> igniter
     end
-  end
 
-  @doc """
-  Ensure the Lifeline plugin exists in an existing `config :app, Oban`
-  block's `plugins:` list, adding it if missing.
+    @doc """
+    Checks if Oban configuration exists in config.exs.
 
-  Rescues a job orphaned in `:executing` by a hard crash (BEAM `kill -9`,
-  OOM, node failure) back to `:available` so it runs again — without it,
-  an orphaned job sits stuck in `:executing` forever. That's more than a
-  stalled retry: for a unique worker whose unique `states:` includes
-  `:executing` (a self-scheduling chain deduping against its own
-  in-flight run is a common pattern — see `phoenix_kit_emails`' pollers),
-  an orphan permanently blocks every future insert for that worker too,
-  not just the one crashed job.
+    ## Parameters
+    - `igniter` - The igniter context for detecting parent app name
 
-  `rescue_after` is Oban's default of 60 minutes rather than anything
-  more aggressive, and it must stay above the host's longest-running
-  job. Lifeline rescues purely by elapsed time — it never checks whether
-  the node is still alive — so a job that legitimately runs past
-  `rescue_after` is flipped back to `:available` (or `:discarded`, if its
-  attempts are exhausted) while the original process is still working,
-  and re-executes concurrently. PhoenixKit's longest declared worker
-  timeout is 30 minutes (`Storage.Workers.SyncFilesJob`); workers with no
-  `timeout/1` callback have no bound at all, which is the case the margin
-  is really protecting.
+    ## Returns
+    Boolean indicating if configuration exists.
+    """
+    def oban_config_exists?(igniter) do
+      config_path = "config/config.exs"
+      app_name = IgniterHelpers.get_parent_app_name(igniter)
 
-  Public (not `defp`, unlike the sibling `ensure_*_queue/2` helpers)
-  specifically so this can be unit-tested directly against plain content
-  strings, the same way `oban_block_missing_prefix?/1` is — no live
-  Igniter/Mix context needed.
-  """
-  @spec ensure_lifeline_plugin(String.t(), atom() | String.t()) :: String.t()
-  def ensure_lifeline_plugin(content, app_name) do
-    if Regex.match?(~r/Oban\.Plugins\.Lifeline/, content) do
-      maybe_raise_lifeline_rescue_after(content)
-    else
-      Mix.shell().info("  ➕ Adding Oban.Plugins.Lifeline to Oban configuration...")
+      if File.exists?(config_path) do
+        content = File.read!(config_path)
+        lines = String.split(content, "\n")
 
-      # The closing `]` is matched at the SAME indentation as the
-      # `plugins:` keyword itself (backreference `\\2`). A lazy `.*?` up
-      # to the first `]` would instead stop inside a nested list — the
-      # generated config's own Cron plugin carries `crontab: [...]`, and
-      # inserting there corrupts the file (review finding on this very
-      # function). Nested lists are always indented deeper, so anchoring
-      # the close to the keyword's indentation skips them.
-      case Regex.run(
-             ~r/(^([ \t]+)plugins:\s*\[\n)(.*?)(\n\2\])/ms,
-             content,
-             capture: :all
-           ) do
-        [full_match, plugins_open, indent, plugins_content, plugins_close] ->
-          Mix.shell().info("  ✓ Found plugins block, adding Lifeline plugin")
-
-          trimmed_content = String.trim(plugins_content)
-          has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-          # Entry indentation inferred from the block's own: keyword
-          # indent + 2, matching how the generated template nests entries.
-          entry_indent = indent <> "  "
-
-          lifeline_plugin =
-            if has_trailing_comma do
-              "\n" <> entry_indent <> lifeline_entry()
-            else
-              ",\n" <> entry_indent <> lifeline_entry()
-            end
-
-          updated_plugins = plugins_open <> plugins_content <> lifeline_plugin <> plugins_close
-
-          String.replace(content, full_match, updated_plugins, global: false)
-
-        nil ->
-          Mix.shell().error(
-            "  ⚠️  Could not parse plugins block for :#{app_name} - skipping Lifeline plugin update"
-          )
-
-          Mix.shell().error("     Please manually add: #{lifeline_entry()}")
-
-          content
-      end
-    end
-  end
-
-  # Single source for the entry every emit site writes, so the value and the
-  # invariant behind it can't drift apart across the template, the backfill and
-  # the manual-fallback message.
-  defp lifeline_entry do
-    "{Oban.Plugins.Lifeline, rescue_after: :timer.minutes(#{@lifeline_rescue_after_minutes})}"
-  end
-
-  # A Lifeline entry that is already present may still carry an unsafe
-  # rescue_after — hosts that hand-wrote one, or copied Oban's own docs example
-  # (`rescue_after: :timer.minutes(5)`), sit exactly in the window where a
-  # long-running job is rescued mid-flight and executes twice. Presence alone is
-  # not the thing worth checking, so raise a too-low literal instead of no-oping.
-  #
-  # Only the `:timer.minutes(N)` literal form is rewritten — the shape both
-  # PhoenixKit and Oban's docs emit. Any other expression (raw milliseconds, a
-  # module attribute, a runtime lookup) is left alone with a notice, because
-  # rewriting it blind is how an installer corrupts a host's config.
-  defp maybe_raise_lifeline_rescue_after(content) do
-    pattern =
-      ~r/\{Oban\.Plugins\.Lifeline,\s*rescue_after:\s*:timer\.minutes\((\d+)\)\}/
-
-    case Regex.run(pattern, content, capture: :all) do
-      [full_match, minutes] ->
-        if String.to_integer(minutes) <= @lifeline_min_rescue_after_minutes do
-          Mix.shell().info(
-            "  ⬆️  Raising Lifeline rescue_after #{minutes} → #{@lifeline_rescue_after_minutes} minutes " <>
-              "(at or below PhoenixKit's longest worker timeout, jobs would be rescued mid-flight)"
-          )
-
-          String.replace(content, full_match, lifeline_entry(), global: false)
-        else
-          Mix.shell().info("  ℹ️  Lifeline plugin already configured")
-          content
-        end
-
-      nil ->
-        Mix.shell().info("  ℹ️  Lifeline plugin already configured")
-        content
-    end
-  end
-
-  # Ensure cron plugin exists in the plugins list
-  defp ensure_cron_plugin(content, app_name) do
-    cond do
-      # Case 1: Old worker exists - REPLACE it with new worker
-      String.contains?(content, "PublishScheduledPostsJob") ->
-        Mix.shell().info(
-          "  🔄 Replacing PublishScheduledPostsJob with ProcessScheduledJobsWorker..."
-        )
-
-        String.replace(
-          content,
-          "PhoenixKit.Posts.Workers.PublishScheduledPostsJob",
-          "PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker"
-        )
-
-      # Case 2: Cron plugin exists with new worker - already configured
-      String.contains?(content, "Oban.Plugins.Cron") and
-          String.contains?(content, "ProcessScheduledJobsWorker") ->
-        Mix.shell().info("  ℹ️  Cron plugin and ProcessScheduledJobsWorker already configured")
-        content
-
-      # Case 3: Cron plugin exists but no scheduled jobs worker - add new worker
-      String.contains?(content, "Oban.Plugins.Cron") ->
-        Mix.shell().info(
-          "  ➕ Adding ProcessScheduledJobsWorker to existing cron configuration..."
-        )
-
-        add_scheduled_posts_job_to_crontab(content)
-
-      # Case 4: No cron plugin at all - add entire plugin with new worker
-      true ->
-        Mix.shell().info("  ➕ Adding Oban.Plugins.Cron with ProcessScheduledJobsWorker...")
-        add_cron_plugin_to_plugins(content, app_name)
-    end
-  end
-
-  # Add ProcessScheduledJobsWorker to existing crontab
-  defp add_scheduled_posts_job_to_crontab(content) do
-    # Pattern: crontab: [...] within Cron plugin
-    case Regex.run(~r/(crontab:\s*\[)(.*?)(\])/s, content, capture: :all) do
-      [full_match, before_crontab, crontab_content, after_crontab] ->
-        # Check if crontab is empty or has entries
-        has_entries = String.trim(crontab_content) != ""
-
-        new_job_entry =
-          if has_entries do
-            ",\n           {\"* * * * *\", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker}"
-          else
-            "\n           {\"* * * * *\", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker}\n         "
-          end
-
-        updated_crontab = before_crontab <> crontab_content <> new_job_entry <> after_crontab
-
-        String.replace(content, full_match, updated_crontab, global: false)
-
-      _ ->
-        content
-    end
-  end
-
-  # The notification digest sweeps — one cron entry per cadence, matching the
-  # generated template. `DigestWorker` is ONLY ever enqueued by these entries,
-  # so a host missing them has silently-dead digest cadences: the creation path
-  # already suppresses the per-event inbox row for a non-immediate cadence
-  # (`Notifications.inapp_immediate?/2`), and with no cron there is no summary
-  # to replace it — the user's notifications just vanish.
-  @digest_cron_entries [
-    {"0 * * * *", "hourly"},
-    {"0 */12 * * *", "12h"},
-    {"0 6 * * *", "daily"},
-    {"0 6 * * 1", "weekly"}
-  ]
-
-  @doc """
-  Ensures every notification digest cadence has a crontab entry.
-
-  Runs AFTER `ensure_cron_plugin/2` (which guarantees a `crontab:` block
-  exists) and is needed because that function short-circuits as soon as
-  `ProcessScheduledJobsWorker` is present — so a host installed before the
-  digest workers existed would keep a crontab without them forever, and
-  `mix phoenix_kit.update` would never notice. Each cadence is checked
-  independently, so a partially-updated crontab converges.
-
-  Public (not `defp`, unlike the sibling `ensure_*_queue/2` helpers)
-  specifically so this can be unit-tested directly against plain content
-  strings, the same way `ensure_lifeline_plugin/2` is.
-  """
-  @spec ensure_digest_cron_entries(String.t(), atom() | String.t()) :: String.t()
-  def ensure_digest_cron_entries(content, app_name) do
-    missing =
-      Enum.reject(@digest_cron_entries, fn {_cron, cadence} -> digest?(content, cadence) end)
-
-    if missing == [] do
-      Mix.shell().info("  ℹ️  notification digest cron entries already configured")
-      content
-    else
-      Mix.shell().info("  ➕ Adding notification digest cron entries...")
-      add_digest_entries_to_crontab(content, missing, app_name)
-    end
-  end
-
-  defp digest?(content, cadence) do
-    Regex.match?(~r/DigestWorker[^\n]*cadence:\s*"#{Regex.escape(cadence)}"/, content)
-  end
-
-  # Append the missing entries to the existing crontab list. The closing `]` is
-  # anchored to the `crontab:` keyword's own indentation (backreference `\\2`)
-  # for the same reason as `add_cron_plugin_to_plugins/2`: a lazy `.*?` to the
-  # first `]` can stop inside an entry's own nested list.
-  defp add_digest_entries_to_crontab(content, missing, app_name) do
-    case Regex.run(~r/(^([ \t]+)crontab:\s*\[\n)(.*?)(\n\2\])/ms, content, capture: :all) do
-      [full_match, crontab_open, indent, crontab_content, crontab_close] ->
-        entry_indent = indent <> "  "
-
-        new_entries =
-          Enum.map_join(missing, "", fn {cron, cadence} ->
-            ",\n#{entry_indent}{\"#{cron}\", PhoenixKit.Notifications.DigestWorker, " <>
-              "args: %{cadence: \"#{cadence}\"}}"
+        # Check for active (non-commented) Oban configuration with parent app namespace
+        has_oban_config =
+          Enum.any?(lines, fn line ->
+            trimmed = String.trim(line)
+            # Not a comment and contains config :app_name, Oban
+            !String.starts_with?(trimmed, "#") and
+              String.contains?(line, "config :#{app_name}, Oban")
           end)
 
-        updated =
-          crontab_open <> String.trim_trailing(crontab_content) <> new_entries <> crontab_close
+        has_queues =
+          Enum.any?(lines, fn line ->
+            trimmed = String.trim(line)
+            # Not a comment and contains queues:
+            !String.starts_with?(trimmed, "#") and String.contains?(line, "queues:")
+          end)
 
-        String.replace(content, full_match, updated, global: false)
-
-      nil ->
-        Mix.shell().error(
-          "  ⚠️  Could not parse crontab block for :#{app_name} - skipping digest cron entries"
-        )
-
-        Mix.shell().error(
-          "     Please manually add the PhoenixKit.Notifications.DigestWorker cron entries"
-        )
-
-        content
-    end
-  end
-
-  # Add Cron plugin to plugins list
-  defp add_cron_plugin_to_plugins(content, app_name) do
-    # Find the ACTIVE plugins block - must not be commented out
-    # Pattern: line starts with spaces (not #), then plugins: [
-    #
-    # The closing `]` is anchored to the `plugins:` keyword's own
-    # indentation (backreference `\\2`), for the same reason as
-    # `ensure_lifeline_plugin/2`: a lazy `.*?` to the first indented `]`
-    # stops inside a nested list instead (a host plugin carrying its own
-    # list — `{Oban.Plugins.Reindexer, indexes: [...]}`, Oban Web's
-    # stats plugin — puts one right there), and inserting there corrupts
-    # the file. Nested lists are always indented deeper, so anchoring to
-    # the keyword's indentation skips them.
-    case Regex.run(
-           ~r/(^([ \t]+)plugins:\s*\[\n)(.*?)(\n\2\])/ms,
-           content,
-           capture: :all
-         ) do
-      [full_match, plugins_open, indent, plugins_content, plugins_close] ->
-        Mix.shell().info("  ✓ Found plugins block, adding Cron plugin")
-
-        # Check if content ends with comma
-        trimmed_content = String.trim(plugins_content)
-        has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-        # Entry indentation inferred from the block's own: keyword indent
-        # + 2, matching how the generated template nests entries.
-        entry_indent = indent <> "  "
-
-        cron_entry =
-          entry_indent <>
-            "{Oban.Plugins.Cron,\n" <>
-            entry_indent <>
-            " crontab: [\n" <>
-            entry_indent <>
-            "   {\"* * * * *\", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker}\n" <>
-            entry_indent <> " ]}"
-
-        # Add cron plugin with proper formatting (matching existing indentation)
-        cron_plugin =
-          if has_trailing_comma do
-            "\n" <> cron_entry
-          else
-            ",\n" <> cron_entry
-          end
-
-        updated_plugins = plugins_open <> plugins_content <> cron_plugin <> plugins_close
-
-        String.replace(content, full_match, updated_plugins, global: false)
-
-      nil ->
-        Mix.shell().error(
-          "  ⚠️  Could not parse plugins block for :#{app_name} - skipping cron plugin update"
-        )
-
-        Mix.shell().error("     Please manually add Oban.Plugins.Cron configuration")
-        content
-    end
-  end
-
-  # Get repo module from PhoenixKit config or detect from app
-  defp get_repo_module(igniter) do
-    config_path = "config/config.exs"
-    app_name = IgniterHelpers.get_parent_app_name(igniter)
-
-    if File.exists?(config_path) do
-      content = File.read!(config_path)
-
-      # First try: Look for existing PhoenixKit repo config
-      case Regex.run(~r/config :phoenix_kit,\s+repo:\s+([A-Za-z0-9_.]+)/, content) do
-        [_, repo] ->
-          repo
-
-        _ ->
-          # Second try: Look for ecto_repos in app config
-          app_module = Macro.camelize(to_string(app_name))
-
-          case Regex.run(~r/config :#{app_name}.*?ecto_repos:\s*\[([A-Za-z0-9_.]+)\]/s, content) do
-            [_, repo] -> repo
-            _ -> "#{app_module}.Repo"
-          end
+        has_oban_config and has_queues
+      else
+        false
       end
-    else
-      app_module = Macro.camelize(to_string(app_name))
-      "#{app_module}.Repo"
+    rescue
+      _ -> false
     end
-  rescue
-    _ ->
+
+    # Clean up broken Oban config syntax from previous failed updates
+    # NOTE: Previously this function attempted to fix syntax issues with greedy
+    # regexes, but they could corrupt valid commented config. The regexes have
+    # been removed as they caused more harm than good. If syntax issues occur
+    # from failed updates, they should be fixed manually or with more targeted
+    # approaches.
+    defp cleanup_oban_config_syntax do
+      :ok
+    end
+
+    # Add Oban configuration to config.exs
+    defp add_oban_config(igniter, prefix) do
+      # First, clean up any broken syntax from previous failed updates
+      cleanup_oban_config_syntax()
+
+      # Get parent app name and repo
       app_name = IgniterHelpers.get_parent_app_name(igniter)
-      app_module = Macro.camelize(to_string(app_name))
-      "#{app_module}.Repo"
-  end
+      repo_module = get_repo_module(igniter)
 
-  # Check if Oban config already exists in the file
-  defp oban_config_already_exists?(content, app_name) do
-    lines = String.split(content, "\n")
+      # Prefixed installs put oban_jobs into the named schema (V27), so Oban
+      # must be pointed at it — without this it looks for public.oban_jobs.
+      prefix_line =
+        if prefix in [nil, "public"] do
+          ""
+        else
+          "\n  prefix: \"#{prefix}\","
+        end
 
-    Enum.any?(lines, fn line ->
-      trimmed = String.trim(line)
+      oban_config = """
 
-      # Not a comment and contains config for Oban
-      # Also check for variations with spaces
-      !String.starts_with?(trimmed, "#") and
-        (String.contains?(line, "config :#{app_name}, Oban") or
-           Regex.match?(~r/config\s+:#{app_name},\s+Oban/, line))
-    end)
-  end
-
-  # Find the location to insert config before import_config statements
-  defp find_import_config_location(content) do
-    lines = String.split(content, "\n")
-
-    # Look for import_config pattern
-    import_index =
-      Enum.find_index(lines, fn line ->
-        trimmed = String.trim(line)
-        String.starts_with?(trimmed, "import_config") or String.contains?(line, "import_config")
-      end)
-
-    case import_index do
-      nil ->
-        # No import_config found, append to end
-        :append_to_end
-
-      index ->
-        # Find the start of the import_config block
-        start_index = find_import_block_start(lines, index)
-
-        # Split content at the start of import block
-        before_lines = Enum.take(lines, start_index)
-        after_lines = Enum.drop(lines, start_index)
-
-        before_content = Enum.join(before_lines, "\n")
-        after_content = Enum.join(after_lines, "\n")
-
-        {:before_import, before_content, after_content}
-    end
-  end
-
-  # Find the start of the import_config block (including preceding comments)
-  defp find_import_block_start(lines, import_index) do
-    lines
-    |> Enum.take(import_index)
-    |> Enum.reverse()
-    |> Enum.reduce_while(import_index, fn line, current_index ->
-      trimmed = String.trim(line)
-
-      cond do
-        # Comment line related to import
-        String.starts_with?(trimmed, "#") and
-            (String.contains?(line, "import") or String.contains?(line, "Import") or
-               String.contains?(line, "bottom") or String.contains?(line, "BOTTOM") or
-               String.contains?(line, "environment")) ->
-          {:cont, current_index - 1}
-
-        # Blank line
-        trimmed == "" ->
-          {:cont, current_index - 1}
-
-        # config_env or similar
-        String.contains?(line, "config_env()") or String.contains?(line, "env_config") ->
-          {:cont, current_index - 1}
-
-        # Stop at any other code
-        true ->
-          {:halt, current_index}
-      end
-    end)
-  end
-
-  # Add notice about Oban configuration
-  defp add_oban_configuration_notice(igniter) do
-    if oban_config_exists?(igniter) do
-      Igniter.add_notice(
-        igniter,
-        """
-        ⚙️  Oban configured for background jobs (file processing, sitemap, newsletters)
-           If queues were added/updated, restart your server to apply changes.
-        """
-        |> String.trim()
-      )
-    else
-      Igniter.add_notice(
-        igniter,
-        """
-        ⚠️  Oban configuration added to config.exs
-           IMPORTANT: Restart your server to apply configuration changes.
-        """
-        |> String.trim()
-      )
-    end
-  end
-
-  @doc """
-  Adds Oban to the parent application's supervision tree.
-
-  This function ensures that Oban starts automatically when the application starts,
-  with correct positioning in the supervisor tree:
-  - AFTER PhoenixKit.Supervisor (PhoenixKit services available)
-  - BEFORE Endpoint (Oban ready before HTTP requests)
-
-  ## Important
-
-  Oban MUST start AFTER PhoenixKit.Supervisor because PhoenixKit.Supervisor
-  depends on Repo, and Oban also depends on Repo. The correct order is:
-  1. Repo (database connection)
-  2. PhoenixKit.Supervisor (uses Repo for Settings)
-  3. Oban (uses Repo for job persistence)
-
-  ## Parameters
-  - `igniter` - The igniter context
-
-  ## Returns
-  Updated igniter with Oban added to application supervisor.
-  """
-  def add_oban_supervisor(igniter) do
-    app_name = IgniterHelpers.get_parent_app_name(igniter)
-    {igniter, endpoint} = Phoenix.select_endpoint(igniter)
-
-    # Build AST for: Application.get_env(:app_name, Oban)
-    # Using Sourceror to parse the code string into AST
-    get_env_code = "Application.get_env(:#{app_name}, Oban)"
-    get_env_ast = Sourceror.parse_string!(get_env_code)
-
-    # Use Igniter API to add Oban with explicit positioning
-    # Pass {Module, {:code, ast}} format so Igniter doesn't escape the AST
-    # This ensures correct order: Repo → PhoenixKit → Oban → Endpoint
-    igniter
-    |> Application.add_new_child(
-      {Oban, {:code, get_env_ast}},
-      after: [PhoenixKit.Supervisor],
-      before: [endpoint]
-    )
-  end
-
-  @doc """
-  Checks if Oban supervisor is configured in application.ex.
-
-  ## Parameters
-  - `igniter` - The igniter context for detecting parent app name
-
-  ## Returns
-  Boolean indicating if Oban supervisor exists in application.ex.
-  """
-  def oban_supervisor_exists?(igniter) do
-    app_name = IgniterHelpers.get_parent_app_name(igniter)
-    app_file = "lib/#{app_name}/application.ex"
-
-    if File.exists?(app_file) do
-      content = File.read!(app_file)
-
-      # Check for Oban in children list
-      String.contains?(content, "{Oban,") or
-        String.contains?(content, "Application.get_env(:#{app_name}, Oban)")
-    else
-      false
-    end
-  rescue
-    _ -> false
-  end
-
-  # Add notice when manual configuration is required
-  defp add_manual_config_notice(igniter, repo_module) do
-    app_name = IgniterHelpers.get_parent_app_name(igniter)
-
-    notice = """
-    ⚠️  Manual Configuration Required: Oban
-
-    PhoenixKit couldn't automatically configure Oban for background jobs.
-
-    Please add the following to config/config.exs:
-
+      # Configure Oban for PhoenixKit background jobs
+      # Required for file processing (storage system), posts, and sitemap
       config :#{app_name}, Oban,
-        repo: #{repo_module},
+        repo: #{repo_module},#{prefix_line}
         queues: [
-          default: 10,
-          file_processing: 20,
-          posts: 10,
-          scheduled_jobs: 1,
-          sitemap: 5,
-          newsletters_delivery: 10,
-          notifications: 10
+          default: 10,           # General purpose queue
+          file_processing: 20,   # File variant generation (storage system)
+          posts: 10,             # Posts scheduled publishing
+          scheduled_jobs: 1,     # Scheduled jobs cron
+          sitemap: 5,            # Sitemap generation
+          newsletters_delivery: 10, # Newsletters broadcast deliveries
+          catalogue_pdf: 2,      # phoenix_kit_catalogue PDF text extraction
+          notifications: 10      # Notification delivery channels (Telegram, etc.)
         ],
         plugins: [
           # Pruner: delete completed/discarded jobs after 30 days
           {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30},
           # Lifeline: rescue jobs orphaned in :executing by a hard crash
-          # (rescue_after must exceed your longest-running job)
+          # (BEAM kill -9, OOM, node failure) back to :available so they
+          # run again — without it, an orphaned job sits stuck forever.
+          # rescue_after MUST stay above your longest-running job: Lifeline
+          # rescues purely by elapsed time, with no check that the node is
+          # still alive, so a job that legitimately runs longer is rescued
+          # mid-flight and executes a second time concurrently. 60 minutes
+          # is Oban's own default and 2x PhoenixKit's longest worker
+          # timeout (SyncFilesJob, 30 min).
           #{lifeline_entry()},
           {Oban.Plugins.Cron,
            crontab: [
              {"* * * * *", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker},
              {"0 3 * * *", PhoenixKit.Modules.Storage.Workers.PruneTrashJob},
              {"0 4 * * *", PhoenixKit.Notifications.PruneWorker},
+             {"30 4 * * *", PhoenixKit.Users.Referrals.PruneWorker},
              {"0 * * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "hourly"}},
              {"0 */12 * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "12h"}},
              {"0 6 * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "daily"}},
              {"0 6 * * 1", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "weekly"}}
            ]}
         ]
+      """
 
-    And add the following to lib/#{app_name}/application.ex in the children list:
+      try do
+        Igniter.update_file(igniter, "config/config.exs", fn source ->
+          content = Rewrite.Source.get(source, :content)
 
-      {Oban, Application.get_env(:#{app_name}, Oban)}
+          # Check if Oban config already exists (with more robust detection)
+          if oban_config_already_exists?(content, app_name) do
+            # Update existing config to add posts queue and cron plugin
+            update_existing_oban_config(source, content, app_name)
+          else
+            # Find insertion point before import_config statements
+            insertion_point = find_import_config_location(content)
 
-    IMPORTANT: Restart your server after making these changes.
+            updated_content =
+              case insertion_point do
+                {:before_import, before_content, after_content} ->
+                  # Insert before import_config
+                  before_content <> oban_config <> "\n" <> after_content
 
-    Without this configuration, the storage system cannot process uploaded files,
-    scheduled posts will not be published automatically, and sitemap generation
-    will not work asynchronously.
+                :append_to_end ->
+                  # No import_config found, append to end
+                  content <> oban_config
+              end
+
+            Rewrite.Source.update(source, :content, updated_content)
+          end
+        end)
+      rescue
+        e ->
+          IO.warn("Failed to add Oban configuration: #{inspect(e)}")
+          add_manual_config_notice(igniter, repo_module)
+      end
+    end
+
+    # Update existing Oban configuration to add posts/sitemap queues and cron plugin
+    defp update_existing_oban_config(source, content, app_name) do
+      Mix.shell().info("🔍 Updating existing Oban configuration for :#{app_name}...")
+
+      updated_content =
+        content
+        |> ensure_posts_queue(app_name)
+        |> ensure_sitemap_queue(app_name)
+        |> ensure_shop_imports_queue(app_name)
+        |> ensure_newsletters_delivery_queue(app_name)
+        |> ensure_catalogue_pdf_queue(app_name)
+        |> ensure_notifications_queue(app_name)
+        |> ensure_cron_plugin(app_name)
+        |> ensure_digest_cron_entries(app_name)
+        |> ensure_worker_cron_entries(app_name)
+        |> ensure_pruner_max_age(app_name)
+        |> ensure_lifeline_plugin(app_name)
+
+      if updated_content == content do
+        Mix.shell().info(
+          "✅ Oban configuration already up-to-date (queues, cron plugin, pruner max_age, and Lifeline present)"
+        )
+      else
+        Mix.shell().info(
+          "✅ Updated Oban configuration (queues, cron plugin, pruner retention, Lifeline)"
+        )
+      end
+
+      Rewrite.Source.update(source, :content, updated_content)
+    end
+
+    # Ensure posts queue exists in the queues list
+    defp ensure_posts_queue(content, app_name) do
+      # Check if posts queue already exists
+      if Regex.match?(~r/posts:\s*\d+/, content) do
+        Mix.shell().info("  ℹ️  Posts queue already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding posts queue to Oban configuration...")
+
+        # Find the ACTIVE queues configuration (not commented out)
+        # Pattern: line starts with 'config' (not #), then matches queues block
+        case Regex.run(
+               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, before_queues, queues_content, after_queues] ->
+            Mix.shell().info("  ✓ Found queues block, adding posts queue")
+
+            # Remove trailing whitespace and check for comma
+            trimmed_content = String.trim_trailing(queues_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            # Add posts queue with proper formatting (no comments to avoid syntax issues)
+            new_queue_entry =
+              if has_trailing_comma do
+                "\n    posts: 10"
+              else
+                ",\n    posts: 10"
+              end
+
+            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+
+            String.replace(content, full_match, updated_queues, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse queues block for :#{app_name} - skipping posts queue update"
+            )
+
+            Mix.shell().error("     Please manually add: posts: 10")
+            content
+        end
+      end
+    end
+
+    # Ensure sitemap queue exists in the queues list
+    defp ensure_sitemap_queue(content, app_name) do
+      # Check if sitemap queue already exists
+      if Regex.match?(~r/sitemap:\s*\d+/, content) do
+        Mix.shell().info("  ℹ️  Sitemap queue already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding sitemap queue to Oban configuration...")
+
+        # Find the ACTIVE queues configuration (not commented out)
+        case Regex.run(
+               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, before_queues, queues_content, after_queues] ->
+            Mix.shell().info("  ✓ Found queues block, adding sitemap queue")
+
+            # Remove trailing whitespace and check for comma
+            trimmed_content = String.trim_trailing(queues_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            # Add sitemap queue with proper formatting (no comments to avoid syntax issues)
+            new_queue_entry =
+              if has_trailing_comma do
+                "\n    sitemap: 5"
+              else
+                ",\n    sitemap: 5"
+              end
+
+            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+
+            String.replace(content, full_match, updated_queues, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse queues block for :#{app_name} - skipping sitemap queue update"
+            )
+
+            Mix.shell().error("     Please manually add: sitemap: 5")
+            content
+        end
+      end
+    end
+
+    # Ensure shop_imports queue exists in the queues list
+    defp ensure_shop_imports_queue(content, app_name) do
+      # Check if shop_imports queue already exists
+      if Regex.match?(~r/shop_imports:\s*\d+/, content) do
+        Mix.shell().info("  ℹ️  shop_imports queue already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding shop_imports queue to Oban configuration...")
+
+        # Find the ACTIVE queues configuration (not commented out)
+        case Regex.run(
+               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, before_queues, queues_content, after_queues] ->
+            Mix.shell().info("  ✓ Found queues block, adding shop_imports queue")
+
+            # Remove trailing whitespace and check for comma
+            trimmed_content = String.trim_trailing(queues_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            # Add shop_imports queue with proper formatting
+            new_queue_entry =
+              if has_trailing_comma do
+                "\n    shop_imports: 2"
+              else
+                ",\n    shop_imports: 2"
+              end
+
+            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+
+            String.replace(content, full_match, updated_queues, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse queues block for :#{app_name} - skipping shop_imports queue update"
+            )
+
+            Mix.shell().error("     Please manually add: shop_imports: 2")
+            content
+        end
+      end
+    end
+
+    # Ensure newsletters_delivery queue exists in the queues list
+    defp ensure_newsletters_delivery_queue(content, app_name) do
+      if Regex.match?(~r/newsletters_delivery:\s*\d+/, content) do
+        Mix.shell().info("  ℹ️  newsletters_delivery queue already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding newsletters_delivery queue to Oban configuration...")
+
+        case Regex.run(
+               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, before_queues, queues_content, after_queues] ->
+            Mix.shell().info("  ✓ Found queues block, adding newsletters_delivery queue")
+
+            trimmed_content = String.trim_trailing(queues_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            new_queue_entry =
+              if has_trailing_comma do
+                "\n    newsletters_delivery: 10"
+              else
+                ",\n    newsletters_delivery: 10"
+              end
+
+            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+
+            String.replace(content, full_match, updated_queues, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse queues block for :#{app_name} - skipping newsletters_delivery queue update"
+            )
+
+            Mix.shell().error("     Please manually add: newsletters_delivery: 10")
+            content
+        end
+      end
+    end
+
+    # Ensure catalogue_pdf queue exists in the queues list.
+    #
+    # phoenix_kit_catalogue's PDF library enqueues a `:catalogue_pdf` job
+    # per uploaded PDF (pdfinfo + pdftotext text extraction). Oban only
+    # processes queues listed here, so without this entry every upload's
+    # job sits `available` forever — uploads look fine but text search
+    # never works. Added unconditionally (an idle queue costs nothing) so
+    # a host that later adds the catalogue module is already wired.
+    defp ensure_catalogue_pdf_queue(content, app_name) do
+      if Regex.match?(~r/catalogue_pdf:\s*\d+/, content) do
+        Mix.shell().info("  ℹ️  catalogue_pdf queue already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding catalogue_pdf queue to Oban configuration...")
+
+        case Regex.run(
+               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, before_queues, queues_content, after_queues] ->
+            Mix.shell().info("  ✓ Found queues block, adding catalogue_pdf queue")
+
+            trimmed_content = String.trim_trailing(queues_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            new_queue_entry =
+              if has_trailing_comma do
+                "\n    catalogue_pdf: 2"
+              else
+                ",\n    catalogue_pdf: 2"
+              end
+
+            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+
+            String.replace(content, full_match, updated_queues, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse queues block for :#{app_name} - skipping catalogue_pdf queue update"
+            )
+
+            Mix.shell().error("     Please manually add: catalogue_pdf: 2")
+            content
+        end
+      end
+    end
+
+    # Ensure notifications queue exists in the queues list.
+    #
+    # `PhoenixKit.Notifications.DeliveryWorker` enqueues a `:notifications` job
+    # per external delivery (Telegram, …) so a slow bot API call never blocks the
+    # request that logged the activity. Oban only processes queues listed here, so
+    # without this entry those jobs sit `available` forever and external
+    # notifications silently never arrive. Added unconditionally (an idle queue
+    # costs nothing) so a host that later enables a channel is already wired.
+    defp ensure_notifications_queue(content, app_name) do
+      if Regex.match?(~r/notifications:\s*\d+/, content) do
+        Mix.shell().info("  ℹ️  notifications queue already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding notifications queue to Oban configuration...")
+
+        case Regex.run(
+               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, before_queues, queues_content, after_queues] ->
+            Mix.shell().info("  ✓ Found queues block, adding notifications queue")
+
+            trimmed_content = String.trim_trailing(queues_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            new_queue_entry =
+              if has_trailing_comma do
+                "\n    notifications: 10"
+              else
+                ",\n    notifications: 10"
+              end
+
+            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+
+            String.replace(content, full_match, updated_queues, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse queues block for :#{app_name} - skipping notifications queue update"
+            )
+
+            Mix.shell().error("     Please manually add: notifications: 10")
+            content
+        end
+      end
+    end
+
+    # Ensure Pruner has max_age configured for 30-day retention
+    defp ensure_pruner_max_age(content, _app_name) do
+      # Check if max_age is already configured
+      if Regex.match?(~r/Oban\.Plugins\.Pruner.*max_age:/s, content) do
+        Mix.shell().info("  ℹ️  Pruner max_age already configured")
+        content
+      else
+        # Check for bare Oban.Plugins.Pruner (without tuple)
+        if Regex.match?(~r/Oban\.Plugins\.Pruner\s*[,\]]/, content) do
+          Mix.shell().info("  ➕ Adding max_age to Oban.Plugins.Pruner...")
+
+          # Replace bare Pruner with tuple form including max_age
+          Regex.replace(
+            ~r/Oban\.Plugins\.Pruner(\s*)(,|\])/,
+            content,
+            "{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30}\\1\\2  # Keep jobs for 30 days"
+          )
+        else
+          # Check for tuple form without max_age: {Oban.Plugins.Pruner}
+          if Regex.match?(~r/\{Oban\.Plugins\.Pruner\}/, content) do
+            Mix.shell().info("  ➕ Adding max_age to {Oban.Plugins.Pruner}...")
+
+            String.replace(
+              content,
+              "{Oban.Plugins.Pruner}",
+              "{Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30}  # Keep jobs for 30 days"
+            )
+          else
+            Mix.shell().info("  ℹ️  Pruner configuration not found or already has options")
+            content
+          end
+        end
+      end
+    end
+
+    @doc """
+    Ensure the Lifeline plugin exists in an existing `config :app, Oban`
+    block's `plugins:` list, adding it if missing.
+
+    Rescues a job orphaned in `:executing` by a hard crash (BEAM `kill -9`,
+    OOM, node failure) back to `:available` so it runs again — without it,
+    an orphaned job sits stuck in `:executing` forever. That's more than a
+    stalled retry: for a unique worker whose unique `states:` includes
+    `:executing` (a self-scheduling chain deduping against its own
+    in-flight run is a common pattern — see `phoenix_kit_emails`' pollers),
+    an orphan permanently blocks every future insert for that worker too,
+    not just the one crashed job.
+
+    `rescue_after` is Oban's default of 60 minutes rather than anything
+    more aggressive, and it must stay above the host's longest-running
+    job. Lifeline rescues purely by elapsed time — it never checks whether
+    the node is still alive — so a job that legitimately runs past
+    `rescue_after` is flipped back to `:available` (or `:discarded`, if its
+    attempts are exhausted) while the original process is still working,
+    and re-executes concurrently. PhoenixKit's longest declared worker
+    timeout is 30 minutes (`Storage.Workers.SyncFilesJob`); workers with no
+    `timeout/1` callback have no bound at all, which is the case the margin
+    is really protecting.
+
+    Public (not `defp`, unlike the sibling `ensure_*_queue/2` helpers)
+    specifically so this can be unit-tested directly against plain content
+    strings, the same way `oban_block_missing_prefix?/1` is — no live
+    Igniter/Mix context needed.
     """
+    @spec ensure_lifeline_plugin(String.t(), atom() | String.t()) :: String.t()
+    def ensure_lifeline_plugin(content, app_name) do
+      if Regex.match?(~r/Oban\.Plugins\.Lifeline/, content) do
+        maybe_raise_lifeline_rescue_after(content)
+      else
+        Mix.shell().info("  ➕ Adding Oban.Plugins.Lifeline to Oban configuration...")
 
-    Igniter.add_notice(igniter, notice)
+        # The closing `]` is matched at the SAME indentation as the
+        # `plugins:` keyword itself (backreference `\\2`). A lazy `.*?` up
+        # to the first `]` would instead stop inside a nested list — the
+        # generated config's own Cron plugin carries `crontab: [...]`, and
+        # inserting there corrupts the file (review finding on this very
+        # function). Nested lists are always indented deeper, so anchoring
+        # the close to the keyword's indentation skips them.
+        case Regex.run(
+               ~r/(^([ \t]+)plugins:\s*\[\n)(.*?)(\n\2\])/ms,
+               content,
+               capture: :all
+             ) do
+          [full_match, plugins_open, indent, plugins_content, plugins_close] ->
+            Mix.shell().info("  ✓ Found plugins block, adding Lifeline plugin")
+
+            trimmed_content = String.trim(plugins_content)
+            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+            # Entry indentation inferred from the block's own: keyword
+            # indent + 2, matching how the generated template nests entries.
+            entry_indent = indent <> "  "
+
+            lifeline_plugin =
+              if has_trailing_comma do
+                "\n" <> entry_indent <> lifeline_entry()
+              else
+                ",\n" <> entry_indent <> lifeline_entry()
+              end
+
+            updated_plugins = plugins_open <> plugins_content <> lifeline_plugin <> plugins_close
+
+            String.replace(content, full_match, updated_plugins, global: false)
+
+          nil ->
+            Mix.shell().error(
+              "  ⚠️  Could not parse plugins block for :#{app_name} - skipping Lifeline plugin update"
+            )
+
+            Mix.shell().error("     Please manually add: #{lifeline_entry()}")
+
+            content
+        end
+      end
+    end
+
+    # Single source for the entry every emit site writes, so the value and the
+    # invariant behind it can't drift apart across the template, the backfill and
+    # the manual-fallback message.
+    defp lifeline_entry do
+      "{Oban.Plugins.Lifeline, rescue_after: :timer.minutes(#{@lifeline_rescue_after_minutes})}"
+    end
+
+    # A Lifeline entry that is already present may still carry an unsafe
+    # rescue_after — hosts that hand-wrote one, or copied Oban's own docs example
+    # (`rescue_after: :timer.minutes(5)`), sit exactly in the window where a
+    # long-running job is rescued mid-flight and executes twice. Presence alone is
+    # not the thing worth checking, so raise a too-low literal instead of no-oping.
+    #
+    # Only the `:timer.minutes(N)` literal form is rewritten — the shape both
+    # PhoenixKit and Oban's docs emit. Any other expression (raw milliseconds, a
+    # module attribute, a runtime lookup) is left alone with a notice, because
+    # rewriting it blind is how an installer corrupts a host's config.
+    defp maybe_raise_lifeline_rescue_after(content) do
+      pattern =
+        ~r/\{Oban\.Plugins\.Lifeline,\s*rescue_after:\s*:timer\.minutes\((\d+)\)\}/
+
+      case Regex.run(pattern, content, capture: :all) do
+        [full_match, minutes] ->
+          if String.to_integer(minutes) <= @lifeline_min_rescue_after_minutes do
+            Mix.shell().info(
+              "  ⬆️  Raising Lifeline rescue_after #{minutes} → #{@lifeline_rescue_after_minutes} minutes " <>
+                "(at or below PhoenixKit's longest worker timeout, jobs would be rescued mid-flight)"
+            )
+
+            String.replace(content, full_match, lifeline_entry(), global: false)
+          else
+            Mix.shell().info("  ℹ️  Lifeline plugin already configured")
+            content
+          end
+
+        nil ->
+          Mix.shell().info("  ℹ️  Lifeline plugin already configured")
+          content
+      end
+    end
+
+    # Ensure cron plugin exists in the plugins list
+    defp ensure_cron_plugin(content, app_name) do
+      cond do
+        # Case 1: Old worker exists - REPLACE it with new worker
+        String.contains?(content, "PublishScheduledPostsJob") ->
+          Mix.shell().info(
+            "  🔄 Replacing PublishScheduledPostsJob with ProcessScheduledJobsWorker..."
+          )
+
+          String.replace(
+            content,
+            "PhoenixKit.Posts.Workers.PublishScheduledPostsJob",
+            "PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker"
+          )
+
+        # Case 2: Cron plugin exists with new worker - already configured
+        String.contains?(content, "Oban.Plugins.Cron") and
+            String.contains?(content, "ProcessScheduledJobsWorker") ->
+          Mix.shell().info("  ℹ️  Cron plugin and ProcessScheduledJobsWorker already configured")
+          content
+
+        # Case 3: Cron plugin exists but no scheduled jobs worker - add new worker
+        String.contains?(content, "Oban.Plugins.Cron") ->
+          Mix.shell().info(
+            "  ➕ Adding ProcessScheduledJobsWorker to existing cron configuration..."
+          )
+
+          add_scheduled_posts_job_to_crontab(content)
+
+        # Case 4: No cron plugin at all - add entire plugin with new worker
+        true ->
+          Mix.shell().info("  ➕ Adding Oban.Plugins.Cron with ProcessScheduledJobsWorker...")
+          add_cron_plugin_to_plugins(content, app_name)
+      end
+    end
+
+    # Add ProcessScheduledJobsWorker to existing crontab
+    defp add_scheduled_posts_job_to_crontab(content) do
+      # Pattern: crontab: [...] within Cron plugin
+      case Regex.run(~r/(crontab:\s*\[)(.*?)(\])/s, content, capture: :all) do
+        [full_match, before_crontab, crontab_content, after_crontab] ->
+          # Check if crontab is empty or has entries
+          has_entries = String.trim(crontab_content) != ""
+
+          new_job_entry =
+            if has_entries do
+              ",\n           {\"* * * * *\", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker}"
+            else
+              "\n           {\"* * * * *\", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker}\n         "
+            end
+
+          updated_crontab = before_crontab <> crontab_content <> new_job_entry <> after_crontab
+
+          String.replace(content, full_match, updated_crontab, global: false)
+
+        _ ->
+          content
+      end
+    end
+
+    # The notification digest sweeps — one cron entry per cadence, matching the
+    # generated template. `DigestWorker` is ONLY ever enqueued by these entries,
+    # so a host missing them has silently-dead digest cadences: the creation path
+    # already suppresses the per-event inbox row for a non-immediate cadence
+    # (`Notifications.inapp_immediate?/2`), and with no cron there is no summary
+    # to replace it — the user's notifications just vanish.
+    @digest_cron_entries [
+      {"0 * * * *", "hourly"},
+      {"0 */12 * * *", "12h"},
+      {"0 6 * * *", "daily"},
+      {"0 6 * * 1", "weekly"}
+    ]
+
+    @doc """
+    Ensures every notification digest cadence has a crontab entry.
+
+    Runs AFTER `ensure_cron_plugin/2` (which guarantees a `crontab:` block
+    exists) and is needed because that function short-circuits as soon as
+    `ProcessScheduledJobsWorker` is present — so a host installed before the
+    digest workers existed would keep a crontab without them forever, and
+    `mix phoenix_kit.update` would never notice. Each cadence is checked
+    independently, so a partially-updated crontab converges.
+
+    Public (not `defp`, unlike the sibling `ensure_*_queue/2` helpers)
+    specifically so this can be unit-tested directly against plain content
+    strings, the same way `ensure_lifeline_plugin/2` is.
+    """
+    @spec ensure_digest_cron_entries(String.t(), atom() | String.t()) :: String.t()
+    def ensure_digest_cron_entries(content, app_name) do
+      missing =
+        Enum.reject(@digest_cron_entries, fn {_cron, cadence} -> digest?(content, cadence) end)
+
+      if missing == [] do
+        Mix.shell().info("  ℹ️  notification digest cron entries already configured")
+        content
+      else
+        Mix.shell().info("  ➕ Adding notification digest cron entries...")
+        add_digest_entries_to_crontab(content, missing, app_name)
+      end
+    end
+
+    defp digest?(content, cadence) do
+      Regex.match?(~r/DigestWorker[^\n]*cadence:\s*"#{Regex.escape(cadence)}"/, content)
+    end
+
+    # Plain `{cron, Worker}` crontab entries that shipped after the first
+    # installs. Same reasoning as the digest entries: `ensure_cron_plugin/2`
+    # short-circuits once `ProcessScheduledJobsWorker` is present, so without an
+    # explicit backfill a host that installed earlier never gains them.
+    @worker_cron_entries [
+      {"30 4 * * *", "PhoenixKit.Users.Referrals.PruneWorker"}
+    ]
+
+    @doc """
+    Ensures the plain worker cron entries shipped since a host's install exist.
+
+    Public for the same reason as `ensure_digest_cron_entries/2`: so it can be
+    unit-tested directly against content strings.
+    """
+    @spec ensure_worker_cron_entries(String.t(), atom() | String.t()) :: String.t()
+    def ensure_worker_cron_entries(content, app_name) do
+      missing =
+        Enum.reject(@worker_cron_entries, fn {_cron, mod} -> String.contains?(content, mod) end)
+
+      if missing == [] do
+        content
+      else
+        Mix.shell().info("  ➕ Adding PhoenixKit worker cron entries...")
+        add_worker_entries_to_crontab(content, missing, app_name)
+      end
+    end
+
+    defp add_worker_entries_to_crontab(content, missing, app_name) do
+      case Regex.run(~r/(^([ \t]+)crontab:\s*\[\n)(.*?)(\n\2\])/ms, content, capture: :all) do
+        [full_match, crontab_open, indent, crontab_content, crontab_close] ->
+          entry_indent = indent <> "  "
+
+          new_entries =
+            Enum.map_join(missing, "", fn {cron, mod} ->
+              ",\n#{entry_indent}{\"#{cron}\", #{mod}}"
+            end)
+
+          updated =
+            crontab_open <> String.trim_trailing(crontab_content) <> new_entries <> crontab_close
+
+          String.replace(content, full_match, updated, global: false)
+
+        nil ->
+          Mix.shell().error(
+            "  ⚠️  Could not parse crontab block for :#{app_name} - skipping worker cron entries"
+          )
+
+          content
+      end
+    end
+
+    # Append the missing entries to the existing crontab list. The closing `]` is
+    # anchored to the `crontab:` keyword's own indentation (backreference `\\2`)
+    # for the same reason as `add_cron_plugin_to_plugins/2`: a lazy `.*?` to the
+    # first `]` can stop inside an entry's own nested list.
+    defp add_digest_entries_to_crontab(content, missing, app_name) do
+      case Regex.run(~r/(^([ \t]+)crontab:\s*\[\n)(.*?)(\n\2\])/ms, content, capture: :all) do
+        [full_match, crontab_open, indent, crontab_content, crontab_close] ->
+          entry_indent = indent <> "  "
+
+          new_entries =
+            Enum.map_join(missing, "", fn {cron, cadence} ->
+              ",\n#{entry_indent}{\"#{cron}\", PhoenixKit.Notifications.DigestWorker, " <>
+                "args: %{cadence: \"#{cadence}\"}}"
+            end)
+
+          updated =
+            crontab_open <> String.trim_trailing(crontab_content) <> new_entries <> crontab_close
+
+          String.replace(content, full_match, updated, global: false)
+
+        nil ->
+          Mix.shell().error(
+            "  ⚠️  Could not parse crontab block for :#{app_name} - skipping digest cron entries"
+          )
+
+          Mix.shell().error(
+            "     Please manually add the PhoenixKit.Notifications.DigestWorker cron entries"
+          )
+
+          content
+      end
+    end
+
+    # Add Cron plugin to plugins list
+    defp add_cron_plugin_to_plugins(content, app_name) do
+      # Find the ACTIVE plugins block - must not be commented out
+      # Pattern: line starts with spaces (not #), then plugins: [
+      #
+      # The closing `]` is anchored to the `plugins:` keyword's own
+      # indentation (backreference `\\2`), for the same reason as
+      # `ensure_lifeline_plugin/2`: a lazy `.*?` to the first indented `]`
+      # stops inside a nested list instead (a host plugin carrying its own
+      # list — `{Oban.Plugins.Reindexer, indexes: [...]}`, Oban Web's
+      # stats plugin — puts one right there), and inserting there corrupts
+      # the file. Nested lists are always indented deeper, so anchoring to
+      # the keyword's indentation skips them.
+      case Regex.run(
+             ~r/(^([ \t]+)plugins:\s*\[\n)(.*?)(\n\2\])/ms,
+             content,
+             capture: :all
+           ) do
+        [full_match, plugins_open, indent, plugins_content, plugins_close] ->
+          Mix.shell().info("  ✓ Found plugins block, adding Cron plugin")
+
+          # Check if content ends with comma
+          trimmed_content = String.trim(plugins_content)
+          has_trailing_comma = String.ends_with?(trimmed_content, ",")
+
+          # Entry indentation inferred from the block's own: keyword indent
+          # + 2, matching how the generated template nests entries.
+          entry_indent = indent <> "  "
+
+          cron_entry =
+            entry_indent <>
+              "{Oban.Plugins.Cron,\n" <>
+              entry_indent <>
+              " crontab: [\n" <>
+              entry_indent <>
+              "   {\"* * * * *\", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker}\n" <>
+              entry_indent <> " ]}"
+
+          # Add cron plugin with proper formatting (matching existing indentation)
+          cron_plugin =
+            if has_trailing_comma do
+              "\n" <> cron_entry
+            else
+              ",\n" <> cron_entry
+            end
+
+          updated_plugins = plugins_open <> plugins_content <> cron_plugin <> plugins_close
+
+          String.replace(content, full_match, updated_plugins, global: false)
+
+        nil ->
+          Mix.shell().error(
+            "  ⚠️  Could not parse plugins block for :#{app_name} - skipping cron plugin update"
+          )
+
+          Mix.shell().error("     Please manually add Oban.Plugins.Cron configuration")
+          content
+      end
+    end
+
+    # Get repo module from PhoenixKit config or detect from app
+    defp get_repo_module(igniter) do
+      config_path = "config/config.exs"
+      app_name = IgniterHelpers.get_parent_app_name(igniter)
+
+      if File.exists?(config_path) do
+        content = File.read!(config_path)
+
+        # First try: Look for existing PhoenixKit repo config
+        case Regex.run(~r/config :phoenix_kit,\s+repo:\s+([A-Za-z0-9_.]+)/, content) do
+          [_, repo] ->
+            repo
+
+          _ ->
+            # Second try: Look for ecto_repos in app config
+            app_module = Macro.camelize(to_string(app_name))
+
+            case Regex.run(~r/config :#{app_name}.*?ecto_repos:\s*\[([A-Za-z0-9_.]+)\]/s, content) do
+              [_, repo] -> repo
+              _ -> "#{app_module}.Repo"
+            end
+        end
+      else
+        app_module = Macro.camelize(to_string(app_name))
+        "#{app_module}.Repo"
+      end
+    rescue
+      _ ->
+        app_name = IgniterHelpers.get_parent_app_name(igniter)
+        app_module = Macro.camelize(to_string(app_name))
+        "#{app_module}.Repo"
+    end
+
+    # Check if Oban config already exists in the file
+    defp oban_config_already_exists?(content, app_name) do
+      lines = String.split(content, "\n")
+
+      Enum.any?(lines, fn line ->
+        trimmed = String.trim(line)
+
+        # Not a comment and contains config for Oban
+        # Also check for variations with spaces
+        !String.starts_with?(trimmed, "#") and
+          (String.contains?(line, "config :#{app_name}, Oban") or
+             Regex.match?(~r/config\s+:#{app_name},\s+Oban/, line))
+      end)
+    end
+
+    # Find the location to insert config before import_config statements
+    defp find_import_config_location(content) do
+      lines = String.split(content, "\n")
+
+      # Look for import_config pattern
+      import_index =
+        Enum.find_index(lines, fn line ->
+          trimmed = String.trim(line)
+          String.starts_with?(trimmed, "import_config") or String.contains?(line, "import_config")
+        end)
+
+      case import_index do
+        nil ->
+          # No import_config found, append to end
+          :append_to_end
+
+        index ->
+          # Find the start of the import_config block
+          start_index = find_import_block_start(lines, index)
+
+          # Split content at the start of import block
+          before_lines = Enum.take(lines, start_index)
+          after_lines = Enum.drop(lines, start_index)
+
+          before_content = Enum.join(before_lines, "\n")
+          after_content = Enum.join(after_lines, "\n")
+
+          {:before_import, before_content, after_content}
+      end
+    end
+
+    # Find the start of the import_config block (including preceding comments)
+    defp find_import_block_start(lines, import_index) do
+      lines
+      |> Enum.take(import_index)
+      |> Enum.reverse()
+      |> Enum.reduce_while(import_index, fn line, current_index ->
+        trimmed = String.trim(line)
+
+        cond do
+          # Comment line related to import
+          String.starts_with?(trimmed, "#") and
+              (String.contains?(line, "import") or String.contains?(line, "Import") or
+                 String.contains?(line, "bottom") or String.contains?(line, "BOTTOM") or
+                 String.contains?(line, "environment")) ->
+            {:cont, current_index - 1}
+
+          # Blank line
+          trimmed == "" ->
+            {:cont, current_index - 1}
+
+          # config_env or similar
+          String.contains?(line, "config_env()") or String.contains?(line, "env_config") ->
+            {:cont, current_index - 1}
+
+          # Stop at any other code
+          true ->
+            {:halt, current_index}
+        end
+      end)
+    end
+
+    # Add notice about Oban configuration
+    defp add_oban_configuration_notice(igniter) do
+      if oban_config_exists?(igniter) do
+        Igniter.add_notice(
+          igniter,
+          """
+          ⚙️  Oban configured for background jobs (file processing, sitemap, newsletters)
+             If queues were added/updated, restart your server to apply changes.
+          """
+          |> String.trim()
+        )
+      else
+        Igniter.add_notice(
+          igniter,
+          """
+          ⚠️  Oban configuration added to config.exs
+             IMPORTANT: Restart your server to apply configuration changes.
+          """
+          |> String.trim()
+        )
+      end
+    end
+
+    @doc """
+    Adds Oban to the parent application's supervision tree.
+
+    This function ensures that Oban starts automatically when the application starts,
+    with correct positioning in the supervisor tree:
+    - AFTER PhoenixKit.Supervisor (PhoenixKit services available)
+    - BEFORE Endpoint (Oban ready before HTTP requests)
+
+    ## Important
+
+    Oban MUST start AFTER PhoenixKit.Supervisor because PhoenixKit.Supervisor
+    depends on Repo, and Oban also depends on Repo. The correct order is:
+    1. Repo (database connection)
+    2. PhoenixKit.Supervisor (uses Repo for Settings)
+    3. Oban (uses Repo for job persistence)
+
+    ## Parameters
+    - `igniter` - The igniter context
+
+    ## Returns
+    Updated igniter with Oban added to application supervisor.
+    """
+    def add_oban_supervisor(igniter) do
+      app_name = IgniterHelpers.get_parent_app_name(igniter)
+      {igniter, endpoint} = Phoenix.select_endpoint(igniter)
+
+      # Build AST for: Application.get_env(:app_name, Oban)
+      # Using Sourceror to parse the code string into AST
+      get_env_code = "Application.get_env(:#{app_name}, Oban)"
+      get_env_ast = Sourceror.parse_string!(get_env_code)
+
+      # Use Igniter API to add Oban with explicit positioning
+      # Pass {Module, {:code, ast}} format so Igniter doesn't escape the AST
+      # This ensures correct order: Repo → PhoenixKit → Oban → Endpoint
+      igniter
+      |> Application.add_new_child(
+        {Oban, {:code, get_env_ast}},
+        after: [PhoenixKit.Supervisor],
+        before: [endpoint]
+      )
+    end
+
+    @doc """
+    Checks if Oban supervisor is configured in application.ex.
+
+    ## Parameters
+    - `igniter` - The igniter context for detecting parent app name
+
+    ## Returns
+    Boolean indicating if Oban supervisor exists in application.ex.
+    """
+    def oban_supervisor_exists?(igniter) do
+      app_name = IgniterHelpers.get_parent_app_name(igniter)
+      app_file = "lib/#{app_name}/application.ex"
+
+      if File.exists?(app_file) do
+        content = File.read!(app_file)
+
+        # Check for Oban in children list
+        String.contains?(content, "{Oban,") or
+          String.contains?(content, "Application.get_env(:#{app_name}, Oban)")
+      else
+        false
+      end
+    rescue
+      _ -> false
+    end
+
+    # Add notice when manual configuration is required
+    defp add_manual_config_notice(igniter, repo_module) do
+      app_name = IgniterHelpers.get_parent_app_name(igniter)
+
+      notice = """
+      ⚠️  Manual Configuration Required: Oban
+
+      PhoenixKit couldn't automatically configure Oban for background jobs.
+
+      Please add the following to config/config.exs:
+
+        config :#{app_name}, Oban,
+          repo: #{repo_module},
+          queues: [
+            default: 10,
+            file_processing: 20,
+            posts: 10,
+            scheduled_jobs: 1,
+            sitemap: 5,
+            newsletters_delivery: 10,
+            notifications: 10
+          ],
+          plugins: [
+            # Pruner: delete completed/discarded jobs after 30 days
+            {Oban.Plugins.Pruner, max_age: 60 * 60 * 24 * 30},
+            # Lifeline: rescue jobs orphaned in :executing by a hard crash
+            # (rescue_after must exceed your longest-running job)
+            #{lifeline_entry()},
+            {Oban.Plugins.Cron,
+             crontab: [
+               {"* * * * *", PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker},
+               {"0 3 * * *", PhoenixKit.Modules.Storage.Workers.PruneTrashJob},
+               {"0 4 * * *", PhoenixKit.Notifications.PruneWorker},
+               {"30 4 * * *", PhoenixKit.Users.Referrals.PruneWorker},
+               {"0 * * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "hourly"}},
+               {"0 */12 * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "12h"}},
+               {"0 6 * * *", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "daily"}},
+               {"0 6 * * 1", PhoenixKit.Notifications.DigestWorker, args: %{cadence: "weekly"}}
+             ]}
+          ]
+
+      And add the following to lib/#{app_name}/application.ex in the children list:
+
+        {Oban, Application.get_env(:#{app_name}, Oban)}
+
+      IMPORTANT: Restart your server after making these changes.
+
+      Without this configuration, the storage system cannot process uploaded files,
+      scheduled posts will not be published automatically, and sitemap generation
+      will not work asynchronously.
+      """
+
+      Igniter.add_notice(igniter, notice)
+    end
   end
 end

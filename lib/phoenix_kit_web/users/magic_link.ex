@@ -27,34 +27,49 @@ defmodule PhoenixKitWeb.Users.MagicLink do
         {:ok, socket}
 
       :cont ->
-        # Track anonymous visitor session
-        if connected?(socket) do
-          session_id = session["live_socket_id"] || generate_session_id()
-
-          Presence.track_anonymous(session_id, %{
-            connected_at: UtilsDate.utc_now(),
-            ip_address: IpAddress.extract_from_socket(socket),
-            user_agent: get_connect_info(socket, :user_agent),
-            current_page: Routes.path("/users/magic-link")
-          })
+        # `magic_link_login_enabled` used to hide the button on the login page
+        # and nothing else, so this route stayed open to anyone holding the URL.
+        # Turning passwordless sign-in off is a security-posture decision, so it
+        # has to close the route.
+        if Auth.magic_link_login_enabled?() do
+          mount_request_form(params, session, socket)
+        else
+          {:ok,
+           socket
+           |> put_flash(:error, "Magic link sign-in is currently disabled.")
+           |> redirect(to: Routes.path("/users/log-in"))}
         end
-
-        form = to_form(%{"email" => ""}, as: "magic_link")
-
-        # Carried into the emailed link so a user sent here from a protected
-        # page still lands there after clicking it. Sanitized on the way in and
-        # again on the way out.
-        return_to = if Routes.local_path?(params["return_to"]), do: params["return_to"]
-
-        {:ok,
-         socket
-         |> assign(:page_title, "Magic Link Login")
-         |> assign(:form, form)
-         |> assign(:sent, false)
-         |> assign(:loading, false)
-         |> assign(:error, nil)
-         |> assign(:return_to, return_to)}
     end
+  end
+
+  defp mount_request_form(params, session, socket) do
+    # Track anonymous visitor session
+    if connected?(socket) do
+      session_id = session["live_socket_id"] || generate_session_id()
+
+      Presence.track_anonymous(session_id, %{
+        connected_at: UtilsDate.utc_now(),
+        ip_address: IpAddress.extract_from_socket(socket),
+        user_agent: get_connect_info(socket, :user_agent),
+        current_page: Routes.path("/users/magic-link")
+      })
+    end
+
+    form = to_form(%{"email" => ""}, as: "magic_link")
+
+    # Carried into the emailed link so a user sent here from a protected
+    # page still lands there after clicking it. Sanitized on the way in and
+    # again on the way out.
+    return_to = if Routes.local_path?(params["return_to"]), do: params["return_to"]
+
+    {:ok,
+     socket
+     |> assign(:page_title, "Magic Link Login")
+     |> assign(:form, form)
+     |> assign(:sent, false)
+     |> assign(:loading, false)
+     |> assign(:error, nil)
+     |> assign(:return_to, return_to)}
   end
 
   @impl true

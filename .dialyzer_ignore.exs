@@ -70,8 +70,15 @@
   # Scope struct contains MapSet.t() which is opaque - Dialyzer can't reconcile
   # opaque types inside struct type definitions with their constructed values
   {"lib/phoenix_kit/users/auth/scope.ex", :contract_with_opaque},
+  # Same reason for anything else whose spec names Scope.t(): the struct carries
+  # an opaque MapSet field, so declaring it in a contract is flagged.
+  {"lib/phoenix_kit/test/fixtures.ex", :contract_with_opaque},
   # Callers of Scope.admin?/1 inherit the opaque mismatch from Scope.for_user/1
   {"lib/modules/maintenance/web/plugs/maintenance_mode.ex", :call_without_opaque},
+  # Same inheritance: the invite-only gate's User clause has no scope to work
+  # from, so it builds one with Scope.for_user/1 and passes it straight to
+  # Scope.holds_all_enabled_permissions?/1.
+  {"lib/phoenix_kit/users/referrals.ex", :call_without_opaque},
   # Same class: these consume Scope.accessible_modules/1, whose result is a
   # MapSet built either from the struct field or MapSet.new(all_module_keys())
   # (the "*" superadmin branch). Dialyzer can't prove opaqueness through that
@@ -136,5 +143,17 @@
   # opacity it never actually inspects. Not a runtime bug: the struct is passed
   # straight back to the module that owns it. Surfaced here by the dep upgrades
   # in 867bc5b2, which rebuilt the PLT.
-  {"lib/phoenix_kit/users/qr_login.ex", :call_without_opaque}
+  {"lib/phoenix_kit/users/qr_login.ex", :call_without_opaque},
+  # `MDEx.safe_html/2`'s typespec declares `escape: [atom()]`, but the
+  # implementation reads `escape` as a KEYWORD list —
+  # `opt(options, [:escape, :content], true)` — and MDEx's own doctests pass
+  # `escape: [content: false]`. The spec contradicts the code it documents,
+  # so dialyzer concludes the call can never return.
+  #
+  # Passing the keyword form is required, not cosmetic: with content
+  # escaping left on, the sanitizer returns `&lt;p&gt;Hello&lt;/p&gt;` and
+  # every piece of rich text in the app renders as literal markup.
+  # Re-check on the next MDEx upgrade; drop this entry once the spec is
+  # corrected upstream.
+  {"lib/phoenix_kit/utils/html_sanitizer.ex", :no_return}
 ]

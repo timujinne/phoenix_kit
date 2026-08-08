@@ -2,6 +2,13 @@
 
 A comprehensive, extensible navigation system for the PhoenixKit user dashboard that allows parent applications to add custom tabs with rich features.
 
+> **Looking for ADMIN pages?** This document covers the *user* dashboard
+> (`/dashboard`). To add a page to the admin panel, start with
+> `mix phoenix_kit.gen.admin.page "Reports"` — the tab system described here is
+> the same one, with `level: :admin`. The two stories were documented separately
+> and neither linked to the other, which is how a host ended up reading the
+> source to work out how admin tabs are declared.
+
 ## Features
 
 - **Dynamic Tabs**: Configure tabs via config or register at runtime

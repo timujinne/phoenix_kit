@@ -53,6 +53,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.PhoenixVersion
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitWeb.Users.Auth
 
   @doc """
   Renders content with the appropriate layout based on configuration and Phoenix version.
@@ -96,7 +97,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
   attr :page_action, :map,
     default: nil,
     doc:
-      "Optional compact action button rendered right after the breadcrumb title: `%{icon: \"hero-plus\", label: \"New template\", navigate: path}`. Lets a page keep its primary create action without spending an in-content header row. `label` becomes the tooltip/aria-label; `icon` defaults to hero-plus."
+      "Optional compact action button rendered right after the breadcrumb title: `%{icon: \"hero-plus\", label: \"New template\", navigate: path}`. Lets a page keep its primary create action without spending an in-content header row. `label` becomes the tooltip/aria-label; `icon` defaults to hero-plus. Navigation only — for a `phx-click` action (or anything needing `phx-target`), use the `:action` slot instead. ⚠️ Plugin LiveViews rendered through the admin layout can only use this map: the layout threads it as an assign, and a slot cannot travel that way."
 
   attr :current_path, :string, default: nil
   attr :inner_content, :string, default: nil
@@ -109,6 +110,27 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
     default: %{},
     doc:
       "Module-supplied host-consumable assigns. Each key in this map is merged into the assigns set passed to the parent layout (`Layouts.app`), so a host's custom layout can read e.g. `assigns[:phoenix_kit_publishing_translations]` from publishing, or any other module-defined key. Plain `conn.assigns` don't reach a function-component layout — only declared attrs do — so this single map attribute is how modules thread arbitrary host-consumable data through the boundary without core having to declare each one explicitly."
+
+  slot :action,
+    doc: """
+    The same compact action button, for pages whose primary action is not a
+    navigation — a `phx-click`, a `JS` command, anything needing `phx-target`.
+    The map attribute cannot express those and cannot address a LiveComponent.
+
+    Takes render priority over the `page_action` attribute. Content is wrapped
+    in the same chip shell, and the contract is **one compact control**: a
+    multi-action toolbar belongs in the page body, not the breadcrumb bar.
+
+    ⚠️ Only reaches views calling `app_layout/1` directly. Plugin LiveViews
+    render through `layouts/admin.html.heex`, which threads `page_action` as an
+    assign — slots do not travel through assigns — so those keep the map.
+
+        <:action>
+          <button phx-click="new_device" phx-target={@myself} title="Add device">
+            <.icon name="hero-plus" class="w-4 h-4" />
+          </button>
+        </:action>
+    """
 
   slot :inner_block, required: false
 
@@ -262,6 +284,69 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
   end
 
   # Wrap inner_block with admin navigation if needed
+  # Extracted so `wrap_inner_block_with_admin_nav_if_needed/1` stays under the
+  # complexity ceiling — it is a plain projection of the caller's assigns onto
+  # the keys the admin chrome template reads.
+  defp admin_template_assigns(assigns, original_inner_block) do
+    %{
+      original_inner_block: original_inner_block,
+      # Parent LiveView socket — only used to embed the sticky
+      # NotificationsBell; nil when the caller didn't thread it
+      # through (then the bell simply isn't rendered).
+      socket: assigns[:socket],
+      phoenix_kit_current_user: assigns[:phoenix_kit_current_user],
+      current_path: assigns[:current_path],
+      page_title: assigns[:page_title],
+      page_subtitle: assigns[:page_subtitle],
+      page_section: assigns[:page_section],
+      page_section_path: assigns[:page_section_path],
+      page_action: assigns[:page_action],
+      # The slot travels here as an ordinary key; `assigns[:action]` is
+      # `nil` for every caller that does not pass one, and the render
+      # compares against `[]`.
+      action: assigns[:action] || [],
+      phoenix_kit_current_scope: assigns[:phoenix_kit_current_scope],
+      project_title: assigns[:project_title] || PhoenixKit.Settings.get_project_title(),
+      current_locale: assigns[:current_locale],
+      current_locale_base:
+        assigns[:current_locale] && DialectMapper.extract_base(assigns[:current_locale]),
+      scope: assigns[:phoenix_kit_current_scope],
+      # Whether this visitor gets a navigation sidebar at all.
+      #
+      # `Scope.can_access_admin_area?/1` is the gate `:phoenix_kit_ensure_admin`
+      # applies before anything else, so failing it means every `/admin`
+      # destination redirects — the sidebar would render an empty 16rem column
+      # and a burger button opening an empty drawer. `/admin` itself is the
+      # guaranteed landing for EVERY authenticated user, so that case is now
+      # reachable: a visitor with no permissions gets the welcome page, the
+      # header (theme, language, their own account menu, sign-out) and no
+      # navigation. `AdminSidebar` applies the same gate to its own entries —
+      # this one collapses the chrome around them.
+      show_admin_nav: Scope.can_access_admin_area?(assigns[:phoenix_kit_current_scope]),
+      # The bell's "View all" footer points at `/admin/notifications`. Reading
+      # your own inbox is personal, not administrative — that is exactly what
+      # `@personal_admin_views` says — but the page still lives under `/admin`,
+      # so the admin-area gate bounces a visitor holding no permission. Ask the
+      # destination's own gate rather than re-deriving one.
+      can_open_inbox:
+        Auth.can_access_admin_view?(
+          assigns[:phoenix_kit_current_scope],
+          PhoenixKitWeb.Live.Notifications.Inbox
+        ),
+      phoenix_kit_session_accounts:
+        (assigns[:phoenix_kit_current_scope] &&
+           assigns[:phoenix_kit_current_scope].multi_session_accounts) || [],
+      phoenix_kit_multi_session_allowed?:
+        (assigns[:phoenix_kit_current_scope] &&
+           assigns[:phoenix_kit_current_scope].multi_session_allowed?) || false,
+      auth_logo_url:
+        case PhoenixKit.Settings.get_logo_uuid() do
+          uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, "medium")
+          _ -> nil
+        end
+    }
+  end
+
   defp wrap_inner_block_with_admin_nav_if_needed(assigns) do
     if admin_page?(assigns) do
       # Mark that admin chrome is being rendered by this (LiveView) call.
@@ -278,39 +363,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
         %{
           inner_block: fn _slot_assigns, _index ->
             # Create template assigns with needed values
-            template_assigns = %{
-              original_inner_block: original_inner_block,
-              # Parent LiveView socket — only used to embed the sticky
-              # NotificationsBell; nil when the caller didn't thread it
-              # through (then the bell simply isn't rendered).
-              socket: assigns[:socket],
-              phoenix_kit_current_user: assigns[:phoenix_kit_current_user],
-              current_path: assigns[:current_path],
-              page_title: assigns[:page_title],
-              page_subtitle: assigns[:page_subtitle],
-              page_section: assigns[:page_section],
-              page_section_path: assigns[:page_section_path],
-              page_action: assigns[:page_action],
-              phoenix_kit_current_scope: assigns[:phoenix_kit_current_scope],
-              project_title: assigns[:project_title] || PhoenixKit.Settings.get_project_title(),
-              current_locale: assigns[:current_locale],
-              current_locale_base:
-                assigns[:current_locale] && DialectMapper.extract_base(assigns[:current_locale]),
-              scope: assigns[:phoenix_kit_current_scope],
-              phoenix_kit_session_accounts:
-                (assigns[:phoenix_kit_current_scope] &&
-                   assigns[:phoenix_kit_current_scope].multi_session_accounts) || [],
-              phoenix_kit_multi_session_allowed?:
-                (assigns[:phoenix_kit_current_scope] &&
-                   assigns[:phoenix_kit_current_scope].multi_session_allowed?) || false,
-              auth_logo_url:
-                case PhoenixKit.Settings.get_logo_uuid() do
-                  uuid when is_binary(uuid) and uuid != "" -> URLSigner.signed_url(uuid, "medium")
-                  _ -> nil
-                end
-            }
-
-            assigns = template_assigns
+            assigns = admin_template_assigns(assigns, original_inner_block)
 
             ~H"""
             <%!-- PhoenixKit Admin Layout --%>
@@ -352,6 +405,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                 <div class="flex items-center gap-3 min-w-0">
                   <%!-- Burger Menu Button (Far left) --%>
                   <label
+                    :if={@show_admin_nav}
                     for="admin-mobile-menu"
                     class="btn btn-square btn-primary drawer-button p-0 lg:hidden"
                   >
@@ -374,11 +428,29 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                     <%!-- On mobile, when a page has a title, hide the "Admin
                          Panel /" prefix and show just the page title — the full
                          breadcrumb is too wide and overlaps the right-side theme
-                         / notifications controls. --%>
-                    <span class={[
-                      "font-bold text-base-content shrink-0",
-                      @page_title && "hidden sm:inline"
-                    ]}>
+                         / notifications controls.
+
+                         Dropped entirely for a visitor with no admin rights.
+                         `/admin` is the landing EVERY authenticated user can
+                         reach, so this shell now renders for people who are not
+                         operators — and telling someone with no sidebar, no
+                         subtitle and no operator content that they are in the
+                         "Admin Panel" is the one claim on the page that would
+                         be false. What remains is the ordinary breadcrumb the
+                         markup already builds: project title / page title.
+                         Omission rather than a replacement label, because a new
+                         msgid would ship untranslated in every shipped locale
+                         while this reuses strings that are already there.
+                         `show_admin_nav` is the same gate the sidebar and the
+                         burger button use, so an operator's header is
+                         byte-identical to before. --%>
+                    <span
+                      :if={@show_admin_nav}
+                      class={[
+                        "font-bold text-base-content shrink-0",
+                        @page_title && "hidden sm:inline"
+                      ]}
+                    >
                       {gettext("Admin Panel")}
                     </span>
                     <%!-- Current page breadcrumb: " / Page Title · subtitle".
@@ -409,8 +481,18 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                       >
                         {@page_subtitle}
                       </span>
+                      <%!-- Slot wins when given; the map is the shorthand for
+                            the navigate-only case and the only thing plugin
+                            LiveViews can reach. Same chip shell either way, so
+                            the header bar cannot grow a toolbar. --%>
+                      <span
+                        :if={@action != []}
+                        class="[&>*]:btn [&>*]:btn-xs [&>*]:btn-primary [&>*]:btn-circle [&>*]:shrink-0"
+                      >
+                        {render_slot(@action)}
+                      </span>
                       <.link
-                        :if={@page_action}
+                        :if={@action == [] and @page_action}
                         navigate={@page_action[:navigate]}
                         class="btn btn-xs btn-primary btn-circle shrink-0"
                         title={@page_action[:label]}
@@ -442,7 +524,8 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                       sticky: true,
                       session: %{
                         "user_uuid" => bell_user.uuid,
-                        "locale" => assigns[:current_locale_base]
+                        "locale" => assigns[:current_locale_base],
+                        "can_open_inbox" => @can_open_inbox
                       }
                     )}
                   <% end %>
@@ -457,7 +540,11 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
               </div>
             </header>
 
-            <div id="admin-drawer" class="drawer lg:drawer-open">
+            <%!-- Without `lg:drawer-open` AND without a `.drawer-side` child,
+                  daisyUI's `grid-auto-columns: max-content auto` leaves column
+                  one empty, so `.drawer-content` (grid-column-start: 2) spans
+                  the full width. --%>
+            <div id="admin-drawer" class={["drawer", @show_admin_nav && "lg:drawer-open"]}>
               <input id="admin-mobile-menu" type="checkbox" class="drawer-toggle" />
 
               <%!-- Main content --%>
@@ -482,6 +569,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                    side lives in phoenix_kit.js as document-level
                    listeners so no per-element cleanup is needed. --%>
               <div
+                :if={@show_admin_nav}
                 id="pk-admin-sidebar"
                 phx-hook="AdminSidebarScroll"
                 class="drawer-side lg:[scrollbar-gutter:stable]"
@@ -923,6 +1011,71 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
   # group must render HERE, inside the LiveView's tree — the root layout's
   # copy is static after the dead render, so connected `put_flash` updates
   # would never display through it.
+  @doc """
+  Rendering path for auth pages (login, register, reset, confirm, magic link,
+  QR handoff, and the invite-only referral screen).
+
+  Auth pages **do not** render inside the host's `Layouts.app`. That layout is
+  where a `mix phx.new` app keeps its logo, framework version and off-site
+  links, so wrapping sign-in in it put Phoenix Framework branding on the login
+  page of every kit install — reported by more than one host. Admin already
+  works this way (`render_admin_with_parent/1` never calls the host's `:app`);
+  auth was the outlier.
+
+  The host's **root** layout still applies, because `PhoenixKitWeb.Integration`
+  never calls `put_root_layout`. That is where the document shell, assets and
+  CSRF come from, and it is unaffected.
+
+  A host that genuinely wants its own chrome on sign-in opts back in:
+
+      config :phoenix_kit, auth_uses_host_layout: true
+
+  ⚠️ Two things a host may notice when it does not: anything wired into the
+  **app** layout rather than root — a cookie-consent banner, analytics, a theme
+  toggle — stops appearing on auth pages only. Root-level wiring is unaffected.
+  Stock `phx.new` puts assets and CSRF in root, so conventional hosts see only
+  the branding disappear, which is the point.
+  """
+  attr :flash, :map, required: true
+  attr :phoenix_kit_current_scope, :any, default: nil
+  attr :page_title, :string, default: nil
+  attr :current_path, :string, default: nil
+  attr :pk_pending_invitations, :list, default: []
+  slot :inner_block, required: true
+
+  def auth_layout(assigns) do
+    if auth_uses_host_layout?() do
+      ~H"""
+      <.app_layout
+        flash={@flash}
+        phoenix_kit_current_scope={@phoenix_kit_current_scope}
+        page_title={@page_title}
+        current_path={@current_path}
+      >
+        {render_slot(@inner_block)}
+      </.app_layout>
+      """
+    else
+      # `min-h-dvh` here so the auth background has a definite containing block
+      # to fill: the wrapper inside uses `min-h-full`, which is a percentage and
+      # therefore cannot overflow it. `dvh` rather than `vh` because on mobile
+      # `vh` is the LARGE viewport, which puts the bottom of the card behind the
+      # URL bar.
+      #
+      # Flash renders HERE, inside the LiveView tree — a copy in the root layout
+      # freezes at its dead-render value (see `render_with_phoenix_kit_layout/1`).
+      ~H"""
+      <.flash_group flash={@flash} />
+      <.invitation_banners invitations={@pk_pending_invitations} />
+      <div class="min-h-dvh">{render_slot(@inner_block)}</div>
+      """
+    end
+  end
+
+  defp auth_uses_host_layout? do
+    PhoenixKit.Config.get_boolean(:auth_uses_host_layout, false)
+  end
+
   defp render_with_phoenix_kit_layout(assigns) do
     # Wrap inner content with admin navigation if needed
     assigns = wrap_inner_block_with_admin_nav_if_needed(assigns)

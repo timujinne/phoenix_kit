@@ -22,6 +22,26 @@ defmodule PhoenixKitWeb.Users.MagicLinkVerify do
   4. Handles invalid/expired tokens gracefully
   """
   def verify(conn, %{"token" => token} = params) do
+    if UserAuth.magic_link_login_enabled?() do
+      do_verify(conn, token, params)
+    else
+      # In-flight links stop working too. Turning passwordless sign-in off means
+      # no more magic-link logins, not no new ones from today — otherwise every
+      # token already sitting in an inbox is a way around the setting. They are
+      # short-lived, so the window this affects is small.
+      conn
+      |> put_flash(:error, "Magic link sign-in is currently disabled.")
+      |> redirect(to: Routes.path("/users/log-in"))
+    end
+  end
+
+  def verify(conn, _params) do
+    conn
+    |> put_flash(:error, "Invalid magic link. Please request a new one.")
+    |> redirect(to: Routes.path("/users/log-in"))
+  end
+
+  defp do_verify(conn, token, params) do
     case MagicLink.verify_magic_link(token) do
       {:ok, user} ->
         # A magic-link user just proved control of their own inbox on this
@@ -41,12 +61,6 @@ defmodule PhoenixKitWeb.Users.MagicLinkVerify do
         |> put_flash(:error, "Magic link is invalid or has expired. Please request a new one.")
         |> redirect(to: Routes.path("/users/log-in"))
     end
-  end
-
-  def verify(conn, _params) do
-    conn
-    |> put_flash(:error, "Invalid magic link. Please request a new one.")
-    |> redirect(to: Routes.path("/users/log-in"))
   end
 
   defp maybe_store_return_to(conn, return_to) do

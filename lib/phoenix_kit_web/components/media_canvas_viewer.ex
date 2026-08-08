@@ -225,7 +225,9 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
       fresh = Auth.get_user(uuid) || user
       merged = Map.put(fresh.custom_fields || %{}, @etcher_colors_key, clean)
 
-      case Auth.update_user_custom_fields(fresh, merged) do
+      # Internal editor preference — skip the custom-field-definition
+      # registration so it never surfaces in the admin Custom Fields list.
+      case Auth.update_user_custom_fields(fresh, merged, ensure_definitions: false) do
         {:ok, updated} ->
           {:noreply, socket |> assign(:current_user, updated) |> assign(:etcher_colors, clean)}
 
@@ -251,7 +253,8 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
       fresh = Auth.get_user(uuid) || user
       merged = Map.put(fresh.custom_fields || %{}, @etcher_line_params_key, clean)
 
-      case Auth.update_user_custom_fields(fresh, merged) do
+      # Internal editor preference — see the colors handler above.
+      case Auth.update_user_custom_fields(fresh, merged, ensure_definitions: false) do
         {:ok, updated} ->
           {:noreply,
            socket |> assign(:current_user, updated) |> assign(:etcher_line_params, clean)}
@@ -439,7 +442,8 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
     fresh = Auth.get_user(uuid) || user
     merged = Map.put(fresh.custom_fields || %{}, @viewer_info_collapsed_key, collapsed)
 
-    case Auth.update_user_custom_fields(fresh, merged) do
+    # Internal sidebar state — not an admin-managed custom field.
+    case Auth.update_user_custom_fields(fresh, merged, ensure_definitions: false) do
       {:ok, _updated} -> :ok
       {:error, _changeset} -> :ok
     end

@@ -935,8 +935,11 @@
                             </ul>
                           </div>
 
-                          <%!-- Filter (file type) --%>
-                          <div class="dropdown">
+                          <%!-- Filter (file type). Hidden when the browser is
+                                locked to one type: offering a control that
+                                refuses to do anything is worse than not
+                                offering it. --%>
+                          <div :if={is_nil(@only_file_type)} class="dropdown">
                             <div tabindex="0" role="button" class="btn btn-sm gap-2">
                               <.icon name="hero-funnel" class="w-4 h-4" />
                               <span class={[

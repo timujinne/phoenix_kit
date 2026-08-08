@@ -627,6 +627,10 @@ if (typeof window.Chart === "undefined") {
     }
 
     function getConfigEndpoint() {
+      // PHOENIX_KIT_PREFIX is emitted by the phoenix_kit_js_sources compiler.
+      // The "/phoenix_kit" fallback is for a host that predates it — which is
+      // exactly how a custom-prefix install ended up requesting a path that
+      // does not exist on it.
       var prefix = window.PHOENIX_KIT_PREFIX || "/phoenix_kit";
       // Handle case when prefix is "/" to avoid double slash (//api/...)
       if (prefix === "/") {
@@ -1306,14 +1310,30 @@ if (typeof window.Chart === "undefined") {
     }
 
     function fetchConfigAndInit() {
+      // Set by the phoenix_kit_js_sources compiler. When phoenix_kit_legal is
+      // not installed there is nothing to fetch, so skip the round-trip
+      // entirely rather than making one request per page load to be told 204.
+      if (window.PHOENIX_KIT_CONSENT_AVAILABLE === false) {
+        log("Legal module not installed; consent widget unavailable");
+        return;
+      }
+
       fetch(getConfigEndpoint(), { credentials: "same-origin" })
         .then(function(response) {
+          // 204 = no Legal module. It carries no body ON PURPOSE: a body
+          // saying consent is disabled would be read as a live config by
+          // bundles vendored before this endpoint existed, and they respond by
+          // calling resetGoogleConsentMode() — GRANTING every category on an
+          // install that never opted into consent management at all. Treat it
+          // as "nothing to do" and touch nothing.
+          if (response.status === 204) return null;
           if (!response.ok) {
             throw new Error("Config endpoint returned " + response.status);
           }
           return response.json();
         })
         .then(function(config) {
+          if (!config) return;
           if (config.enabled && config.should_show !== false) {
             initFromConfig(config);
           } else {
@@ -1413,6 +1433,75 @@ if (typeof window.Chart === "undefined") {
           this.el.selectedIndex = 0;
         }
       });
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // PhoenixKitUrlState Hook
+  // ---------------------------------------------------------------------------
+  //
+  // Carries list state (search / filters / sort / page) in the address bar for
+  // a LiveView that cannot use push_patch.
+  //
+  // Why it exists: push_patch requires handle_params/3 to be exported, and
+  // exporting it makes a LiveView impossible to embed with live_render/3. An
+  // embeddable list therefore has to drive the URL from the client instead.
+  //
+  // Rendered by PhoenixKitWeb.Live.UrlState.url_state_sync/1 when the LiveView
+  // declares `mode: :history`; nothing else should mount it by hand.
+  //
+  // Three jobs:
+  //   1. on connect, report the query the page was opened with — an embedded
+  //      LiveView receives :not_mounted_at_router instead of params, so this is
+  //      the only way it can learn its own state;
+  //   2. rewrite the address bar when the server pushes a new query;
+  //   3. report Back and Forward, which is what makes history navigation work
+  //      without a router.
+  //
+  // Only the query is exchanged. The path stays client-side deliberately: an
+  // embedded LiveView has no idea which page it is on.
+  //
+  // ---------------------------------------------------------------------------
+
+  window.PhoenixKitHooks.PhoenixKitUrlState = {
+    mounted() {
+      this.pushEvent("phoenix_kit_url_state", { query: window.location.search });
+
+      // Keep the ref: handleEvent registers on the LiveSocket, not on the
+      // element, so without removeHandleEvent in destroyed() every remount of
+      // this hook leaves another live callback behind and one server push runs
+      // the history write N times.
+      this.pkHandleRef = this.handleEvent("phoenix_kit_url_state", ({ query, replace }) => {
+        var next = window.location.pathname + (query ? "?" + query : "");
+
+        // Nothing moved — recording it would put a duplicate in the history
+        // stack and make one Back press look like it did nothing.
+        if (next === window.location.pathname + window.location.search) return;
+
+        if (replace) {
+          window.history.replaceState({}, "", next);
+        } else {
+          window.history.pushState({}, "", next);
+        }
+      });
+
+      this.pkOnPopState = function () {
+        this.pushEvent("phoenix_kit_url_state", { query: window.location.search });
+      }.bind(this);
+
+      window.addEventListener("popstate", this.pkOnPopState);
+    },
+
+    destroyed() {
+      if (this.pkOnPopState) {
+        window.removeEventListener("popstate", this.pkOnPopState);
+        this.pkOnPopState = null;
+      }
+
+      if (this.pkHandleRef) {
+        this.removeHandleEvent(this.pkHandleRef);
+        this.pkHandleRef = null;
+      }
     }
   };
 
@@ -5502,7 +5591,7 @@ if (typeof window.Chart === "undefined") {
           escAttr(r.uuid) +
           '" data-label="' +
           escAttr(r.label) +
-          '" class="flex items-center justify-between w-full px-3 py-2 hover:bg-base-200 text-left">' +
+          '" class="flex items-center justify-between w-full px-3 py-2 hover:bg-base-200 text-left cursor-pointer">' +
           '<span class="flex items-center gap-2 min-w-0">' +
           '<span class="' +
           escAttr(r.icon || "hero-user") +
@@ -5526,7 +5615,7 @@ if (typeof window.Chart === "undefined") {
           "</div>";
       } else if (this.hasMore) {
         list +=
-          '<button type="button" data-pick="more" class="w-full px-3 py-2 text-xs text-center text-primary hover:bg-base-200">' +
+          '<button type="button" data-pick="more" class="w-full px-3 py-2 text-xs text-center text-primary hover:bg-base-200 cursor-pointer">' +
           tMore +
           "</button>";
       }
@@ -5534,7 +5623,7 @@ if (typeof window.Chart === "undefined") {
       var bottom = "";
       if (q && this.evText && this.mode !== "single") {
         bottom =
-          '<button type="button" data-pick="text" class="flex items-center gap-2 w-full px-3 py-2 hover:bg-base-200 text-left border-t border-base-200">' +
+          '<button type="button" data-pick="text" class="flex items-center gap-2 w-full px-3 py-2 hover:bg-base-200 text-left border-t border-base-200 cursor-pointer">' +
           '<span class="hero-plus-mini w-4 h-4 shrink-0 text-base-content/50"></span>' +
           "<span>" +
           tAddPrefix +

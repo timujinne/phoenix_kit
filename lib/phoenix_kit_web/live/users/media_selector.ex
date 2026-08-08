@@ -20,6 +20,24 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
   """
   use PhoenixKitWeb, :live_view
 
+  # Search, file-type filter and page live in the query string, so a filtered
+  # list is a real URL: shareable, reload-proof, and Back returns to the
+  # previous query instead of leaving the page. `file_type_filter` defaults to
+  # :all, which is therefore what gets omitted from the URL.
+  use PhoenixKitWeb.Live.UrlState,
+    params: [
+      search_query: [default: "", url_key: "q"],
+      file_type_filter: [
+        default: :all,
+        cast: :atom,
+        in: [:all, :image, :video],
+        url_key: "type",
+        alias: "filter"
+      ],
+      current_page: [default: 1, cast: :integer, min: 1, url_key: "page"]
+    ],
+    page_param: :current_page
+
   require Logger
 
   alias PhoenixKit.Modules.Storage
@@ -41,14 +59,15 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     # Get project title
     project_title = Settings.get_project_title()
 
-    # Parse query parameters
+    # Parse mount-only query parameters (not URL state — these are fixed for
+    # the lifetime of the session and are not list filters).
     return_to = parse_return_to(params["return_to"])
     mode = parse_mode(params["mode"])
     selected_uuids = parse_selected_uuids(params["selected"])
-    filter = parse_filter(params["filter"])
-    page = parse_page(params["page"])
 
-    # Allow file uploads
+    # :search_query, :file_type_filter, and :current_page are assigned from
+    # the query string by UrlState before mount/3 runs — re-assigning them
+    # here would overwrite a shared link's state with the defaults.
     socket =
       socket
       |> assign(:current_locale, locale)
@@ -58,9 +77,6 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
       |> assign(:return_to, return_to)
       |> assign(:selection_mode, mode)
       |> assign(:selected_uuids, selected_uuids)
-      |> assign(:file_type_filter, filter)
-      |> assign(:search_query, "")
-      |> assign(:current_page, page)
       |> assign(:per_page, @per_page)
       |> allow_upload(:media_files,
         accept: :any,
@@ -72,22 +88,14 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     {:ok, socket}
   end
 
-  def handle_params(params, _uri, socket) do
-    page = parse_page(params["page"])
-
-    # Load files based on current filters and page
-    {files, total_count} = load_files(socket, page)
-    total_pages = ceil(total_count / socket.assigns.per_page)
-
-    socket =
-      socket
-      |> assign(:current_page, page)
-      |> assign(:uploaded_files, files)
-      |> assign(:total_count, total_count)
-      |> assign(:total_pages, total_pages)
-
-    {:noreply, socket}
-  end
+  # The list is loaded here rather than in mount/3: UrlState calls this after
+  # mount and on every change to the query string, so one code path serves the
+  # first render, a shared link, and the Back button alike.
+  #
+  # Deliberately not annotated with @impl — a single @impl anywhere in a module
+  # makes Elixir demand it on every other callback too, and this LiveView's
+  # mount/handle_event/handle_params/handle_info carry none.
+  def handle_url_state(_state, socket), do: reload_files(socket)
 
   def handle_event("toggle_selection", %{"file-uuid" => file_uuid}, socket) do
     selected_uuids = socket.assigns.selected_uuids
@@ -134,44 +142,15 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     {:noreply, push_navigate(socket, to: socket.assigns.return_to)}
   end
 
+  # `replace: true` — the box is debounced, so a typed-out query would otherwise
+  # leave one history entry per pause and Back would walk the search string
+  # backwards instead of leaving the page.
   def handle_event("search", %{"search" => %{"query" => query}}, socket) do
-    socket =
-      socket
-      |> assign(:search_query, query)
-      |> assign(:current_page, 1)
-
-    # Reload files with search query
-    {files, total_count} = load_files(socket, 1)
-    total_pages = ceil(total_count / socket.assigns.per_page)
-
-    socket =
-      socket
-      |> assign(:uploaded_files, files)
-      |> assign(:total_count, total_count)
-      |> assign(:total_pages, total_pages)
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, [search_query: query], replace: true)}
   end
 
   def handle_event("filter_type", %{"filter" => filter}, socket) do
-    parsed_filter = parse_filter(filter)
-
-    socket =
-      socket
-      |> assign(:file_type_filter, parsed_filter)
-      |> assign(:current_page, 1)
-
-    # Reload files with new filter
-    {files, total_count} = load_files(socket, 1)
-    total_pages = ceil(total_count / socket.assigns.per_page)
-
-    socket =
-      socket
-      |> assign(:uploaded_files, files)
-      |> assign(:total_count, total_count)
-      |> assign(:total_pages, total_pages)
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, file_type_filter: parse_filter(filter))}
   end
 
   def handle_event("validate", _params, socket) do
@@ -179,19 +158,31 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
   end
 
   def handle_event("save", _params, socket) do
-    # Files are auto-uploaded, just reload the list
-    {files, total_count} = load_files(socket, 1)
-    total_pages = ceil(total_count / socket.assigns.per_page)
+    # Files are auto-uploaded via handle_progress; this only refreshes the grid.
+    # The reload cannot be left to the patch: on page 1 the URL does not change,
+    # so handle_url_state would never fire and the new file would not appear.
+    socket = put_flash(socket, :info, "Files uploaded successfully")
 
-    socket =
-      socket
-      |> assign(:current_page, 1)
-      |> assign(:uploaded_files, files)
-      |> assign(:total_count, total_count)
-      |> assign(:total_pages, total_pages)
-      |> put_flash(:info, "Files uploaded successfully")
+    {:noreply, reset_to_first_page(socket)}
+  end
 
-    {:noreply, socket}
+  # Data changed underneath the current query: reload in place when already on
+  # page 1, otherwise patch back to it and let handle_url_state do the loading.
+  defp reset_to_first_page(socket) do
+    if socket.assigns.current_page == 1 do
+      reload_files(socket)
+    else
+      push_url_state(socket, current_page: 1)
+    end
+  end
+
+  defp reload_files(socket) do
+    {files, total_count} = load_files(socket, socket.assigns.current_page)
+
+    socket
+    |> assign(:uploaded_files, files)
+    |> assign(:total_count, total_count)
+    |> assign(:total_pages, ceil(total_count / socket.assigns.per_page))
   end
 
   defp handle_progress(:media_files, entry, socket) do
@@ -206,8 +197,6 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
           file_uuid when is_binary(file_uuid) ->
             # Refresh the grid so the new file is visible, and auto-select it —
             # uploading into a picker means "I want this one".
-            {files, total_count} = load_files(socket, 1)
-
             selected =
               case socket.assigns.selection_mode do
                 :single -> [file_uuid]
@@ -215,11 +204,8 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
               end
 
             socket
-            |> assign(:current_page, 1)
-            |> assign(:uploaded_files, files)
-            |> assign(:total_count, total_count)
-            |> assign(:total_pages, ceil(total_count / socket.assigns.per_page))
             |> assign(:selected_uuids, selected)
+            |> reset_to_first_page()
 
           _ ->
             put_flash(
@@ -239,7 +225,9 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     # Get file info
     ext = Path.extname(entry.client_name) |> String.replace_leading(".", "")
     mime_type = entry.client_type || MIME.from_path(entry.client_name)
-    file_type = determine_file_type(mime_type)
+    # Shared classifier — see `Storage.determine_file_type/2`. The copy that
+    # lived here classified every audio upload as "other".
+    file_type = Storage.determine_file_type(mime_type, entry.client_name)
 
     # Get current user
     current_user = socket.assigns[:phoenix_kit_current_user]
@@ -375,14 +363,6 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     end
   end
 
-  defp determine_file_type(mime_type) do
-    cond do
-      String.starts_with?(mime_type, "image/") -> "image"
-      String.starts_with?(mime_type, "video/") -> "video"
-      true -> "other"
-    end
-  end
-
   defp parse_mode(nil), do: :single
   defp parse_mode("single"), do: :single
   defp parse_mode("multiple"), do: :multiple
@@ -394,17 +374,6 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
   defp parse_return_to(<<"/", next, _::binary>> = path) when next not in [?/, ?\\], do: path
   defp parse_return_to("/"), do: "/"
   defp parse_return_to(_), do: "/"
-
-  # Malformed or non-positive `?page=` values fall back to 1 instead of
-  # crashing the mount (String.to_integer) or producing a negative OFFSET.
-  defp parse_page(page) when is_binary(page) do
-    case Integer.parse(page) do
-      {n, ""} when n > 0 -> n
-      _ -> 1
-    end
-  end
-
-  defp parse_page(_), do: 1
 
   defp parse_selected_uuids(nil), do: []
 

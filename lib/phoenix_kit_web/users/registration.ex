@@ -111,6 +111,60 @@ defmodule PhoenixKitWeb.Users.Registration do
   end
 
   def handle_event("save", %{"user" => user_params} = params, socket) do
+    if Settings.get_boolean_setting("allow_registration", true) do
+      do_save(user_params, params, socket)
+    else
+      # Re-checked here, not just in mount/3. A LiveView socket outlives the
+      # page load that created it, so a form mounted while registration was open
+      # keeps a working submit endpoint for as long as the tab stays open —
+      # closing registration has to close the submit, not only the entrance.
+      {:noreply,
+       socket
+       |> put_flash(:error, "Registration is currently disabled.")
+       |> redirect(to: Routes.path("/users/log-in"))}
+    end
+  end
+
+  def handle_event("validate", %{"user" => user_params} = params, socket) do
+    referral_code = params["referral_code"]
+    user_params = form_params(user_params)
+
+    # Track whether the user owns the username field, then keep it in sync with
+    # the email while it's still auto-managed.
+    username_edited = username_manually_edited?(socket, params, user_params)
+    user_params = maybe_sync_username(user_params, username_edited)
+
+    # The form re-renders on every change, so the checkbox has to be driven by
+    # what the user actually left it at — otherwise unticking it would snap
+    # back to the site default on the next keystroke.
+    socket =
+      socket
+      |> assign(username_edited: username_edited)
+      |> assign(remember_me: user_params["remember_me"] == "true")
+
+    # Validate referral code and update error state
+    case validate_referral_code(referral_code, socket, :change) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> assign(referral_code: referral_code)
+          |> assign(referral_code_error: nil)
+
+        changeset = Auth.change_user_registration(%User{}, user_params)
+        {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
+
+      {:error, error_message} ->
+        socket =
+          socket
+          |> assign(referral_code: referral_code)
+          |> assign(referral_code_error: error_message)
+
+        changeset = Auth.change_user_registration(%User{}, user_params)
+        {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
+    end
+  end
+
+  defp do_save(user_params, params, socket) do
     referral_code = params["referral_code"]
     user_params = form_params(user_params)
 
@@ -119,7 +173,7 @@ defmodule PhoenixKitWeb.Users.Registration do
     user_params = maybe_sync_username(user_params, socket.assigns.username_edited)
 
     # Validate referral code if system is enabled
-    case validate_referral_code(referral_code, socket) do
+    case validate_referral_code(referral_code, socket, :submit) do
       {:ok, validated_code} ->
         # Check if geolocation tracking is enabled
         track_geolocation = Settings.get_boolean_setting("track_registration_geolocation", false)
@@ -135,10 +189,10 @@ defmodule PhoenixKitWeb.Users.Registration do
 
         case registration_result do
           {:ok, user} ->
-            # Record referral code usage if provided and valid
-            if validated_code do
-              Referrals.use_code(validated_code.code, user.uuid)
-            end
+            # Records the use AND marks the account as having satisfied
+            # invite-only, so a code supplied here is not asked for again by
+            # the access gate.
+            Referrals.record_signup_use(user, validated_code)
 
             # Store invitation UUID in custom_fields for auto-accept after email confirmation
             if socket.assigns[:pending_invitation] do
@@ -195,45 +249,6 @@ defmodule PhoenixKitWeb.Users.Registration do
     end
   end
 
-  def handle_event("validate", %{"user" => user_params} = params, socket) do
-    referral_code = params["referral_code"]
-    user_params = form_params(user_params)
-
-    # Track whether the user owns the username field, then keep it in sync with
-    # the email while it's still auto-managed.
-    username_edited = username_manually_edited?(socket, params, user_params)
-    user_params = maybe_sync_username(user_params, username_edited)
-
-    # The form re-renders on every change, so the checkbox has to be driven by
-    # what the user actually left it at — otherwise unticking it would snap
-    # back to the site default on the next keystroke.
-    socket =
-      socket
-      |> assign(username_edited: username_edited)
-      |> assign(remember_me: user_params["remember_me"] == "true")
-
-    # Validate referral code and update error state
-    case validate_referral_code(referral_code, socket) do
-      {:ok, _} ->
-        socket =
-          socket
-          |> assign(referral_code: referral_code)
-          |> assign(referral_code_error: nil)
-
-        changeset = Auth.change_user_registration(%User{}, user_params)
-        {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
-
-      {:error, error_message} ->
-        socket =
-          socket
-          |> assign(referral_code: referral_code)
-          |> assign(referral_code_error: error_message)
-
-        changeset = Auth.change_user_registration(%User{}, user_params)
-        {:noreply, assign_form(socket, Map.put(changeset, :action, :validate))}
-    end
-  end
-
   # Determines whether the user has taken manual ownership of the username field.
   #
   # `phx-change` reports the touched field in `_target`. Typing a non-empty value
@@ -265,47 +280,16 @@ defmodule PhoenixKitWeb.Users.Registration do
     end
   end
 
-  defp validate_referral_code(referral_code, socket) do
-    cond do
-      # If referral codes are disabled, always allow registration
-      not socket.assigns.referral_codes_enabled ->
-        {:ok, nil}
-
-      # If referral codes are required but none provided
-      socket.assigns.referral_codes_required and
-          (is_nil(referral_code) or String.trim(referral_code) == "") ->
-        {:error, "Referral code is required"}
-
-      # If referral code is provided, validate it
-      referral_code && String.trim(referral_code) != "" ->
-        validate_referral_code_value(String.trim(referral_code))
-
-      # If referral codes are optional and none provided
-      true ->
-        {:ok, nil}
-    end
-  end
-
-  defp validate_referral_code_value(code_string) do
-    case Referrals.get_code_by_string(code_string) do
-      nil ->
-        {:error, "Invalid referral code"}
-
-      code ->
-        cond do
-          not code.status ->
-            {:error, "This referral code is no longer active"}
-
-          Referrals.expired?(code) ->
-            {:error, "This referral code has expired"}
-
-          Referrals.usage_limit_reached?(code) ->
-            {:error, "This referral code has reached its usage limit"}
-
-          true ->
-            {:ok, code}
-        end
-    end
+  # `context` is `:change` while the user types and `:submit` on the final
+  # attempt. See `PhoenixKit.Users.Referrals.validate_for_signup/2` for why the
+  # two differ and why every rejection reads the same.
+  defp validate_referral_code(referral_code, socket, context) do
+    Referrals.validate_for_signup(referral_code,
+      enabled?: socket.assigns.referral_codes_enabled,
+      required?: socket.assigns.referral_codes_required,
+      context: context,
+      ip_address: socket.assigns[:user_ip_address]
+    )
   end
 
   defp generate_session_id do

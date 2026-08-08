@@ -84,10 +84,31 @@ defmodule PhoenixKitWeb.Users.UserForm do
       |> assign(:page_section, gettext("Users"))
       |> assign(:page_section_path, Routes.path("/admin/users"))
       |> load_user_data(mode, user_uuid)
+      |> assign_credential_authority()
       |> load_form_data()
       |> maybe_set_edit_page_title()
 
     {:ok, socket}
+  end
+
+  # Whether this actor may set a password for, mail a reset link to, or change
+  # the email address of the record being edited. Holding the `users` permission
+  # gets you onto this page; it does not get you another actor's credentials.
+  # Creating a user is unconditional — a record that does not exist yet cannot
+  # outrank anyone.
+  defp assign_credential_authority(%{assigns: %{mode: :new}} = socket) do
+    socket
+    |> assign(:can_manage_credentials, true)
+    |> assign(:can_manage_status, true)
+  end
+
+  defp assign_credential_authority(socket) do
+    target = socket.assigns.user
+    actor = socket.assigns[:phoenix_kit_current_user]
+
+    socket
+    |> assign(:can_manage_credentials, Auth.can_manage_user_credentials?(target, actor))
+    |> assign(:can_manage_status, Auth.can_manage_user_status?(target, actor))
   end
 
   # :new keeps the generic "Create User" title (no record to name yet); :edit
@@ -177,8 +198,11 @@ defmodule PhoenixKitWeb.Users.UserForm do
   end
 
   def handle_event("show_reset_password_modal", _params, socket) do
-    socket = assign(socket, :show_reset_password_modal, true)
-    {:noreply, socket}
+    if socket.assigns.can_manage_credentials do
+      {:noreply, assign(socket, :show_reset_password_modal, true)}
+    else
+      {:noreply, deny_credential_action(socket)}
+    end
   end
 
   def handle_event("hide_reset_password_modal", _params, socket) do
@@ -187,40 +211,26 @@ defmodule PhoenixKitWeb.Users.UserForm do
   end
 
   def handle_event("admin_reset_password", _params, socket) do
-    user = socket.assigns.user
-
-    case Auth.deliver_user_reset_password_instructions(
-           user,
-           &Routes.url("/users/reset-password/#{&1}")
-         ) do
-      {:ok, _} ->
-        socket =
-          socket
-          |> put_flash(
-            :info,
-            "Password reset email sent to #{user.email}. The user will receive instructions to reset their password."
-          )
-          |> assign(:show_reset_password_modal, false)
-
-        {:noreply, socket}
-
-      {:error, _reason} ->
-        socket =
-          put_flash(socket, :error, "Failed to send password reset email. Please try again.")
-
-        {:noreply, socket}
+    if socket.assigns.can_manage_credentials do
+      do_admin_reset_password(socket)
+    else
+      {:noreply, deny_credential_action(socket)}
     end
   end
 
   def handle_event("toggle_password_field", _params, socket) do
-    new_show_password_field = !socket.assigns.show_password_field
+    if socket.assigns.can_manage_credentials do
+      new_show_password_field = !socket.assigns.show_password_field
 
-    socket =
-      socket
-      |> assign(:show_password_field, new_show_password_field)
-      |> reload_changeset_with_password(new_show_password_field)
+      socket =
+        socket
+        |> assign(:show_password_field, new_show_password_field)
+        |> reload_changeset_with_password(new_show_password_field)
 
-    {:noreply, socket}
+      {:noreply, socket}
+    else
+      {:noreply, deny_credential_action(socket)}
+    end
   end
 
   def handle_event("open_roles_dropdown", _params, socket) do
@@ -414,10 +424,25 @@ defmodule PhoenixKitWeb.Users.UserForm do
   end
 
   def handle_event("toggle_user_status", _params, socket) do
+    if socket.assigns.can_manage_status do
+      do_toggle_user_status(socket)
+    else
+      {:noreply,
+       put_flash(
+         socket,
+         :error,
+         gettext("You don't have permission to change this user's status")
+       )}
+    end
+  end
+
+  defp do_toggle_user_status(socket) do
     user = socket.assigns.user
     new_status = !user.is_active
 
-    case Auth.update_user_status(user, %{"is_active" => new_status}) do
+    case Auth.update_user_status(user, %{"is_active" => new_status},
+           actor: socket.assigns[:phoenix_kit_current_user]
+         ) do
       {:ok, updated_user} ->
         status_text = if new_status, do: "activated", else: "deactivated"
 
@@ -445,6 +470,43 @@ defmodule PhoenixKitWeb.Users.UserForm do
 
         {:noreply, socket}
     end
+  end
+
+  defp do_admin_reset_password(socket) do
+    user = socket.assigns.user
+
+    case Auth.deliver_user_reset_password_instructions(
+           user,
+           &Routes.url("/users/reset-password/#{&1}")
+         ) do
+      {:ok, _} ->
+        socket =
+          socket
+          |> put_flash(
+            :info,
+            "Password reset email sent to #{user.email}. The user will receive instructions to reset their password."
+          )
+          |> assign(:show_reset_password_modal, false)
+
+        {:noreply, socket}
+
+      {:error, _reason} ->
+        socket =
+          put_flash(socket, :error, "Failed to send password reset email. Please try again.")
+
+        {:noreply, socket}
+    end
+  end
+
+  # One refusal for every credential action. The template hides these controls,
+  # but a LiveView event is a websocket message the client composes itself, so
+  # hiding is presentation and this is the control.
+  defp deny_credential_action(socket) do
+    put_flash(
+      socket,
+      :error,
+      gettext("You don't have permission to manage this user's credentials")
+    )
   end
 
   defp create_user(socket, user_params) do
@@ -572,6 +634,21 @@ defmodule PhoenixKitWeb.Users.UserForm do
   end
 
   defp update_user_profile(socket, user, profile_params) do
+    # Defence in depth at the write path. The events above already refuse, but
+    # `email` is an ordinary field of this form and owning the address a reset
+    # link is delivered to takes an account just as surely as setting the
+    # password does — so an actor who may not manage this record's credentials
+    # gets both fields dropped here, whatever the params say.
+    profile_params =
+      if socket.assigns.can_manage_credentials do
+        profile_params
+      else
+        # `username` goes with them: it is the second thing
+        # `get_user_by_email_or_username_and_password/3` accepts, so rewriting it
+        # takes away a sign-in route from an account the actor may not manage.
+        Map.drop(profile_params, ["password", "email", "username"])
+      end
+
     password_provided =
       socket.assigns.show_password_field &&
         Map.has_key?(profile_params, "password") &&

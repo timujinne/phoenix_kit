@@ -44,6 +44,7 @@ defmodule PhoenixKit.KnownPackages do
 
   @table :phoenix_kit_known_packages_cache
   @cache_key :cache
+  @status_key :status
   @hex_search_url "https://hex.pm/api/packages"
   @icon_marker_re ~r/\bhex_docs_icon_name:\s*([a-z0-9-]+)/
   @default_icon "hero-puzzle-piece"
@@ -77,11 +78,43 @@ defmodule PhoenixKit.KnownPackages do
     end
   end
 
+  @doc """
+  Whether the last catalog read reached hex.pm.
+
+  `:ok` — fresh data. `{:stale, age_minutes}` — hex.pm was unreachable but
+  cached data is still being served. `:unavailable` — unreachable with nothing
+  usable cached, so `list/1` returned config extras only.
+
+  The UI needs this because "hex.pm is down" and "there are no packages" produce
+  the same empty list, and showing the second when the first is true tells the
+  operator something false.
+  """
+  @spec status() :: :ok | {:stale, non_neg_integer()} | :unavailable
+  def status do
+    case :ets.lookup(@table, @status_key) do
+      [{@status_key, status}] -> status
+      [] -> :ok
+    end
+  rescue
+    ArgumentError -> :ok
+  end
+
+  @doc """
+  The human equivalent of the search this module runs against the Hex API.
+
+  Offered when hex.pm is unreachable: a link stays current because Hex
+  maintains it, where a catalog bundled into core would need a core release to
+  add a package and would drift permanently.
+  """
+  @spec browse_url() :: String.t()
+  def browse_url, do: "https://hex.pm/packages?search=phoenix_kit_&sort=name"
+
   @doc "Clears the in-process cache. Intended for tests."
   @spec clear_cache() :: :ok
   def clear_cache do
     ensure_table()
     :ets.delete(@table, @cache_key)
+    :ets.delete(@table, @status_key)
     :ok
   end
 
@@ -116,6 +149,7 @@ defmodule PhoenixKit.KnownPackages do
       {:ok, hex_list} ->
         merged = merge_extras(hex_list)
         :ets.insert(@table, {@cache_key, now, merged})
+        put_status(:ok)
         merged
 
       {:error, reason} ->
@@ -135,6 +169,7 @@ defmodule PhoenixKit.KnownPackages do
             "serving stale data (age=#{age_minutes}m)"
         )
 
+        put_status({:stale, age_minutes})
         stale
 
       {fetched_at, _stale} ->
@@ -146,6 +181,7 @@ defmodule PhoenixKit.KnownPackages do
         )
 
         :ets.delete(@table, @cache_key)
+        put_status(:unavailable)
         merge_extras([])
 
       nil ->
@@ -154,8 +190,16 @@ defmodule PhoenixKit.KnownPackages do
             "no cached data — returning extras only"
         )
 
+        put_status(:unavailable)
         merge_extras([])
     end
+  end
+
+  defp put_status(status) do
+    :ets.insert(@table, {@status_key, status})
+    :ok
+  rescue
+    ArgumentError -> :ok
   end
 
   # ---------------------------------------------------------------------------

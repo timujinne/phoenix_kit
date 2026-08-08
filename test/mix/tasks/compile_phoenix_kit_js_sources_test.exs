@@ -11,11 +11,33 @@ defmodule Mix.Tasks.Compile.PhoenixKitJsSourcesTest do
   alias Mix.Tasks.Compile.PhoenixKitJsSources, as: Compiler
 
   describe "build_content/1" do
-    test "no specs emits a comment and NO merge line (no Object.assign syntax error)" do
+    test "no specs emits NO merge line (no Object.assign syntax error)" do
       js = Compiler.build_content([])
 
       refute js =~ "Object.assign"
-      assert js =~ "intentionally empty"
+      assert js =~ "No external module declares js_sources/0"
+    end
+
+    test "the install-facts preamble is emitted even with no module bundles" do
+      # It rides in this file because the file is already <script>-tagged in
+      # every host's layout — a separate globals file would need a layout edit
+      # and a `phoenix_kit.update` backfill to reach existing installs.
+      js = Compiler.build_content([])
+
+      assert js =~ "window.PHOENIX_KIT_PREFIX="
+      assert js =~ "window.PHOENIX_KIT_CONSENT_AVAILABLE="
+    end
+
+    test "the preamble is also present alongside module bundles" do
+      dir = tmp_dir!()
+      file = Path.join(dir, "p.js")
+      File.write!(file, "window.PHooks={}")
+      spec = %{app: :p, file: "p.js", global: "PHooks", source: file}
+
+      js = Compiler.build_content([spec])
+
+      assert js =~ "window.PHOENIX_KIT_PREFIX="
+      assert js =~ "Object.assign"
     end
 
     test "wraps each bundle in an IIFE and folds its global into PhoenixKitHooks" do

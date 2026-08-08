@@ -224,8 +224,10 @@
                     </div>
                   </.form>
                 </div>
-                <%!-- Filter by Type --%>
-                <div class="w-full md:w-40">
+                <%!-- Filter by Type. Hidden when the picker is locked to one
+                      type — a control whose only other options are refused
+                      is worse than no control. --%>
+                <div :if={not @lock_file_type} class="w-full md:w-40">
                   <.select
                     name="filter"
                     phx-change="filter_type"
@@ -234,7 +236,8 @@
                     options={[
                       {gettext("All Files"), "all"},
                       {gettext("Images Only"), "image"},
-                      {gettext("Videos Only"), "video"}
+                      {gettext("Videos Only"), "video"},
+                      {gettext("Audio Only"), "audio"}
                     ]}
                     class="select-sm"
                   />

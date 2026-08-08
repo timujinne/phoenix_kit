@@ -189,7 +189,9 @@ defmodule PhoenixKitWeb.UploadController do
   end
 
   defp perform_upload(upload, user_uuid, _file_size, file_checksum) do
-    file_type = determine_file_type(upload.content_type)
+    # `content_type` here is the client-supplied multipart header, so the
+    # filename is passed too — see `Storage.determine_file_type/2`.
+    file_type = Storage.determine_file_type(upload.content_type, upload.filename)
     ext = Path.extname(upload.filename) |> String.replace_leading(".", "")
 
     # Store in buckets with hierarchical path structure
@@ -204,15 +206,6 @@ defmodule PhoenixKitWeb.UploadController do
 
       {:error, reason} ->
         {:error, reason}
-    end
-  end
-
-  defp determine_file_type(mime_type) do
-    cond do
-      String.starts_with?(mime_type, "image/") -> "image"
-      String.starts_with?(mime_type, "video/") -> "video"
-      mime_type == "application/pdf" -> "document"
-      true -> "other"
     end
   end
 

@@ -237,58 +237,74 @@ defmodule PhoenixKit.Users.UserOrgChangesetTest do
   # --- username generation on an EXISTING user ---
 
   describe "registration_changeset/3 — username of a saved user" do
+    # A fresh name per test, because registration is rate limited to 3 attempts
+    # per hour PER EMAIL and this setup runs once per test in the block. With a
+    # shared address the fourth test in the block is refused by the limiter and
+    # the failure lands in setup, reading as "registration is broken" rather
+    # than "the tests shared a bucket". Nothing here depends on the literal
+    # name, only on the username being derived from it.
     setup do
+      base = "maria#{System.unique_integer([:positive])}"
+
       {:ok, user} =
         Auth.register_user(%{
-          email: "maria@example.com",
+          email: "#{base}@example.com",
           password: "ValidPassword123!"
         })
 
-      %{user: user}
+      %{user: user, base: base}
     end
 
-    test "editing a saved user without a username param leaves the username alone", %{user: user} do
+    test "editing a saved user without a username param leaves the username alone", %{
+      user: user,
+      base: base
+    } do
       # The admin user form rebuilds this changeset while editing (toggling the
       # password field, for one) and sends no `username`. Before the fix the
-      # generator ran anyway, found the user's OWN row holding `maria`, decided
-      # the name was taken and renamed them to `maria_1`.
-      assert user.username == "maria"
+      # generator ran anyway, found the user's OWN row holding the name, decided
+      # it was taken and renamed them to `<name>_1`.
+      assert user.username == base
 
       changeset = User.registration_changeset(user, %{"email" => user.email})
 
       assert get_change(changeset, :username) == nil
-      assert get_field(changeset, :username) == "maria"
+      assert get_field(changeset, :username) == base
     end
 
-    test "an explicit username still wins", %{user: user} do
-      changeset = User.registration_changeset(user, %{"username" => "maria_updated"})
-      assert get_change(changeset, :username) == "maria_updated"
+    test "an explicit username still wins", %{user: user, base: base} do
+      # On the SAVED user — this block is about editing one, and the admin form
+      # renaming a user is exactly the path the generator must not overrule.
+      changeset = User.registration_changeset(user, %{"username" => "#{base}_updated"})
+      assert get_change(changeset, :username) == "#{base}_updated"
     end
 
     test "a brand new user still gets one generated from the email" do
+      newcomer = "newcomer#{System.unique_integer([:positive])}"
+
       changeset =
         User.registration_changeset(%User{}, %{
-          "email" => "newcomer@example.com",
+          "email" => "#{newcomer}@example.com",
           "password" => "ValidPassword123!"
         })
 
-      assert get_change(changeset, :username) == "newcomer"
+      assert get_change(changeset, :username) == newcomer
     end
 
     test "a second user with a colliding base name gets a suffix, not the taken name", %{
-      user: user
+      user: user,
+      base: base
     } do
       # The suffix logic itself must keep working — it just must not fire for
       # the holder of the name.
       changeset =
         User.registration_changeset(%User{}, %{
-          "email" => "maria@other.example.com",
+          "email" => "#{base}@other.example.com",
           "password" => "ValidPassword123!"
         })
 
       generated = get_change(changeset, :username)
       assert generated != user.username
-      assert String.starts_with?(generated, "maria")
+      assert String.starts_with?(generated, base)
     end
   end
 end

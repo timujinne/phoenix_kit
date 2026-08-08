@@ -13,9 +13,29 @@ defmodule PhoenixKitWeb.Components.Core.FormActions do
 
   with a single component call.
 
+  ## Cancelling
+
+  There are three ways to render Cancel, and exactly one is used per call —
+  precedence is **`:cancel` slot → `cancel_click` → `cancel_to`**. An explicit
+  order matters here: without it a form supplying two would render two Cancels,
+  or one dead one.
+
+  `cancel_to` was `required: true`, which meant a form inside a LiveComponent —
+  where cancelling is a `phx-click` with a `phx-target`, not a navigation — could
+  not use this component at all and hand-rolled the whole footer.
+
+      <.form_actions cancel_to={~p"/admin/things"} submit_label="Save" />
+      <.form_actions cancel_click="close" cancel_target={@myself} submit_label="Save" />
+
+      <.form_actions submit_label="Save">
+        <:cancel>
+          <button type="button" phx-click={JS.exec("data-cancel", to: "#dialog")}>Discard</button>
+        </:cancel>
+      </.form_actions>
+
   ## Attributes
 
-  - `cancel_to` — Path the Cancel link navigates to. Required.
+  - `cancel_to` — Path the Cancel link navigates to.
   - `submit_label` — Text on the submit button (e.g. `"Save"`, `"Create Endpoint"`).
     Required.
   - `submitting_label` — `phx-disable-with` text shown while the form is
@@ -44,14 +64,28 @@ defmodule PhoenixKitWeb.Components.Core.FormActions do
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
-  attr :cancel_to, :string, required: true
+  attr :cancel_to, :string,
+    default: nil,
+    doc: "Path the Cancel link navigates to. Lowest precedence of the three cancel forms."
+
+  attr :cancel_click, :any,
+    default: nil,
+    doc: "`phx-click` value for Cancel, when cancelling is an event rather than a navigation."
+
+  attr :cancel_target, :any,
+    default: nil,
+    doc: "`phx-target` for `cancel_click` — required to reach a LiveComponent."
+
   attr :submit_label, :string, required: true
   attr :submitting_label, :string, default: nil
   attr :submit_icon, :string, default: nil
   attr :submit_class, :string, default: "btn btn-primary"
   attr :class, :string, default: nil
 
-  slot :inner_block
+  slot :inner_block, doc: "Extra controls rendered BEFORE Cancel + Submit."
+
+  slot :cancel,
+    doc: "Full control over the Cancel control. Highest precedence; suppresses the other two."
 
   def form_actions(assigns) do
     # `attr :submitting_label, default: nil` always assigns nil when the
@@ -63,7 +97,24 @@ defmodule PhoenixKitWeb.Components.Core.FormActions do
     ~H"""
     <div class={["flex justify-end gap-3", @class]}>
       {render_slot(@inner_block)}
-      <.link navigate={@cancel_to} class="btn btn-ghost">
+      <%!-- Exactly one Cancel: slot, then event, then navigation. --%>
+      <span :if={@cancel != []} class="[&>*]:btn [&>*]:btn-ghost">
+        {render_slot(@cancel)}
+      </span>
+      <button
+        :if={@cancel == [] and @cancel_click}
+        type="button"
+        class="btn btn-ghost"
+        phx-click={@cancel_click}
+        phx-target={@cancel_target}
+      >
+        {gettext("Cancel")}
+      </button>
+      <.link
+        :if={@cancel == [] and is_nil(@cancel_click) and @cancel_to}
+        navigate={@cancel_to}
+        class="btn btn-ghost"
+      >
         {gettext("Cancel")}
       </.link>
       <button type="submit" class={@submit_class} phx-disable-with={@submitting_label}>

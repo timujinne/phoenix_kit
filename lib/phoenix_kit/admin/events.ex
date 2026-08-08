@@ -353,6 +353,46 @@ defmodule PhoenixKit.Admin.Events do
     Manager.subscribe(@topic_modules)
   end
 
+  ## Unsubscription Functions
+  #
+  # These three exist because a subscription can outlive the permission that
+  # justified it: `/admin` is the landing page EVERY authenticated visitor can
+  # reach, and an operator sitting on it whose rights are revoked mid-session
+  # must stop receiving the operator feeds without a reload.
+  #
+  # There is no generic escape hatch for a caller to do this itself.
+  # `Phoenix.PubSub.unsubscribe/2` needs the PubSub server name, and PhoenixKit
+  # runs its OWN instance (`PhoenixKit.PubSub.Manager`, `:phoenix_kit_internal_pubsub`)
+  # rather than the host's — the name and the topic strings are both private to
+  # this layer. So the counterpart to a `subscribe_to_*/0` has to live here too.
+  #
+  # Only the three topics the dashboard overview joins are covered; add the
+  # matching pair, not a bare `unsubscribe/1`, if another topic ever needs one.
+
+  @doc """
+  Unsubscribes from session events. Counterpart to `subscribe_to_sessions/0`.
+  """
+  @spec unsubscribe_from_sessions() :: :ok
+  def unsubscribe_from_sessions do
+    Manager.unsubscribe(@topic_sessions)
+  end
+
+  @doc """
+  Unsubscribes from presence events. Counterpart to `subscribe_to_presence/0`.
+  """
+  @spec unsubscribe_from_presence() :: :ok
+  def unsubscribe_from_presence do
+    Manager.unsubscribe(@topic_presence)
+  end
+
+  @doc """
+  Unsubscribes from statistics events. Counterpart to `subscribe_to_stats/0`.
+  """
+  @spec unsubscribe_from_stats() :: :ok
+  def unsubscribe_from_stats do
+    Manager.unsubscribe(@topic_stats)
+  end
+
   @doc """
   Subscribes to all admin events.
   """

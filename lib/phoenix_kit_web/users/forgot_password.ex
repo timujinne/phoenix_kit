@@ -51,6 +51,8 @@ defmodule PhoenixKitWeb.Users.ForgotPassword do
     {:noreply,
      socket
      |> put_flash(:info, info)
-     |> redirect(to: "/")}
+     |> redirect(
+       to: Routes.safe_destination(socket, scope: socket.assigns[:phoenix_kit_current_scope])
+     )}
   end
 end

@@ -1,7 +1,7 @@
 defmodule PhoenixKit.MixProject do
   use Mix.Project
 
-  @version "1.7.224"
+  @version "1.7.235"
   @description "A foundation for building Elixir Phoenix apps — SaaS, social networks, ERP systems, marketplaces, and more"
   @source_url "https://github.com/BeamLabEU/phoenix_kit"
 
@@ -132,8 +132,16 @@ defmodule PhoenixKit.MixProject do
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
 
-      # Content editor
-      {:leaf, "~> 0.3"},
+      # Content editor. Core declares it for the whole tree — phoenix_kit_comments
+      # renders the composer but inherits the dep from here, so this requirement
+      # governs every host.
+      #
+      # NOT `~> 0.3`: that spanned 0.3 → 0.9, and for a 0.x package where each
+      # minor is effectively a major it claimed a support window core cannot
+      # back. It also let a resolver reach for leaf 0.5 while phoenix_kit_publishing
+      # still excluded it, which silently stranded that package a release behind
+      # rather than reporting a conflict.
+      {:leaf, "~> 0.4.1 or ~> 0.5"},
 
       # Markdown → HTML (comrak). Declared here in core so every module shares
       # one resolved version instead of each pulling its own and risking
@@ -219,10 +227,22 @@ defmodule PhoenixKit.MixProject do
       # HTTP client for payment providers
       {:req, "~> 0.5"},
 
-      # Code generation and project patching
-      # Note: Available in all environments for library code, but typically
-      # only needed in :dev when used as a dependency in parent projects
-      {:igniter, "~> 0.7"},
+      # Code generation and project patching — powers `mix phoenix_kit.install`
+      # and `mix phoenix_kit.update`.
+      #
+      # MUST stay `optional: true`. A stock `mix phx.new` app declares
+      # `{:igniter, "~> 0.6", only: [:dev, :test]}`; a non-optional dep here
+      # resolves to all environments, and Mix refuses to converge the two:
+      #
+      #     Dependencies have diverged:
+      #     * igniter (Hex package) — the :only option for dependency igniter
+      #
+      # which made `mix igniter.install phoenix_kit` fail on every freshly
+      # generated Phoenix project. Optional means the host's own declaration
+      # wins. Every task that needs igniter is already wrapped in
+      # `if Code.ensure_loaded?(Igniter.Mix.Task)`, so a host without it simply
+      # doesn't get those tasks rather than failing to compile.
+      {:igniter, "~> 0.7", optional: true},
 
       # Language and country data
       {:beamlab_countries, "~> 1.0"}
@@ -290,6 +310,14 @@ defmodule PhoenixKit.MixProject do
       # Code quality
       quality: ["format", "credo --strict", "dialyzer"],
       "quality.ci": ["format --check-formatted", "credo --strict", "dialyzer"],
+      # NOTE: `mix test` is deliberately NOT here — see AGENTS.md "CI/CD".
+      # Adding it was tried and reverted: the suite is not
+      # green from a clean checkout (Settings reads hit the DB on a cache
+      # miss, so ~5 "unit" tests fail with no database at all; with one,
+      # unbounded concurrency exhausts the pool). A gate that is always red
+      # gets ignored, which is worse than an honest gap. Run the suite
+      # explicitly — `mix test` — and see AGENTS.md for pointing it at a
+      # database you already have.
       precommit: [
         "compile --warnings-as-errors --all-warnings",
         "deps.unlock --check-unused",
@@ -304,7 +332,8 @@ defmodule PhoenixKit.MixProject do
 
       # Release gate — run before `mix hex.publish`. Catches release-metadata
       # drift and packaging mistakes that precommit/quality.ci structurally
-      # cannot. Deliberately DB-free (no `mix test` here — CI owns that).
+      # cannot. Deliberately DB-free — running `mix test` is a separate
+      # manual step, see AGENTS.md "CI/CD".
       prerelease: [
         "deps.get --check-locked",
         "deps.unlock --check-unused",

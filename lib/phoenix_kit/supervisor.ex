@@ -49,9 +49,22 @@ defmodule PhoenixKit.Supervisor do
       PhoenixKit.ModuleRegistry,
       # Settings cache starts BEFORE Dashboard.Registry so enabled?/0 calls hit the cache
       # instead of making individual DB queries per module at startup.
+      # `ttl:` bounds how long a setting written OUTSIDE this node stays invisible
+      # — a `mix run` script, a second web node without distributed Erlang, a
+      # console. Cache invalidation is in-process, so without it those writes were
+      # never seen until a restart. Five minutes: settings are admin-rare writes,
+      # so this bounds staleness without meaningfully increasing database load.
+      #
+      # ⚠️ This is only safe because `get_settings_cached/2` fills on miss. It did
+      # not, and with no TTL nothing ever expired to expose that — the first
+      # expiry wave would have left OAuth credentials and date formats reading
+      # `nil` site-wide.
       Supervisor.child_spec(
         {PhoenixKit.Cache,
-         name: :settings, sync_init: true, warmer: &PhoenixKit.Settings.warm_cache_data/0},
+         name: :settings,
+         sync_init: true,
+         ttl: :timer.minutes(5),
+         warmer: &PhoenixKit.Settings.warm_cache_data/0},
         id: :settings_cache
       ),
       # Dashboard tab registry for user dashboard navigation.

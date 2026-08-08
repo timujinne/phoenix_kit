@@ -10,8 +10,10 @@ defmodule PhoenixKitWeb.Components.AdminNav do
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.OAuthAvailability
+  alias PhoenixKit.Users.Role
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Components.Core.LanguageSwitcher
+  alias PhoenixKitWeb.Users.MultiSession
 
   import PhoenixKitWeb.Components.Core.Icon
   import PhoenixKitWeb.Components.Core.ThemeController, only: [theme_controller: 1]
@@ -241,15 +243,7 @@ defmodule PhoenixKitWeb.Components.AdminNav do
                 {PhoenixKit.Users.Auth.Scope.user_email(@scope)}
               </span>
               <div>
-                <%= if PhoenixKit.Users.Auth.Scope.owner?(@scope) do %>
-                  <div class="badge badge-error badge-xs">Owner</div>
-                <% else %>
-                  <%= if PhoenixKit.Users.Auth.Scope.can_access_admin_area?(@scope) do %>
-                    <div class="badge badge-warning badge-xs">Admin</div>
-                  <% else %>
-                    <div class="badge badge-ghost badge-xs">User</div>
-                  <% end %>
-                <% end %>
+                <.current_role_badge scope={@scope} />
               </div>
             </div>
           </li>
@@ -495,15 +489,7 @@ defmodule PhoenixKitWeb.Components.AdminNav do
             <div class="truncate text-xs font-medium text-base-content">
               {PhoenixKit.Users.Auth.Scope.user_email(@scope)}
             </div>
-            <%= if PhoenixKit.Users.Auth.Scope.owner?(@scope) do %>
-              <div class="badge badge-error badge-xs">Owner</div>
-            <% else %>
-              <%= if PhoenixKit.Users.Auth.Scope.can_access_admin_area?(@scope) do %>
-                <div class="badge badge-warning badge-xs">Admin</div>
-              <% else %>
-                <div class="badge badge-ghost badge-xs">User</div>
-              <% end %>
-            <% end %>
+            <.current_role_badge scope={@scope} />
           </div>
         </div>
 
@@ -722,7 +708,44 @@ defmodule PhoenixKitWeb.Components.AdminNav do
     build_locale_url(current_path, base_code)
   end
 
+  # Badge naming the role of the account that is *currently active* — which,
+  # after an account switch, is not the account that opened the stack.
+  #
+  # Shares `MultiSession.role_label/1` with the account list below it so the
+  # two can never disagree. The header badge used to derive its own label from
+  # `Scope.can_access_admin_area?/1`, but that gate is true for Owner, Admin
+  # *or any single permission holder* — so a Client, who holds `client_portal`,
+  # was labelled "Admin", and custom roles were flattened into the same bucket.
+  attr :scope, :map, required: true
+
+  defp current_role_badge(assigns) do
+    system = Role.system_roles()
+
+    # Read the names the scope already loaded rather than re-querying: this
+    # renders on every admin page, twice. `cached_roles` is nil only for a
+    # scope built without a user, which the caller has already excluded.
+    label =
+      case assigns.scope do
+        %{cached_roles: [_ | _] = roles} -> MultiSession.role_label_from_roles(roles)
+        _ -> system.user
+      end
+
+    variant =
+      cond do
+        label == system.owner -> "badge-error"
+        label == system.admin -> "badge-warning"
+        true -> "badge-ghost"
+      end
+
+    assigns = assigns |> assign(:label, label) |> assign(:variant, variant)
+
+    ~H"""
+    <div class={["badge badge-xs", @variant]}>{@label}</div>
+    """
+  end
+
   # OAuth buttons for the "Add account" modal.
+  #
   # Uses the same provider availability checks as the main login page —
   # a provider button only appears when it is enabled in General Settings.
   # Each link targets /users/auth/:provider with add_account=1 so the OAuth

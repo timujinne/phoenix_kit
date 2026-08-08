@@ -63,6 +63,7 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Settings do
       |> assign(:publishing_split_by_group, Sitemap.publishing_split_by_group?())
       |> assign(:module_enabled, get_module_enabled_status())
       |> assign(:exclude_patterns_text, exclude_patterns_text())
+      |> assign(:exclude_patterns_defaults_text, exclude_patterns_defaults_text())
       |> assign(:exclude_patterns_error, nil)
       |> assign(:protected_pipelines_text, protected_pipelines_text())
       |> assign(:protected_pipelines_defaults_text, protected_pipelines_defaults_text())
@@ -679,12 +680,17 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Settings do
     end
   end
 
+  # Only the host's OWN patterns. The built-in defaults are shown separately
+  # and always apply, so prefilling the box with them would have the operator
+  # saving a verbatim copy of a list core is supposed to keep updating.
   def exclude_patterns_text do
-    decoded_setting(
-      "sitemap_router_discovery_exclude_patterns",
-      RouterDiscovery.default_exclude_patterns()
-    )
+    decoded_setting("sitemap_router_discovery_exclude_patterns", [])
     |> Enum.join("\n")
+  end
+
+  def exclude_patterns_defaults_text do
+    RouterDiscovery.default_exclude_patterns()
+    |> Enum.join(", ")
   end
 
   def protected_pipelines_text do

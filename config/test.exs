@@ -6,13 +6,42 @@ import Config
 # Configure test database - embedded test repo for library-level integration tests
 config :phoenix_kit, ecto_repos: [PhoenixKit.Test.Repo]
 
+# `PGDATABASE`/`PGPOOL` let you point the suite at a database you already have
+# instead of one this role is allowed to CREATE — without them the only way to
+# run the integration half is a Postgres account with CREATEDB, which is
+# exactly what a shared or managed instance withholds. Defaults are unchanged,
+# so `mix test` against a local Postgres behaves as before.
+#
+# Read through these two helpers rather than `System.get_env/2`, which falls
+# back only when the variable is UNSET: a set-but-empty `PGPOOL=` (trivial to
+# produce from a shell, or from `PGPOOL:` with no value in YAML) yields "" and
+# would abort config loading with an ArgumentError that never names the
+# variable.
+pg_test_db =
+  case System.get_env("PGDATABASE") do
+    value when is_binary(value) and value != "" -> String.trim(value)
+    _ -> "phoenix_kit_test#{System.get_env("MIX_TEST_PARTITION")}"
+  end
+
+pg_test_pool =
+  case System.get_env("PGPOOL") do
+    value when is_binary(value) and value != "" ->
+      case Integer.parse(String.trim(value)) do
+        {size, ""} when size > 0 -> size
+        _ -> raise "PGPOOL must be a positive integer, got: #{inspect(value)}"
+      end
+
+    _ ->
+      System.schedulers_online() * 2
+  end
+
 config :phoenix_kit, PhoenixKit.Test.Repo,
   username: System.get_env("PGUSER", "postgres"),
   password: System.get_env("PGPASSWORD", "postgres"),
   hostname: System.get_env("PGHOST", "localhost"),
-  database: "phoenix_kit_test#{System.get_env("MIX_TEST_PARTITION")}",
+  database: pg_test_db,
   pool: Ecto.Adapters.SQL.Sandbox,
-  pool_size: System.schedulers_online() * 2,
+  pool_size: pg_test_pool,
   priv: "test/support/postgres"
 
 # Wire repo for library code that calls PhoenixKit.Config.get(:repo)

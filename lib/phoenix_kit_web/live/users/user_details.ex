@@ -28,9 +28,10 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
   alias PhoenixKit.Users.Roles
   alias PhoenixKit.Utils.Date, as: UtilsDate
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitWeb.Users.MultiSession
 
   @impl true
-  def mount(%{"id" => user_uuid}, _session, socket) do
+  def mount(%{"id" => user_uuid}, session, socket) do
     project_title = Settings.get_project_title()
 
     user = Auth.get_user_with_roles(user_uuid)
@@ -62,6 +63,10 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
           else
             {false, nil}
           end
+
+        # Root account of this session — who a "sign in as this user" would be
+        # judged against. A User struct, so no session token enters the socket.
+        impersonation_actor = MultiSession.impersonation_actor(session)
 
         crm_contact = load_crm_contact(socket, user)
 
@@ -111,6 +116,7 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
           |> assign(:connections_enabled, connections_enabled)
           |> assign(:connections_stats, connections_stats)
           |> assign(:crm_contact, crm_contact)
+          |> assign(:impersonation_actor, impersonation_actor)
           |> assign(:admin_notes, admin_notes)
           |> assign(:note_form, to_form(Auth.change_admin_note(%AdminNote{})))
           |> assign(:editing_note_uuid, nil)
@@ -280,6 +286,14 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
          socket
          |> assign(:show_delete_modal, false)
          |> put_flash(:error, gettext("Cannot delete the last system owner"))}
+
+      # The rank refusals from `validate_admin_authority_over/2`.
+      {:error, reason}
+      when reason in [:insufficient_permissions, :target_is_owner, :target_is_staff] ->
+        {:noreply,
+         socket
+         |> assign(:show_delete_modal, false)
+         |> put_flash(:error, gettext("You don't have permission to delete this user"))}
 
       {:error, _reason} ->
         {:noreply,
@@ -478,7 +492,17 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
     user = socket.assigns.user
     new_status = !user.is_active
 
-    case Auth.update_user_status(user, %{"is_active" => new_status}) do
+    case Auth.update_user_status(user, %{"is_active" => new_status},
+           actor: socket.assigns.phoenix_kit_current_user
+         ) do
+      {:error, :insufficient_permissions} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("You don't have permission to change this user's status")
+         )}
+
       {:ok, updated_user} ->
         status_text = if new_status, do: "activated", else: "deactivated"
         admin = socket.assigns.phoenix_kit_current_user
@@ -516,7 +540,15 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
     user = socket.assigns.user
     admin = socket.assigns.phoenix_kit_current_user
 
-    case Auth.toggle_user_confirmation(user) do
+    case Auth.toggle_user_confirmation(user, actor: admin) do
+      {:error, :insufficient_permissions} ->
+        {:noreply,
+         put_flash(
+           socket,
+           :error,
+           gettext("You don't have permission to change this user's confirmation")
+         )}
+
       {:ok, updated_user} ->
         action =
           if updated_user.confirmed_at,

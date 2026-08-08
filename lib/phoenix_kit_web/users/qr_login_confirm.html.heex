@@ -1,23 +1,20 @@
-<PhoenixKitWeb.Components.LayoutWrapper.app_layout
-  socket={@socket}
+<%!-- This is an auth page, so it renders through AuthPageWrapper like the other
+     ten. It used to call LayoutWrapper.app_layout directly, which made it the
+     one page that would have kept the host's chrome after auth stopped
+     rendering inside it — the exact "miss one and it silently behaves
+     differently" hazard that using the component rather than a route list is
+     meant to remove. --%>
+<PhoenixKitWeb.Components.AuthPageWrapper.auth_page_wrapper
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
   page_title={@page_title}
   current_path={assigns[:url_path]}
-  project_title={@project_title}
-  current_locale={assigns[:current_locale]}
 >
-  <div class="container mx-auto px-4 py-10 flex justify-center">
-    <div class="card bg-base-100 shadow-xl w-full max-w-md">
-      <div class="card-body">
-        <Keyfob.Components.confirm_screen
-          meta={@meta}
-          state={@kf_state}
-          approve_event="keyfob_approve"
-          deny_event="keyfob_deny"
-          labels={confirm_labels()}
-        />
-      </div>
-    </div>
-  </div>
-</PhoenixKitWeb.Components.LayoutWrapper.app_layout>
+  <Keyfob.Components.confirm_screen
+    meta={@meta}
+    state={@kf_state}
+    approve_event="keyfob_approve"
+    deny_event="keyfob_deny"
+    labels={confirm_labels()}
+  />
+</PhoenixKitWeb.Components.AuthPageWrapper.auth_page_wrapper>

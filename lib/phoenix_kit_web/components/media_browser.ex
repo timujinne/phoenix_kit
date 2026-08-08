@@ -44,6 +44,27 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         phoenix_kit_current_user={@phoenix_kit_current_user}
       />
 
+  ## Picking into a typed slot
+
+  `only_file_type` restricts the browser to one kind for its whole lifetime —
+  the listing is filtered to it, the type-filter control is hidden, and an
+  off-type upload is refused, so the other kinds are simply not reachable:
+
+      <.live_component
+        module={PhoenixKitWeb.Components.MediaBrowser}
+        id="audio-picker"
+        select_mode
+        only_file_type="audio"
+        phoenix_kit_current_user={@phoenix_kit_current_user}
+      />
+
+  Use it wherever the selection fills a typed field. Offering everything and
+  validating afterwards works, but it lets someone choose a PNG for an audio
+  slot and only find out on the rejection — and if a consumer forgets that
+  re-check, the PNG lands in the field and renders as a dead `<audio>`.
+
+  Values: `image`, `video`, `document`, `audio`, `archive`, `other`.
+
   ## Usage (controlled — URL-sync driven by parent)
 
       <.live_component
@@ -125,6 +146,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> assign(assigns)
       |> assign_new(:scope_folder_id, fn -> nil end)
       |> assign_new(:admin, fn -> false end)
+      # Restricts the browser to ONE file type for its whole lifetime: the
+      # listing is filtered to it, the type-filter control is hidden, and an
+      # off-type upload is refused, so there is no way to reach the other
+      # kinds — including by uploading one. For pickers that fill a
+      # typed slot — an audio field, an image field — where offering
+      # everything means the only thing standing between a PNG and an
+      # <audio> tag is the consumer remembering to re-check afterwards.
+      # nil (default) leaves the toolbar in charge, starting at "all".
+      |> assign_new(:only_file_type, fn -> nil end)
       |> assign_new(:viewer_file, fn -> nil end)
       # The list the open viewer's prev/next steps through — the page's
       # files, or an expanded stack's own (see `locate_file/2`).
@@ -187,6 +217,31 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # committed from commit_upload_batch/1 once the batch debounce window closes,
   # so dropping N files produces one page reload instead of N.
   defp process_pending_upload(socket, {path, entry}) do
+    if off_type_upload?(socket, entry) do
+      # A locked browser filters its listing, so an off-type file would be
+      # stored and then be invisible in the very browser that accepted it —
+      # "I uploaded it and it vanished". The parent's `accept: :any` is shared
+      # by every browser on the page and can't express the lock, so the refusal
+      # belongs here, where the component's own assigns are in scope.
+      File.rm(path)
+      put_flash(socket, :error, off_type_upload_error(socket.assigns.only_file_type))
+    else
+      buffer_pending_upload(socket, path, entry)
+    end
+  end
+
+  defp off_type_upload?(%{assigns: %{only_file_type: type}}, entry) when is_binary(type) do
+    Storage.determine_file_type(entry.client_type, entry.client_name) != type
+  end
+
+  defp off_type_upload?(_socket, _entry), do: false
+
+  defp off_type_upload_error("image"), do: gettext("Only image files can be added here.")
+  defp off_type_upload_error("video"), do: gettext("Only video files can be added here.")
+  defp off_type_upload_error("audio"), do: gettext("Only audio files can be added here.")
+  defp off_type_upload_error(_), do: gettext("Only the allowed file types can be added here.")
+
+  defp buffer_pending_upload(socket, path, entry) do
     result = process_single_upload(socket, path, entry)
     File.rm(path)
 
@@ -566,7 +621,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     |> assign(:view_mode, load_user_view_mode(socket.assigns[:phoenix_kit_current_user]))
     # Toolbar sort + file-type filter (socket state, applied to the listing).
     |> assign(:sort_by, "newest")
-    |> assign(:file_type_filter, "all")
+    # `only_file_type` locks this to one kind for the whole session — see the
+    # attr docs on update/2. Absent, the toolbar owns it and starts at "all".
+    |> assign(:file_type_filter, socket.assigns[:only_file_type] || "all")
     |> assign(:search_query, "")
     |> assign(:select_mode, false)
     |> assign(:selected_files, MapSet.new())
@@ -1256,11 +1313,19 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   def handle_event("set_file_filter", %{"type" => type}, socket)
       when type in @valid_file_types do
-    {:noreply,
-     socket
-     |> assign(:file_type_filter, type)
-     |> assign(:current_page, 1)
-     |> reload_current_page()}
+    # A locked browser hides this control, but the event is still reachable
+    # from a console — and the whole point of the lock is that the consumer
+    # can trust what comes back, so honour it on the server rather than in
+    # the markup alone.
+    if socket.assigns[:only_file_type] do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> assign(:file_type_filter, type)
+       |> assign(:current_page, 1)
+       |> reload_current_page()}
+    end
   end
 
   # Ignore an out-of-whitelist file-type filter instead of crashing.
@@ -2952,7 +3017,11 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     fresh = Auth.get_user(uuid) || user
     merged = Map.put(fresh.custom_fields || %{}, @media_view_mode_key, mode)
 
-    case Auth.update_user_custom_fields(fresh, merged) do
+    # Internal view preference — skip the custom-field-definition registration
+    # so it never surfaces in the admin Custom Fields list or the users-table
+    # column customizer. Mirrors the users/activity list views. Reads go
+    # through `Auth.get_user_field/2`, which never consults definitions.
+    case Auth.update_user_custom_fields(fresh, merged, ensure_definitions: false) do
       {:ok, updated} -> updated
       {:error, _} -> user
     end
@@ -2997,7 +3066,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
           )
           |> Map.put(@media_sidebar_collapsed_key, socket.assigns.sidebar_collapsed)
 
-        case Auth.update_user_custom_fields(fresh, merged) do
+        # Internal sidebar state — not an admin-managed custom field.
+        case Auth.update_user_custom_fields(fresh, merged, ensure_definitions: false) do
           {:ok, updated} -> assign(socket, :phoenix_kit_current_user, updated)
           {:error, _} -> socket
         end
@@ -3147,7 +3217,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp process_single_upload(socket, path, entry) do
     ext = Path.extname(entry.client_name) |> String.replace_leading(".", "")
     mime_type = entry.client_type || MIME.from_path(entry.client_name)
-    file_type = determine_file_type(mime_type)
+    # One classifier for every upload path (see `Storage.determine_file_type/2`) —
+    # the local copy that used to live here had no audio clause, so an mp3 was
+    # stored as a document and then hidden by the audio filter.
+    file_type = Storage.determine_file_type(mime_type, entry.client_name)
     current_user = socket.assigns[:phoenix_kit_current_user]
     user_uuid = if current_user, do: current_user.uuid, else: nil
     {:ok, stat} = Elixir.File.stat(path)
@@ -3365,18 +3438,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # Tessera layer no longer attaches. Restore once a Fresco 0.5-compatible
   # Tessera (or replacement) ships and `<Tessera.layer>` is wired back
   # into the file-zoom heex.
-
-  defp determine_file_type(mime_type) do
-    cond do
-      String.starts_with?(mime_type, "image/") -> "image"
-      String.starts_with?(mime_type, "video/") -> "video"
-      # PDFs fall under "document" because the File schema's allowlist is
-      # ["image", "video", "audio", "document", "archive", "other"] — returning
-      # "pdf" here made every PDF upload fail the changeset validation silently.
-      mime_type == "application/pdf" -> "document"
-      true -> "document"
-    end
-  end
 
   # Build a "Folder1 / Folder2 / ..." path string from a folder uuid.
   # Returns nil at root so callers can render a `/` placeholder. Shared

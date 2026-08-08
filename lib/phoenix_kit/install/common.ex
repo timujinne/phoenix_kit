@@ -10,6 +10,12 @@ defmodule PhoenixKit.Install.Common do
   - Registering PhoenixKit's Mix compilers in a host's `mix.exs`
   """
 
+  # Igniter is optional (see mix.exs) and this module cannot be guarded away
+  # like the `PhoenixKit.Install.*` helpers — `mix phoenix_kit.status` and
+  # friends call its non-igniter half. The shim silences the undefined-module
+  # warnings for the igniter-only functions on a build without igniter.
+  use PhoenixKit.Install.IgniterCompat
+
   alias PhoenixKit.Config
   alias PhoenixKit.Migrations.Postgres
   alias PhoenixKit.Migrations.Postgres.Helpers
@@ -320,21 +326,45 @@ defmodule PhoenixKit.Install.Common do
   ## Returns
   String describing the changes between versions.
   """
+  def describe_version_changes(from_version, to_version) when from_version >= to_version do
+    "- No changes (already up to date)"
+  end
+
   def describe_version_changes(from_version, to_version) do
-    case {from_version, to_version} do
-      {1, 3} ->
-        "- Remove is_active column from role assignments (simplified role system)\n" <>
-          "- Add settings table with user preferences support"
-
-      {2, 3} ->
-        "- Add settings table with user preferences support"
-
-      {_, _} when from_version < to_version ->
-        "- Various improvements and new features"
-
-      {_, _} ->
-        "- No changes (already up to date)"
+    case version_headings(from_version, to_version) do
+      [] -> "- Various improvements and new features"
+      headings -> Enum.map_join(headings, "\n", &"- #{&1}")
     end
+  end
+
+  # The per-version headings from `PhoenixKit.Migrations.Postgres`'s moduledoc —
+  # `### V160 - Settings value widened to TEXT` and friends.
+  #
+  # This used to answer "Various improvements and new features", which tells a
+  # host nothing about whether to upgrade now or next sprint. The headings are
+  # already written for every version and are the authoritative account of what
+  # a migration does, so reading them costs nothing to maintain and cannot drift
+  # from the versions `--status` reports (they are the same V-numbers).
+  #
+  # Falls back to the generic line when docs are unavailable — a release built
+  # with `strip_beams` has none, and this is a diagnostic, not a contract.
+  defp version_headings(from_version, to_version) do
+    case Code.fetch_docs(Postgres) do
+      {:docs_v1, _, _, _, %{"en" => moduledoc}, _, _} ->
+        ~r/^###\s+V(\d+)\s+-\s+(.+)$/m
+        |> Regex.scan(moduledoc)
+        |> Enum.map(fn [_, version, title] -> {String.to_integer(version), title} end)
+        |> Enum.filter(fn {version, _} -> version > from_version and version <= to_version end)
+        |> Enum.sort()
+        |> Enum.map(fn {version, title} ->
+          "V#{version}: #{title |> String.replace(~r/\s*⚡ LATEST\s*$/, "") |> String.trim()}"
+        end)
+
+      _ ->
+        []
+    end
+  rescue
+    _ -> []
   end
 
   @doc """

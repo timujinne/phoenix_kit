@@ -332,7 +332,7 @@
         <div>
           <span class="text-base-content/60">{gettext("Uploaded:")}</span>
           <span class="ml-1">
-            {Calendar.strftime(f.inserted_at, "%b %d, %Y at %H:%M")}
+            {PhoenixKit.Utils.Date.format_short_datetime(f.inserted_at)}
           </span>
         </div>
       </div>

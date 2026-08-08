@@ -142,6 +142,7 @@ defmodule PhoenixKit.Dashboard.Tab do
           parent: atom() | nil,
           level: level(),
           permission: String.t() | nil,
+          personal: boolean(),
           auto_grant_admin: boolean(),
           live_view: {module(), atom()} | nil,
           dynamic_children: dynamic_children_fn(),
@@ -186,6 +187,7 @@ defmodule PhoenixKit.Dashboard.Tab do
     :gettext_backend,
     priority: 500,
     level: :user,
+    personal: false,
     auto_grant_admin: true,
     subtab_display: :when_active,
     redirect_to_first_subtab: false,
@@ -219,6 +221,12 @@ defmodule PhoenixKit.Dashboard.Tab do
   - `:highlight_with_subtabs` - Highlight parent when subtab is active (default: false)
   - `:match` - Path matching strategy: :exact, :prefix, :regex, or function (default: :prefix)
   - `:visible` - Boolean or function(scope) -> boolean for non-permission conditional visibility, e.g. feature flags (default: true). For access control, use `:permission` instead.
+  - `:personal` - Set true for a tab whose page shows the viewer their OWN data
+    (their inbox, their preferences) rather than granting an administrative
+    capability. Such a tab needs no `:permission`, and marking it says so
+    deliberately instead of looking like an omission — `ModuleRegistry` warns
+    about permission-less tabs precisely because forgetting one is the common
+    mistake. Reaching admin chrome at all is still gated.
   - `:badge` - Badge struct or map for displaying indicators (optional)
   - `:tooltip` - Hover text for the tab (optional)
   - `:external` - Whether this links to an external site (default: false)
@@ -257,6 +265,7 @@ defmodule PhoenixKit.Dashboard.Tab do
       parent: get_attr(attrs, :parent),
       level: parse_level(get_attr(attrs, :level)),
       permission: get_attr(attrs, :permission),
+      personal: get_attr(attrs, :personal) || false,
       auto_grant_admin:
         if(is_nil(get_attr(attrs, :auto_grant_admin)),
           do: true,
@@ -380,6 +389,7 @@ defmodule PhoenixKit.Dashboard.Tab do
       priority: opts[:priority] || 500,
       group: opts[:group],
       match: :exact,
+      personal: opts[:personal] || false,
       visible: if(is_nil(opts[:visible]), do: true, else: opts[:visible]),
       metadata: %{type: :divider},
       gettext_backend: opts[:gettext_backend],

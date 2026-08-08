@@ -199,7 +199,7 @@
             <%= if @org_accounts_enabled do %>
               <% account_type_options = [
                 {"all", gettext("All Types")},
-                {"person", gettext("Person")},
+                {"person", gettext("Personal")},
                 {"organization", gettext("Organization")}
               ] %>
               <% account_type_label =
@@ -587,6 +587,21 @@
                               label={gettext("Edit")}
                               variant="secondary"
                             />
+                            <%!-- Sign in as this user. Shown only where it would
+                                 be allowed; the POST re-decides server-side. --%>
+                            <.table_row_menu_link
+                              :if={user.uuid in @impersonable_uuids}
+                              href={
+                                PhoenixKit.Utils.Routes.path(
+                                  "/users/session/impersonate/#{user.uuid}"
+                                )
+                              }
+                              method="post"
+                              data-confirm={gettext("Sign in as %{email}?", email: user.email)}
+                              icon="hero-arrow-right-end-on-rectangle"
+                              label={gettext("Sign in as user")}
+                              variant="warning"
+                            />
                             <%!-- Role Management --%>
                             <%= if user.uuid != @phoenix_kit_current_user.uuid do %>
                               <.table_row_menu_button
@@ -609,39 +624,46 @@
                             <%!-- Non-owner actions: confirmation, status, delete --%>
                             <%= if user.uuid != @phoenix_kit_current_user.uuid && get_primary_role_name_unsafe(user) != "Owner" do %>
                               <.table_row_menu_divider />
-                              <.table_row_menu_button
-                                phx-click="request_confirmation_toggle"
-                                phx-value-user_uuid={user.uuid}
-                                phx-value-is_confirmed={to_string(!!user.confirmed_at)}
-                                icon={
-                                  if user.confirmed_at,
-                                    do: "hero-envelope-open",
-                                    else: "hero-envelope"
-                                }
-                                label={
-                                  if user.confirmed_at,
-                                    do: gettext("Unconfirm Email"),
-                                    else: gettext("Confirm Email")
-                                }
-                                variant={if user.confirmed_at, do: "success", else: "warning"}
-                              />
-                              <.table_row_menu_button
-                                phx-click="request_status_toggle"
-                                phx-value-user_uuid={user.uuid}
-                                phx-value-is_active={to_string(user.is_active)}
-                                icon={
-                                  if user.is_active,
-                                    do: "hero-check-circle",
-                                    else: "hero-x-circle"
-                                }
-                                label={
-                                  if user.is_active,
-                                    do: gettext("Deactivate"),
-                                    else: gettext("Activate")
-                                }
-                                variant={if user.is_active, do: "success", else: "warning"}
-                              />
-                              <%= if Auth.can_delete_user?(user, @phoenix_kit_current_user) do %>
+                              <%!-- Confirmation answers to the same rank rule as
+                                    status: `toggle_user_confirmation/2` refuses
+                                    an out-of-rank target, and unconfirming locks
+                                    the account out of every gate that honours
+                                    `require_email_confirmation`. --%>
+                              <%= if Auth.can_manage_user_status?(user, @actor_with_roles) do %>
+                                <.table_row_menu_button
+                                  phx-click="request_confirmation_toggle"
+                                  phx-value-user_uuid={user.uuid}
+                                  phx-value-is_confirmed={to_string(!!user.confirmed_at)}
+                                  icon={
+                                    if user.confirmed_at,
+                                      do: "hero-envelope-open",
+                                      else: "hero-envelope"
+                                  }
+                                  label={
+                                    if user.confirmed_at,
+                                      do: gettext("Unconfirm Email"),
+                                      else: gettext("Confirm Email")
+                                  }
+                                  variant={if user.confirmed_at, do: "success", else: "warning"}
+                                />
+                                <.table_row_menu_button
+                                  phx-click="request_status_toggle"
+                                  phx-value-user_uuid={user.uuid}
+                                  phx-value-is_active={to_string(user.is_active)}
+                                  icon={
+                                    if user.is_active,
+                                      do: "hero-check-circle",
+                                      else: "hero-x-circle"
+                                  }
+                                  label={
+                                    if user.is_active,
+                                      do: gettext("Deactivate"),
+                                      else: gettext("Activate")
+                                  }
+                                  variant={if user.is_active, do: "success", else: "warning"}
+                                />
+                              <% end %>
+                              <%= if Auth.can_delete_user?(user, @actor_with_roles) do %>
                                 <.table_row_menu_divider />
                                 <.table_row_menu_button
                                   phx-click="request_delete_user"
@@ -689,6 +711,15 @@
               label={gettext("Edit")}
               variant="secondary"
             />
+            <.table_row_menu_link
+              :if={user.uuid in @impersonable_uuids}
+              href={PhoenixKit.Utils.Routes.path("/users/session/impersonate/#{user.uuid}")}
+              method="post"
+              data-confirm={gettext("Sign in as %{email}?", email: user.email)}
+              icon="hero-arrow-right-end-on-rectangle"
+              label={gettext("Sign in as user")}
+              variant="warning"
+            />
             <%= if user.uuid != @phoenix_kit_current_user.uuid do %>
               <.table_row_menu_button
                 phx-click="show_role_management"
@@ -708,27 +739,32 @@
             <% end %>
             <%= if user.uuid != @phoenix_kit_current_user.uuid && get_primary_role_name_unsafe(user) != "Owner" do %>
               <.table_row_menu_divider />
-              <.table_row_menu_button
-                phx-click="request_confirmation_toggle"
-                phx-value-user_uuid={user.uuid}
-                phx-value-is_confirmed={to_string(!!user.confirmed_at)}
-                icon={if user.confirmed_at, do: "hero-envelope-open", else: "hero-envelope"}
-                label={
-                  if user.confirmed_at,
-                    do: gettext("Unconfirm Email"),
-                    else: gettext("Confirm Email")
-                }
-                variant={if user.confirmed_at, do: "success", else: "warning"}
-              />
-              <.table_row_menu_button
-                phx-click="request_status_toggle"
-                phx-value-user_uuid={user.uuid}
-                phx-value-is_active={to_string(user.is_active)}
-                icon={if user.is_active, do: "hero-check-circle", else: "hero-x-circle"}
-                label={if user.is_active, do: gettext("Deactivate"), else: gettext("Activate")}
-                variant={if user.is_active, do: "success", else: "warning"}
-              />
-              <%= if Auth.can_delete_user?(user, @phoenix_kit_current_user) do %>
+              <%!-- Same rank rule the context enforces, so the menu cannot offer
+                    an action the request would refuse — for the confirmation
+                    switch as much as for the status one. --%>
+              <%= if Auth.can_manage_user_status?(user, @actor_with_roles) do %>
+                <.table_row_menu_button
+                  phx-click="request_confirmation_toggle"
+                  phx-value-user_uuid={user.uuid}
+                  phx-value-is_confirmed={to_string(!!user.confirmed_at)}
+                  icon={if user.confirmed_at, do: "hero-envelope-open", else: "hero-envelope"}
+                  label={
+                    if user.confirmed_at,
+                      do: gettext("Unconfirm Email"),
+                      else: gettext("Confirm Email")
+                  }
+                  variant={if user.confirmed_at, do: "success", else: "warning"}
+                />
+                <.table_row_menu_button
+                  phx-click="request_status_toggle"
+                  phx-value-user_uuid={user.uuid}
+                  phx-value-is_active={to_string(user.is_active)}
+                  icon={if user.is_active, do: "hero-check-circle", else: "hero-x-circle"}
+                  label={if user.is_active, do: gettext("Deactivate"), else: gettext("Activate")}
+                  variant={if user.is_active, do: "success", else: "warning"}
+                />
+              <% end %>
+              <%= if Auth.can_delete_user?(user, @actor_with_roles) do %>
                 <.table_row_menu_divider />
                 <.table_row_menu_button
                   phx-click="request_delete_user"

@@ -3,7 +3,15 @@ defmodule PhoenixKitWeb.Live.Settings.SEO do
   SEO settings management LiveView for PhoenixKit.
 
   Provides a simple interface for global indexing directives (noindex/nofollow)
-  to keep staging or development deployments out of search engines.
+  to keep staging or development deployments out of search engines, plus the
+  `robots.txt` guidance that goes with them.
+
+  PhoenixKit deliberately does **not** generate `robots.txt`. It is host policy,
+  and `Plug.Static` runs before the router — a `priv/static/robots.txt` is
+  served whatever the router says, so a generated route would be dead code on
+  most installs and a silent override on the rest. What this page does instead
+  is tell the operator exactly what to put in theirs, including the `Sitemap:`
+  line, since a sitemap nothing points at is one crawlers find by guessing.
   """
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
@@ -25,6 +33,13 @@ defmodule PhoenixKitWeb.Live.Settings.SEO do
         |> assign(:project_title, project_title)
         |> assign(:current_path, get_current_path(socket.assigns.current_locale_base))
         |> assign(:no_index_enabled, config.no_index_enabled)
+        # The ROOT url, deliberately — not `Routes.url/1`, which prefixes it.
+        # Core serves /sitemap.xml at both the root and under the kit prefix
+        # precisely because crawlers look at the root, so advertising the
+        # prefixed one in robots.txt would defeat the point.
+        |> assign(:sitemap_url, Routes.base_url() <> "/sitemap.xml")
+        |> assign(:robots_txt_present?, File.exists?(robots_txt_path()))
+        |> assign(:robots_txt_references_sitemap?, robots_txt_references_sitemap?())
 
       {:ok, socket}
     else
@@ -79,5 +94,16 @@ defmodule PhoenixKitWeb.Live.Settings.SEO do
 
   defp get_current_path(locale) do
     Routes.path("/admin/settings/seo", locale: locale)
+  end
+
+  # Where Plug.Static serves it from in a stock Phoenix app. Read-only: this
+  # page reports what is there, it never writes the host's robots.txt.
+  defp robots_txt_path, do: Path.join(["priv", "static", "robots.txt"])
+
+  defp robots_txt_references_sitemap? do
+    case File.read(robots_txt_path()) do
+      {:ok, contents} -> contents =~ ~r/^\s*sitemap:/im
+      {:error, _} -> false
+    end
   end
 end

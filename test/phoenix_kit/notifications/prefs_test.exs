@@ -81,5 +81,25 @@ defmodule PhoenixKit.Notifications.PrefsTest do
       assert prefs["comments"] == true
       assert prefs["comments.replies"] == false
     end
+
+    test "a stale caller no longer clobbers sibling custom_fields keys" do
+      # Both write surfaces hold a long-lived %User{} (the settings LiveView
+      # loads it in mount/3), while every sibling key in that column is
+      # written atomically elsewhere — a channel connect or a locale switch
+      # landing mid-session must survive the next preferences save.
+      stale = user_with_prefs(%{"comments" => true})
+
+      {:ok, _} =
+        Auth.merge_user_custom_fields(
+          stale,
+          %{"notification_channel:telegram" => %{"chat_id" => "42"}},
+          ensure_definitions: false
+        )
+
+      {:ok, updated} = Prefs.merge(stale, %{"posts" => false})
+
+      assert Prefs.get(updated)["posts"] == false
+      assert updated.custom_fields["notification_channel:telegram"] == %{"chat_id" => "42"}
+    end
   end
 end

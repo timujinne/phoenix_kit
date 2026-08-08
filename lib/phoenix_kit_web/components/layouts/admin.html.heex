@@ -6,12 +6,22 @@
 
   Plugin LiveViews don't need to wrap their own templates — this layout
   handles the admin chrome automatically.
+
+  The `url_path` assign, which drives sidebar active-state, comes from the
+  kit's on_mount chain via a :handle_params hook. An embedded (live_render) LV
+  has no handle_params lifecycle, and a host LV that renders admin chrome
+  outside that chain never gets one either — both used to land here with no tab
+  highlighted and no way to tell why. Falling back to the tab that declares this
+  LiveView keeps the sidebar correct without asking hosts to assign anything.
 --%>
 <PhoenixKitWeb.Components.LayoutWrapper.app_layout
   socket={@socket}
   flash={@flash}
   phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
-  current_path={assigns[:url_path] || assigns[:current_path] || "/admin"}
+  current_path={
+    assigns[:url_path] || assigns[:current_path] ||
+      PhoenixKit.Dashboard.Registry.path_for_live_view(@socket.view)
+  }
   current_locale={assigns[:current_locale]}
   page_title={assigns[:page_title]}
   page_subtitle={assigns[:page_subtitle]}

@@ -32,7 +32,7 @@ defmodule PhoenixKitWeb.Users.ConfirmationInstructions do
 
   def mount(params, session, socket) do
     user = socket.assigns[:phoenix_kit_current_user]
-    destination = resolve_destination(params, session)
+    destination = resolve_destination(params, session, socket)
 
     cond do
       user && user.confirmed_at ->
@@ -116,7 +116,14 @@ defmodule PhoenixKitWeb.Users.ConfirmationInstructions do
   # Defensive: the topic carries only this user's confirmation today.
   def handle_info(_msg, socket), do: {:noreply, socket}
 
-  defp resolve_destination(params, session) do
-    Routes.post_auth_path([params["return_to"], session["user_return_to"]])
+  # `:context` threads the socket's router so `"/"` is only used where the
+  # host actually declares a root route. Without it the resolver synthesises
+  # `"/"` literally, which 404s on any host that has no root route — the
+  # configuration this entire branch exists to handle.
+  defp resolve_destination(params, session, socket) do
+    Routes.post_auth_path([params["return_to"], session["user_return_to"]],
+      context: socket,
+      scope: socket.assigns[:phoenix_kit_current_scope]
+    )
   end
 end

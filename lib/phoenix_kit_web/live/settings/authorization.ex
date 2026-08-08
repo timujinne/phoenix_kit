@@ -11,6 +11,7 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.OAuthConfig
+  alias PhoenixKit.Utils.CssValue
 
   require Logger
 
@@ -56,31 +57,12 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   def handle_event("save_settings", %{"settings" => settings_params}, socket) do
     socket = assign(socket, :saving, true)
 
-    case Settings.update_settings(settings_params) do
-      {:ok, updated_settings} ->
-        OAuthConfig.configure_providers()
+    case validate_background_color(settings_params) do
+      :ok ->
+        do_save_settings(socket, settings_params)
 
-        changeset = Settings.change_settings(updated_settings)
-
-        socket =
-          socket
-          |> assign(:settings, updated_settings)
-          |> assign(:saved_settings, updated_settings)
-          |> assign(:changeset, changeset)
-          |> assign(:saving, false)
-          |> put_flash(:info, "Authorization settings updated successfully")
-
-        {:noreply, socket}
-
-      {:error, errors} ->
-        error_msg = format_error_message(errors)
-
-        socket =
-          socket
-          |> assign(:saving, false)
-          |> put_flash(:error, error_msg)
-
-        {:noreply, socket}
+      {:error, message} ->
+        {:noreply, socket |> assign(:saving, false) |> put_flash(:error, message)}
     end
   end
 
@@ -150,6 +132,53 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   end
 
   # Helper functions
+
+  # The background colour lands in a `<style>` element on every public auth
+  # page, so it is refused on write as well as sanitised on read
+  # (`PhoenixKitWeb.Components.AuthPageWrapper`). Rejecting here is what tells
+  # the operator their value was not stored; the read-side guard is what keeps
+  # the page safe regardless of what is already in the table.
+  defp validate_background_color(%{"auth_background_color" => value})
+       when is_binary(value) and value != "" do
+    if CssValue.color(value) == "" do
+      {:error,
+       "Background color must be a plain CSS color or gradient — " <>
+         "for example #1e293b, rgb(30 41 59) or linear-gradient(135deg, #667eea, #764ba2)"}
+    else
+      :ok
+    end
+  end
+
+  defp validate_background_color(_settings_params), do: :ok
+
+  defp do_save_settings(socket, settings_params) do
+    case Settings.update_settings(settings_params) do
+      {:ok, updated_settings} ->
+        OAuthConfig.configure_providers()
+
+        changeset = Settings.change_settings(updated_settings)
+
+        socket =
+          socket
+          |> assign(:settings, updated_settings)
+          |> assign(:saved_settings, updated_settings)
+          |> assign(:changeset, changeset)
+          |> assign(:saving, false)
+          |> put_flash(:info, "Authorization settings updated successfully")
+
+        {:noreply, socket}
+
+      {:error, errors} ->
+        error_msg = format_error_message(errors)
+
+        socket =
+          socket
+          |> assign(:saving, false)
+          |> put_flash(:error, error_msg)
+
+        {:noreply, socket}
+    end
+  end
 
   defp format_error_message(%Ecto.Changeset{} = changeset) do
     changeset

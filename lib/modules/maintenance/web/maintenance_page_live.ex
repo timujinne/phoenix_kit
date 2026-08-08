@@ -51,7 +51,7 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Page do
 
       {:ok, socket, layout: false}
     else
-      {:ok, push_navigate(socket, to: Routes.path("/"))}
+      {:ok, redirect(socket, to: Routes.safe_destination(socket, scope: scope))}
     end
   end
 
@@ -62,7 +62,7 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Page do
       # Admins stay — update the status indicator
       {:noreply, assign(socket, :is_active, false)}
     else
-      {:noreply, push_navigate(socket, to: Routes.path("/"))}
+      {:noreply, redirect(socket, to: eject_path(socket))}
     end
   end
 
@@ -84,13 +84,21 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Page do
       if socket.assigns.is_admin do
         {:noreply, assign(socket, :is_active, false)}
       else
-        {:noreply, push_navigate(socket, to: Routes.path("/"))}
+        {:noreply, redirect(socket, to: eject_path(socket))}
       end
     end
   end
 
   def handle_event(_event, _params, socket) do
     {:noreply, socket}
+  end
+
+  # Where a non-admin goes when maintenance ends. Core cannot assume the host
+  # declared a `/:locale` root, so the destination is resolved rather than
+  # hardcoded. `redirect/2` (not `push_navigate/2`) because the target may be a
+  # host controller route rather than a LiveView.
+  defp eject_path(socket) do
+    Routes.safe_destination(socket, scope: socket.assigns[:phoenix_kit_current_scope])
   end
 
   @impl true

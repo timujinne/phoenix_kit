@@ -7,6 +7,20 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
 
   use PhoenixKitWeb, :live_view
 
+  # Filter (queue, state, worker) and page live in the query string — a
+  # filtered list is a real URL: shareable, reload-proof, and Back returns to
+  # the previous query instead of leaving the page. `filter_queue`,
+  # `filter_state`, and `filter_worker` default to "all", which is therefore
+  # what gets omitted from the URL.
+  use PhoenixKitWeb.Live.UrlState,
+    params: [
+      filter_queue: [default: "all", url_key: "queue"],
+      filter_state: [default: "all", url_key: "state"],
+      filter_worker: [default: "all", url_key: "worker"],
+      current_page: [default: 1, cast: :integer, min: 1, url_key: "page"]
+    ],
+    page_param: :current_page
+
   import Ecto.Query
 
   alias PhoenixKit.Jobs, as: JobsModule
@@ -18,7 +32,6 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
   @per_page 25
   @refresh_interval 30_000
 
-  @impl true
   def mount(_params, _session, socket) do
     # Check if module is enabled
     if JobsModule.enabled?() do
@@ -28,22 +41,21 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
         Process.send_after(self(), :refresh, @refresh_interval)
       end
 
+      # :filter_queue, :filter_state, :filter_worker, and :current_page are
+      # assigned from the query string by UrlState before mount/3 runs —
+      # re-assigning them here would overwrite a shared link's state with the
+      # defaults.
       socket =
         socket
         |> assign(:page_title, "Jobs")
         |> assign(:project_title, project_title)
         |> assign(:url_path, Routes.path("/admin/jobs"))
-        |> assign(:filter_queue, "all")
-        |> assign(:filter_state, "all")
-        |> assign(:filter_worker, "all")
         |> assign(:hidden_workers, load_hidden_workers())
-        |> assign(:current_page, 1)
         |> assign(:per_page, @per_page)
         |> assign(:selected_job, nil)
         |> assign(:selected_scheduled_job, nil)
         |> assign(:active_tab, "oban")
         |> load_stats()
-        |> load_jobs()
         |> load_scheduled_jobs()
 
       {:ok, socket}
@@ -55,40 +67,27 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
     end
   end
 
-  @impl true
+  # The list is loaded here rather than in mount/3: UrlState calls this after
+  # mount and on every change to the query string, so one code path serves the
+  # first render, a shared link, and the Back button alike.
+  #
+  # Deliberately not annotated with @impl — a single @impl anywhere in a module
+  # makes Elixir demand it on every other callback too, and this LiveView's
+  # mount/handle_event/handle_info carry none.
+  def handle_url_state(_state, socket), do: load_jobs(socket)
+
   def handle_event("filter_queue", %{"queue" => queue}, socket) do
-    socket =
-      socket
-      |> assign(:filter_queue, queue)
-      |> assign(:current_page, 1)
-      |> load_jobs()
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, filter_queue: queue)}
   end
 
-  @impl true
   def handle_event("filter_state", %{"state" => state}, socket) do
-    socket =
-      socket
-      |> assign(:filter_state, state)
-      |> assign(:current_page, 1)
-      |> load_jobs()
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, filter_state: state)}
   end
 
-  @impl true
   def handle_event("filter_worker", %{"worker" => worker}, socket) do
-    socket =
-      socket
-      |> assign(:filter_worker, worker)
-      |> assign(:current_page, 1)
-      |> load_jobs()
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, filter_worker: worker)}
   end
 
-  @impl true
   def handle_event("toggle_hide_worker", %{"worker" => worker}, socket) do
     hidden = socket.assigns.hidden_workers
 
@@ -101,68 +100,56 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
 
     save_hidden_workers(new_hidden)
 
+    # hidden_workers is settings-backed (not a URL param), so we reload the
+    # list directly rather than routing through push_url_state.
     socket =
       socket
       |> assign(:hidden_workers, new_hidden)
-      |> assign(:current_page, 1)
       |> load_jobs()
 
     {:noreply, socket}
   end
 
-  @impl true
   def handle_event("clear_hidden_workers", _params, socket) do
     save_hidden_workers([])
 
     socket =
       socket
       |> assign(:hidden_workers, [])
-      |> assign(:current_page, 1)
       |> load_jobs()
 
     {:noreply, socket}
   end
 
-  @impl true
   def handle_event("change_page", %{"page" => page}, socket) do
-    page = String.to_integer(page)
-
-    socket =
-      socket
-      |> assign(:current_page, page)
-      |> load_jobs()
-
-    {:noreply, socket}
+    case Integer.parse(page) do
+      {page, ""} when page > 0 -> {:noreply, push_url_state(socket, current_page: page)}
+      _ -> {:noreply, socket}
+    end
   end
 
-  @impl true
   def handle_event("show_job", %{"id" => id}, socket) do
     job = load_job(String.to_integer(id))
     {:noreply, assign(socket, :selected_job, job)}
   end
 
-  @impl true
   def handle_event("close_job", _params, socket) do
     {:noreply, assign(socket, :selected_job, nil)}
   end
 
-  @impl true
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     {:noreply, assign(socket, :active_tab, tab)}
   end
 
-  @impl true
   def handle_event("show_scheduled_job", %{"id" => id}, socket) do
     job = load_scheduled_job(id)
     {:noreply, assign(socket, :selected_scheduled_job, job)}
   end
 
-  @impl true
   def handle_event("close_scheduled_job", _params, socket) do
     {:noreply, assign(socket, :selected_scheduled_job, nil)}
   end
 
-  @impl true
   def handle_info(:refresh, socket) do
     Process.send_after(self(), :refresh, @refresh_interval)
 

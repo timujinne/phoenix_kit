@@ -22,8 +22,11 @@ defmodule PhoenixKitWeb.Users.Auth do
     permission key mapped to the current admin view: Owner passes because its
     scope holds every key by construction; Admin holds keys as real,
     Owner-revocable rows (seeded/auto-granted by default). Disabled modules
-    block everyone. Views that resolve to no permission key allow Owner/Admin
-    and deny custom roles (fail-closed where a key could exist).
+    block everyone. Views that resolve to no permission key allow only a scope
+    holding every enabled permission — role-agnostic, so a named Admin whose
+    keys an Owner has partially revoked is denied too. The first mount of such a
+    view logs a warning, whoever mounts it, so the missing mapping surfaces
+    before a colleague hits the 403.
   - `:phoenix_kit_ensure_module_access` — Checks that the feature module is
     permitted for the scope and (for custom roles) enabled.
 
@@ -51,6 +54,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   alias PhoenixKit.Users.Auth.{Scope, User}
   alias PhoenixKit.Users.LoginAlerts
   alias PhoenixKit.Users.Permissions
+  alias PhoenixKit.Users.Referrals
   alias PhoenixKit.Users.ScopeNotifier
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.Utils.SessionFingerprint
@@ -88,7 +92,28 @@ defmodule PhoenixKitWeb.Users.Auth do
   IP address and user agent to create a session fingerprint. This helps
   detect session hijacking attempts.
   """
-  def log_in_user(conn, user, params \\ %{}) do
+  def log_in_user(conn, user, params \\ %{})
+
+  # A deactivated account gets no session, whichever door it arrives at. The
+  # password controller checked `is_active` itself, but magic-link verification,
+  # QR-login completion and the OAuth callback all call this function directly
+  # and did not — they minted a token for an account the operator had switched
+  # off. The fetch plugs then resolved it to nil, so the practical result was a
+  # confusing dead session rather than access; putting the check on the shared
+  # funnel means no future entry point has to remember it.
+  def log_in_user(conn, %Auth.User{is_active: false} = user, _params) do
+    Logger.warning("PhoenixKit: refused sign-in for deactivated user #{user.uuid}")
+
+    conn
+    |> Phoenix.Controller.put_flash(
+      :error,
+      "This account is not active. Contact an administrator."
+    )
+    |> Phoenix.Controller.redirect(to: Routes.path("/users/log-in"))
+    |> halt()
+  end
+
+  def log_in_user(conn, user, params) do
     # Create session fingerprint if enabled
     opts =
       if SessionFingerprint.fingerprinting_enabled?() do
@@ -113,13 +138,22 @@ defmodule PhoenixKitWeb.Users.Auth do
     # below then wiped the session copy too, so an OAuth login started from a
     # protected page landed on the default).
     #
-    # Resolved by `post_auth_path/1` rather than a local guard so this shares
+    # Resolved by `post_auth_path/2` rather than a local guard so this shares
     # ONE rule with the confirmation pages: local-path only AND never a
     # sign-in page. A bare `local_path?` check let `?return_to=/users/log-out`
     # through — a real GET route, so the user was signed back out the instant
     # they signed in.
+    #
+    # `context:`/`scope:` cover the tail of that chain: with no `return_to` and
+    # no `after_login_path`, the destination is `"/"` only where the host proves
+    # it routes one, and a core-owned landing everywhere else. The subject is
+    # the user being logged IN — `conn.assigns` still describes whoever the
+    # pipeline saw, which for a fresh login is nobody.
     user_return_to =
-      Routes.post_auth_path([params["return_to"], get_session(conn, :user_return_to)])
+      Routes.post_auth_path([params["return_to"], get_session(conn, :user_return_to)],
+        context: conn,
+        scope: Scope.for_user(user)
+      )
 
     # Merge guest cart into user cart before session renewal clears session data.
     # The shop_session_id cookie survives renew_session (only session data is cleared).
@@ -139,8 +173,23 @@ defmodule PhoenixKitWeb.Users.Auth do
 
   defp maybe_merge_guest_cart(conn, user) do
     if Code.ensure_loaded?(PhoenixKitEcommerce) do
+      # Session FIRST, cookie only as a fallback.
+      #
+      # The shop session cookie is signed, so `conn.cookies["shop_session_id"]`
+      # here is the signed envelope ("SFMyNTY...."), not the id — `:browser`
+      # fetches cookies unsigned, and only `fetch_cookies(conn, signed: [...])`
+      # inside the shop plug verifies it. The envelope is truthy, so reading
+      # the cookie first meant `||` never fell through to the session, which
+      # is the one place the real id lives. `merge_guest_cart(<envelope>, user)`
+      # then matched no cart and returned quietly: every guest who filled a
+      # cart and logged in silently lost it.
+      #
+      # The shop plug mirrors the resolved id into the session on every
+      # request, so the session is both authoritative and already verified.
+      # The cookie fallback stays for a host that wires the routes without
+      # the shop plug.
       shop_session_id =
-        conn.cookies["shop_session_id"] || get_session(conn, :shop_session_id)
+        get_session(conn, :shop_session_id) || conn.cookies["shop_session_id"]
 
       if shop_session_id do
         try do
@@ -186,6 +235,36 @@ defmodule PhoenixKitWeb.Users.Auth do
   @spec remember_me_enabled?() :: boolean()
   def remember_me_enabled? do
     PhoenixKit.Settings.get_boolean_setting("remember_me_enabled", true)
+  end
+
+  @doc """
+  Whether signing in with a magic link is available.
+
+  Gates the request page, and the token endpoint that emailed links point at.
+  Turning it off is a security-posture decision ("password and 2FA only"), so it
+  has to close the route rather than only hide the button — an admin who
+  switches it off on the Authorization settings page will reasonably believe
+  nobody can still sign in this way.
+
+  In-flight links stop working too. Disabling passwordless login means no more
+  magic-link sign-ins, not no new ones from today; the tokens are short-lived,
+  so the window this affects is small.
+  """
+  @spec magic_link_login_enabled?() :: boolean()
+  def magic_link_login_enabled? do
+    PhoenixKit.Settings.get_boolean_setting("magic_link_login_enabled", true)
+  end
+
+  @doc """
+  Whether registering via a magic link is available.
+
+  Gates the request page and the completion page, for the same reason as
+  `magic_link_login_enabled?/0`: the setting has to close the route, not just
+  hide the entry point.
+  """
+  @spec magic_link_registration_enabled?() :: boolean()
+  def magic_link_registration_enabled? do
+    PhoenixKit.Settings.get_boolean_setting("magic_link_registration_enabled", true)
   end
 
   @doc """
@@ -266,10 +345,14 @@ defmodule PhoenixKitWeb.Users.Auth do
       Events.broadcast_user_session_disconnected(user.uuid, session_id)
     end
 
+    # `scope: nil` is passed EXPLICITLY. `renew_session/1` has already cleared
+    # the session, but `conn.assigns[:phoenix_kit_current_user]` is still
+    # populated from the pipeline — inferring the subject from assigns here
+    # would treat a just-logged-out visitor as signed in.
     conn
     |> renew_session()
     |> delete_resp_cookie(@remember_me_cookie)
-    |> redirect(to: "/")
+    |> redirect(to: Routes.safe_destination(conn, scope: nil))
   end
 
   @doc """
@@ -556,28 +639,10 @@ defmodule PhoenixKitWeb.Users.Auth do
     socket = mount_phoenix_kit_current_user(socket, session)
     user = socket.assigns.phoenix_kit_current_user
 
-    cond do
-      is_nil(user) ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
-          |> Phoenix.LiveView.redirect(to: login_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      is_nil(user.confirmed_at) and confirmation_required?() ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "Please confirm your email before accessing the application."
-          )
-          |> Phoenix.LiveView.redirect(to: confirm_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      true ->
-        {:cont, socket}
+    if is_nil(user) do
+      {:halt, redirect_to_login(socket)}
+    else
+      live_account_gate(socket, user)
     end
   end
 
@@ -586,29 +651,8 @@ defmodule PhoenixKitWeb.Users.Auth do
     socket = attach_locale_hook(socket)
     scope = socket.assigns.phoenix_kit_current_scope
 
-    cond do
-      not Scope.authenticated?(scope) ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
-          |> Phoenix.LiveView.redirect(to: login_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      Scope.authenticated?(scope) and not email_confirmed?(scope) and
-          confirmation_required?() ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "Please confirm your email before accessing the application."
-          )
-          |> Phoenix.LiveView.redirect(to: confirm_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      true ->
-        {:cont, socket}
+    with {:cont, socket} <- require_authenticated_live(socket, scope) do
+      live_account_gate(socket, scope)
     end
   end
 
@@ -637,38 +681,21 @@ defmodule PhoenixKitWeb.Users.Auth do
     socket = mount_phoenix_kit_current_scope(socket, session)
     scope = socket.assigns.phoenix_kit_current_scope
 
-    cond do
-      not Scope.authenticated?(scope) ->
+    with {:cont, socket} <- require_authenticated_live(socket, scope),
+         {:cont, socket} <- live_account_gate(socket, scope) do
+      if Scope.owner?(scope) do
+        {:cont, attach_locale_hook(socket)}
+      else
         socket =
           socket
-          |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
-          |> Phoenix.LiveView.redirect(to: login_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      Scope.authenticated?(scope) and not email_confirmed?(scope) and
-          confirmation_required?() ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "Please confirm your email before accessing the application."
-          )
-          |> Phoenix.LiveView.redirect(to: confirm_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      not Scope.owner?(scope) ->
-        socket =
-          socket
+          # No `skip_admin`: the rejected visitor may well be an Admin, who
+          # legitimately belongs in `/admin` — that area is gated by
+          # `:phoenix_kit_ensure_admin`, not by this hook, so there is no loop.
           |> Phoenix.LiveView.put_flash(:error, "You must be an owner to access this page.")
-          |> Phoenix.LiveView.redirect(to: "/")
+          |> Phoenix.LiveView.redirect(to: Routes.safe_destination(socket, scope: scope))
 
         {:halt, socket}
-
-      true ->
-        socket = attach_locale_hook(socket)
-        {:cont, socket}
+      end
     end
   end
 
@@ -676,43 +703,20 @@ defmodule PhoenixKitWeb.Users.Auth do
     socket = mount_phoenix_kit_current_scope(socket, session, params)
     scope = socket.assigns.phoenix_kit_current_scope
 
-    cond do
-      not Scope.authenticated?(scope) ->
-        socket =
+    with {:cont, socket} <- require_authenticated_live(socket, scope),
+         {:cont, socket} <- live_account_gate(socket, scope) do
+      case admin_gate_decision(scope, socket.view) do
+        :landing ->
+          {:cont, prepare_admin_mount(socket, Scope.can_access_admin_area?(scope))}
+
+        :enforce_view ->
           socket
-          |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
-          |> Phoenix.LiveView.redirect(to: login_path_with_return_to(socket))
+          |> prepare_admin_mount(true)
+          |> enforce_admin_view_permission(scope)
 
-        {:halt, socket}
-
-      Scope.authenticated?(scope) and not email_confirmed?(scope) and
-          confirmation_required?() ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "Please confirm your email before accessing the application."
-          )
-          |> Phoenix.LiveView.redirect(to: confirm_path_with_return_to(socket))
-
-        {:halt, socket}
-
-      Scope.can_access_admin_area?(scope) ->
-        socket = attach_locale_hook(socket)
-        socket = maybe_subscribe_to_module_events(socket)
-        socket = maybe_apply_plugin_layout(socket)
-        enforce_admin_view_permission(socket, scope)
-
-      true ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "You do not have the required permission to access this page."
-          )
-          |> Phoenix.LiveView.redirect(to: "/")
-
-        {:halt, socket}
+        :deny ->
+          {:halt, deny_admin_area(socket, scope)}
+      end
     end
   end
 
@@ -723,58 +727,209 @@ defmodule PhoenixKitWeb.Users.Auth do
     # Store current module key for scope refresh checks
     socket = Phoenix.Component.assign(socket, :phoenix_kit_current_module_key, module_key)
 
+    with {:cont, socket} <- require_authenticated_live(socket, scope),
+         {:cont, socket} <- live_account_gate(socket, scope) do
+      cond do
+        not Scope.can_access_admin_area?(scope) ->
+          socket =
+            socket
+            |> Phoenix.LiveView.put_flash(
+              :error,
+              "You do not have the required permission to access this page."
+            )
+            |> Phoenix.LiveView.redirect(
+              to: Routes.safe_destination(socket, scope: scope, skip_admin: true)
+            )
+
+          {:halt, socket}
+
+        # A disabled module's admin surface is blocked for EVERYONE, Owner
+        # included — matching `enforce_admin_view_permission/2`. (Previously Owner
+        # bypassed enablement here but not on fresh LV mounts, so the same user
+        # saw a disabled module's page through one hook and a redirect through
+        # another. Enablement is now uniform across all three gates.)
+        Scope.has_module_access?(scope, module_key) and
+            MapSet.member?(Permissions.enabled_module_keys(), module_key) ->
+          socket = attach_locale_hook(socket)
+          {:cont, socket}
+
+        true ->
+          redirect_to = best_available_admin_path(socket, scope)
+
+          socket =
+            socket
+            |> Phoenix.LiveView.put_flash(
+              :error,
+              "You do not have permission to access this section."
+            )
+            |> Phoenix.LiveView.redirect(to: redirect_to)
+
+          {:halt, socket}
+      end
+    end
+  end
+
+  # The `/admin` index. Named ONCE, here, because three things have to agree
+  # about it and they are in three different files: the route declaration
+  # (`PhoenixKitWeb.Integration.phoenix_kit_admin_routes/1`), the gate
+  # exception in `:phoenix_kit_ensure_admin`, and the terminal of
+  # `PhoenixKit.Utils.Routes.safe_destination/2`.
+  @landing_view PhoenixKitWeb.Live.Dashboard
+
+  @doc """
+  Whether `view` is the guaranteed landing — the one admin LiveView that
+  `:phoenix_kit_ensure_admin` opens to EVERY authenticated visitor, whatever
+  permissions they hold.
+
+  That view is `PhoenixKitWeb.Live.Dashboard`, the `/admin` index. It is the
+  terminal of `PhoenixKit.Utils.Routes.safe_destination/2`: the page core
+  promises any signed-in visitor can be redirected to. A terminal that rejects
+  its own visitor is an infinite redirect rather than a fallback, so the gate
+  has to admit them — and the page is built for it, gating every operator block
+  behind `can_access_admin_view?/2` and showing a permission-less visitor the
+  welcome block and nothing else.
+
+  Admission is NOT unconditional: authentication, the account gate (email
+  confirmation, maintenance mode, blocked accounts) and the locale hook all run
+  first, exactly as for any other admin view. Only the admin-area gate and the
+  per-view permission check are skipped.
+
+      iex> PhoenixKitWeb.Users.Auth.landing_view?(PhoenixKitWeb.Live.Dashboard)
+      true
+
+      iex> PhoenixKitWeb.Users.Auth.landing_view?(PhoenixKitWeb.Live.Users.Users)
+      false
+  """
+  @spec landing_view?(module() | nil) :: boolean()
+  def landing_view?(view), do: view == @landing_view
+
+  # Which arm of `:phoenix_kit_ensure_admin` a visitor takes once authentication
+  # and the account gate have passed. Pure — no socket, no flash, no redirect —
+  # so the branch ORDER, which is the load-bearing part, is unit-testable
+  # without a database. The hook maps each atom to its side effects and nothing
+  # else.
+  #
+  #   * `:landing` — the `/admin` index, for ANY authenticated visitor. It is
+  #     the terminal of `PhoenixKit.Utils.Routes.safe_destination/2`, the page
+  #     core promises a signed-in visitor can be redirected to, and a terminal
+  #     that bounces its own visitor is an infinite redirect rather than a
+  #     fallback.
+  #   * `:enforce_view` — every other admin view, for a scope that clears the
+  #     admin-area gate: `enforce_admin_view_permission/2` then applies the
+  #     per-view permission exactly as before.
+  #   * `:deny` — no admin rights, and not the landing.
+  #
+  # The order is not interchangeable. `Scope.can_access_admin_area?/1` is true
+  # for any holder of a single permission, but the landing view maps to the
+  # `"dashboard"` key — so checking the admin area first would send a client
+  # holding only `client_portal` into `:enforce_view`, which would refuse them
+  # the very page the resolver had just guaranteed. Landing is asked first, and
+  # is the only view for which either permission check is skipped.
+  #
+  # The landing branch is a PERMISSION exemption, never an authentication one,
+  # and it says so itself rather than resting on call-site ordering. Today
+  # `require_authenticated_live/2` runs first in the `with`, so an unauthenticated
+  # scope can never reach here — but a future caller that forgets, or a host
+  # calling this predicate to decide whether to render a link, would otherwise
+  # be told the landing is open to nobody-in-particular. `scope_refresh_decision/4`
+  # defends its own landing branch the same way, for the same reason.
+  #
+  # This is a GATE exception, deliberately not a route one: the `/admin` route
+  # stays in `live_session :phoenix_kit_admin` with every other `/admin/*` page.
+  # Moving it to another live_session would admit the same visitors and cost a
+  # full page reload on every navigation into and out of the admin area
+  # (LiveView cannot live-navigate across live_sessions — see
+  # `lib/phoenix_kit/dashboard/ADMIN_README.md`), while subjecting the
+  # guaranteed landing to that session's own hooks, which are free to halt and
+  # redirect. A gate exception cannot drift that way.
+  #
+  # Exposed as `@doc false def` (rather than `defp`) so unit tests can exercise
+  # the branches with literal scopes, without LiveView mounting machinery. Not
+  # part of the public API.
+  @doc false
+  @spec admin_gate_decision(Scope.t() | nil, module() | nil) :: :landing | :enforce_view | :deny
+  def admin_gate_decision(scope, view) do
     cond do
-      not Scope.authenticated?(scope) ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
-          |> Phoenix.LiveView.redirect(to: login_path_with_return_to(socket))
+      landing_view?(view) and Scope.authenticated?(scope) -> :landing
+      Scope.can_access_admin_area?(scope) -> :enforce_view
+      true -> :deny
+    end
+  end
 
-        {:halt, socket}
+  # Everything an admitted admin mount gets once the gates have passed.
+  #
+  # `admin_area?` is `Scope.can_access_admin_area?/1`, and it is false for
+  # exactly one caller: a permission-less visitor on the landing view. It gates
+  # the modules subscription and nothing else — `Events.subscribe_to_modules/0`
+  # exists so the admin SIDEBAR re-renders when an Owner toggles a module, and
+  # a visitor who is shown no admin navigation has nothing to re-render.
+  # Subscribing them would put every signed-in user of the application on that
+  # topic for the lifetime of the socket.
+  #
+  # `maybe_apply_plugin_layout/1` is a no-op for the landing view (it only
+  # rewrites the layout for views outside the `PhoenixKitWeb.*` and
+  # core-`PhoenixKit.Modules.*` namespaces), so both clauses can run it and the
+  # difference between them stays exactly the one line it should be.
+  defp prepare_admin_mount(socket, true) do
+    socket
+    |> attach_locale_hook()
+    |> maybe_subscribe_to_module_events()
+    |> maybe_apply_plugin_layout()
+  end
 
-      Scope.authenticated?(scope) and not email_confirmed?(scope) and
-          confirmation_required?() ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "Please confirm your email before accessing the application."
-          )
-          |> Phoenix.LiveView.redirect(to: confirm_path_with_return_to(socket))
+  defp prepare_admin_mount(socket, false) do
+    socket
+    |> attach_locale_hook()
+    |> maybe_apply_plugin_layout()
+  end
 
-        {:halt, socket}
+  # The admin-area rejection: authenticated, past the account gate, but holding
+  # no permission at all — and not on the landing view, which is checked first.
+  defp deny_admin_area(socket, scope) do
+    socket
+    |> Phoenix.LiveView.put_flash(
+      :error,
+      "You do not have the required permission to access this page."
+    )
+    # `skip_admin: true` states the invariant at the call site: this is the
+    # admin-area rejection, so the destination must never be an admin page the
+    # visitor was just refused. It suppresses the `/admin` CANDIDATE, not the
+    # terminal — the terminal is the landing this hook admits everyone to, so
+    # arriving there is a render, not a second bounce.
+    |> Phoenix.LiveView.redirect(
+      to: Routes.safe_destination(socket, scope: scope, skip_admin: true)
+    )
+  end
 
-      not Scope.can_access_admin_area?(scope) ->
-        socket =
-          socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "You do not have the required permission to access this page."
-          )
-          |> Phoenix.LiveView.redirect(to: "/")
+  # Shared first step for every `ensure_*` scope hook: `{:cont, socket}` for an
+  # authenticated visitor, otherwise a halt to the login page carrying the
+  # originally requested path.
+  defp require_authenticated_live(socket, scope) do
+    if Scope.authenticated?(scope) do
+      {:cont, socket}
+    else
+      {:halt, redirect_to_login(socket)}
+    end
+  end
 
-        {:halt, socket}
+  defp redirect_to_login(socket) do
+    socket
+    |> Phoenix.LiveView.put_flash(:error, "You must log in to access this page.")
+    |> Phoenix.LiveView.redirect(to: login_path_with_return_to(socket))
+  end
 
-      # A disabled module's admin surface is blocked for EVERYONE, Owner
-      # included — matching `enforce_admin_view_permission/2`. (Previously Owner
-      # bypassed enablement here but not on fresh LV mounts, so the same user
-      # saw a disabled module's page through one hook and a redirect through
-      # another. Enablement is now uniform across all three gates.)
-      Scope.has_module_access?(scope, module_key) and
-          MapSet.member?(Permissions.enabled_module_keys(), module_key) ->
-        socket = attach_locale_hook(socket)
+  # LiveView side of `account_gate/1`. The account is authenticated; this is
+  # everything it must additionally satisfy before it may use the application.
+  defp live_account_gate(socket, subject) do
+    case account_gate(subject) do
+      :ok ->
         {:cont, socket}
 
-      true ->
-        redirect_to = best_available_admin_path(scope)
-
+      {:halt, message, target} ->
         socket =
           socket
-          |> Phoenix.LiveView.put_flash(
-            :error,
-            "You do not have permission to access this section."
-          )
-          |> Phoenix.LiveView.redirect(to: redirect_to)
+          |> Phoenix.LiveView.put_flash(:error, message)
+          |> Phoenix.LiveView.redirect(to: path_with_return_to(socket, target))
 
         {:halt, socket}
     end
@@ -1096,40 +1251,154 @@ defmodule PhoenixKitWeb.Users.Auth do
     current_scope = socket.assigns[:phoenix_kit_current_scope]
 
     if Scope.user_uuid(current_scope) == user_uuid do
-      was_admin = Scope.can_access_admin_area?(current_scope)
+      was_admin? = Scope.can_access_admin_area?(current_scope)
       {socket, new_scope} = refresh_scope_assigns(socket)
 
+      # Re-derive the page's own scope-dependent state BEFORE deciding whether
+      # to move the visitor. Order is load-bearing in the eviction case too:
+      # this is where the dashboard releases the operator PubSub subscriptions a
+      # revoked visitor no longer justifies, and that has to happen whether or
+      # not they are also navigated away.
       socket =
-        cond do
-          # Lost admin role entirely
-          was_admin and not Scope.can_access_admin_area?(new_scope) ->
-            socket
-            |> LiveView.put_flash(:error, "You must be an admin to access this page.")
-            |> LiveView.push_navigate(to: "/")
+        socket
+        |> refresh_view_scope_assigns()
+        |> maybe_subscribe_promoted_landing(new_scope)
 
-          # Still admin but lost access to current module
-          Scope.can_access_admin_area?(new_scope) and
-              not has_current_module_access?(socket, new_scope) ->
-            redirect_to = best_available_admin_path(new_scope)
+      decision =
+        scope_refresh_decision(
+          was_admin?,
+          new_scope,
+          socket.view,
+          socket.assigns[:phoenix_kit_current_module_key]
+        )
 
-            socket
-            |> LiveView.put_flash(
-              :error,
-              "You no longer have permission to access this section."
-            )
-            |> LiveView.push_navigate(to: redirect_to)
-
-          true ->
-            socket
-        end
-
-      {:halt, socket}
+      {:halt, apply_scope_refresh_decision(socket, decision, new_scope)}
     else
       {:cont, socket}
     end
   end
 
   defp handle_scope_refresh(_msg, socket), do: {:cont, socket}
+
+  # What a mid-session permission change does to the page the visitor is on.
+  # Pure — no socket, no flash, no navigation — so the branches are unit
+  # testable without a database, and so the landing exemption is stated once
+  # rather than being buried in a `cond` beside its side effects.
+  #
+  #   * `:evict_admin_area` — held admin access, holds none now, and is NOT on
+  #     the guaranteed landing.
+  #   * `:evict_module` — still in the admin area, but lost the permission the
+  #     current view resolved to.
+  #   * `:stay` — nothing to do.
+  #
+  # The landing exemption is the whole point of the first branch's second
+  # condition. `landing_view?/1` is the same predicate `:phoenix_kit_ensure_admin`
+  # uses to admit EVERY authenticated visitor to `/admin`, and
+  # `PhoenixKit.Utils.Routes.safe_destination/2` terminates there precisely
+  # because of that. Evicting a demoted user from it would push them off the one
+  # page core guarantees them — and toward a destination whose terminal is that
+  # same page. It is the bounce the resolver asserts cannot happen, so it must
+  # not happen here either. Every other admin page evicts exactly as before; the
+  # landing instead recomputes its own gates in place
+  # (`PhoenixKitWeb.Live.Dashboard.Overview.assign_scope_gates/1`), so the
+  # demoted visitor keeps the page and loses the operator content on it.
+  #
+  # The exemption is NOT an authentication exemption, exactly as it is not one
+  # at the mount gate: `require_authenticated_live/2` runs before
+  # `admin_gate_decision/2` there, and here the scope must still be
+  # authenticated to keep the page. A scope that came back unauthenticated means
+  # the user row is gone from under the socket, and the landing is no more
+  # theirs than any other page.
+  #
+  # The second branch cannot fire on the landing anyway — `:landing` skips
+  # `enforce_admin_view_permission/2`, so `:phoenix_kit_current_module_key` is
+  # never assigned there and `module_access?/2` answers `true` for `nil`. That
+  # is a consequence, not a guarantee; the first branch states the exemption.
+  #
+  # Exposed as `@doc false def` (like `admin_gate_decision/2`) so tests can
+  # drive the branches with literal scopes. Not part of the public API.
+  @doc false
+  @spec scope_refresh_decision(boolean(), Scope.t() | nil, module() | nil, String.t() | nil) ::
+          :evict_admin_area | :evict_module | :stay
+  def scope_refresh_decision(was_admin?, new_scope, view, module_key) do
+    cond do
+      was_admin? and not Scope.can_access_admin_area?(new_scope) ->
+        if landing_view?(view) and Scope.authenticated?(new_scope),
+          do: :stay,
+          else: :evict_admin_area
+
+      Scope.can_access_admin_area?(new_scope) and not module_access?(new_scope, module_key) ->
+        :evict_module
+
+      true ->
+        :stay
+    end
+  end
+
+  # The landing is the one admin page a visitor can be sitting on WITHOUT the
+  # modules subscription: `prepare_admin_mount/2` deliberately skips it for a
+  # visitor who is shown no admin navigation. Being granted a permission
+  # mid-session gives them that navigation, so from this moment they have a
+  # sidebar that must re-render when an Owner toggles a module. Every other
+  # admin page subscribed at mount — reaching it required the admin area.
+  #
+  # `maybe_subscribe_to_module_events/1` is idempotent (it short-circuits on
+  # `phoenix_kit_module_hook_attached?`), so a repeated grant costs nothing.
+  defp maybe_subscribe_promoted_landing(socket, new_scope) do
+    if landing_view?(socket.view) and Scope.can_access_admin_area?(new_scope) do
+      maybe_subscribe_to_module_events(socket)
+    else
+      socket
+    end
+  end
+
+  defp apply_scope_refresh_decision(socket, :evict_admin_area, new_scope) do
+    socket
+    |> LiveView.put_flash(:error, "You must be an admin to access this page.")
+    |> LiveView.push_navigate(
+      to: Routes.safe_destination(socket, scope: new_scope, skip_admin: true)
+    )
+  end
+
+  defp apply_scope_refresh_decision(socket, :evict_module, new_scope) do
+    socket
+    |> LiveView.put_flash(:error, "You no longer have permission to access this section.")
+    |> LiveView.push_navigate(to: best_available_admin_path(socket, new_scope))
+  end
+
+  defp apply_scope_refresh_decision(socket, :stay, _new_scope), do: socket
+
+  # Lets a LiveView re-derive whatever it computed from the scope, now that the
+  # scope has changed under it.
+  #
+  # Gates computed once in `mount/3` go stale the moment a permission is granted
+  # or revoked, and on the guaranteed landing — which nobody is evicted from —
+  # stale is where they stay for the life of the socket. A page opts in by
+  # exporting `phoenix_kit_scope_changed/1`; `use PhoenixKitWeb.Live.Dashboard.Overview`
+  # injects it, and it must recompute EVERY gate in one place so a future gate
+  # cannot be forgotten here.
+  #
+  # Deliberately a duck-typed callback rather than a hardcoded call to the
+  # dashboard: this hook is attached to every PhoenixKit LiveView, and a host
+  # admin page with its own permission-derived assigns has the same problem.
+  # `Code.ensure_loaded?/1` guards `function_exported?/2`, which answers false
+  # for a module that has not been loaded yet (releases load lazily).
+  #
+  # Exposed as `@doc false def` so the wiring — hook → callback → the page's own
+  # gate recomputation — is testable without the database `handle_scope_refresh/2`
+  # needs to re-read the user. Not part of the public API.
+  @doc false
+  @spec refresh_view_scope_assigns(Phoenix.LiveView.Socket.t()) :: Phoenix.LiveView.Socket.t()
+  def refresh_view_scope_assigns(socket) do
+    view = socket.view
+
+    if is_atom(view) and not is_nil(view) and Code.ensure_loaded?(view) and
+         function_exported?(view, :phoenix_kit_scope_changed, 1) do
+      view.phoenix_kit_scope_changed(socket)
+    else
+      socket
+    end
+  end
 
   # Subscribe to module enable/disable events so the admin sidebar updates
   # in real-time when modules are toggled. Follows the scope refresh pattern.
@@ -1147,16 +1416,27 @@ defmodule PhoenixKitWeb.Users.Auth do
   end
 
   defp handle_module_refresh({:module_enabled, _key}, socket) do
-    {:halt,
-     Phoenix.Component.assign(socket, :phoenix_kit_modules_version, System.unique_integer())}
+    {:halt, module_toggled(socket)}
   end
 
   defp handle_module_refresh({:module_disabled, _key}, socket) do
-    {:halt,
-     Phoenix.Component.assign(socket, :phoenix_kit_modules_version, System.unique_integer())}
+    {:halt, module_toggled(socket)}
   end
 
   defp handle_module_refresh(_msg, socket), do: {:cont, socket}
+
+  # A module toggle changes what a page may show without changing anyone's
+  # scope, so the version bump alone is not enough: gates derived from a
+  # permission key ask `Permissions.feature_enabled?/1` too, and a page that
+  # only re-renders would keep offering a card for a module that was just
+  # switched off. The landing is where this matters most — it is the one admin
+  # page nobody is ever evicted from, so a stale gate there survives until the
+  # visitor navigates away by hand.
+  defp module_toggled(socket) do
+    socket
+    |> refresh_view_scope_assigns()
+    |> Phoenix.Component.assign(:phoenix_kit_modules_version, System.unique_integer())
+  end
 
   # Auto-apply admin layout for external plugin LiveViews.
   # Core views (PhoenixKitWeb.* and PhoenixKit.Modules.* bundled in :phoenix_kit)
@@ -1239,19 +1519,27 @@ defmodule PhoenixKitWeb.Users.Auth do
     {"referrals", "/admin/settings/referral-codes"}
   ]
 
-  # Find the best admin page the user has access to, falling back to "/"
+  # Find the best admin page the user has access to.
   # Checks both permission (user can access) AND enabled status (module is active)
   # to prevent redirect loops when a user has permission for a disabled module.
-  defp best_available_admin_path(scope) do
+  #
+  # `skip_admin: true` on the fall-through is MANDATORY, not defensive. This
+  # default is only reached by a user who lacks the "dashboard" permission (the
+  # first entry in @admin_fallback_routes is `{"dashboard", "/admin"}`) — yet
+  # such a user still passes `can_access_admin_area?/1` on any other permission,
+  # so the resolver's `/admin` step would send them to a page that denies them
+  # and lands right back here. `source` is the conn/socket the redirect is being
+  # built for; it carries the router used to prove the destination exists.
+  defp best_available_admin_path(source, scope) do
     enabled = Permissions.enabled_module_keys()
 
     # Built-in routes first, then custom extension routes from admin tab config
     all_routes = @admin_fallback_routes ++ custom_admin_fallback_routes()
 
-    Enum.find_value(all_routes, "/", fn {key, path} ->
+    Enum.find_value(all_routes, fn {key, path} ->
       if Scope.has_module_access?(scope, key) and MapSet.member?(enabled, key),
         do: Routes.path(path)
-    end)
+    end) || Routes.safe_destination(source, scope: scope, skip_admin: true)
   end
 
   # Builds fallback routes from custom admin tabs that have extension permission keys.
@@ -1275,59 +1563,240 @@ defmodule PhoenixKitWeb.Users.Auth do
     end
   end
 
+  @doc """
+  Whether `scope` may open the admin LiveView `view_module` — the SAME decision
+  `:phoenix_kit_ensure_admin` enforces on mount, exposed as a pure boolean.
+
+  Use it to decide whether to *render* a link, card or nav entry pointing at an
+  admin view. "A card is visible iff the visitor can open what it links to"
+  then holds by construction: both the card and its destination route through
+  this one function, so the two cannot drift.
+
+  Pure — no flash, no redirect, no logging. The on_mount hook keeps those side
+  effects (including the one-time "unmapped admin view" warning) and asks this
+  same decision for the verdict.
+
+  ## The decision, branch by branch
+
+  1. **Admin-area gate** — `Scope.can_access_admin_area?/1` must hold (Owner,
+     Admin, or any holder of at least one permission). Every `/admin` page
+     mounts through `:phoenix_kit_ensure_admin`, which bounces a failing scope
+     before any per-view check — every page but the landing, which is the one
+     deliberate difference between this function and the gate (see below). So a
+     card must respect it too: a `nil` scope, and an authenticated user with no
+     permissions at all, stop here.
+  2. **Personal admin views** — the views in `@personal_admin_views` (your own
+     notification inbox / preferences) show a user their OWN data rather than
+     granting an administrative capability, so branch 1 is the whole gate.
+  3. **Mapped view** — `permission_key_for_admin_view/1` resolved a key:
+     * the module behind the key must be enabled
+       (`PhoenixKit.Users.Permissions.feature_enabled?/1`) — a disabled module
+       is blocked for EVERYONE, Owner included;
+     * a dotted SUB-permission key is checked with `Scope.can?/2` (which also
+       requires the base key — a raw sub-key without its base is an orphan);
+       a flat key with `Scope.has_module_access?/2`.
+  4. **Unmapped view** — the key resolved to `nil`: allowed ONLY for a scope
+     that holds every enabled permission (`Scope.holds_all_enabled_permissions?/1`).
+     This is the fail-CLOSED branch, and it is role-agnostic: Owner passes (it
+     holds every key by construction), so does the `"*"` superadmin key and any
+     role granted the whole operator baseline; a partially-revoked Admin or a
+     narrow custom role does not. Hiding such a card from everyone but a
+     full-access scope is exactly right — anyone else is redirected on arrival.
+
+  What this deliberately does NOT answer: authentication, email confirmation
+  and the account gate (`require_authenticated_live/2` and `live_account_gate/2`
+  run earlier in the hook). Those bounce a visitor before any view-permission
+  question is asked; a page deciding what to render has already passed them.
+
+  ## The one view where this is stricter than the mount gate
+
+  `landing_view?/1` — the `/admin` index — is admitted by
+  `:phoenix_kit_ensure_admin` for EVERY authenticated visitor, because it is the
+  destination `PhoenixKit.Utils.Routes.safe_destination/2` guarantees. This
+  function still answers `false` for a scope that fails branch 1, and that is
+  deliberate: the landing is somewhere a visitor is *sent*, not somewhere a menu
+  should *offer* them. A permission-less visitor who lands there is greeted and
+  shown no navigation at all
+  (`PhoenixKitWeb.Components.Dashboard.AdminSidebar.reachable_tabs/2` returns
+  `[]` for exactly the same scopes), so answering `true` would render a link to
+  a page they are already on, inside a shell built for operators.
+
+  Every other view answers identically here and at the gate, which is what makes
+  "a card is visible iff its destination admits you" true — a visible card is
+  never a redirect, and the only page that admits more than it advertises is the
+  one no card points at.
+
+  ## Examples
+
+      # compute in the LiveView, keep HEEx declarative
+      assign(socket,
+        show_users_card?:
+          Auth.can_access_admin_view?(scope, PhoenixKitWeb.Live.Users.Users)
+      )
+  """
+  @spec can_access_admin_view?(Scope.t() | nil, module()) :: boolean()
+  def can_access_admin_view?(scope, view_module) when is_atom(view_module) do
+    cond do
+      not Scope.can_access_admin_area?(scope) ->
+        false
+
+      personal_admin_view?(view_module) ->
+        true
+
+      true ->
+        admin_view_permission_check(scope, permission_key_for_admin_view(view_module)) == :ok
+    end
+  end
+
   # Enforces module-level permission checks for admin views.
   # Extracted from on_mount(:phoenix_kit_ensure_admin) to reduce complexity.
   defp enforce_admin_view_permission(socket, scope) do
-    case permission_key_for_admin_view(socket.view) do
-      nil ->
-        # Unmapped views (a host custom admin LV with no permission mapping):
-        # allow ONLY a scope that can reach everything, fail closed for partial
-        # roles. `holds_all_enabled_permissions?/1` is fully role-AGNOSTIC — it
-        # is satisfied by Owner (all keys by construction), by the explicit `"*"`
-        # superadmin key, and by any role granted every grantable permission.
-        #
-        # The former `or system_role?` arm was REMOVED: it let a named Admin
-        # whose keys an Owner had partially revoked still reach unmapped views,
-        # violating "no role is special for feature access". A default Admin
-        # still passes because `holds_all_enabled_permissions?/1` compares
-        # against the operator baseline (enabled keys MINUS opt-in ones), and
-        # Admin auto-holds every one of those. To keep a deliberately-stripped
-        # role's blanket access, an Owner grants it the `"*"` key — the
-        # drift-immune, role-agnostic way.
-        Logger.debug(
-          "[Auth] Admin view #{inspect(socket.view)} has no permission mapping — " <>
-            "allowing full-access scopes only, denying partial roles"
-        )
+    if personal_admin_view?(socket.view) do
+      {:cont, socket}
+    else
+      enforce_mapped_admin_view_permission(socket, scope)
+    end
+  end
 
-        if Scope.holds_all_enabled_permissions?(scope) do
-          {:cont, socket}
-        else
-          deny_admin_access(socket, scope)
-        end
+  # Admin-chrome views showing a user their OWN data rather than granting an
+  # administrative capability. Reaching admin chrome at all already requires
+  # `can_access_admin_area?/1`, so this is not a hole — it says that once you
+  # are in, reading your own mail is not a separate privilege.
+  #
+  # ⚠️ This has to be an explicit list, not an absence. Simply dropping these
+  # views from `@admin_view_permissions` would make them *unmapped*, and the
+  # unmapped fallback below is deliberately Owner-only — the opposite of the
+  # intent.
+  # A plain list, not a MapSet: a MapSet in a module attribute is inlined as a
+  # literal, which leaks its internal representation past the opaque type.
+  @personal_admin_views [
+    PhoenixKitWeb.Live.Notifications.Inbox,
+    PhoenixKitWeb.Live.Notifications.Settings
+  ]
 
-      module_key ->
-        socket =
-          Phoenix.Component.assign(socket, :phoenix_kit_current_module_key, module_key)
+  defp personal_admin_view?(view), do: view in @personal_admin_views
 
-        module_enabled = Permissions.feature_enabled?(module_key)
+  # One warning per unmapped view, for ANY role — not only on a denial.
+  #
+  # This used to be a single `Logger.debug`, which meant a host could ship an
+  # admin page, test it as Owner, see it work, and learn about the missing
+  # mapping when a colleague hit a 403. Warning on the first mount regardless of
+  # who mounts it surfaces the misconfiguration while the author is still
+  # looking at the page.
+  #
+  # Deduped through `:persistent_term` keyed by the view module. That is
+  # naturally bounded — it holds only the distinct unmapped LiveView modules
+  # that ever mount, and module atoms are permanent in the BEAM anyway. The
+  # process dictionary would not work: a LiveView is its own process, so it
+  # would re-log on every mount.
+  defp warn_unmapped_admin_view_once(view) do
+    key = {__MODULE__, :unmapped_admin_view, view}
 
-        cond do
-          # Disabled modules are blocked for all roles (including Owner/Admin)
-          not module_enabled ->
-            deny_module_disabled(socket, module_key)
+    case :persistent_term.get(key, :unseen) do
+      :unseen ->
+        :persistent_term.put(key, :warned)
 
-          # Every role — Admin included — needs the permission key. Owner
-          # passes because its scope holds every key by construction; Admin
-          # holds keys as real rows (seeded/auto-granted, Owner-revocable).
-          # The old system-role bypass here made Owner's revocations on the
-          # Admin role effective everywhere EXCEPT fresh mounts — sidebar,
-          # plugs, and the mid-session PubSub kick all honored them already.
-          Scope.has_module_access?(scope, module_key) ->
-            {:cont, socket}
+        Logger.warning("""
+        [PhoenixKit] Admin view #{inspect(view)} has no permission mapping.
 
-          true ->
-            deny_admin_access(socket, scope)
-        end
+        Only a scope holding every enabled permission can reach it — so it works
+        for an Owner and 403s for everyone else, including a named Admin whose
+        keys have been partially revoked.
+
+        Map it by giving its admin tab a `permission:` key, or by declaring the
+        key in `config :phoenix_kit, :custom_permission_keys` and registering the
+        view through a tab's `live_view:`.
+        """)
+
+      :warned ->
+        :ok
+    end
+  end
+
+  # The enforcement side: same decision as `can_access_admin_view?/2`, plus the
+  # side effects a mount needs (the unmapped-view warning, the current-module
+  # assign, and the two different denials). The verdict itself is NOT recomputed
+  # here — it comes from `admin_view_permission_check/2`, the single
+  # implementation both callers share.
+  defp enforce_mapped_admin_view_permission(socket, scope) do
+    module_key = permission_key_for_admin_view(socket.view)
+
+    socket =
+      case module_key do
+        nil ->
+          warn_unmapped_admin_view_once(socket.view)
+          socket
+
+        key ->
+          Phoenix.Component.assign(socket, :phoenix_kit_current_module_key, key)
+      end
+
+    case admin_view_permission_check(scope, module_key) do
+      :ok -> {:cont, socket}
+      {:denied, {:module_disabled, key}} -> deny_module_disabled(socket, key)
+      {:denied, _reason} -> deny_admin_access(socket, scope)
+    end
+  end
+
+  # THE gate for "may a scope open a view that resolves to `module_key`".
+  #
+  # Every caller — the on_mount enforcement above and the public
+  # `can_access_admin_view?/2` used to decide whether to render a link at all —
+  # routes through here, so a visible card and its destination cannot disagree.
+  # Returns `:ok`, or `{:denied, reason}` where the reason only selects which
+  # denial the enforcement renders; it never widens or narrows the decision.
+  #
+  # Unmapped views (a host custom admin LV with no permission mapping): allow
+  # ONLY a scope that can reach everything, fail closed for partial roles.
+  # `holds_all_enabled_permissions?/1` is fully role-AGNOSTIC — it is satisfied
+  # by Owner (all keys by construction), by the explicit `"*"` superadmin key,
+  # and by any role granted every grantable permission.
+  #
+  # The former `or system_role?` arm was REMOVED: it let a named Admin whose
+  # keys an Owner had partially revoked still reach unmapped views, violating
+  # "no role is special for feature access". A default Admin still passes
+  # because `holds_all_enabled_permissions?/1` compares against the operator
+  # baseline (enabled keys MINUS opt-in ones), and Admin auto-holds every one of
+  # those. To keep a deliberately-stripped role's blanket access, an Owner
+  # grants it the `"*"` key — the drift-immune, role-agnostic way.
+  defp admin_view_permission_check(scope, nil) do
+    if Scope.holds_all_enabled_permissions?(scope) do
+      :ok
+    else
+      {:denied, :unmapped_view}
+    end
+  end
+
+  defp admin_view_permission_check(scope, module_key) do
+    cond do
+      # Disabled modules are blocked for all roles (including Owner/Admin)
+      not Permissions.feature_enabled?(module_key) ->
+        {:denied, {:module_disabled, module_key}}
+
+      # Every role — Admin included — needs the permission key. Owner
+      # passes because its scope holds every key by construction; Admin
+      # holds keys as real rows (seeded/auto-granted, Owner-revocable).
+      # The old system-role bypass here made Owner's revocations on the
+      # Admin role effective everywhere EXCEPT fresh mounts — sidebar,
+      # plugs, and the mid-session PubSub kick all honored them already.
+      #
+      # A tab may resolve to a dotted SUB-permission, and a raw sub-key
+      # without its base is an orphan (`has_module_access?/2` leaves that
+      # check to its caller). `can?/2` applies it, so route dotted keys
+      # there rather than admitting an orphan the sidebar already hides.
+      view_permission_held?(scope, module_key) ->
+        :ok
+
+      true ->
+        {:denied, :missing_permission}
+    end
+  end
+
+  defp view_permission_held?(scope, module_key) do
+    if Permissions.parent_key(module_key) do
+      Scope.can?(scope, module_key)
+    else
+      Scope.has_module_access?(scope, module_key)
     end
   end
 
@@ -1350,7 +1819,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   end
 
   defp deny_admin_access(socket, scope) do
-    redirect_to = best_available_admin_path(scope)
+    redirect_to = best_available_admin_path(socket, scope)
 
     socket =
       socket
@@ -1363,18 +1832,21 @@ defmodule PhoenixKitWeb.Users.Auth do
     {:halt, socket}
   end
 
-  # Check if user still has access to the currently viewed module
-  defp has_current_module_access?(socket, scope) do
-    case socket.assigns[:phoenix_kit_current_module_key] do
-      nil -> true
-      module_key -> Scope.has_module_access?(scope, module_key)
-    end
-  end
+  # Does the scope still hold the key the currently viewed module resolved to?
+  # `nil` means the view never resolved to one — an unmapped view, or the
+  # landing, which skips the enforcement that assigns it — and there is then no
+  # module permission to have lost.
+  defp module_access?(_scope, nil), do: true
+  defp module_access?(scope, module_key), do: Scope.has_module_access?(scope, module_key)
 
   # Maps admin LiveView modules to their permission keys.
   # Used by :phoenix_kit_ensure_admin to enforce module-level permissions
-  # on core admin routes that share the same live_session.
-  # Returns nil for unmapped views (allows access by default for backward compat).
+  # on core admin routes that share the same live_session, and by
+  # `can_access_admin_view?/2` to decide whether to render a link to one.
+  # A view absent from every resolution layer resolves to nil and is treated as
+  # UNMAPPED — which fails closed (full-access scopes only), not open. The
+  # "allows access by default for backward compat" this comment used to claim
+  # stopped being true when the `or system_role?` arm was removed.
   @admin_view_permissions %{
     PhoenixKitWeb.Live.Dashboard => "dashboard",
     PhoenixKitWeb.Live.Modules => "modules",
@@ -1423,12 +1895,11 @@ defmodule PhoenixKitWeb.Users.Auth do
     # fallback and a `media`-only custom role was wrongly denied it.)
     PhoenixKitWeb.Live.Modules.Storage.Health => "media",
     PhoenixKitWeb.Live.Modules.Jobs.Index => "jobs",
-    # Notifications: the two personal pages (inbox + per-type settings) take
-    # the base key. Explicit entries are required — PhoenixKitWeb.Live.*
-    # namespaces resolve through no inference branch, so an omission fails
-    # closed for custom (non-system) roles.
-    PhoenixKitWeb.Live.Notifications.Inbox => "notifications",
-    PhoenixKitWeb.Live.Notifications.Settings => "notifications",
+    # Notifications' two personal pages are NOT here — they are in
+    # `@personal_admin_views`, because reading your own inbox is not an
+    # administrative capability. The `notifications` key is reserved for an
+    # all-users/moderation view (its context API survives for that rebuild:
+    # `Notifications.admin_list/1`, `admin_stats/0`).
     # Activity feed / audit log — gated by `dashboard` (its admin tab is too).
     # These `PhoenixKitWeb.Live.Activity.*` modules resolve through no inference
     # layer, so without an explicit entry they hit the unmapped fallback — which
@@ -1746,23 +2217,24 @@ defmodule PhoenixKitWeb.Users.Auth do
   def require_authenticated_user(conn, _opts) do
     user = conn.assigns[:phoenix_kit_current_user]
 
-    cond do
-      is_nil(user) ->
-        conn
-        |> put_flash(:error, "You must log in to access this page.")
-        |> maybe_store_return_to()
-        |> redirect(to: Routes.path("/users/log-in"))
-        |> halt()
+    if is_nil(user) do
+      conn
+      |> put_flash(:error, "You must log in to access this page.")
+      |> maybe_store_return_to()
+      |> redirect(to: Routes.path("/users/log-in"))
+      |> halt()
+    else
+      case account_gate(user) do
+        :ok ->
+          conn
 
-      is_nil(user.confirmed_at) and confirmation_required?() ->
-        conn
-        |> put_flash(:error, "Please confirm your email before accessing the application.")
-        |> maybe_store_return_to()
-        |> redirect(to: Routes.path("/users/confirm"))
-        |> halt()
-
-      true ->
-        conn
+        {:halt, message, target} ->
+          conn
+          |> put_flash(:error, message)
+          |> maybe_store_return_to()
+          |> redirect(to: Routes.path(target))
+          |> halt()
+      end
     end
   end
 
@@ -1777,24 +2249,17 @@ defmodule PhoenixKitWeb.Users.Auth do
   def require_authenticated_scope(conn, _opts) do
     case conn.assigns[:phoenix_kit_current_scope] do
       %Scope{} = scope ->
-        cond do
-          not Scope.authenticated?(scope) ->
-            conn
-            |> put_flash(:error, "You must log in to access this page.")
-            |> maybe_store_return_to()
-            |> redirect(to: Routes.path("/users/log-in"))
-            |> halt()
-
-          Scope.authenticated?(scope) and not email_confirmed?(scope) and
-              confirmation_required?() ->
-            conn
-            |> put_flash(:error, "Please confirm your email before accessing the application.")
-            |> maybe_store_return_to()
-            |> redirect(to: Routes.path("/users/confirm"))
-            |> halt()
-
-          true ->
-            conn
+        if Scope.authenticated?(scope) do
+          case enforce_account_gate(conn, scope) do
+            {:halt, conn} -> conn
+            :cont -> conn
+          end
+        else
+          conn
+          |> put_flash(:error, "You must log in to access this page.")
+          |> maybe_store_return_to()
+          |> redirect(to: Routes.path("/users/log-in"))
+          |> halt()
         end
 
       _ ->
@@ -1805,11 +2270,34 @@ defmodule PhoenixKitWeb.Users.Auth do
     end
   end
 
-  defp email_confirmed?(%Scope{user: %{confirmed_at: confirmed_at}})
-       when not is_nil(confirmed_at),
-       do: true
+  defp email_confirmed?(%Scope{user: user}), do: email_confirmed?(user)
+
+  defp email_confirmed?(%{confirmed_at: confirmed_at}) when not is_nil(confirmed_at), do: true
 
   defp email_confirmed?(_), do: false
+
+  # Everything an already-authenticated account must satisfy before it may use
+  # the application, in the order the user should be walked through them. This
+  # is the single definition behind all five `on_mount` hooks and all four
+  # role/permission plugs — a gate added here is enforced everywhere at once,
+  # which is how the invite-only gate reached eleven call sites without eleven
+  # copies of the rule.
+  #
+  # Returns `:ok`, or `{:halt, flash_message, path}` where `path` is the page
+  # that will unblock the user. Callers turn that into a conn or socket
+  # redirect and are responsible for carrying `return_to`.
+  defp account_gate(subject) do
+    cond do
+      not email_confirmed?(subject) and confirmation_required?() ->
+        {:halt, "Please confirm your email before accessing the application.", "/users/confirm"}
+
+      not Referrals.access_satisfied?(subject) ->
+        {:halt, "Enter your referral code to continue.", "/users/referral"}
+
+      true ->
+        :ok
+    end
+  end
 
   # Whether unconfirmed accounts are blocked from authenticated routes.
   # Host-configurable via the `require_email_confirmation` setting (default
@@ -1819,21 +2307,26 @@ defmodule PhoenixKitWeb.Users.Auth do
     PhoenixKit.Settings.get_boolean_setting("require_email_confirmation", true)
   end
 
-  # Shared confirmation gate for the role-based conn plugs. They check the role
-  # but never the email, and the shipped `:phoenix_kit_admin_only` pipeline runs
-  # `require_admin` with NO preceding `require_authenticated_*` — so a host
-  # controller route behind it enforced confirmation nowhere, even at the
-  # default. Returns `:cont` or an already-halted conn.
-  defp confirmation_gate(conn, scope) do
-    if Scope.authenticated?(scope) and not email_confirmed?(scope) and confirmation_required?() do
+  # Conn side of `account_gate/1`, for the role-based plugs. They check the role
+  # but never the account state, and the shipped `:phoenix_kit_admin_only`
+  # pipeline runs `require_admin` with NO preceding `require_authenticated_*` —
+  # so a host controller route behind it enforced confirmation nowhere, even at
+  # the default. Returns `:cont` or an already-halted conn.
+  #
+  # An anonymous visitor passes straight through: each caller has its own
+  # not-logged-in branch, and parking a visitor with no account on a page that
+  # asks them to satisfy their account is nonsense.
+  defp enforce_account_gate(conn, scope) do
+    with true <- Scope.authenticated?(scope),
+         {:halt, message, target} <- account_gate(scope) do
       {:halt,
        conn
-       |> put_flash(:error, "Please confirm your email before accessing the application.")
+       |> put_flash(:error, message)
        |> maybe_store_return_to()
-       |> redirect(to: Routes.path("/users/confirm"))
+       |> redirect(to: Routes.path(target))
        |> halt()}
     else
-      :cont
+      _ -> :cont
     end
   end
 
@@ -1847,7 +2340,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   def require_owner(conn, _opts) do
     case conn.assigns[:phoenix_kit_current_scope] do
       %Scope{} = scope ->
-        case confirmation_gate(conn, scope) do
+        case enforce_account_gate(conn, scope) do
           {:halt, conn} ->
             conn
 
@@ -1857,7 +2350,7 @@ defmodule PhoenixKitWeb.Users.Auth do
             else
               conn
               |> put_flash(:error, "You must be an owner to access this page.")
-              |> redirect(to: "/")
+              |> redirect(to: Routes.safe_destination(conn, scope: scope))
               |> halt()
             end
         end
@@ -1880,7 +2373,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   def require_admin(conn, _opts) do
     case conn.assigns[:phoenix_kit_current_scope] do
       %Scope{} = scope ->
-        case confirmation_gate(conn, scope) do
+        case enforce_account_gate(conn, scope) do
           {:halt, conn} ->
             conn
 
@@ -1895,7 +2388,7 @@ defmodule PhoenixKitWeb.Users.Auth do
                   :error,
                   "You do not have the required permission to access this page."
                 )
-                |> redirect(to: "/")
+                |> redirect(to: Routes.safe_destination(conn, scope: scope, skip_admin: true))
                 |> halt()
 
               true ->
@@ -1919,7 +2412,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   def require_module_access(conn, module_key) when is_binary(module_key) do
     case conn.assigns[:phoenix_kit_current_scope] do
       %Scope{} = scope ->
-        case confirmation_gate(conn, scope) do
+        case enforce_account_gate(conn, scope) do
           {:halt, conn} ->
             conn
 
@@ -1931,7 +2424,7 @@ defmodule PhoenixKitWeb.Users.Auth do
                   :error,
                   "You do not have the required permission to access this page."
                 )
-                |> redirect(to: "/")
+                |> redirect(to: Routes.safe_destination(conn, scope: scope, skip_admin: true))
                 |> halt()
 
               # Disabled modules are blocked for everyone (Owner included), matching
@@ -1943,7 +2436,7 @@ defmodule PhoenixKitWeb.Users.Auth do
               true ->
                 conn
                 |> put_flash(:error, "You do not have permission to access this section.")
-                |> redirect(to: best_available_admin_path(scope))
+                |> redirect(to: best_available_admin_path(conn, scope))
                 |> halt()
             end
         end
@@ -1958,7 +2451,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   def require_role(conn, role_name) when is_binary(role_name) do
     case conn.assigns[:phoenix_kit_current_scope] do
       %Scope{} = scope ->
-        case confirmation_gate(conn, scope) do
+        case enforce_account_gate(conn, scope) do
           {:halt, conn} ->
             conn
 
@@ -1968,7 +2461,7 @@ defmodule PhoenixKitWeb.Users.Auth do
             else
               conn
               |> put_flash(:error, "You must have the #{role_name} role to access this page.")
-              |> redirect(to: "/")
+              |> redirect(to: Routes.safe_destination(conn, scope: scope))
               |> halt()
             end
         end
@@ -2003,13 +2496,6 @@ defmodule PhoenixKitWeb.Users.Auth do
     path_with_return_to(socket, "/users/log-in")
   end
 
-  # Same shape for the unconfirmed-account gate: /users/confirm reads the
-  # param and sends the user onward once their email is confirmed, so the
-  # originally requested page isn't lost while they're parked there.
-  defp confirm_path_with_return_to(socket) do
-    path_with_return_to(socket, "/users/confirm")
-  end
-
   # The self-loop check trims trailing slashes on both sides so
   # `/users/log-in` and `/users/log-in/` are treated as the same path —
   # without the trim, a hand-typed trailing-slash URL would round-trip
@@ -2023,7 +2509,12 @@ defmodule PhoenixKitWeb.Users.Auth do
         if String.trim_trailing(path, "/") == target_path_canonical do
           target_path
         else
-          query = if uri.query, do: "?" <> uri.query, else: ""
+          # `""` is truthy in Elixir, so a plain `if uri.query` turned a
+          # query-less-but-present query string into a bare `"?"` — and the URI
+          # comes from the browser's location, which carries one after a
+          # fieldless GET submit or a `push_patch` with no params. Captured
+          # once, it round-trips back into the URL and perpetuates itself.
+          query = if uri.query in [nil, ""], do: "", else: "?" <> uri.query
           target_path <> "?return_to=" <> URI.encode_www_form(path <> query)
         end
 
@@ -2035,7 +2526,27 @@ defmodule PhoenixKitWeb.Users.Auth do
   # Default post-login destination — the `after_login_path` setting, guarded.
   # An explicit :user_return_to (stashed by the gates above or passed by the
   # login form) is applied by `log_in_user/3` and wins over this default.
-  defp signed_in_path(_conn), do: Routes.post_auth_path()
+  #
+  # The conn/socket is forwarded as `:context` so the `"/"` tail of that chain
+  # is proven to resolve before anyone is sent to it. This is the return leg of
+  # `safe_destination/2`: its anonymous terminal is `/users/log-in`, whose
+  # on_mount hooks bounce an authenticated visitor right back through here, so
+  # a blind `"/"` here would undo the guarantee one hop later.
+  defp signed_in_path(source) do
+    Routes.post_auth_path([], context: source, scope: source_scope(source))
+  end
+
+  # `:phoenix_kit_redirect_if_user_is_authenticated` assigns only the user, the
+  # scope variants assign a scope, and `redirect_if_user_is_authenticated/2`
+  # runs on a conn — all three are handled here rather than at each call site.
+  # No catch-all clause: every caller holds a conn or a socket, and a fallback
+  # for a shape that cannot arrive is a Dialyzer failure, not a safety net.
+  defp source_scope(%{assigns: assigns}) do
+    case assigns[:phoenix_kit_current_scope] do
+      %Scope{} = scope -> scope
+      _ -> Scope.for_user(assigns[:phoenix_kit_current_user])
+    end
+  end
 
   @doc """
   Validates and sets the locale for the current request.
@@ -2099,6 +2610,15 @@ defmodule PhoenixKitWeb.Users.Auth do
           locale in @reserved_path_segments ->
             process_as_default_locale(conn)
 
+          # An ENABLED full dialect ("en-gb"/"en-GB" with en-GB enabled) is a
+          # real localized URL — publishing's sibling-dialect URLs (two
+          # enabled dialects of one base, the non-primary one addressed by
+          # its lowercase full code) depend on this branch. Only exact
+          # enabled membership qualifies, matched case-insensitively; every
+          # other hyphenated segment keeps the historical redirect to base.
+          dialect = enabled_full_dialect(locale) ->
+            process_enabled_dialect_locale(conn, dialect)
+
           # Check if this is a full dialect code (contains hyphen) → redirect to base
           String.contains?(locale, "-") ->
             redirect_to_base_locale(conn, locale)
@@ -2149,16 +2669,6 @@ defmodule PhoenixKitWeb.Users.Auth do
   defp process_as_default_locale(conn) do
     locale = conn.path_params["locale"] || conn.path_params["language"]
 
-    # Remove the locale segment from the path
-    # /admin (with "admin" as locale) → /
-    clean_path =
-      conn.request_path
-      |> String.replace_prefix("/#{locale}", "")
-      |> then(fn
-        "" -> "/"
-        path -> path
-      end)
-
     # Set locale before redirecting. URL-driven dialect — no user (see
     # `process_valid_locale/2` for the rationale).
     default_base = Routes.get_default_admin_locale()
@@ -2167,14 +2677,155 @@ defmodule PhoenixKitWeb.Users.Auth do
     Gettext.put_locale(PhoenixKitWeb.Gettext, default_dialect)
     Gettext.put_locale(default_dialect)
 
-    # Redirect to clean path so the router matches the correct route
-    conn
-    |> Phoenix.Controller.redirect(to: clean_path, status: 307)
-    |> halt()
+    case strip_locale_segment(conn, locale) do
+      {:ok, clean_path} ->
+        # Redirect to clean path so the router matches the correct route.
+        #
+        # A REAL 307, which the old code only claimed to send: it passed
+        # `status: 307` to `Phoenix.Controller.redirect/2`, which sends
+        # `conn.status || 302` and ignores an `:status` option entirely.
+        # The status has to be set on the conn first.
+        #
+        # 307 rather than 302 because this pipeline carries the localized
+        # non-live auth endpoints — `post "/:locale/users/log-in"` and
+        # friends (see `generate_localized_routes/1`). A 302 is replayed
+        # by the browser as a GET, so a login POST that happened to land
+        # on a reserved segment would arrive at the corrected URL with its
+        # body silently dropped. 307 preserves method and body, which is
+        # what "you asked for the right resource under a wrong prefix"
+        # should mean. Safe to cache-bust freely: unlike a 301 this is
+        # explicitly temporary.
+        conn
+        |> put_status(:temporary_redirect)
+        |> Phoenix.Controller.redirect(to: with_query_string(clean_path, conn))
+        |> halt()
+
+      :error ->
+        # The locale segment could not be located in the path, so there is
+        # no cleaner URL to send the user to. Historically this branch
+        # redirected to `clean_path` anyway — and because the old strip
+        # was prefix-blind (`String.replace_prefix(request_path,
+        # "/#{locale}", "")` is a no-op on `/phoenix_kit/admin/shop`), it
+        # emitted a redirect straight back to the same URL and the browser
+        # spun until it gave up. Never redirect to a path we did not
+        # actually change: fall through and let the matched route render
+        # under the default locale instead.
+        conn
+        |> assign(:current_locale_base, default_base)
+        |> assign(:current_locale, default_dialect)
+    end
+  end
+
+  # Rebuild the request path with the mis-captured locale segment removed,
+  # preserving both the mount prefix and any enclosing `forward` mount.
+  #
+  # `conn.request_path` includes the PhoenixKit mount prefix
+  # ("/phoenix_kit/admin/shop"), while `locale` is the segment that
+  # follows it — so the prefix has to be skipped before dropping the
+  # segment, and re-attached afterwards. Returns `:error` when the path
+  # does not have the expected `<prefix>/<locale>/...` shape, so callers
+  # can decline to redirect rather than bounce the request at itself.
+  #
+  # Two subtleties, both of which produced wrong URLs when this was first
+  # written against `path_info` alone:
+  #
+  #   * **`script_name`.** `conn.path_info` is router-relative; a router
+  #     reached through `Plug.forward` (a `/tenant` mount, say) carries
+  #     the mount segments in `conn.script_name` instead. Rebuilding from
+  #     `path_info` only would emit `/phoenix_kit/shop` for a request to
+  #     `/tenant/phoenix_kit/api/shop` — a redirect straight out of the
+  #     mount. The old `request_path`-based code got this right by
+  #     accident, so it has to be restored explicitly.
+  #
+  #   * **percent-encoding.** Phoenix matches routes against a DECODED
+  #     copy of the path (`Phoenix.Router.call/2` does
+  #     `Enum.map(path_info, &URI.decode/1)` before `__match_route__`),
+  #     but leaves `conn.path_info` encoded. So `/phoenix_kit/%61pi/shop`
+  #     binds `path_params["locale"] == "api"` while `path_info` still
+  #     holds `"%61pi"`, and a raw comparison silently misses. Compare
+  #     decoded segments; emit the RAW ones, so the redirect target keeps
+  #     whatever encoding the client sent.
+  defp strip_locale_segment(conn, locale) when is_binary(locale) do
+    prefix_segments =
+      PhoenixKit.Config.get_url_prefix()
+      |> to_string()
+      |> String.split("/", trim: true)
+
+    prefix_length = length(prefix_segments)
+    decoded = Enum.map(conn.path_info, &URI.decode/1)
+
+    with {^prefix_segments, [^locale | _]} <- Enum.split(decoded, prefix_length),
+         {_prefix, [_locale | rest]} <- Enum.split(conn.path_info, prefix_length) do
+      {:ok, "/" <> Enum.join(conn.script_name ++ prefix_segments ++ rest, "/")}
+    else
+      _ -> :error
+    end
+  end
+
+  defp strip_locale_segment(_conn, _locale), do: :error
+
+  # Characters `Phoenix.Controller.redirect/2` refuses in a local target.
+  # Mirrored here because the list is private to Phoenix and a query string
+  # is arbitrary client input — see `with_query_string/2`.
+  @unsafe_redirect_chars ["\\", "/%09", "/\t"]
+
+  # Carry the query string across a locale redirect.
+  #
+  # Every locale redirect in this module rebuilds a PATH — `request_path`
+  # and `path_info` both stop at the "?" — so the query was dropped on the
+  # floor, and `redirect_to_base_locale/2` documented the opposite ("Query
+  # parameters preserved", with a `?page=2` example that never worked).
+  # On this surface that is not cosmetic: `Routes.return_to_query/1`
+  # threads `return_to` through exactly these URLs, so a visitor arriving
+  # at `/<prefix>/en-US/users/log-in?return_to=/admin/x` lost their
+  # destination and landed on the post-login default instead.
+  #
+  # Drop the query rather than raise when it contains something
+  # `redirect/2` rejects: a client can send a raw backslash in a query
+  # value, and a 500 would be worse than the truncation we ship today.
+  defp with_query_string(path, conn) do
+    case conn.query_string do
+      "" ->
+        path
+
+      query ->
+        candidate = path <> "?" <> query
+        if String.contains?(candidate, @unsafe_redirect_chars), do: path, else: candidate
+    end
   end
 
   defp locale_allowed?(base_code) do
     language_enabled?(base_code)
+  end
+
+  # The stored-case enabled code for a hyphenated URL segment ("en-gb" →
+  # "en-GB"), nil when the segment isn't an enabled dialect. An empty
+  # enabled list means the Languages module is effectively off — fall
+  # through to the historical hyphen→base redirect rather than accepting
+  # arbitrary dialects.
+  defp enabled_full_dialect(locale) do
+    if String.contains?(locale, "-") do
+      down = String.downcase(locale)
+
+      Enum.find_value(Languages.get_enabled_languages(), fn lang ->
+        if String.downcase(lang.code) == down, do: lang.code
+      end)
+    end
+  end
+
+  # Mirrors the else-branch of process_valid_locale/2 for an exact enabled
+  # dialect: the URL already names the full dialect, so there is nothing to
+  # resolve — set Gettext and expose base + full on the conn. The
+  # prefixless-primary redirect never applies here: only non-primary
+  # siblings are addressed by full-code URLs (the primary's URLs stay
+  # base-coded), so a dialect segment is never the default locale.
+  defp process_enabled_dialect_locale(conn, dialect) do
+    Gettext.put_locale(PhoenixKitWeb.Gettext, dialect)
+    Gettext.put_locale(dialect)
+
+    conn
+    |> assign(:current_locale_base, DialectMapper.extract_base(dialect))
+    |> assign(:current_locale, dialect)
   end
 
   # Check if a language (base code) is enabled in the system
@@ -2233,13 +2884,46 @@ defmodule PhoenixKitWeb.Users.Auth do
   # `process_valid_locale/2` to skip the default-locale-redirect so
   # both `/phoenix_kit/admin/*` and `/phoenix_kit/<default>/admin/*`
   # render whichever shape the user typed.
+  # Whether this request targets the admin area.
+  #
+  # Matches "admin" as a whole PATH SEGMENT, not as a substring. The old
+  # `String.contains?(request_path, "/admin")` classified any URL with
+  # those characters anywhere in it — a storefront product at
+  # `/shop/product/admin-tools`, a blog post at `/news/admin-changes` — as
+  # an admin request, which then skipped default-locale canonicalisation
+  # for those pages.
+  #
+  # Segment-wise matching also means a genuine admin URL still matches
+  # under any mount prefix and any locale segment, since we only care
+  # whether "admin" appears as its own segment.
+  #
+  # Decoded, for the reason spelled out on `strip_locale_segment/2`:
+  # Phoenix binds routes against a decoded copy of the path but leaves
+  # `conn.path_info` encoded, so `/<prefix>/en/%61dmin/users` reaches the
+  # admin route while a raw comparison reports "not admin" and hands the
+  # request to the default-locale canonicaliser.
   defp admin_request?(conn) do
-    String.contains?(conn.request_path, "/admin")
+    Enum.any?(conn.path_info, &(URI.decode(&1) == "admin"))
   end
 
   # Redirects default language URLs to clean URLs (no locale prefix)
   # Example: /phoenix_kit/en/dashboard → /phoenix_kit/dashboard
-  # Uses 301 permanent redirect for SEO - tells browsers/search engines the clean URL is canonical
+  #
+  # This sends a 302, NOT the 301 the code used to ask for. Two reasons,
+  # and they point the same way:
+  #
+  #   1. It never was a 301. `Phoenix.Controller.redirect/2` sends
+  #      `conn.status || 302` and ignores an `:status` option entirely,
+  #      so the `status: 301` that used to sit on this call was dead.
+  #   2. A real 301 here would be a bug. Which language is "default" is a
+  #      runtime setting an admin can change; browsers and crawlers cache
+  #      301s ~forever, so flipping the default from en to et would leave
+  #      clients permanently redirecting `/en/...` away from a locale that
+  #      had become a legitimate URL. The accidental 302 was the correct
+  #      behaviour all along.
+  #
+  # If canonicalisation for SEO is wanted, express it with a
+  # `<link rel="canonical">` — not with a cached permanent redirect.
   defp redirect_default_locale_to_clean_url(conn, locale) do
     # Remove /en/ from path: /phoenix_kit/en/admin → /phoenix_kit/admin
     clean_path =
@@ -2258,18 +2942,23 @@ defmodule PhoenixKitWeb.Users.Auth do
     clean_path = if clean_path == "", do: "/", else: clean_path
 
     conn
-    |> Phoenix.Controller.redirect(to: clean_path, status: 301)
+    |> Phoenix.Controller.redirect(to: with_query_string(clean_path, conn))
     |> halt()
   end
 
   @doc """
-  Redirects full dialect code URLs to base language URLs (301 permanent).
+  Redirects full dialect code URLs to base language URLs.
 
   This function handles backward compatibility by redirecting old URLs with
   full dialect codes (en-US, es-MX) to the new simplified base code URLs (en, es).
 
-  Uses 301 Permanent redirect to tell browsers and search engines to update bookmarks
-  and indexed URLs. This is SEO-friendly and provides clean URL migration.
+  Sends a **302**. The docs here used to promise a 301, and the call passed
+  `status: 301` — but `Phoenix.Controller.redirect/2` sends
+  `conn.status || 302` and ignores an `:status` option, so no 301 was ever
+  emitted. The option has been removed rather than made real: a cached
+  permanent redirect off a dialect code is hard to walk back if the
+  dialect set changes, and nothing here needs permanence. Use
+  `put_status(:moved_permanently)` before `redirect/2` if that ever changes.
 
   ## Examples
 
@@ -2281,14 +2970,17 @@ defmodule PhoenixKitWeb.Users.Auth do
 
   ## Preservation
 
-  - Query parameters preserved
-  - URL fragments preserved
+  - Query parameters preserved (via `with_query_string/2` — they were not,
+    before: this rebuilds a path, and `conn.request_path` stops at the "?")
   - Request method unchanged (GET → GET)
   - Full path structure maintained
 
+  URL fragments are NOT preserved, and cannot be: a fragment never leaves
+  the browser, so the server has nothing to copy. The client re-applies
+  its own fragment to the `Location` it follows.
+
   ## Notes
 
-  - Status code 301 (Permanent) tells clients to update bookmarks
   - Halts conn pipeline (no further processing)
   - Logged for monitoring migration patterns
   """
@@ -2324,7 +3016,7 @@ defmodule PhoenixKitWeb.Users.Auth do
     """)
 
     conn
-    |> Phoenix.Controller.redirect(to: corrected_path, status: 301)
+    |> Phoenix.Controller.redirect(to: with_query_string(corrected_path, conn))
     |> halt()
   end
 

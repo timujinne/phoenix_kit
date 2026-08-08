@@ -66,7 +66,7 @@ defmodule PhoenixKitWeb.Components.Core.ThemeController do
                   data-theme-role="dropdown-option"
                   role="option"
                   aria-pressed="false"
-                  class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer"
                 >
                   <%= case theme.type do %>
                     <% :system -> %>

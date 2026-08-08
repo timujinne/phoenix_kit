@@ -6,6 +6,25 @@ defmodule PhoenixKit.Users.Auth.Scope do
   throughout your Phoenix application, similar to Phoenix's built-in authentication
   patterns but with PhoenixKit prefixing to avoid conflicts.
 
+  ## Nil scopes
+
+  **Every predicate and accessor here tolerates a `nil` scope and answers as if
+  the visitor were unauthenticated.** Host layouts render on kit auth pages with
+  `phoenix_kit_current_scope` unset, so `authenticated?(nil)` and
+  `anonymous?(nil)` are ordinary calls, not programmer errors — and "no scope"
+  and "a scope with no user" mean the same thing to a caller deciding what to
+  render.
+
+  The exception is `to_map/1`, which deliberately does not accept `nil`. There
+  is nothing meaningful to serialize for a non-scope, and returning an empty map
+  would fabricate data that looks real; it is a debug/serialization helper, so
+  failing surfaces the bug where permissiveness would bury it. Its spec keeps
+  `t()`, so the type checker rejects `to_map(nil)` at compile time rather than
+  leaving it to blow up at runtime.
+
+  Apply the same rule to anything added here: if `nil` has a correct answer,
+  give it one; if answering would mean inventing data, let it raise.
+
   ## Usage
 
       # Create scope for authenticated user
@@ -173,8 +192,9 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.authenticated?(scope)
       false
   """
-  @spec authenticated?(t()) :: boolean()
+  @spec authenticated?(t() | nil) :: boolean()
   def authenticated?(%__MODULE__{authenticated?: authenticated?}), do: authenticated?
+  def authenticated?(_), do: false
 
   @doc """
   Gets the user from the scope.
@@ -190,8 +210,9 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.user(scope)
       nil
   """
-  @spec user(t()) :: User.t() | nil
+  @spec user(t() | nil) :: User.t() | nil
   def user(%__MODULE__{user: user}), do: user
+  def user(_), do: nil
 
   @doc """
   Gets the user ID (UUID) from the scope.
@@ -206,9 +227,9 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.user_uuid(scope)
       nil
   """
-  @spec user_uuid(t()) :: String.t() | nil
+  @spec user_uuid(t() | nil) :: String.t() | nil
   def user_uuid(%__MODULE__{user: %User{uuid: uuid}}), do: uuid
-  def user_uuid(%__MODULE__{user: nil}), do: nil
+  def user_uuid(_), do: nil
 
   @doc """
   Gets the user email from the scope.
@@ -224,9 +245,9 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.user_email(scope)
       nil
   """
-  @spec user_email(t()) :: String.t() | nil
+  @spec user_email(t() | nil) :: String.t() | nil
   def user_email(%__MODULE__{user: %User{email: email}}), do: email
-  def user_email(%__MODULE__{user: nil}), do: nil
+  def user_email(_), do: nil
 
   @doc """
   Checks if the scope represents an anonymous (non-authenticated) user.
@@ -242,8 +263,9 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.anonymous?(scope)
       false
   """
-  @spec anonymous?(t()) :: boolean()
+  @spec anonymous?(t() | nil) :: boolean()
   def anonymous?(%__MODULE__{authenticated?: authenticated?}), do: not authenticated?
+  def anonymous?(_), do: true
 
   @doc """
   Checks if the user has a specific role.
@@ -371,12 +393,12 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.user_full_name(scope)
       nil
   """
-  @spec user_full_name(t()) :: String.t() | nil
+  @spec user_full_name(t() | nil) :: String.t() | nil
   def user_full_name(%__MODULE__{user: %User{} = user}) do
     User.full_name(user)
   end
 
-  def user_full_name(%__MODULE__{user: nil}), do: nil
+  def user_full_name(_), do: nil
 
   @doc """
   Checks if the user is active.
@@ -392,12 +414,12 @@ defmodule PhoenixKit.Users.Auth.Scope do
       iex> PhoenixKit.Users.Auth.Scope.user_active?(scope)
       false
   """
-  @spec user_active?(t()) :: boolean()
+  @spec user_active?(t() | nil) :: boolean()
   def user_active?(%__MODULE__{user: %User{is_active: is_active}}) do
     is_active
   end
 
-  def user_active?(%__MODULE__{user: nil}), do: false
+  def user_active?(_), do: false
 
   @doc """
   Converts scope to a map for debugging or logging purposes.

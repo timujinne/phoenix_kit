@@ -22,6 +22,11 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
 
   ## Default Exclusions
 
+  Custom exclude patterns **add to** the built-in defaults; they do not replace
+  them. A host that saves one pattern of its own keeps every admin, auth and
+  infrastructure exclusion, and picks up new defaults from later PhoenixKit
+  versions. Saving `"!replace"` as the first entry opts into replacement.
+
   By default, the following patterns are excluded:
   - `^/admin` - Admin routes
   - `^/api` - API endpoints
@@ -52,9 +57,14 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
       # Enable auto-discovery (default)
       Settings.update_boolean_setting("sitemap_router_discovery_enabled", true)
 
-      # Custom exclude patterns
+      # Custom exclude patterns (added to the defaults)
       Settings.update_setting("sitemap_router_discovery_exclude_patterns",
-        JSON.encode!(["^/admin", "^/api", "^/private"]))
+        JSON.encode!(["^/private"]))
+
+      # Replace the defaults entirely (rarely what you want — this is how an
+      # authenticated URL ends up in a search index)
+      Settings.update_setting("sitemap_router_discovery_exclude_patterns",
+        JSON.encode!(["!replace", "^/private"]))
 
       # Whitelist mode - only include specific paths
       Settings.update_setting("sitemap_router_discovery_include_only",
@@ -79,6 +89,11 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
   alias PhoenixKit.Modules.Sitemap.UrlEntry
   alias PhoenixKit.Settings
 
+  # First entry of a saved exclude list to opt out of extending the defaults.
+  # Not a regex — matched literally before compilation, so it can never be
+  # confused with a real pattern.
+  @replace_sentinel "!replace"
+
   @default_exclude_patterns [
     "^/admin",
     "^/api",
@@ -99,6 +114,7 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
     "/users/register",
     "/users/reset-password",
     "/users/confirm",
+    "/users/referral",
     "/users/magic-link",
     "/users/settings",
     # QR device-handoff login: a public route with no auth pipeline and no
@@ -111,10 +127,16 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
     "/newsletters/unsubscribe",
     "/health",
     "/ready",
-    # Infrastructure
+    # Infrastructure. `/file`, `/tiles` and `/api/files` are storage-serving
+    # routes; they are listed explicitly rather than left to `^/phoenix_kit`
+    # and `^/api`, because a root-mounted install has no `/phoenix_kit` prefix
+    # for the first two to hide behind.
     "/sitemap\\.",
     "/sitemaps/",
     "/assets/",
+    "^/file/",
+    "^/tiles/",
+    "^/api/files",
     # Host apps that serve robots.txt from a controller (rather than
     # Plug.Static) expose it as a GET route — it is a directive file, not a page
     "^/robots\\.txt$",
@@ -197,20 +219,26 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
   @doc """
   Returns the built-in default exclude patterns.
 
-  These apply whenever `sitemap_router_discovery_exclude_patterns` is unset.
-  Once that setting is saved (even as an empty list), it replaces this list
-  entirely rather than adding to it. Exposed so the settings UI can show
-  admins what's excluded today, before they touch the setting.
+  Custom patterns saved in `sitemap_router_discovery_exclude_patterns` **add
+  to** this list — matching how `sitemap_protected_pipelines` has always
+  behaved. A saved list used to replace these outright, which made the setting
+  a one-way door: adding a single pattern of your own silently un-excluded
+  every admin, auth and infrastructure route, and later PhoenixKit versions
+  could never ship a new default to that install.
 
-  > #### Saved lists are frozen {: .warning}
-  >
-  > Because a saved setting replaces these defaults, an install that already
-  > saved a custom list does **not** pick up patterns added here in later
-  > PhoenixKit versions. When new defaults ship, such installs must re-copy
-  > this list into the settings textarea to get them.
+  To genuinely replace the defaults, save the special entry `"!replace"` as the
+  first pattern. That is deliberately awkward, because it is the option that
+  can publish an authenticated URL to a search engine.
   """
   @spec default_exclude_patterns() :: [String.t()]
   def default_exclude_patterns, do: @default_exclude_patterns
+
+  @doc """
+  The sentinel that makes a saved exclude list replace the defaults instead of
+  extending them.
+  """
+  @spec replace_defaults_sentinel() :: String.t()
+  def replace_defaults_sentinel, do: @replace_sentinel
 
   @doc """
   Returns the built-in default protected pipelines.
@@ -224,7 +252,7 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
 
   defp do_collect(opts) do
     base_url = Keyword.get(opts, :base_url)
-    exclude_patterns = compile_patterns(get_exclude_patterns(), "exclude")
+    exclude_patterns = compile_patterns(effective_exclude_patterns(), "exclude")
     include_only = compile_include_only(get_include_only_patterns())
 
     RouteResolver.get_routes()
@@ -366,24 +394,40 @@ defmodule PhoenixKit.Modules.Sitemap.Sources.RouterDiscovery do
     end)
   end
 
-  defp get_exclude_patterns do
-    case Settings.get_setting("sitemap_router_discovery_exclude_patterns") do
-      nil ->
-        @default_exclude_patterns
+  @doc """
+  The exclude patterns actually in force: the built-in defaults plus whatever
+  the host saved (or only the saved ones, behind the replace sentinel).
 
-      json_string when is_binary(json_string) ->
-        case JSON.decode(json_string) do
-          {:ok, patterns} when is_list(patterns) -> patterns
-          _ -> @default_exclude_patterns
-        end
+  Public so the settings UI and `mix phoenix_kit.doctor` can show the same
+  answer collection uses, instead of each recomputing the merge.
+  """
+  @spec effective_exclude_patterns() :: [String.t()]
+  def effective_exclude_patterns do
+    "sitemap_router_discovery_exclude_patterns"
+    |> Settings.get_setting()
+    |> decode_patterns()
+    |> merge_with_defaults()
+  end
 
-      patterns when is_list(patterns) ->
-        patterns
-
-      _ ->
-        @default_exclude_patterns
+  defp decode_patterns(json_string) when is_binary(json_string) do
+    case JSON.decode(json_string) do
+      {:ok, patterns} when is_list(patterns) -> patterns
+      _ -> []
     end
   end
+
+  defp decode_patterns(patterns) when is_list(patterns), do: patterns
+  defp decode_patterns(_), do: []
+
+  # Saved patterns EXTEND the built-in defaults. Replacing them outright made
+  # the setting a one-way door — adding one pattern of your own dropped every
+  # admin and auth exclusion, and no later default could ever reach that
+  # install. `"!replace"` as the first entry opts back into replacement for the
+  # rare host that means it.
+  defp merge_with_defaults([@replace_sentinel | patterns]), do: patterns
+
+  defp merge_with_defaults(patterns),
+    do: Enum.uniq(@default_exclude_patterns ++ patterns)
 
   defp get_include_only_patterns do
     case Settings.get_setting("sitemap_router_discovery_include_only") do

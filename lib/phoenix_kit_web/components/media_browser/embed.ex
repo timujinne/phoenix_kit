@@ -74,6 +74,16 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
   url-synced browsers on one page would fight over them. Give only one
   the `url_sync` option in that case.
 
+  ⚠ **`url_sync: true` makes the host LiveView un-embeddable.** It cannot
+  itself be mounted with `live_render/3` afterwards. The `push_patch` this
+  option performs reaches `sync_handle_params_with_live_redirect/5`, which
+  invokes `view.handle_params/3` unconditionally — hence the stub injected
+  below — and on an embedded mount `maybe_call_mount_handle_params/4` raises
+  for any LiveView that exports `handle_params/3`, whatever its body does.
+  The stub is therefore not a formality: it is what trades embeddability for
+  a shareable URL. Hosts that must stay embeddable have to leave `url_sync`
+  off.
+
   ## What gets injected
 
   * `on_mount` — calls `MediaBrowser.setup_uploads/1` so `@uploads.media_files`

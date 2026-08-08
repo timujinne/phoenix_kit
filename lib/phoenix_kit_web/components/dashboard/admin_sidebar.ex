@@ -10,6 +10,27 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
   - Subtab expand/collapse
   - Full reuse of the TabItem component for consistent rendering
 
+  ## An entry is rendered only if the visitor can open it
+
+  The menu must never offer a page that bounces the visitor on arrival, so
+  every entry is filtered against the SAME gates its destination enforces —
+  see `reachable_tabs/2`. This matters because `/admin` is the guaranteed
+  landing for every authenticated user: a visitor with no permissions at all
+  now renders this shell, where before only a permission holder could.
+
+  The registry already drops a tab whose `:permission` key the scope does not
+  hold (`Registry.get_tabs/1` → `Tab.permission_granted?/2`) and a tab whose
+  `:visible` function says no. Two gates it does NOT apply are added here:
+
+    * `Scope.can_access_admin_area?/1`, the first thing
+      `:phoenix_kit_ensure_admin` checks. Fail it and EVERY `/admin` page
+      redirects you — including the personal ones — so the whole menu is empty.
+    * `PhoenixKitWeb.Users.Auth.can_access_admin_view?/2` for an entry that
+      names a `live_view:`. A tab may name a view and no permission key; the
+      mount gate then treats that view as *unmapped* and admits only a scope
+      holding every enabled permission, while the sidebar happily linked it for
+      everyone.
+
   ## Usage
 
       <.admin_sidebar
@@ -24,7 +45,9 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
   require Logger
 
   alias PhoenixKit.Dashboard.{Group, Registry, Tab}
+  alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKitWeb.Components.Dashboard.TabItem
+  alias PhoenixKitWeb.Users.Auth
 
   import PhoenixKit.Dashboard.TabHelpers
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -50,8 +73,8 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
     tabs =
       :telemetry.span([:phoenix_kit, :admin_sidebar, :render], %{}, fn ->
         result =
-          Registry.get_admin_tabs(scope: assigns.scope)
-          |> expand_dynamic_children(assigns.scope, assigns[:locale])
+          assigns.scope
+          |> admin_tabs_for_scope(assigns[:locale])
           |> add_active_state(assigns.current_path)
 
         {result, %{tab_count: length(result)}}
@@ -68,7 +91,15 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
       |> assign(:groups, groups)
 
     ~H"""
-    <nav class={["space-y-2", @class]} role="navigation" aria-label="Admin navigation">
+    <%!-- No `<nav>` at all when nothing survived the gates: an empty
+          navigation landmark is worse than none, and a shell that offers a
+          visitor zero destinations should render zero chrome. --%>
+    <nav
+      :if={@tabs != []}
+      class={["space-y-2", @class]}
+      role="navigation"
+      aria-label="Admin navigation"
+    >
       <%= for group <- sorted_groups(@groups, @grouped_tabs) do %>
         <.admin_tab_group
           group={group}
@@ -90,14 +121,72 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
     """
   end
 
+  @doc """
+  Keeps only the entries `scope` can actually open.
+
+  Two gates, in the order the mount hook applies them:
+
+  1. `Scope.can_access_admin_area?/1` — the admin-area gate
+     `:phoenix_kit_ensure_admin` checks before anything else. A scope that
+     fails it (a `nil` scope, or an authenticated user holding no permission at
+     all) is redirected off every `/admin` page, personal ones included, so the
+     answer is `[]` — not "the tabs with no permission key".
+  2. `PhoenixKitWeb.Users.Auth.can_access_admin_view?/2` for any entry naming a
+     `live_view:` — the same function the mount gate asks. Nothing is restated
+     here, so a rendered entry and its destination cannot disagree.
+
+  An entry with no `live_view:` is left to the registry's own `:permission` /
+  `:visible` filtering — `Registry.get_admin_tabs/1` applies both before the
+  sidebar calls this. Every tab core ships is of that shape: core declares its
+  admin routes in the router rather than on the tab, so there is no module to
+  ask, and gate 2 is a structural no-op over core's own menu.
+  """
+  @spec reachable_tabs([Tab.t()], Scope.t() | nil) :: [Tab.t()]
+  def reachable_tabs(tabs, scope) do
+    if Scope.can_access_admin_area?(scope) do
+      Enum.filter(tabs, &reachable?(&1, scope))
+    else
+      []
+    end
+  end
+
+  # The admin-area gate is answered BEFORE the registry is consulted: building
+  # a menu for a visitor who may see none of it would run `feature_enabled?/1`
+  # per permission key and every module's `dynamic_children` callback, only to
+  # discard the result. `reachable_tabs/2` re-applies the gate because it is
+  # public and must be safe on its own — the second check is a MapSet size test.
+  defp admin_tabs_for_scope(scope, locale) do
+    if Scope.can_access_admin_area?(scope) do
+      Registry.get_admin_tabs(scope: scope)
+      |> expand_dynamic_children(scope, locale)
+      |> reachable_tabs(scope)
+    else
+      []
+    end
+  end
+
+  defp reachable?(%{live_view: {view, _action}}, scope) when is_atom(view),
+    do: Auth.can_access_admin_view?(scope, view)
+
+  defp reachable?(%{live_view: view}, scope) when is_atom(view) and not is_nil(view),
+    do: Auth.can_access_admin_view?(scope, view)
+
+  defp reachable?(_tab, _scope), do: true
+
   attr :group, :map, required: true
   attr :tabs, :list, required: true
   attr :all_tabs, :list, required: true
   attr :locale, :string, default: nil
 
   defp admin_tab_group(assigns) do
+    # `sorted_groups/2` keeps a group that still holds ANY tab, but only
+    # top-level tabs render here — a group left with nothing but subtabs whose
+    # parents the gates removed would otherwise emit its heading (and its
+    # spacing wrapper) above nothing.
+    assigns = assign(assigns, :top_level_tabs, filter_top_level(assigns.tabs))
+
     ~H"""
-    <div class="space-y-1" data-group-id={@group.id}>
+    <div :if={@top_level_tabs != []} class="space-y-1" data-group-id={@group.id}>
       <%= if Group.localized_label(@group) do %>
         <div class="px-3 py-2 text-xs font-semibold text-base-content/50 uppercase tracking-wider">
           <span class="flex items-center gap-2">
@@ -109,7 +198,7 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
         </div>
       <% end %>
 
-      <%= for tab <- filter_top_level(@tabs) do %>
+      <%= for tab <- @top_level_tabs do %>
         <.admin_tab_with_subtabs
           tab={tab}
           all_tabs={@all_tabs}

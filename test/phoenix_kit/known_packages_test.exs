@@ -242,6 +242,36 @@ defmodule PhoenixKit.KnownPackagesTest do
       assert log =~ "Hex fetch failed"
     end
 
+    test "an unreachable Hex is reported as :unavailable, not as an empty catalog" do
+      # These look identical to an operator: the admin Modules page hid the
+      # whole "Available Packages" section on an empty list, so a network
+      # failure read as "there are no packages to install". Only one of those
+      # two situations is true at a time and the UI has to be able to tell.
+      Req.Test.stub(@stub_name, fn _conn -> raise "connection refused" end)
+
+      capture_log(fn -> KnownPackages.list(test_opts()) end)
+
+      assert KnownPackages.status() == :unavailable
+    end
+
+    test "a successful fetch reports :ok" do
+      stub_hex([@hex_newsletters])
+
+      KnownPackages.list(test_opts())
+
+      assert KnownPackages.status() == :ok
+    end
+
+    test "browse_url/0 points at the human version of the search the code runs" do
+      # The fallback offered when hex is unreachable. A link stays current
+      # because Hex maintains it; a catalog bundled into core would need a core
+      # release to add a package.
+      url = KnownPackages.browse_url()
+
+      assert url =~ "hex.pm"
+      assert url =~ "phoenix_kit_"
+    end
+
     test "Hex 200 with non-list body returns no Hex-sourced entries" do
       Req.Test.stub(@stub_name, fn conn ->
         conn

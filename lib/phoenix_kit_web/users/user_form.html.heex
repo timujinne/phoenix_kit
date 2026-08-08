@@ -117,14 +117,19 @@
           class="space-y-6"
         >
           <div class="space-y-4">
-            <%!-- Email --%>
+            <%!-- Email. Read-only for an actor who may not manage this record's
+                 credentials: the reset link is delivered to this address, so
+                 rewriting it takes the account exactly as setting a password
+                 does. The server drops the field regardless — see
+                 `update_user_profile/3`. --%>
             <div class="w-full">
               <.input
                 field={form[:email]}
                 type="email"
-                label="Email *"
+                label="Email"
                 placeholder="user@example.com"
                 required
+                readonly={not @can_manage_credentials}
               />
             </div>
 
@@ -147,7 +152,7 @@
                 <.input
                   field={form[:password]}
                   type="password"
-                  label="Password *"
+                  label="Password"
                   placeholder="Minimum 8 characters"
                   required
                 />
@@ -169,7 +174,7 @@
                       class="radio radio-primary"
                       checked={@current_account_type != "organization"}
                     />
-                    <span class="label-text">{gettext("Person")}</span>
+                    <span class="label-text">{gettext("Personal")}</span>
                   </label>
                   <label class="label cursor-pointer gap-2">
                     <input
@@ -190,8 +195,9 @@
                   <.input
                     field={form[:organization_name]}
                     type="text"
-                    label={gettext("Organization Name *")}
+                    label={gettext("Organization Name")}
                     placeholder={gettext("Company or organization name")}
+                    required
                   />
                 </div>
               <% end %>
@@ -251,8 +257,13 @@
             </div>
           </div>
 
-          <%!-- Password Change Section (Edit mode, Admin/Owner only) --%>
-          <%= if @mode == :edit and PhoenixKit.Users.Auth.Scope.can_access_admin_area?(@phoenix_kit_current_scope) do %>
+          <%!-- Password Change Section (Edit mode, Admin/Owner only, and never
+                on a record that outranks the actor). `can_access_admin_area?/1`
+                used to stand here and does NOT mean Admin/Owner — it is true for
+                any holder of a single permission, so the comment and the guard
+                disagreed and a `users`-permission role could rewrite an Owner's
+                password. `@can_manage_credentials` is the rank-aware answer. --%>
+          <%= if @mode == :edit and @can_manage_credentials do %>
             <div class="form-control">
               <label class="label">
                 <span class="label-text font-semibold">Password Management</span>
@@ -281,7 +292,7 @@
                 <.input
                   field={form[:password]}
                   type="password"
-                  label="New Password *"
+                  label="New Password"
                   placeholder="Enter new password (minimum 8 characters)"
                   required
                 />
@@ -306,50 +317,73 @@
                 <% end %>
               </label>
 
-              <%= if @user.uuid == @phoenix_kit_current_user.uuid do %>
-                <div class="bg-base-200 p-4 rounded-lg">
-                  <div class="flex items-start gap-3">
-                    <.icon name="hero-information-circle-solid" class="w-5 h-5 mt-0.5 text-info" />
-                    <div class="text-sm">
-                      <p class="font-medium">Cannot modify own status</p>
-                      <p class="text-base-content/70 mt-1">
-                        You cannot deactivate your own account for security reasons.
-                      </p>
+              <%= cond do %>
+                <% @user.uuid == @phoenix_kit_current_user.uuid -> %>
+                  <div class="bg-base-200 p-4 rounded-lg">
+                    <div class="flex items-start gap-3">
+                      <.icon
+                        name="hero-information-circle-solid"
+                        class="w-5 h-5 mt-0.5 text-info"
+                      />
+                      <div class="text-sm">
+                        <p class="font-medium">Cannot modify own status</p>
+                        <p class="text-base-content/70 mt-1">
+                          You cannot deactivate your own account for security reasons.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              <% else %>
-                <div class="flex items-center gap-4 mt-2">
-                  <button
-                    type="button"
-                    phx-click="toggle_user_status"
-                    class={"btn btn-sm #{if @user.is_active, do: "btn-error btn-outline", else: "btn-success"}"}
-                  >
-                    <%= if @user.is_active do %>
-                      Deactivate User
-                    <% else %>
-                      Activate User
-                    <% end %>
-                  </button>
-                  <span class="text-sm text-base-content/70">
-                    <%= if @user.is_active do %>
-                      Deactivating will prevent this user from logging in
-                    <% else %>
-                      Activating will allow this user to log in
-                    <% end %>
-                  </span>
-                </div>
-
-                <%= if @user.is_active and PhoenixKit.Users.Roles.user_has_role_owner?(@user) do %>
-                  <div class="text-xs text-base-content/60 mt-3">
-                    <.icon
-                      name="hero-exclamation-triangle-solid"
-                      class="w-4 h-4 inline mr-1 text-warning"
-                    />
-                    <strong>Note:</strong>
-                    Cannot deactivate if this is the last active Owner in the system.
+                <% not @can_manage_status -> %>
+                  <%!-- The target outranks the actor. Deactivation is decided by
+                        rank, like credential management: holding `users` admits
+                        you to this page, it does not let you switch off an
+                        account that outranks yours. --%>
+                  <div class="bg-base-200 p-4 rounded-lg">
+                    <div class="flex items-start gap-3">
+                      <.icon
+                        name="hero-information-circle-solid"
+                        class="w-5 h-5 mt-0.5 text-info"
+                      />
+                      <div class="text-sm">
+                        <p class="font-medium">Cannot modify this user's status</p>
+                        <p class="text-base-content/70 mt-1">
+                          Only an Owner can activate or deactivate this account.
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                <% end %>
+                <% true -> %>
+                  <div class="flex items-center gap-4 mt-2">
+                    <button
+                      type="button"
+                      phx-click="toggle_user_status"
+                      class={"btn btn-sm #{if @user.is_active, do: "btn-error btn-outline", else: "btn-success"}"}
+                    >
+                      <%= if @user.is_active do %>
+                        Deactivate User
+                      <% else %>
+                        Activate User
+                      <% end %>
+                    </button>
+                    <span class="text-sm text-base-content/70">
+                      <%= if @user.is_active do %>
+                        Deactivating will prevent this user from logging in
+                      <% else %>
+                        Activating will allow this user to log in
+                      <% end %>
+                    </span>
+                  </div>
+
+                  <%= if @user.is_active and PhoenixKit.Users.Roles.user_has_role_owner?(@user) do %>
+                    <div class="text-xs text-base-content/60 mt-3">
+                      <.icon
+                        name="hero-exclamation-triangle-solid"
+                        class="w-4 h-4 inline mr-1 text-warning"
+                      />
+                      <strong>Note:</strong>
+                      Cannot deactivate if this is the last active Owner in the system.
+                    </div>
+                  <% end %>
               <% end %>
             </div>
           <% end %>
@@ -831,8 +865,9 @@
         </div>
       <% end %>
 
-      <%!-- Password Reset via Email Section (Edit mode only) --%>
-      <%= if @mode == :edit do %>
+      <%!-- Password Reset via Email Section (Edit mode; hidden for an actor who
+            may not manage this record's credentials) --%>
+      <%= if @mode == :edit and @can_manage_credentials do %>
         <div class="bg-yellow-50 border border-yellow-200 dark:bg-warning/10 dark:border-warning/30 rounded-lg p-6 mt-6">
           <div class="flex items-start gap-3">
             <.icon

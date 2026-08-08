@@ -77,6 +77,12 @@ defmodule PhoenixKit.Settings do
 
   @cache_name :settings
 
+  # The cached value meaning "this key has no row". Distinct from a cached nil
+  # (a row that exists and stores nil) and from a cache MISS. Defined once: it is
+  # written on one path and matched on four, and six copies of the same literal
+  # is how the halves of a read/write pair drift apart.
+  @not_found_sentinel :__setting_does_not_exist__
+
   @doc """
   Gets default values for all settings.
 
@@ -96,6 +102,13 @@ defmodule PhoenixKit.Settings do
     %{
       "project_title" => "PhoenixKit",
       "site_url" => "",
+      # Local path of the site's home page, used as the anonymous "home"
+      # destination. Empty = unset; core then falls back to its own
+      # locale-complete `/users/log-in` rather than `"/"`, which no core route
+      # serves. Must NOT default to `"/"`: an empty submitted field is written
+      # back as the default, so a `"/"` default would silently re-introduce the
+      # unowned path as a positively-configured first-priority candidate.
+      "main_page_path" => "",
       "allow_registration" => "true",
       # Enforce email confirmation before the app is usable ("true"/"false").
       # Confirmation emails send either way — this only gates enforcement.
@@ -115,6 +128,10 @@ defmodule PhoenixKit.Settings do
       "oauth_google_enabled" => "false",
       "oauth_github_enabled" => "false",
       "oauth_facebook_enabled" => "false",
+      # Whether an OAuth callback may attach to an EXISTING local account
+      # without the provider asserting it verified the address. Default on:
+      # matching on the email string alone is an account-takeover primitive.
+      "oauth_require_verified_email" => "true",
       "magic_link_login_enabled" => "true",
       "magic_link_registration_enabled" => "true",
       "qr_login_enabled" => "false",
@@ -331,7 +348,6 @@ defmodule PhoenixKit.Settings do
   def get_setting_cached(key, default \\ nil) when is_binary(key) do
     # Use a special sentinel to distinguish "not in cache" from "cached nil" or "cached non-existent"
     cache_miss_sentinel = :__cache_not_found__
-    setting_not_exists_sentinel = :__setting_does_not_exist__
 
     case PhoenixKit.Cache.get(@cache_name, key, cache_miss_sentinel) do
       ^cache_miss_sentinel ->
@@ -339,7 +355,7 @@ defmodule PhoenixKit.Settings do
         value = query_and_cache_setting(key)
         value || default
 
-      ^setting_not_exists_sentinel ->
+      @not_found_sentinel ->
         # Setting doesn't exist in database (cached result)
         default
 
@@ -380,17 +396,42 @@ defmodule PhoenixKit.Settings do
       %{"date_format" => "F j, Y", "time_format" => "h:i A"}
   """
   def get_settings_cached(keys, defaults \\ %{}) when is_list(keys) do
-    setting_not_exists_sentinel = :__setting_does_not_exist__
-
     cached_results = PhoenixKit.Cache.get_multiple(@cache_name, keys, %{})
 
-    # Process cached results, replacing sentinel values with defaults
-    Enum.reduce(cached_results, %{}, fn {key, value}, acc ->
-      if value == setting_not_exists_sentinel do
-        Map.put(acc, key, Map.get(defaults, key))
-      else
-        Map.put(acc, key, value)
-      end
+    # ⚠️ Miss-fill, and it is load-bearing. `Cache.get_multiple/3` simply omits
+    # keys it does not hold, so a key that was never cached — or whose entry has
+    # expired — used to be *absent* from the returned map, and callers read it as
+    # `nil`. Only the explicit "does not exist" sentinel mapped to a default.
+    #
+    # Nothing surfaced that while the cache had no TTL: entries were written once
+    # and never expired. The moment one was added, every expiry wave would have
+    # left OAuth credential helpers and the user-list date formats reading `nil`,
+    # site-wide, until something happened to re-warm them. Fill the gap from the
+    # database and cache what we find, so a miss costs one batch query instead of
+    # silently degrading.
+    missing = Enum.reject(keys, &Map.has_key?(cached_results, &1))
+    fetched = if missing == [], do: %{}, else: fill_missing_settings(missing)
+
+    Enum.reduce(keys, %{}, fn key, acc ->
+      value =
+        case Map.fetch(cached_results, key) do
+          {:ok, @not_found_sentinel} ->
+            Map.get(defaults, key)
+
+          {:ok, value} ->
+            value
+
+          # `Map.fetch`, not `||`: a row that genuinely stores nil is a
+          # different answer from a row that does not exist, and `||` collapses
+          # them onto the caller's default.
+          :error ->
+            case Map.fetch(fetched, key) do
+              {:ok, value} -> value
+              :error -> Map.get(defaults, key)
+            end
+        end
+
+      Map.put(acc, key, value)
     end)
   rescue
     error ->
@@ -406,6 +447,49 @@ defmodule PhoenixKit.Settings do
         value = Map.get(batch_results, key) || Map.get(defaults, key)
         Map.put(acc, key, value)
       end)
+  end
+
+  # One batch query for the keys the cache did not hold, writing the results back
+  # so the next reader is a hit. Keys with no row are cached as the
+  # "does not exist" sentinel — negative caching, or a setting a host never sets
+  # would query the database on every single read.
+  #
+  # ⚠️ Deliberately NOT `get_settings_direct/1`: that swallows query failures and
+  # returns `%{}`, which is indistinguishable from "none of these keys exist".
+  # Caching on that would write a "does not exist" entry for every requested key
+  # and hold it for a full TTL — so one transient database blip during an expiry
+  # wave would make configured OAuth credentials read as unconfigured, site-wide,
+  # for five minutes. The single-key path already avoids caching on failure; this
+  # one has to as well.
+  defp fill_missing_settings(keys) do
+    case query_settings_or_error(keys) do
+      {:ok, found} ->
+        to_cache = Map.new(keys, &{&1, Map.get(found, &1, @not_found_sentinel)})
+        PhoenixKit.Cache.put_multiple(@cache_name, to_cache)
+        found
+
+      :error ->
+        # Nothing cached. The caller falls back to its defaults for this one
+        # read, and the next read tries the database again.
+        %{}
+    end
+  end
+
+  defp query_settings_or_error(keys) do
+    if Application.get_env(:phoenix_kit, :update_mode, false) or not repo_available?() do
+      :error
+    else
+      {:ok, keys |> Queries.list_settings_key_values_by_keys() |> Map.new()}
+    end
+  rescue
+    error ->
+      Logger.warning("Settings miss-fill query failed: #{inspect(error)}")
+      :error
+  catch
+    # A dead connection pool exits rather than raising.
+    :exit, _reason ->
+      Logger.warning("Settings miss-fill query failed: database unavailable")
+      :error
   end
 
   @doc """
@@ -424,13 +508,11 @@ defmodule PhoenixKit.Settings do
       %{"app_config" => %{"theme" => "dark"}, "feature_flags" => %{"auth" => true}}
   """
   def get_json_settings_cached(keys, defaults \\ %{}) when is_list(keys) do
-    setting_not_exists_sentinel = :__setting_does_not_exist__
-
     cached_results = PhoenixKit.Cache.get_multiple(@cache_name, keys, %{})
 
     # Process cached results, replacing sentinel values with defaults
     Enum.reduce(cached_results, %{}, fn {key, value}, acc ->
-      if value == setting_not_exists_sentinel do
+      if value == @not_found_sentinel do
         Map.put(acc, key, Map.get(defaults, key))
       else
         Map.put(acc, key, value)
@@ -526,7 +608,6 @@ defmodule PhoenixKit.Settings do
   def get_json_setting_cached(key, default \\ nil) when is_binary(key) do
     # Use a special sentinel to distinguish "not in cache" from "cached nil" or "cached non-existent"
     cache_miss_sentinel = :__cache_not_found__
-    setting_not_exists_sentinel = :__setting_does_not_exist__
 
     case PhoenixKit.Cache.get(@cache_name, key, cache_miss_sentinel) do
       ^cache_miss_sentinel ->
@@ -534,7 +615,7 @@ defmodule PhoenixKit.Settings do
         value = query_and_cache_json_setting(key)
         value || default
 
-      ^setting_not_exists_sentinel ->
+      @not_found_sentinel ->
         # Setting doesn't exist in database (cached result)
         default
 
@@ -1767,7 +1848,7 @@ defmodule PhoenixKit.Settings do
           nil ->
             # Cache a sentinel value to indicate this setting doesn't exist
             # This prevents repeated database queries for non-existent settings
-            PhoenixKit.Cache.put(@cache_name, key, :__setting_does_not_exist__)
+            PhoenixKit.Cache.put(@cache_name, key, @not_found_sentinel)
             nil
         end
       else
@@ -1803,7 +1884,7 @@ defmodule PhoenixKit.Settings do
         nil ->
           # Cache a sentinel value to indicate this setting doesn't exist
           # This prevents repeated database queries for non-existent settings
-          PhoenixKit.Cache.put(@cache_name, key, :__setting_does_not_exist__)
+          PhoenixKit.Cache.put(@cache_name, key, @not_found_sentinel)
           nil
       end
     else

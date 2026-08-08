@@ -69,5 +69,83 @@
         </div>
       </div>
     </div>
+
+    <%!-- robots.txt: reported, never written. See the LiveView moduledoc for
+         why PhoenixKit does not generate this file. --%>
+    <div class="card bg-base-100 shadow-xl border border-base-200">
+      <div class="card-body space-y-4">
+        <div>
+          <p class="text-sm uppercase tracking-wide text-primary font-semibold">
+            {gettext("Crawler Instructions")}
+          </p>
+          <h2 class="text-2xl font-bold">robots.txt</h2>
+          <p class="text-base text-base-content/70">
+            {gettext(
+              "PhoenixKit does not generate this file — it is yours, and your web server serves it from priv/static before any route is consulted. The one thing worth adding is a pointer to your sitemap, which crawlers otherwise have to guess at."
+            )}
+          </p>
+        </div>
+
+        <div>
+          <p class="text-sm font-medium mb-2">
+            {gettext("Add this line to priv/static/robots.txt:")}
+          </p>
+          <div class="flex items-center gap-2">
+            <code
+              id="pk-robots-sitemap-line"
+              class="font-mono text-sm bg-base-200 rounded px-3 py-2 grow overflow-x-auto whitespace-nowrap"
+            >Sitemap: {@sitemap_url}</code>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline shrink-0"
+              phx-hook="CopyToClipboard"
+              id="pk-robots-sitemap-copy"
+              data-copy-target="#pk-robots-sitemap-line"
+            >
+              <.icon name="hero-clipboard-document" class="w-4 h-4" />
+              <span data-copy-idle>{gettext("Copy")}</span>
+              <span data-copy-feedback class="hidden">{gettext("Copied!")}</span>
+            </button>
+          </div>
+        </div>
+
+        <div class={[
+          "alert bg-base-200/70",
+          if(@robots_txt_present? and @robots_txt_references_sitemap?,
+            do: "alert-success",
+            else: "alert-info"
+          )
+        ]}>
+          <.icon
+            name={
+              if @robots_txt_present? and @robots_txt_references_sitemap?,
+                do: "hero-check-circle",
+                else: "hero-information-circle"
+            }
+            class="w-6 h-6"
+          />
+          <div class="text-sm leading-relaxed">
+            <%= cond do %>
+              <% not @robots_txt_present? -> %>
+                {gettext(
+                  "No priv/static/robots.txt found. Without one, crawlers assume everything is allowed — which is usually fine, but they will not learn where your sitemap is."
+                )}
+              <% not @robots_txt_references_sitemap? -> %>
+                {gettext(
+                  "priv/static/robots.txt exists but has no Sitemap: line. Add the line above so crawlers are told where to look."
+                )}
+              <% true -> %>
+                {gettext("priv/static/robots.txt points crawlers at your sitemap.")}
+            <% end %>
+          </div>
+        </div>
+
+        <p class="text-xs text-base-content/60">
+          {gettext(
+            "The noindex toggle above and robots.txt are separate mechanisms: noindex is a per-page meta tag that tells crawlers not to index what they fetched, while robots.txt tells them what not to fetch at all. A staging site usually wants both."
+          )}
+        </p>
+      </div>
+    </div>
   </div>
 </PhoenixKitWeb.Components.LayoutWrapper.app_layout>

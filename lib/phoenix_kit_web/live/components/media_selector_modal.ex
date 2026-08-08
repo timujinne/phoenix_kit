@@ -62,7 +62,15 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     * `mode` — `:single` or `:multiple`
     * `selected_uuids` — list of already-selected file UUIDs
     * `phoenix_kit_current_user` — required for uploads to attribute the file
-    * `file_type_filter` — `:all` (default), `:image`, or `:video`
+    * `file_type_filter` — `:all` (default), `:image`, `:video`, or `:audio`.
+      Filters the library grid AND gates uploads (server-side, not just the
+      client `accept` list).
+    * `lock_file_type` — `false` (default) treats `file_type_filter` as a
+      starting point the user can change; `true` makes it a constraint: the
+      type `<select>` is hidden and the change event is refused. Use it
+      whenever the selection fills a typed field — an audio slot, an image
+      slot — so the user can't pick something the consumer will only reject
+      afterwards.
     * `browse` — `true` (default) shows the library grid + search + type filter;
       `false` is upload-only (dropzone + Confirm; uploaded files auto-select)
     * `user_uuid` — when set, restricts the library to files owned by
@@ -125,6 +133,14 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       # dropzone + Confirm. Uploaded files auto-select, so Confirm still works.
       |> assign_new(:browse, fn -> true end)
       |> assign_new(:file_type_filter, fn -> :all end)
+      # `lock_file_type: true` makes `file_type_filter` a constraint rather
+      # than a starting point: the type <select> is hidden and the event that
+      # changes it is refused. For pickers filling a typed field, where
+      # letting someone switch to "All Files" means they can choose a PNG for
+      # an audio slot and only learn it was wrong from the rejection.
+      # Default false, so existing callers that pass a filter as a starting
+      # point keep their switcher.
+      |> assign_new(:lock_file_type, fn -> false end)
       |> assign_new(:search_query, fn -> "" end)
       |> assign_new(:current_page, fn -> 1 end)
       |> assign_new(:per_page, fn -> @per_page end)
@@ -228,20 +244,28 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   # (`:any`), so an image/video picker would still let arbitrary files in. `:all`
   # keeps `:any`.
   defp accept_for(:image), do: ~w(.jpg .jpeg .png .gif .webp .svg .bmp .avif .heic .heif)
-  defp accept_for(:video), do: ~w(.mp4 .mov .webm .mkv .avi .m4v .ogv .ogg)
+  # `.ogg` sits with audio, not video: `Storage.determine_file_type/2` and the
+  # browser's own audio detection both read it as audio, so inviting it into a
+  # video picker only got it refused by `upload_type_allowed?/2` afterwards.
+  # (Ogg video is `.ogv`, which stays above.)
+  defp accept_for(:video), do: ~w(.mp4 .mov .webm .mkv .avi .m4v .ogv)
+  defp accept_for(:audio), do: ~w(.mp3 .m4a .aac .wav .flac .oga .ogg .opus .weba)
   defp accept_for(_), do: :any
 
   # Modal copy that reflects the active type filter, so an all/video picker
   # doesn't always say "images". Referenced from the template.
   defp selection_hint(:single, :image), do: gettext("Click on an image to select it")
   defp selection_hint(:single, :video), do: gettext("Click on a video to select it")
+  defp selection_hint(:single, :audio), do: gettext("Click on an audio file to select it")
   defp selection_hint(:single, _), do: gettext("Click on a file to select it")
   defp selection_hint(_multiple, :image), do: gettext("Select one or more images")
   defp selection_hint(_multiple, :video), do: gettext("Select one or more videos")
+  defp selection_hint(_multiple, :audio), do: gettext("Select one or more audio files")
   defp selection_hint(_multiple, _), do: gettext("Select one or more files")
 
   defp accepted_types_hint(:image), do: gettext("Images")
   defp accepted_types_hint(:video), do: gettext("Videos")
+  defp accepted_types_hint(:audio), do: gettext("Audio files")
   defp accepted_types_hint(_), do: gettext("Images, videos, or documents")
 
   # Authoritative server-side type gate for uploads. The client `accept` list is
@@ -249,14 +273,19 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   # dropdown, so an off-type file can still reach the server — reject it here.
   defp upload_type_allowed?(:image, entry), do: entry_file_type(entry) == "image"
   defp upload_type_allowed?(:video, entry), do: entry_file_type(entry) == "video"
+  defp upload_type_allowed?(:audio, entry), do: entry_file_type(entry) == "audio"
   defp upload_type_allowed?(_all, _entry), do: true
 
+  # The filename is passed as well as the mime type: browsers report `.m4a`
+  # and `.flac` as `application/octet-stream` (or as nothing at all), and a
+  # file the `accept` list above invited must not be refused by this gate.
   defp entry_file_type(entry) do
-    (entry.client_type || MIME.from_path(entry.client_name)) |> determine_file_type()
+    Storage.determine_file_type(entry.client_type, entry.client_name)
   end
 
   defp off_type_upload_error(:image), do: gettext("Only image files can be added here.")
   defp off_type_upload_error(:video), do: gettext("Only video files can be added here.")
+  defp off_type_upload_error(:audio), do: gettext("Only audio files can be added here.")
   defp off_type_upload_error(_), do: gettext("Only the allowed file types can be added here.")
 
   def handle_event("noop", _params, socket) do
@@ -342,6 +371,13 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       |> assign(:total_count, total_count)
       |> assign(:total_pages, total_pages)
 
+    {:noreply, socket}
+  end
+
+  def handle_event("filter_type", _params, %{assigns: %{lock_file_type: true}} = socket) do
+    # The <select> is hidden when locked, but the event is still reachable
+    # from a console — and the consumer is relying on the constraint to know
+    # what it's getting back, so enforce it here rather than in the markup.
     {:noreply, socket}
   end
 
@@ -478,7 +514,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   defp process_upload(socket, path, entry) do
     ext = Path.extname(entry.client_name) |> String.replace_leading(".", "")
     mime_type = entry.client_type || MIME.from_path(entry.client_name)
-    file_type = determine_file_type(mime_type)
+    file_type = Storage.determine_file_type(mime_type, entry.client_name)
 
     current_user = socket.assigns[:phoenix_kit_current_user]
 
@@ -649,6 +685,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
 
   defp scope_files_by_type(query, :image), do: where(query, [f], f.file_type == "image")
   defp scope_files_by_type(query, :video), do: where(query, [f], f.file_type == "video")
+  defp scope_files_by_type(query, :audio), do: where(query, [f], f.file_type == "audio")
   defp scope_files_by_type(query, _), do: query
 
   defp scope_files_by_search(query, ""), do: query
@@ -673,17 +710,10 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     end
   end
 
-  defp determine_file_type(mime_type) do
-    cond do
-      String.starts_with?(mime_type, "image/") -> "image"
-      String.starts_with?(mime_type, "video/") -> "video"
-      true -> "other"
-    end
-  end
-
   defp parse_filter(nil), do: :all
   defp parse_filter("image"), do: :image
   defp parse_filter("video"), do: :video
+  defp parse_filter("audio"), do: :audio
   defp parse_filter("all"), do: :all
   defp parse_filter(_), do: :all
 

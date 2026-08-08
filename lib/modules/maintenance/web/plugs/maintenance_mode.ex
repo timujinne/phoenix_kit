@@ -88,8 +88,14 @@ defmodule PhoenixKitWeb.Plugs.MaintenanceMode do
   end
 
   defp get_user_from_session(conn) do
+    # Filtered like every other gate: this decides who walks past the 503, so a
+    # token that outlived a deactivation must not answer it. `ensure_active_user/1`
+    # passes nil through, so the `nil` branch of `admin_or_owner?/1` still covers
+    # an anonymous request.
     if user_token = get_session(conn, :user_token) do
-      Auth.get_user_by_session_token(user_token)
+      user_token
+      |> Auth.get_user_by_session_token()
+      |> Auth.ensure_active_user()
     else
       nil
     end

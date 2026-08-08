@@ -57,7 +57,9 @@ defmodule PhoenixKitWeb.Users.ResetPassword do
     else
       socket
       |> put_flash(:error, "Reset password link is invalid or it has expired.")
-      |> redirect(to: "/")
+      |> redirect(
+        to: Routes.safe_destination(socket, scope: socket.assigns[:phoenix_kit_current_scope])
+      )
     end
   end
 

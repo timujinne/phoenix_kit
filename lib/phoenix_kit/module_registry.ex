@@ -732,11 +732,16 @@ defmodule PhoenixKit.ModuleRegistry do
 
   # Warn about admin tabs that have permission_metadata but no :permission field on tabs.
   # Custom roles will see the tab in the sidebar but get denied on click.
+  #
+  # `personal: true` opts out: those tabs lead to a page showing the viewer
+  # their own data, which is deliberately permission-free, and warning about
+  # them would train people to ignore a warning that is usually right.
   defp warn_tabs_missing_permission(modules) do
     for mod <- modules,
         perm_meta = safe_call(mod, :permission_metadata, nil),
         perm_meta != nil,
         tab <- safe_call(mod, :admin_tabs, []),
+        not Map.get(tab, :personal, false),
         is_nil(Map.get(tab, :permission)) do
       Logger.warning(
         "[ModuleRegistry] #{inspect(mod)} tab #{inspect(tab.id)} has no :permission field. " <>

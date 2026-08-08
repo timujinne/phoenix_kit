@@ -17,6 +17,7 @@ defmodule PhoenixKit.Users.MagicLinkRegistration do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.{User, UserToken}
+  alias PhoenixKit.Users.RateLimiter
   alias PhoenixKit.Users.Referrals
   alias PhoenixKit.Utils.Routes
 
@@ -24,20 +25,28 @@ defmodule PhoenixKit.Users.MagicLinkRegistration do
 
   @doc """
   Sends a registration magic link to the specified email address.
+
+  Rate-limited on the same buckets as password registration — this is a
+  registration entry point, and it was the one public auth endpoint with no
+  limit at all. `ip_address` is optional only because callers without peer data
+  exist; pass it whenever you have it, or a single client can spread its
+  attempts across unlimited addresses.
   """
-  def send_registration_link(email) when is_binary(email) do
+  def send_registration_link(email, ip_address \\ nil) when is_binary(email) do
     email = String.trim(email) |> String.downcase()
 
-    if valid_email?(email) do
-      case Auth.get_user_by_email(email) do
-        %User{} ->
-          {:error, :email_already_exists}
-
-        nil ->
-          generate_and_send_token(email)
-      end
+    # BEFORE the lookup, deliberately. Limiting after it would throttle only
+    # addresses that resolve to no user, which turns the identical
+    # success/already-registered responses back into an existence oracle via
+    # timing — the exact shape password reset had to be fixed for.
+    with true <- valid_email?(email),
+         :ok <- RateLimiter.check_registration_rate_limit(email, ip_address),
+         nil <- Auth.get_user_by_email(email) do
+      generate_and_send_token(email)
     else
-      {:error, :invalid_email}
+      false -> {:error, :invalid_email}
+      {:error, :rate_limit_exceeded} -> {:error, :rate_limit_exceeded}
+      %User{} -> {:error, :email_already_exists}
     end
   end
 
@@ -217,10 +226,7 @@ defmodule PhoenixKit.Users.MagicLinkRegistration do
 
   defp process_referral_code(user, referral_code) when is_binary(referral_code) do
     if Code.ensure_loaded?(Referrals) do
-      case Referrals.get_code_by_string(referral_code) do
-        nil -> :ok
-        code -> Referrals.use_code(code.code, user.uuid)
-      end
+      Referrals.record_signup_use(user, referral_code)
     end
 
     :ok

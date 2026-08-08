@@ -518,11 +518,18 @@ defmodule PhoenixKit.Cache do
     {:reply, {:ok, count}, %{state | stats: new_stats}}
   end
 
+  # Up to 10% jitter, always forward, so entries written in the same instant do
+  # not all fall due in the same instant. Cheap insurance against a stampede
+  # where every cache miss hits the database at once.
+  defp expires_at(ttl) do
+    System.monotonic_time(:millisecond) + ttl + :rand.uniform(max(div(ttl, 10), 1))
+  end
+
   @impl GenServer
   def handle_cast({:put, key, value}, %{table: table, ttl: ttl, stats: stats} = state) do
     entry =
       if ttl do
-        {key, value, System.monotonic_time(:millisecond) + ttl}
+        {key, value, expires_at(ttl)}
       else
         {key, value}
       end
@@ -537,8 +544,10 @@ defmodule PhoenixKit.Cache do
   def handle_cast({:put_multiple, key_values}, %{table: table, ttl: ttl, stats: stats} = state) do
     entries =
       if ttl do
-        expires_at = System.monotonic_time(:millisecond) + ttl
-        Enum.map(key_values, fn {key, value} -> {key, value, expires_at} end)
+        # Per-entry expiry, not one shared stamp for the batch: a whole batch
+        # written together would otherwise expire together, and the first read
+        # after that instant would miss on every key at once.
+        Enum.map(key_values, fn {key, value} -> {key, value, expires_at(ttl)} end)
       else
         Enum.map(key_values, fn {key, value} -> {key, value} end)
       end
@@ -653,7 +662,7 @@ defmodule PhoenixKit.Cache do
       # Use 3-tuple only when TTL is set (matches [{^key, value, expires_at}] when is_integer)
       entry =
         if ttl do
-          {key, value, System.monotonic_time(:millisecond) + ttl}
+          {key, value, expires_at(ttl)}
         else
           {key, value}
         end

@@ -51,6 +51,13 @@ defmodule PhoenixKit.Integration.Users.RegistrationTest do
       assert "has already been taken" in errors_on(changeset).email
     end
 
+    test "enforces case-insensitive unique username" do
+      {:ok, _} = Auth.register_user(valid_attrs(%{username: "CaseTest"}))
+      {:error, changeset} = Auth.register_user(valid_attrs(%{username: "casetest"}))
+
+      assert "has already been taken" in errors_on(changeset).username
+    end
+
     test "validates email format" do
       {:error, changeset} = Auth.register_user(valid_attrs(%{email: "not-an-email"}))
 
@@ -148,11 +155,13 @@ defmodule PhoenixKit.Integration.Users.RegistrationTest do
       assert is_nil(Auth.get_user_by_username("nonexistent_user_xyz"))
     end
 
-    test "username lookup is exact match" do
-      {:ok, _user} = Auth.register_user(valid_attrs(%{username: "exactmatch"}))
+    test "username lookup is case-insensitive (V161)" do
+      {:ok, user} = Auth.register_user(valid_attrs(%{username: "exactmatch"}))
 
-      # Different case should not match (username stored as-is)
-      assert is_nil(Auth.get_user_by_username("EXACTMATCH"))
+      # `username` is `citext` as of V161 — comparison is case-insensitive,
+      # same as `email` has been since V01.
+      found = Auth.get_user_by_username("EXACTMATCH")
+      assert found.uuid == user.uuid
     end
   end
 

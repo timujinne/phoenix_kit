@@ -400,6 +400,103 @@ defmodule PhoenixKit.Integration.Users.MultiSessionTest do
     end
   end
 
+  # The predicates the admin menus are built on. Their whole job is to agree
+  # with `impersonate/2` — an offer the POST refuses is a support tool that
+  # lies, and a hidden offer the POST would have allowed is a missing feature.
+  describe "impersonable?/2 and impersonable_uuids/2" do
+    test "answer the same way impersonate/2 does, target by target" do
+      admin = admin_user()
+      owner = owner_user()
+      other_admin = admin_user()
+      plain = plain_user()
+
+      assert MultiSession.impersonable?(admin, plain)
+      refute MultiSession.impersonable?(admin, owner)
+      refute MultiSession.impersonable?(admin, other_admin)
+      refute MultiSession.impersonable?(admin, admin)
+      assert MultiSession.impersonable?(owner, other_admin)
+
+      # Not staff by role — the case `can_access_admin_area?/1` would have let
+      # through. Same rule as the `impersonate/2` test above.
+      refute MultiSession.impersonable?(custom_role_user("Client"), plain)
+      refute MultiSession.impersonable?(nil, plain)
+    end
+
+    test "a deactivated target is not offered, because the POST would refuse it" do
+      target = plain_user()
+      {:ok, target} = Auth.update_user_status(target, %{"is_active" => false})
+      admin = admin_user()
+
+      refute MultiSession.impersonable?(admin, target)
+      assert {:error, :inactive} = MultiSession.impersonate(conn_for(admin), target)
+
+      refute target.uuid in MultiSession.impersonable_uuids(admin, [target])
+    end
+
+    test "impersonable_uuids/2 decides a list the same way impersonable?/2 decides one" do
+      admin = admin_user()
+      users = [owner_user(), admin_user(), plain_user(), custom_role_user("Client"), admin]
+
+      uuids = MultiSession.impersonable_uuids(admin, users)
+
+      for user <- users do
+        assert user.uuid in uuids == MultiSession.impersonable?(admin, user),
+               "list and single-target answers disagree for #{user.email}"
+      end
+    end
+
+    test "impersonable_uuids/2 reads a preloaded :roles instead of querying" do
+      admin = admin_user()
+      target = Auth.get_user_with_roles(plain_user().uuid)
+
+      assert is_list(target.roles)
+      assert target.uuid in MultiSession.impersonable_uuids(admin, [target])
+    end
+
+    test "no actor means nothing is offered" do
+      assert MultiSession.impersonable_uuids(nil, [plain_user()]) == MapSet.new()
+    end
+  end
+
+  describe "impersonation_actor/1" do
+    test "is the ROOT account, not whichever account is active" do
+      Settings.update_boolean_setting("multi_session_enabled", true)
+      admin = admin_user()
+      target = plain_user()
+
+      {:ok, conn} = MultiSession.impersonate(conn_for(admin), target)
+
+      # Active is now the borrowed account; the actor stays the admin who
+      # opened the stack, so a menu rendered from here still judges by them.
+      actor = MultiSession.impersonation_actor(Plug.Conn.get_session(conn))
+      assert actor.uuid == admin.uuid
+    end
+
+    test "is nil when multi-account switching is off, so the menus offer nothing" do
+      Settings.update_boolean_setting("multi_session_enabled", false)
+      admin = admin_user()
+      conn = conn_for(admin)
+
+      assert MultiSession.impersonation_actor(Plug.Conn.get_session(conn)) == nil
+
+      assert MultiSession.impersonable_uuids(
+               MultiSession.impersonation_actor(Plug.Conn.get_session(conn)),
+               [plain_user()]
+             ) == MapSet.new()
+    end
+
+    test "is nil for an anonymous session" do
+      Settings.update_boolean_setting("multi_session_enabled", true)
+
+      session =
+        Phoenix.ConnTest.build_conn()
+        |> Phoenix.ConnTest.init_test_session(%{})
+        |> Plug.Conn.get_session()
+
+      assert MultiSession.impersonation_actor(session) == nil
+    end
+  end
+
   describe "impersonate/2 — the audit trail" do
     # Only the session.* family — registering and confirming the fixtures logs
     # its own `user.*` rows against the same resource_uuid.

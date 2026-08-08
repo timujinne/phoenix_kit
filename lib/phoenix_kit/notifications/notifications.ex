@@ -648,15 +648,26 @@ defmodule PhoenixKit.Notifications do
       key: "notifications",
       label: "Notifications",
       icon: "hero-bell",
-      description: "Your own in-app notifications and per-type preferences"
+      description:
+        "Administer other users' notifications (personal inbox and preferences need no grant)"
     }
   end
 
   @impl PhoenixKit.Module
   def admin_tabs do
     [
-      # Parent "Notifications" tab. Base "notifications" permission gates the
-      # personal pages (My Notifications + Notification Settings).
+      # These three are PERSONAL pages — a user's own inbox and their own
+      # per-type preferences — so they carry no `permission:`. Notifications are
+      # delivered to every user, and requiring a grant to read your own meant an
+      # account could receive mail it was structurally unable to open, while the
+      # bell's "View all" pointed at a tab the sidebar was hiding.
+      #
+      # `visible:` carries the kill switch that `permission:` used to carry for
+      # free — the registry only consults module-enabled state for tabs that
+      # name a permission key.
+      #
+      # The `notifications` key is not vestigial: it is reserved for an
+      # all-users/moderation view, which is an administrative capability.
       Tab.new!(
         id: :admin_notifications,
         label: "Notifications",
@@ -664,7 +675,8 @@ defmodule PhoenixKit.Notifications do
         path: "notifications",
         priority: 640,
         level: :admin,
-        permission: "notifications",
+        personal: true,
+        visible: fn _scope -> __MODULE__.enabled?() end,
         match: :prefix,
         group: :admin_modules,
         subtab_display: :when_active,
@@ -681,7 +693,8 @@ defmodule PhoenixKit.Notifications do
         path: "notifications",
         priority: 641,
         level: :admin,
-        permission: "notifications",
+        personal: true,
+        visible: fn _scope -> __MODULE__.enabled?() end,
         parent: :admin_notifications,
         match: {:regex, ~r{^/admin/notifications$}},
         gettext_backend: PhoenixKitWeb.Gettext
@@ -693,7 +706,8 @@ defmodule PhoenixKit.Notifications do
         path: "notifications/settings",
         priority: 642,
         level: :admin,
-        permission: "notifications",
+        personal: true,
+        visible: fn _scope -> __MODULE__.enabled?() end,
         parent: :admin_notifications,
         match: :prefix,
         gettext_backend: PhoenixKitWeb.Gettext

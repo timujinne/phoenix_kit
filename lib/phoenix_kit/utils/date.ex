@@ -70,6 +70,47 @@ defmodule PhoenixKit.Utils.Date do
   end
 
   @doc """
+  The abbreviated month name for `month`, in the current Gettext locale.
+
+  `Calendar.strftime/2`'s `%b` is locale-blind and always yields English, so
+  every localized consumer was rebuilding the same twelve-entry gettext table.
+  The strings already live in core's catalog with et/ru translations, so this
+  is one place to call rather than a new translation burden.
+
+      iex> PhoenixKit.Utils.Date.short_month(1)
+      "Jan"
+  """
+  @spec short_month(1..12) :: String.t()
+  def short_month(1), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Jan")
+  def short_month(2), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Feb")
+  def short_month(3), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Mar")
+  def short_month(4), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Apr")
+  def short_month(5), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "May")
+  def short_month(6), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Jun")
+  def short_month(7), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Jul")
+  def short_month(8), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Aug")
+  def short_month(9), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Sep")
+  def short_month(10), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Oct")
+  def short_month(11), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Nov")
+  def short_month(12), do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "Dec")
+
+  @doc """
+  A short, localized "MMM D, YYYY at HH:MM" rendering of a datetime.
+
+  For the places that reached for `Calendar.strftime(dt, "%b %d, %Y at %H:%M")`
+  and silently got English month names on a translated page.
+  """
+  @spec format_short_datetime(DateTime.t() | NaiveDateTime.t() | nil) :: String.t()
+  def format_short_datetime(nil), do: ""
+
+  def format_short_datetime(datetime) do
+    "#{short_month(datetime.month)} #{pad2(datetime.day)}, #{datetime.year}" <>
+      " at #{pad2(datetime.hour)}:#{pad2(datetime.minute)}"
+  end
+
+  defp pad2(n), do: String.pad_leading(to_string(n), 2, "0")
+
+  @doc """
   Formats a date according to the specified format string.
 
   Uses Calendar.strftime for robust date formatting with extensive format support.

@@ -671,8 +671,14 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
       |> Enum.map(fn {canonical_path, entries} ->
         default_entry =
           Enum.find(entries, fn e ->
+            # Case-insensitive: enabled codes are stored BCP-47 ("en-GB")
+            # while sibling-dialect URLs render lowercase ("/en-gb/…") — a
+            # case-sensitive contains? let a sibling entry pass as the
+            # default and claim x-default.
+            loc_down = String.downcase(e.loc)
+
             not Enum.any?(non_default_codes, fn code ->
-              String.contains?(e.loc, "/#{code}/")
+              String.contains?(loc_down, "/#{String.downcase(code)}/")
             end)
           end) || List.first(entries)
 

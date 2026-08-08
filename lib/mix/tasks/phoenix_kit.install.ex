@@ -76,7 +76,6 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       CssIntegration,
       DaisyUI,
       DbConnectionCheck,
-      DemoFiles,
       Deprecations,
       EndpointIntegration,
       JsIntegration,
@@ -139,7 +138,6 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       |> JsIntegration.add_js_integration()
       |> warn_if_daisyui_outdated()
       |> warn_user_dashboard_deprecated()
-      |> DemoFiles.copy_test_demo_files()
       |> RouterIntegration.add_router_integration(opts[:router_path])
       |> BrowserPipelineIntegration.add_integration_to_browser_pipeline()
       |> EndpointIntegration.add_endpoint_integration()
@@ -346,9 +344,8 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
         3. Visit registration page:
            http://localhost:4000/phoenix_kit/users/register
 
-        4. Test authentication:
-           /test-current-user - Check current user
-           /test-ensure-auth  - Test authentication requirement
+        4. Check the install:
+           mix phoenix_kit.doctor
 
       NOTES
         • You may see "unused import PhoenixKitWeb.Integration" warning
@@ -496,51 +493,24 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
         • mix ecto.migrate
         • mix phx.server
         • Visit /users/register (or with your configured URL prefix)
-        • Test: /test-current-user, /test-ensure-auth
+        • mix phoenix_kit.doctor
       #{prefix_note}
       """
 
       Igniter.add_notice(igniter, notice)
     end
   end
-
-  # Fallback module for when Igniter is not available
 else
+  # Igniter is optional (see mix.exs), so this task cannot be defined here.
+  # A guard with no `else` would make it vanish and Mix would report only
+  # "could not be found" — naming neither PhoenixKit nor the missing dep.
   defmodule Mix.Tasks.PhoenixKit.Install do
     @moduledoc """
-    PhoenixKit installation task.
-
-    This task requires the Igniter library to be available. Please add it to your mix.exs:
-
-        {:igniter, "~> 0.7"}
-
-    Then run: mix deps.get
+    Placeholder for `mix phoenix_kit.install`, which needs the optional :igniter
+    dependency. Running it explains how to add igniter; see
+    `PhoenixKit.Install.MissingIgniter` for why the dep is optional.
     """
 
-    @shortdoc "Install PhoenixKit (requires Igniter)"
-
-    use Mix.Task
-
-    def run(_args) do
-      Mix.shell().error("""
-
-      ❌ PhoenixKit installation requires the Igniter library.
-
-      Please add Igniter to your mix.exs dependencies:
-
-          def deps do
-            [
-              {:igniter, "~> 0.7"}
-              # ... your other dependencies
-            ]
-          end
-
-      Then run:
-        mix deps.get
-        mix phoenix_kit.install
-
-      For more information, visit: https://hex.pm/packages/igniter
-      """)
-    end
+    use PhoenixKit.Install.MissingIgniter, task: "phoenix_kit.install"
   end
 end

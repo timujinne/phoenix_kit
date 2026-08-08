@@ -49,7 +49,7 @@ defmodule PhoenixKitWeb.Users.MultiSession do
 
   defp root_authenticated?(session) do
     with [root_token | _] <- stack_tokens(session),
-         %Auth.User{} <- Auth.get_user_by_session_token(root_token) do
+         %Auth.User{} <- root_user_from_token(root_token) do
       true
     else
       _ -> false
@@ -109,16 +109,33 @@ defmodule PhoenixKitWeb.Users.MultiSession do
     end
   end
 
-  # Returns the user's most descriptive display role name.
-  # Priority: Owner > Admin > first custom (non-"User") role > "User".
-  # This correctly labels custom roles (e.g. "Manager") instead of
-  # bucketing all permission-holders as "Admin".
-  #
-  # Reads role names straight from `User.get_roles/1` rather than building a full
-  # `Scope` — the scope carries an opaque `MapSet` of permissions we don't need
-  # here (and constructing it tripped a Dialyzer opaqueness warning).
-  defp role_label(user) do
-    roles = Auth.User.get_roles(user)
+  @doc """
+  Returns the user's most descriptive display role name.
+
+  Priority: Owner > Admin > first custom (non-"User") role > "User". This
+  correctly labels custom roles (e.g. "Manager", "Client") instead of
+  bucketing all permission-holders as "Admin".
+
+  Use this for any "what is this account?" label. In particular do **not**
+  derive one from `Scope.can_access_admin_area?/1`: that gate is true for
+  Owner, Admin *or any single permission holder*, so a Client — who holds
+  `client_portal` — reads back as "Admin".
+
+  Reads role names straight from `User.get_roles/1` rather than building a full
+  `Scope` — the scope carries an opaque `MapSet` of permissions we don't need
+  here (and constructing it tripped a Dialyzer opaqueness warning).
+  """
+  def role_label(user), do: user |> Auth.User.get_roles() |> role_label_from_roles()
+
+  @doc """
+  `role_label/1` for callers that already hold the role names.
+
+  `Auth.User.get_roles/1` queries, so a render path with the names in hand —
+  `Scope`'s `cached_roles`, loaded once at `Scope.for_user/1` — should pass them
+  here instead of handing over the user and paying for the lookup again.
+  """
+  @spec role_label_from_roles([String.t()]) :: String.t()
+  def role_label_from_roles(roles) when is_list(roles) do
     system = Role.system_roles()
 
     cond do
@@ -299,6 +316,99 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   end
 
   @doc """
+  The account an impersonation would be judged against — the session's ROOT,
+  never the account currently active.
+
+  Returns `nil` when `gate_allowed?/1` is false, which makes `impersonable?/2`
+  answer false for every target and takes the offer off the menu. That check
+  belongs here rather than at the call sites: the controller opens with the
+  same gate (`with_gate`), so without it a menu could offer impersonation while
+  `multi_session_enabled` is off and the POST would bounce to the home page
+  with "Multi-account switching is not available." The authority rules in
+  `authorize_impersonation/2` never see the setting, so asking them alone is
+  not enough to predict the outcome.
+
+  Pair with `impersonable?/2` to offer the action only where it would succeed.
+  A LiveView can hold the result across a mount safely: it is a `User` struct,
+  so nothing keeps a session token in the socket.
+  """
+  @spec impersonation_actor(map()) :: Auth.User.t() | nil
+  def impersonation_actor(session) when is_map(session) do
+    if gate_allowed?(session), do: root_user(session)
+  end
+
+  @doc """
+  True when `actor` may borrow `target`'s account.
+
+  Answers with the same rules `impersonate/2` enforces — it calls the very same
+  private predicate — so a menu built on this cannot offer an action the
+  request would then refuse, and cannot hide one it would have allowed.
+
+  A deactivated target answers false. That refusal (`:inactive`) is raised by
+  `add_authenticated_user/2` rather than by the authority rules, so asking the
+  rules alone would put the offer on every deactivated row in the admin list —
+  where the status is displayed next to it — and every click would come back
+  "That account is deactivated."
+
+  The remaining reasons `impersonate/2` may still decline (the stack being
+  full, or the target already sitting in it) depend on session state at request
+  time, are recoverable, and report themselves through the controller's flash
+  rather than by silently removing the option.
+
+  Target roles come from the `:roles` preload when the caller has one — the
+  user detail page loads its user through `get_user_with_roles/1` — and from a
+  lookup otherwise.
+  """
+  @spec impersonable?(Auth.User.t() | nil, Auth.User.t()) :: boolean()
+  def impersonable?(actor, target)
+
+  def impersonable?(nil, %Auth.User{}), do: false
+
+  def impersonable?(%Auth.User{} = actor, %Auth.User{is_active: true} = target) do
+    decide_impersonation(
+      actor.uuid,
+      Auth.User.get_roles(actor),
+      target.uuid,
+      role_names(target)
+    ) == :ok
+  end
+
+  def impersonable?(%Auth.User{}, %Auth.User{}), do: false
+
+  @doc """
+  The subset of `users` the actor may sign in as, as a `MapSet` of uuids.
+
+  `impersonable?/2` reads roles from the database — three lookups per call, once
+  the `staff?/1` check is counted — which is fine for one user but is an N+1 per
+  row in a list. This reads the actor's roles once and each target's from the
+  `:roles` preload the caller already has, falling back to a lookup only for a
+  row that arrives without one. Decisions come from the same private predicate
+  `impersonate/2` uses, so the two cannot diverge.
+
+  Deactivated rows are left out for the reason given on `impersonable?/2`.
+
+      assign(socket, :impersonable_uuids, MultiSession.impersonable_uuids(actor, users))
+
+  and in the template `:if={user.uuid in @impersonable_uuids}`.
+  """
+  @spec impersonable_uuids(Auth.User.t() | nil, [Auth.User.t()]) :: MapSet.t()
+  def impersonable_uuids(actor, users)
+
+  def impersonable_uuids(nil, _users), do: MapSet.new()
+
+  def impersonable_uuids(%Auth.User{} = actor, users) when is_list(users) do
+    actor_roles = Auth.User.get_roles(actor)
+
+    for %Auth.User{is_active: true} = user <- users,
+        decide_impersonation(actor.uuid, actor_roles, user.uuid, role_names(user)) == :ok,
+        into: MapSet.new(),
+        do: user.uuid
+  end
+
+  defp role_names(%Auth.User{roles: roles}) when is_list(roles), do: Enum.map(roles, & &1.name)
+  defp role_names(%Auth.User{} = user), do: Auth.User.get_roles(user)
+
+  @doc """
   Records an impersonation attempt refused before a target was resolved, so the
   controller's authority-first ordering does not cost the feed an entry.
   """
@@ -313,15 +423,25 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   defp authorize_impersonation(nil, _target), do: {:error, :not_allowed}
 
   defp authorize_impersonation(%Auth.User{} = actor, %Auth.User{} = target) do
+    decide_impersonation(
+      actor.uuid,
+      Auth.User.get_roles(actor),
+      target.uuid,
+      Auth.User.get_roles(target)
+    )
+  end
+
+  # The rule itself, over role names already in hand. Separated from the lookups
+  # so a list render can decide many targets against one actor read; every
+  # caller — the request path and the menus — funnels through here.
+  defp decide_impersonation(actor_uuid, actor_roles, target_uuid, target_roles) do
     system = Role.system_roles()
-    actor_roles = Auth.User.get_roles(actor)
-    target_roles = Auth.User.get_roles(target)
 
     cond do
-      actor.uuid == target.uuid ->
+      actor_uuid == target_uuid ->
         {:error, :self}
 
-      not staff?(actor) ->
+      not staff_roles?(actor_roles) ->
         {:error, :not_allowed}
 
       system.owner in target_roles ->
@@ -341,9 +461,10 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   # Owner or Admin by ROLE. Deliberately not `can_access_admin_area?/1` — see
   # `impersonate/2`'s docstring for why a permission check opens the door to
   # any customer holding one self-service permission.
-  defp staff?(%Auth.User{} = user) do
+  defp staff?(%Auth.User{} = user), do: user |> Auth.User.get_roles() |> staff_roles?()
+
+  defp staff_roles?(roles) when is_list(roles) do
     system = Role.system_roles()
-    roles = Auth.User.get_roles(user)
     system.owner in roles or system.admin in roles
   end
 
@@ -470,9 +591,21 @@ defmodule PhoenixKitWeb.Users.MultiSession do
 
   defp root_user(session) do
     case stack_tokens(session) do
-      [root_token | _] -> Auth.get_user_by_session_token(root_token)
+      [root_token | _] -> root_user_from_token(root_token)
       _ -> nil
     end
+  end
+
+  # The root account decides both whether the switcher is offered and who may
+  # impersonate, so it must be resolved through the SAME active-user filter the
+  # plugs and `switch_to/2` apply. Resolving it with a bare token lookup left
+  # a deactivated Owner/Admin — a principal the system has explicitly cut off —
+  # holding a still-valid cookie that these two entry points accepted, letting
+  # them mint a fresh session as another live user.
+  defp root_user_from_token(root_token) do
+    root_token
+    |> Auth.get_user_by_session_token()
+    |> Auth.ensure_active_user()
   end
 
   defp log_event(action, %Auth.User{} = actor, %Auth.User{} = target) do

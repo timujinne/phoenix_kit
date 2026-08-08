@@ -27,6 +27,7 @@ defmodule PhoenixKit.Users.Auth.User do
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Users.Roles
   alias PhoenixKit.Utils.Date, as: UtilsDate
+  alias PhoenixKit.Utils.Slug
 
   # Fields excluded from get_user_field for security/internal reasons
   @excluded_fields ~w(password current_password hashed_password __meta__ __struct__)a
@@ -777,6 +778,11 @@ defmodule PhoenixKit.Users.Auth.User do
     |> String.split("@")
     |> List.first()
     |> String.downcase()
+    # Fold accents and Cyrillic to ASCII before `clean_username/1` runs, or it
+    # simply deletes them: `ülo.kask@` yielded `lo_kask`, losing the first letter
+    # of the name, and a wholly non-Latin local part collapsed to nothing.
+    # Downcasing first is required — `transliterate/1` maps lowercase Cyrillic.
+    |> Slug.transliterate()
     |> String.replace(".", "_")
     |> clean_username()
   end

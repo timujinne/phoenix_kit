@@ -309,6 +309,41 @@
             />
           </div>
 
+          <%!-- Main Page: where core sends a visitor who is not signed in.
+                Empty = core's own /users/log-in, which exists in every install
+                and every locale. --%>
+          <div class="form-control w-full">
+            <label class="label">
+              <span class="label-text text-base font-medium">
+                {gettext("Main Page")}
+              </span>
+              <span class="label-text-alt text-sm text-base-content/60">
+                {gettext("Local path of the site's home page")}
+              </span>
+            </label>
+            <.input
+              name="settings[main_page_path]"
+              type="text"
+              value={@settings["main_page_path"]}
+              class="focus:input-primary"
+              placeholder="/"
+              phx-debounce="500"
+            />
+            <div class="text-xs text-base-content/60 mt-1">
+              {gettext(
+                "Where PhoenixKit sends visitors who are not signed in. Empty = the sign-in page."
+              )}
+            </div>
+            <.unsaved_hint
+              dirty={@settings["main_page_path"] != @saved_settings["main_page_path"]}
+              saved={
+                if @saved_settings["main_page_path"] != "",
+                  do: @saved_settings["main_page_path"],
+                  else: gettext("(empty)")
+              }
+            />
+          </div>
+
           <.section_header icon="hero-adjustments-horizontal" title={gettext("Features")} />
 
           <%!-- Notifications --%>

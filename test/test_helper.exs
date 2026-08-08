@@ -73,6 +73,25 @@ repo_available =
 
 Application.put_env(:phoenix_kit, :test_repo_available, repo_available)
 
+# With no reachable database, `PhoenixKit.Test.Repo` still STARTS — only its
+# connections fail — so `Settings.repo_available?/0` stays true and every
+# settings read on the unit half queues against a dead pool for ~4s before
+# falling back to its default. That is the documented "unit tests still need
+# PostgreSQL" trap in AGENTS.md; it makes a DB-less `mix test` take minutes and
+# times out anything that resolves a path (`Routes.path/1` reads two settings).
+#
+# `:update_mode` is consulted ONLY by `PhoenixKit.Settings` (plus mix tasks and
+# the supervisor, neither of which runs here) and short-circuits the query to
+# `nil`, which is the same value the 4s stall eventually produces. So the
+# outcome of every read is unchanged; only its cost is. `:repo` stays
+# configured, so nothing outside Settings sees a different world.
+#
+# Applied only in the run where the database is already known to be unusable —
+# when it is reachable nothing here changes.
+unless repo_available do
+  Application.put_env(:phoenix_kit, :update_mode, true)
+end
+
 # Start minimal services needed for tests
 {:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])

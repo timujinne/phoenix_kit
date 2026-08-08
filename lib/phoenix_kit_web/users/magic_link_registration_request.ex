@@ -10,6 +10,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.MagicLinkRegistration
+  alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth
 
@@ -20,7 +21,12 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
         {:ok, socket}
 
       :cont ->
-        if Settings.get_boolean_setting("allow_registration", true) do
+        # Both gates apply: registration has to be open at all, AND magic-link
+        # registration specifically has to be enabled. The second setting used
+        # to hide the button on /users/register and nothing else, leaving this
+        # route reachable by anyone with the URL.
+        if Settings.get_boolean_setting("allow_registration", true) and
+             Auth.magic_link_registration_enabled?() do
           # Get project title from settings (with Config fallback)
           project_title = PhoenixKit.Settings.get_project_title()
 
@@ -29,6 +35,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
            |> assign(:page_title, "Register via Magic Link")
            |> assign(:project_title, project_title)
            |> assign(:email, "")
+           |> assign(:ip_address, IpAddress.extract_from_socket(socket))
            |> assign(:email_sent, false)
            |> assign(:error_message, nil)
            |> assign(:loading, false)}
@@ -95,6 +102,14 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
         {:noreply,
          error_state(socket, "Please enter a valid email address.", "Invalid email format")}
 
+      {:error, :rate_limit_exceeded} ->
+        {:noreply,
+         error_state(
+           socket,
+           "Too many registration attempts. Please try again later.",
+           "Too many attempts"
+         )}
+
       {:error, _reason} ->
         {:noreply, generic_failure(socket)}
     end
@@ -107,8 +122,10 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
   end
 
   defp send_registration_link_async(socket, email) do
+    ip_address = socket.assigns[:ip_address]
+
     Phoenix.LiveView.start_async(socket, :send_magic_link, fn ->
-      MagicLinkRegistration.send_registration_link(email)
+      MagicLinkRegistration.send_registration_link(email, ip_address)
     end)
   end
 

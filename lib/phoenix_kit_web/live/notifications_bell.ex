@@ -35,6 +35,11 @@ defmodule PhoenixKitWeb.Live.NotificationsBell do
      socket
      |> assign(:user_uuid, user_uuid)
      |> assign(:locale, session["locale"])
+     # Whether the recipient may open `/admin/notifications`, decided by the
+     # embedder (`LayoutWrapper`) through the destination's own admin-view gate
+     # — the bell is a nested LiveView with no scope of its own. Fails CLOSED so
+     # an embedding that doesn't thread it never offers a rejecting link.
+     |> assign(:can_open_inbox, session["can_open_inbox"] == true)
      |> refresh()}
   end
 
@@ -180,10 +185,13 @@ defmodule PhoenixKitWeb.Live.NotificationsBell do
             </ul>
           <% end %>
 
-          <%!-- Footer: always present so the full inbox is one click away, even
-               when the recent list is empty. Built via Routes.path with the
-               recipient's own locale (like the notification links above). --%>
-          <div class="border-t border-base-200 p-2">
+          <%!-- Footer: the full inbox is one click away whenever the recipient
+               can actually open it, even when the recent list is empty. Built
+               via Routes.path with the recipient's own locale (like the
+               notification links above). The whole bordered strip is dropped
+               together with the link — a footer rule with nothing under it
+               reads as a rendering bug. --%>
+          <div :if={@can_open_inbox} class="border-t border-base-200 p-2">
             <.link
               navigate={Routes.path("/admin/notifications", locale: @locale)}
               class="btn btn-ghost btn-sm btn-block"

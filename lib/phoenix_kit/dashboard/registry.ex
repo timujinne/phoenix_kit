@@ -211,6 +211,29 @@ defmodule PhoenixKit.Dashboard.Registry do
   end
 
   @doc """
+  The admin path of the tab that declares `view` as its `live_view`, or
+  `"/admin"` when nothing claims it.
+
+  Sidebar active-state reads `assigns[:url_path]`, which the kit's on_mount
+  chain fills in from a `:handle_params` hook. Two kinds of LiveView never get
+  it: one rendered via `live_render/3` (an embed has no `handle_params`
+  lifecycle at all) and a host LV that renders admin chrome without going
+  through that chain. Both used to render with no tab highlighted and nothing
+  to suggest why. A tab already knows its own path, so ask it.
+  """
+  @spec path_for_live_view(module()) :: String.t()
+  def path_for_live_view(view) when is_atom(view) do
+    get_admin_tabs(include_hidden: true)
+    |> Enum.find_value(fn
+      %Tab{live_view: {^view, _action}, path: path} when is_binary(path) -> path
+      %Tab{live_view: ^view, path: path} when is_binary(path) -> path
+      _ -> nil
+    end) || "/admin"
+  end
+
+  def path_for_live_view(_), do: "/admin"
+
+  @doc """
   Gets user-level tabs.
 
   ## Options
@@ -493,6 +516,46 @@ defmodule PhoenixKit.Dashboard.Registry do
     # and permission auto-grants that query the DB happen after init returns.
     {:ok, %{namespaces: MapSet.new([:phoenix_kit, :phoenix_kit_admin])},
      {:continue, :initialize_tabs}}
+  end
+
+  @doc """
+  Admin tab ids the host has hidden:
+
+      config :phoenix_kit, hidden_admin_tabs: [:admin_locations]
+
+  "I want this module's data but not its UI" is an ordinary need — a host may
+  install `phoenix_kit_locations` purely as a data layer and never want its
+  admin section.
+
+  Applied during registry **init**, not by `unregister_tab/1`. That function
+  mutates GenServer state, and the registry rebuilds from
+  `AdminTabs.default_tabs/0` whenever it initialises — so a supervisor restart
+  would silently resurrect the hidden tabs mid-flight, with nothing to indicate
+  it had happened. Applying it at the rebuild is what makes hiding survive.
+
+  Hiding is cosmetic: it removes the sidebar entry, not the route or the
+  permission. Use permissions to control access.
+  """
+  @spec hidden_admin_tabs() :: [atom()]
+  def hidden_admin_tabs do
+    :phoenix_kit
+    |> Application.get_env(:hidden_admin_tabs, [])
+    |> Enum.filter(&is_atom/1)
+  end
+
+  @doc """
+  Drops the tabs listed in `:hidden_admin_tabs` from `tabs`.
+
+  Public so the filter can be tested as the pure function it is — this is the
+  exact composition `load_admin_defaults_internal/0` applies to
+  `AdminTabs.default_tabs/0`.
+  """
+  @spec apply_hidden_admin_tabs([Tab.t()]) :: [Tab.t()]
+  def apply_hidden_admin_tabs(tabs) do
+    case hidden_admin_tabs() do
+      [] -> tabs
+      hidden -> Enum.reject(tabs, &(&1.id in hidden))
+    end
   end
 
   @impl true
@@ -907,7 +970,7 @@ defmodule PhoenixKit.Dashboard.Registry do
   defp load_admin_defaults_internal do
     clear_namespace_tabs(:phoenix_kit_admin)
 
-    tabs = AdminTabs.default_tabs()
+    tabs = AdminTabs.default_tabs() |> apply_hidden_admin_tabs()
     groups = AdminTabs.default_groups()
 
     Enum.each(tabs, fn tab ->
@@ -964,8 +1027,12 @@ defmodule PhoenixKit.Dashboard.Registry do
   # Registers a custom permission key derived from a tab config map.
   # Only registers if the permission key is NOT one of the built-in keys.
   # Also caches live_view → permission mapping for auth enforcement.
-  defp auto_register_custom_permission(%{permission: perm} = tab_config)
-       when is_binary(perm) or is_atom(perm) do
+  # Exposed as `@doc false def` (rather than `defp`) so unit tests can drive a
+  # single tab config through registration without standing up the GenServer.
+  # Not part of the public API.
+  @doc false
+  def auto_register_custom_permission(%{permission: perm} = tab_config)
+      when is_binary(perm) or is_atom(perm) do
     perm = to_string(perm)
 
     # Integration keys are core-managed built-ins, NOT custom keys — include
@@ -978,7 +1045,13 @@ defmodule PhoenixKit.Dashboard.Registry do
       Permissions.core_section_keys() ++
         Permissions.integration_keys() ++ Permissions.feature_module_keys()
 
-    unless perm == "" or perm in builtin_keys do
+    # A tab may be gated on a SUB-permission ("shop.manage_settings"). Those
+    # are declared through `permission_metadata/0` and stored as composed
+    # dotted keys, which `register_custom_key/2` rejects outright — the raise
+    # then skipped the view→permission caching below, so a module that gated
+    # its settings page on a sub-key lost core's automatic view gate and
+    # warned on every boot.
+    unless perm == "" or perm in builtin_keys or Permissions.parent_key(perm) do
       # Forward the tab's gettext config so the permissions matrix renders
       # the key's label in the same locale the sidebar tab already does.
       Permissions.register_custom_key(perm,
@@ -1016,7 +1089,7 @@ defmodule PhoenixKit.Dashboard.Registry do
       :ok
   end
 
-  defp auto_register_custom_permission(_), do: :ok
+  def auto_register_custom_permission(_), do: :ok
 
   # Subscribe to entity definition lifecycle events for sidebar cache invalidation.
   # Guarded since the Entities module is optional.

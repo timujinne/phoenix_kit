@@ -13,6 +13,17 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
   """
   use PhoenixKitWeb, :live_view
 
+  # Search, filter and page live in the query string, so a filtered list is a
+  # real URL: shareable, reload-proof, and Back returns to the previous query
+  # instead of leaving the page. `filter_user_status` defaults to "all", which
+  # is therefore what gets omitted from the URL.
+  use PhoenixKitWeb.Live.UrlState,
+    params: [
+      search_query: [default: "", url_key: "q"],
+      filter_user_status: [default: "all", url_key: "status"],
+      page: [default: 1, cast: :integer, min: 1]
+    ]
+
   alias PhoenixKit.Admin.Events
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.{Auth, Sessions}
@@ -33,57 +44,52 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
     # Get project title from settings
     project_title = Settings.get_project_title()
 
+    # :page, :search_query and :filter_user_status are assigned from the
+    # query string by UrlState before mount/3 runs — re-assigning them here
+    # would overwrite a shared link's state with the defaults.
     socket =
       socket
-      |> assign(:page, 1)
       |> assign(:per_page, @per_page)
-      |> assign(:search_query, "")
-      |> assign(:filter_user_status, "all")
       |> assign(:page_title, gettext("Session Management"))
       |> assign(:project_title, project_title)
       |> assign(:current_locale, locale)
       |> assign(:show_revoke_modal, false)
       |> assign(:selected_session, nil)
       |> assign(:revoke_type, nil)
-      |> load_sessions()
       |> load_stats()
 
     {:ok, socket}
   end
 
+  # The list is loaded here rather than in mount/3: UrlState calls this after
+  # mount and on every change to the query string, so one code path serves the
+  # first render, a shared link, and the Back button alike.
+  #
+  # Deliberately not annotated with @impl — a single @impl anywhere in a module
+  # makes Elixir demand it on every other callback too, and this LiveView's
+  # mount/handle_event/handle_params/handle_info carry none.
+  def handle_url_state(_state, socket), do: load_sessions(socket)
+
   def handle_params(_params, _url, socket) do
     {:noreply, socket}
   end
 
+  # `replace: true` — the box is debounced, so a typed-out query would
+  # otherwise leave one history entry per pause and Back would walk the search
+  # string backwards instead of leaving the page.
   def handle_event("search", %{"search" => search_query}, socket) do
-    socket =
-      socket
-      |> assign(:search_query, search_query)
-      |> assign(:page, 1)
-      |> load_sessions()
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, [search_query: search_query], replace: true)}
   end
 
   def handle_event("filter_by_user_status", %{"status" => status}, socket) do
-    socket =
-      socket
-      |> assign(:filter_user_status, status)
-      |> assign(:page, 1)
-      |> load_sessions()
-
-    {:noreply, socket}
+    {:noreply, push_url_state(socket, filter_user_status: status)}
   end
 
   def handle_event("change_page", %{"page" => page}, socket) do
-    page = String.to_integer(page)
-
-    socket =
-      socket
-      |> assign(:page, page)
-      |> load_sessions()
-
-    {:noreply, socket}
+    case Integer.parse(page) do
+      {page, ""} when page > 0 -> {:noreply, push_url_state(socket, page: page)}
+      _ -> {:noreply, socket}
+    end
   end
 
   def handle_event("show_revoke_session", %{"token_uuid" => token_uuid}, socket) do

@@ -95,7 +95,15 @@ defmodule PhoenixKit.Users.OAuthConfig do
     providers =
       if Settings.has_oauth_credentials_direct?(:github) and
            Settings.get_boolean_setting("oauth_github_enabled", false) do
-        Map.put(providers, :github, {Ueberauth.Strategy.Github, []})
+        # `user:email` is required, not cosmetic. The strategy's default scope is
+        # "" (deps/ueberauth_github/.../github.ex:76), and without this scope the
+        # token cannot read GET /user/emails — so the strategy stores the user
+        # WITHOUT an "emails" key and PhoenixKit has no way to learn whether
+        # GitHub verified the address. With the verified-email requirement on,
+        # that means every GitHub sign-in to an existing account is refused.
+        # Read-only access to the address list is also the minimum scope that
+        # answers the question.
+        Map.put(providers, :github, {Ueberauth.Strategy.Github, [default_scope: "user:email"]})
       else
         providers
       end

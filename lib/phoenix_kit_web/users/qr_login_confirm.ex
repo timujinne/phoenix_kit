@@ -30,7 +30,12 @@ defmodule PhoenixKitWeb.Users.QrLoginConfirm do
         {:ok,
          socket
          |> put_flash(:error, gettext("QR code sign-in is not available."))
-         |> redirect(to: Routes.path("/"))}
+         |> redirect(
+           to:
+             Routes.safe_destination(socket,
+               scope: socket.assigns[:phoenix_kit_current_scope]
+             )
+         )}
 
       # peek/2 is a read-only, idempotent ETS lookup, but gate it behind
       # connected? anyway so a future non-ETS (e.g. DB/Redis) keyfob store

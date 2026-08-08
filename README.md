@@ -41,6 +41,27 @@ This will automatically:
 
 See [Installation Options](#installation-options) below for advanced flags and fallback flows.
 
+### If the build fails on `mdex` / `mdex_native`
+
+PhoenixKit renders markdown through `mdex`, which normally downloads a
+precompiled NIF. Two situations make it build from source instead, and both
+need `rustler` — which is a *host* dependency, because an optional dep is not
+resolved transitively:
+
+```elixir
+# mix.exs
+{:rustler, ">= 0.0.0", optional: true}
+```
+
+- **Your CPU has no AVX support**, or you are on a platform with no prebuilt
+  binary. Set `MDEX_NATIVE_BUILD=1` and rebuild; you will need a Rust toolchain.
+- **Your environment blocks the download** (an air-gapped or proxied CI). Same
+  fix.
+
+Without `rustler` present the build fails with a compilation error from
+`mdex_native` rather than anything naming PhoenixKit, which is why this is
+worth stating up front.
+
 ## 📦 Current PhoenixKit Features / Modules:
 
 ```

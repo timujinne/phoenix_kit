@@ -71,6 +71,9 @@ defmodule PhoenixKit.Settings.Setting do
     "site_url",
     "site_icon_file_uuid",
     "default_tab_title",
+    # Empty = core falls back to its own `/users/log-in`, which exists in every
+    # install and every locale (see `Routes.main_page_path/0`).
+    "main_page_path",
     # Post-login redirects (empty = default behavior)
     "after_registration_path",
     # OAuth Provider Credentials
@@ -268,11 +271,13 @@ defmodule PhoenixKit.Settings.Setting do
     embedded_schema do
       field :project_title, :string
       field :site_url, :string
+      field :main_page_path, :string
       field :allow_registration, :string
       field :oauth_enabled, :string
       field :oauth_google_enabled, :string
       field :oauth_github_enabled, :string
       field :oauth_facebook_enabled, :string
+      field :oauth_require_verified_email, :string
       field :magic_link_login_enabled, :string
       field :magic_link_registration_enabled, :string
       field :new_user_default_role, :string
@@ -334,11 +339,13 @@ defmodule PhoenixKit.Settings.Setting do
       |> cast(attrs, [
         :project_title,
         :site_url,
+        :main_page_path,
         :allow_registration,
         :oauth_enabled,
         :oauth_google_enabled,
         :oauth_github_enabled,
         :oauth_facebook_enabled,
+        :oauth_require_verified_email,
         :magic_link_login_enabled,
         :magic_link_registration_enabled,
         :new_user_default_role,
@@ -406,6 +413,7 @@ defmodule PhoenixKit.Settings.Setting do
       )
       |> validate_local_path(:after_login_path)
       |> validate_local_path(:after_registration_path)
+      |> validate_local_path(:main_page_path)
     end
 
     # Validates a redirect-target setting is a local path (optional field —

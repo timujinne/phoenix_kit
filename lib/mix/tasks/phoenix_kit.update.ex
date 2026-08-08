@@ -101,6 +101,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       RateLimiterConfig
     }
 
+    alias PhoenixKit.Migrations.Modules, as: MigrationModules
     alias PhoenixKit.Migrations.Postgres, as: MigrationsPostgres
     alias PhoenixKit.Migrations.UUIDRepair
     # NOTE: Do NOT alias PhoenixKit.Utils.Routes here — it depends on
@@ -715,11 +716,8 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
             run_migration_with_feedback(opts)
           else
-            Mix.shell().info("""
-
-            💡 Migration not run automatically (#{reason}).
-            To run migration manually:
-              mix ecto.migrate
+            raise_pending_migration("""
+            Migration not run automatically (#{reason}).
             """)
           end
       end
@@ -749,13 +747,29 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
             run_migration_with_feedback(opts)
 
           _ ->
-            Mix.shell().info("""
-
-            ⚠️  Migration skipped. To run it manually later:
-              mix ecto.migrate
-            """)
+            raise_pending_migration("Migration skipped at your request.")
         end
       end
+    end
+
+    # A pending migration means new code is running against an old schema, so the
+    # task must NOT exit 0. It used to: `ssh host "mix phoenix_kit.update"`
+    # succeeded, the deploy went green, and the drift was silent — in exactly the
+    # environment where you least want to find out later.
+    #
+    # `Mix.raise/1` gives a non-zero exit with a clean message and no stacktrace.
+    # It fires for the interactive "no" too: the exit code answers "is this
+    # install up to date?", and the answer does not depend on why it is not.
+    defp raise_pending_migration(reason) do
+      Mix.raise("""
+      #{String.trim(reason)}
+
+      PhoenixKit's code is updated but the database is not. Do one of:
+
+        mix ecto.migrate                 # run it now
+        mix phoenix_kit.update --yes     # re-run this task and migrate without prompting
+                                         # (this is the one for CI/CD and deploy scripts)
+      """)
     end
 
     # Display comprehensive help information
@@ -871,79 +885,183 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     # in the parent app for each module that needs updating, then runs migrations.
     defp run_module_migrations(opts) do
       prefix = PrefixConfig.resolve_prefix(opts)
+      modules = MigrationModules.list(prefix: prefix)
 
-      modules =
-        try do
-          discover_module_migrations()
-        rescue
-          _ -> []
-        end
+      report_unreadable_modules(modules)
 
-      Enum.each(modules, fn {name, migration_mod} ->
-        try do
-          current = migration_mod.migrated_version_runtime(prefix: prefix)
-          target = migration_mod.current_version()
+      case MigrationModules.pending(modules) do
+        [] ->
+          report_modules_up_to_date(modules)
 
-          if current < target do
-            Mix.shell().info("\n⏳ #{name}: V#{pad_version(current)} → V#{pad_version(target)}")
-            generate_module_migration(name, migration_mod, current, target, prefix)
+        pending ->
+          # Write every module's migration file FIRST, then migrate once.
+          # The old code ran a full `ecto.migrate` inside the loop, so N
+          # modules meant N migrator runs over the same (growing) directory.
+          written =
+            pending
+            |> Enum.with_index()
+            |> Enum.flat_map(fn {entry, index} ->
+              Mix.shell().info(
+                "\n⏳ #{entry.name}: V#{pad_version(entry.installed)} → V#{pad_version(entry.target)}"
+              )
 
-            # Run the newly generated migration
-            Mix.Task.reenable("ecto.migrate")
+              write_module_migration(entry, prefix, index)
+            end)
 
-            case resolve_host_repo() do
-              nil -> Mix.Task.run("ecto.migrate")
-              repo -> Mix.Task.run("ecto.migrate", ["-r", repo])
-            end
-
-            Mix.shell().info("✅ #{name} migrated to V#{pad_version(target)}")
-          else
-            Mix.shell().info("✅ #{name}: V#{pad_version(current)} (up to date)")
+          if written != [] do
+            migrate_host_repo()
           end
-        rescue
-          error ->
-            Mix.shell().info("⚠️  #{name} migration check failed: #{Exception.message(error)}")
-        end
-      end)
+
+          verify_module_migrations(written, prefix)
+      end
     end
 
-    # Discover modules with migrations via beam file scanning.
-    # Works without the full app started — scans beam files directly.
-    defp discover_module_migrations do
-      PhoenixKit.ModuleDiscovery.discover_external_modules()
-      |> Enum.flat_map(fn mod ->
-        if Code.ensure_loaded?(mod) and function_exported?(mod, :migration_module, 0) do
-          case mod.migration_module() do
-            nil -> []
-            migration_mod -> [{safe_module_name(mod), migration_mod}]
-          end
-        else
-          []
-        end
-      end)
-    end
-
-    defp safe_module_name(mod) do
-      if function_exported?(mod, :module_name, 0), do: mod.module_name(), else: inspect(mod)
+    # One module must not be able to abort the run. Writing a migration file
+    # can raise for reasons entirely outside our control (unwritable
+    # `priv/`, a disk full), and on the pre-1.7.230 code a per-module
+    # `try/rescue` kept the loop going. Losing that meant a single bad module
+    # killed `mix phoenix_kit.update` *after* core had already migrated,
+    # skipping every remaining module and the UUID repair pass.
+    defp write_module_migration(entry, prefix, index) do
+      generate_module_migration(entry, prefix, index)
+      [entry]
     rescue
-      _ -> inspect(mod)
+      error ->
+        report_module_write_failure(entry, Exception.message(error))
+        []
+    catch
+      :exit, reason ->
+        report_module_write_failure(entry, "exited: #{inspect(reason)}")
+        []
     end
 
-    defp generate_module_migration(name, migration_mod, current, target, prefix) do
-      migrations_dir = Path.join(["priv", "repo", "migrations"])
+    defp report_module_write_failure(entry, message) do
+      Mix.shell().info(
+        "⚠️  #{entry.name}: could not write its migration — #{message}\n" <>
+          "    Its tables were NOT migrated; the remaining modules continue."
+      )
+    end
+
+    # Re-read each module's version from the database instead of assuming the
+    # migrator applied what we wrote. `ecto.migrate` runs against the resolved
+    # repo's own migration path, which is not necessarily the directory we
+    # wrote to, and it exits 0 when it finds nothing to do — so an
+    # unconditional "✅ migrated" could report success while no SQL ran at all.
+    defp verify_module_migrations([], _prefix), do: :ok
+
+    defp verify_module_migrations(written, prefix) do
+      after_versions =
+        MigrationModules.list(prefix: prefix)
+        |> Map.new(&{&1.module, &1})
+
+      Enum.each(written, fn entry ->
+        case Map.get(after_versions, entry.module) do
+          %{status: :up_to_date, installed: installed} ->
+            Mix.shell().info("✅ #{entry.name} migrated to V#{pad_version(installed)}")
+
+          %{status: :error, error: error} ->
+            Mix.shell().error(
+              "❌ #{entry.name} could not be re-read after migrating — #{error}. " <>
+                "Run mix phoenix_kit.status to confirm its schema version."
+            )
+
+          %{installed: installed} ->
+            Mix.shell().error(
+              "❌ #{entry.name} is still at V#{pad_version(installed)}, expected " <>
+                "V#{pad_version(entry.target)}. The generated migration did not run — check " <>
+                "that #{inspect(module_migrations_dir())} is the migration path of the repo " <>
+                "`mix ecto.migrate` used."
+            )
+
+          nil ->
+            Mix.shell().error(
+              "❌ #{entry.name} could not be re-read after migrating; its version is unknown."
+            )
+        end
+      end)
+    end
+
+    # A module whose coordinator raises used to be silently dropped from the
+    # run — the host saw nothing at all and assumed its tables were current.
+    defp report_unreadable_modules(modules) do
+      case MigrationModules.failed(modules) do
+        [] ->
+          :ok
+
+        failed ->
+          Enum.each(failed, fn entry ->
+            Mix.shell().info(
+              "⚠️  #{entry.name}: could not read schema version — #{entry.error}\n" <>
+                "    Its tables were NOT migrated. Check #{inspect(entry.migration_module)}."
+            )
+          end)
+      end
+    end
+
+    defp report_modules_up_to_date([]), do: :ok
+
+    defp report_modules_up_to_date(modules) do
+      Enum.each(modules, fn
+        %{status: :error} ->
+          :ok
+
+        entry ->
+          Mix.shell().info("✅ #{entry.name}: V#{pad_version(entry.installed)} (up to date)")
+      end)
+    end
+
+    defp migrate_host_repo do
+      Mix.Task.reenable("ecto.migrate")
+
+      case resolve_host_repo() do
+        nil -> Mix.Task.run("ecto.migrate")
+        repo -> Mix.Task.run("ecto.migrate", ["-r", repo])
+      end
+    end
+
+    # `index` offsets the timestamp so two modules migrated in the same second
+    # can't collide. Ecto derives a migration's version from the filename
+    # prefix and rejects duplicates outright, so without this a host running
+    # two module upgrades at once got a hard failure.
+    defp generate_module_migration(entry, prefix, index) do
+      migrations_dir = module_migrations_dir()
       File.mkdir_p!(migrations_dir)
 
       slug =
-        name
+        entry.name
         |> String.downcase()
         |> String.replace(~r/[^a-z0-9]+/, "_")
         |> String.trim("_")
 
-      mod_name = inspect(migration_mod)
-      timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d%H%M%S")
+      mod_name = inspect(entry.migration_module)
+      current = entry.installed
+      target = entry.target
 
-      filename =
-        "#{timestamp}_#{slug}_update_v#{pad_version(current)}_to_v#{pad_version(target)}.exs"
+      suffix = "#{slug}_update_v#{pad_version(current)}_to_v#{pad_version(target)}.exs"
+
+      # Same guard the core migration path has had all along. Without it an
+      # interrupted run (file written, `ecto.migrate` failed) leaves the module
+      # still pending, and the next run writes a SECOND file with the same
+      # migration name — which Ecto rejects outright with "migration name ... is
+      # duplicated", blocking every future migration until a human deletes one.
+      case Path.wildcard(Path.join(migrations_dir, "*_#{suffix}")) do
+        [existing | _] ->
+          Mix.shell().info(
+            "  Migration already exists: #{existing}\n" <>
+              "     Reusing it. To regenerate, delete the file first."
+          )
+
+          :ok
+
+        [] ->
+          write_migration_file(entry, prefix, index, migrations_dir, suffix, slug, mod_name)
+      end
+    end
+
+    defp write_migration_file(entry, prefix, index, migrations_dir, suffix, slug, mod_name) do
+      current = entry.installed
+      target = entry.target
+      filename = "#{unique_timestamp(migrations_dir, index)}_#{suffix}"
 
       app_module =
         Mix.Project.config()[:app]
@@ -973,6 +1091,55 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       Mix.shell().info("  Created migration: #{path}")
     end
 
+    # Where the repo `mix ecto.migrate` will run against actually reads its
+    # migrations from. Hardcoding `priv/repo/migrations` silently no-ops on a
+    # host whose first `:ecto_repos` entry is not `MyApp.Repo` — the file lands
+    # somewhere the migrator never scans, so it exits 0 having done nothing.
+    defp module_migrations_dir do
+      case resolve_host_repo_module() do
+        nil -> Path.join(["priv", "repo", "migrations"])
+        repo -> Path.join(repo_priv_dir(repo), "migrations")
+      end
+    end
+
+    # `repo.config()` needs the repo's app env, which may not be loaded under
+    # `--no-start`; fall back to the convention Ecto itself defaults to,
+    # `priv/<repo module underscored>`.
+    defp repo_priv_dir(repo) do
+      repo.config()[:priv] || default_repo_priv_dir(repo)
+    rescue
+      _ -> default_repo_priv_dir(repo)
+    catch
+      :exit, _ -> default_repo_priv_dir(repo)
+    end
+
+    defp default_repo_priv_dir(repo) do
+      Path.join("priv", repo |> Module.split() |> List.last() |> Macro.underscore())
+    end
+
+    # Base timestamp + index, bumped past anything already on disk. Migration
+    # versions only have to be unique and increasing — they are not required to
+    # decode back to a real wall-clock time.
+    defp unique_timestamp(migrations_dir, index) do
+      base = String.to_integer(Common.generate_timestamp()) + index
+
+      highest =
+        migrations_dir
+        |> File.ls()
+        |> case do
+          {:ok, files} -> files
+          {:error, _} -> []
+        end
+        |> Enum.map(&(&1 |> String.split("_") |> hd() |> Integer.parse()))
+        |> Enum.flat_map(fn
+          {version, ""} -> [version]
+          _ -> []
+        end)
+        |> Enum.max(fn -> 0 end)
+
+      to_string(max(base, highest + 1 + index))
+    end
+
     # Show current installation status and available updates
     defp show_status(opts) do
       prefix = PrefixConfig.resolve_prefix(opts)
@@ -980,6 +1147,33 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       # Use the status command to show current status
       args = if prefix == "public", do: [], else: ["--prefix=#{prefix}"]
       Mix.Task.run("phoenix_kit.status", args)
+
+      show_upgrade_value(prefix)
+    end
+
+    # What a behind host would GAIN by upgrading.
+    #
+    # `--status` reported version numbers and "Various improvements and new
+    # features", which does not help anyone decide between upgrading now and
+    # next sprint. That gap is why several already-shipped features reached us
+    # as bug reports: hosts had no way to learn a capability existed short of
+    # reading release notes they had no reason to open.
+    defp show_upgrade_value(prefix) do
+      current = Common.migrated_version(prefix)
+      target = Common.current_version()
+
+      if current > 0 and current < target do
+        Mix.shell().info("""
+
+        #{IO.ANSI.bright()}What you'd gain by updating (V#{current} → V#{target}):#{IO.ANSI.reset()}
+        #{Common.describe_version_changes(current, target)}
+
+        Run `mix phoenix_kit.update` to apply.
+        """)
+      end
+    rescue
+      # A diagnostic must never be the reason a status check fails.
+      _ -> :ok
     end
 
     # Advisory only — the host owns assets/vendor/daisyui.js; PhoenixKit's
@@ -1151,11 +1345,19 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     # Resolve the host application's Ecto repo module name as a string.
     # Returns nil if no repo is found (falls back to default ecto.migrate behaviour).
     defp resolve_host_repo do
-      app_name = Mix.Project.config()[:app]
-      repos = Application.get_env(app_name, :ecto_repos, [])
+      case resolve_host_repo_module() do
+        nil -> nil
+        repo -> inspect(repo)
+      end
+    end
 
-      case repos do
-        [repo | _] -> inspect(repo)
+    # The same repo as an atom — `module_migrations_dir/0` needs the module
+    # itself to ask it where its migrations live.
+    defp resolve_host_repo_module do
+      app_name = Mix.Project.config()[:app]
+
+      case Application.get_env(app_name, :ecto_repos, []) do
+        [repo | _] -> repo
         _ -> nil
       end
     rescue
@@ -1194,12 +1396,50 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
       a = IO.ANSI
 
+      # Modules that own their schema report alongside core, so the closing
+      # summary answers "what version is everything at?" in one place rather
+      # than only covering core and leaving module versions to scrollback.
+      module_lines = module_summary_lines(prefix)
+      core_branch = if module_lines == "", do: "└──", else: "├──"
+
       Mix.shell().info("""
 
       #{a.bright()}PhoenixKit v#{phoenix_kit_version}#{a.reset()}
       #{a.bright()}├── Migration#{a.reset()}: #{format_version(db_version, target)}
-      #{a.bright()}└── Target#{a.reset()}:    V#{pad_version(target)}
+      #{a.bright()}#{core_branch} Target#{a.reset()}:    V#{pad_version(target)}#{module_lines}
       """)
+    end
+
+    defp module_summary_lines(prefix) do
+      modules = MigrationModules.list(prefix: prefix)
+      a = IO.ANSI
+      last_index = length(modules) - 1
+
+      modules
+      |> Enum.with_index()
+      |> Enum.map_join("", fn {entry, index} ->
+        branch = if index == last_index, do: "└──", else: "├──"
+        "\n#{a.bright()}#{branch} #{entry.name}#{a.reset()}: #{format_module_version(entry)}"
+      end)
+    rescue
+      _ -> ""
+    catch
+      # A dead connection pool exits rather than raising, and losing the
+      # closing summary of an otherwise-successful update run over a cosmetic
+      # lookup would be a poor trade.
+      :exit, _ -> ""
+    end
+
+    defp format_module_version(%{status: :error} = entry) do
+      "#{IO.ANSI.red()}unreadable ❌#{IO.ANSI.reset()} (#{entry.error})"
+    end
+
+    defp format_module_version(%{status: :up_to_date} = entry) do
+      "#{IO.ANSI.green()}V#{pad_version(entry.installed)} ✅#{IO.ANSI.reset()}"
+    end
+
+    defp format_module_version(entry) do
+      "#{IO.ANSI.yellow()}V#{pad_version(entry.installed)} (needs V#{pad_version(entry.target)})#{IO.ANSI.reset()}"
     end
 
     defp format_version(db, target) when db >= target,
@@ -1732,44 +1972,17 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       _ -> :ok
     end
   end
-
-  # Fallback module for when Igniter is not available
 else
+  # Igniter is optional (see mix.exs), so this task cannot be defined here.
+  # A guard with no `else` would make it vanish and Mix would report only
+  # "could not be found" — naming neither PhoenixKit nor the missing dep.
   defmodule Mix.Tasks.PhoenixKit.Update do
     @moduledoc """
-    PhoenixKit update task.
-
-    This task requires the Igniter library to be available. Please add it to your mix.exs:
-
-        {:igniter, "~> 0.7"}
-
-    Then run: mix deps.get
+    Placeholder for `mix phoenix_kit.update`, which needs the optional :igniter
+    dependency. Running it explains how to add igniter; see
+    `PhoenixKit.Install.MissingIgniter` for why the dep is optional.
     """
 
-    @shortdoc "Update PhoenixKit (requires Igniter)"
-
-    use Mix.Task
-
-    def run(_args) do
-      Mix.shell().error("""
-
-      ❌ PhoenixKit update requires the Igniter library.
-
-      Please add Igniter to your mix.exs dependencies:
-
-          def deps do
-            [
-              {:igniter, "~> 0.7"}
-              # ... your other dependencies
-            ]
-          end
-
-      Then run:
-        mix deps.get
-        mix phoenix_kit.update
-
-      For more information, visit: https://hex.pm/packages/igniter
-      """)
-    end
+    use PhoenixKit.Install.MissingIgniter, task: "phoenix_kit.update"
   end
 end

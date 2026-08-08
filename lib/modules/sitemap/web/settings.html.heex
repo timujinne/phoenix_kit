@@ -666,6 +666,20 @@
               do: gettext("/sitemap.xml contains all URLs in a single <urlset>"),
               else: gettext("/sitemap.xml is a sitemapindex referencing per-module sitemap files")}
           </p>
+
+          <p class="text-xs text-base-content/60 mt-2">
+            <.icon name="hero-information-circle" class="w-3 h-3 inline" />
+            {gettext(
+              "Served at the site root as well as under the PhoenixKit prefix, because that is where crawlers look. A priv/static/sitemap.xml file would be served instead of this one."
+            )}
+            <.link
+              navigate={Routes.path("/admin/settings/seo")}
+              class="link link-primary"
+            >
+              {gettext("SEO settings")}
+            </.link>
+            {gettext("has the robots.txt line that points crawlers here.")}
+          </p>
         </div>
       </div>
 
@@ -691,8 +705,9 @@
               </label>
               <p class="text-xs text-base-content/60 mb-1">
                 {gettext(
-                  "One regular expression per line. Replaces the built-in defaults entirely when saved — an empty list means nothing is excluded."
+                  "One regular expression per line. Added on top of the built-in defaults, which always apply:"
                 )}
+                <span class="font-mono">{@exclude_patterns_defaults_text}</span>
               </p>
               <.textarea
                 name="patterns"

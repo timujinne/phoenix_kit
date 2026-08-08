@@ -48,15 +48,22 @@ and the value the user sees would disagree with what `phx-trigger-action` POSTs.
 
 One resolver — `Routes.post_auth_path/1` — takes candidate destinations in
 priority order, returns the first that passes `local_path?/1`, and falls back to
-the `after_login_path` setting, then `"/"`.
+the `after_login_path` setting, then to `/admin`.
 
 Precedence everywhere:
 
 ```
-explicit return_to  >  after_registration_path  >  after_login_path  >  "/"
+explicit return_to  >  after_registration_path  >  after_login_path  >  /admin
    (?return_to= param, or the         (registration only;
     :user_return_to a gate stashed)    empty = fall through)
 ```
+
+The tail used to be a bare `"/"` — the host's home page, a route core cannot
+declare and many hosts never route, so it 404'd. It is now `/admin`, which core
+declares unconditionally and which admits every authenticated visitor (one
+holding no rights is greeted and shown nothing else). With a `:context` the
+resolver still prefers a better destination and only falls through to the
+landing when nothing else resolves; see `Routes.safe_destination/2`.
 
 `log_in_user/3` honors a `"return_to"` in its params map as well as the session
 key — the OAuth callback had always passed one there and it was silently

@@ -30,11 +30,47 @@ defmodule Mix.Tasks.PhoenixKit.Status do
 
   ## Sample Output
 
-      PhoenixKit v1.2.1
-      ├── Installed: V03 ✅
+      PhoenixKit v1.7.216
+      ├── Installed: V159 ✅
       ├── Database: Connected ✅
-      ├── Assets: Built ✅
-      └── Status: Ready
+      ├── Modules: 2 modules, all up to date ✅
+      │   ├── Boards: V01 ✅
+      │   └── Inbox: V01 ✅
+      └── Next: Ready
+
+  The `Modules` row covers PhoenixKit modules that own their migrations
+  (`c:PhoenixKit.Module.migration_module/0`) — each reports the schema version
+  installed in *your* database against the version its code expects. When one
+  is behind, the report says so and `Next` points at the fix and the reason:
+
+      PhoenixKit v1.7.230
+      ├── Installed: V159 ✅
+      ├── Database: Connected ✅
+      ├── Modules: 2 modules, 1 behind ⚠
+      │   ├── Boards: V01 ✅
+      │   └── Inbox: V01 ⚠ (code expects V02)
+      └── Next: mix phoenix_kit.update — module schema behind: Inbox
+
+  The row is omitted entirely when no installed module owns migrations, so a
+  core-only install keeps the compact tree.
+
+  ## "code expects", not "update available"
+
+  Everything reported here is measured against the version compiled into the
+  **running release** — this task never asks Hex what exists, so it cannot and
+  does not tell you a newer PhoenixKit is out. A version gap is therefore not
+  an optional upgrade being offered; it means the schema disagrees with the
+  code already querying it, which surfaces as runtime errors on whatever the
+  newer version added. The wording is deliberate:
+
+      ├── Installed: V159 ⚠ (code expects V160)
+      └── Next: mix phoenix_kit.update — database is V159, code expects V160
+
+  When core and a module are both behind, one command fixes both and both
+  reasons are listed, so re-running does not turn up a second finding that was
+  already knowable:
+
+      └── Next: mix phoenix_kit.update — database is V159, code expects V160; module schema behind: Inbox
 
   """
 
@@ -44,6 +80,9 @@ defmodule Mix.Tasks.PhoenixKit.Status do
   alias PhoenixKit.Config
   alias PhoenixKit.Install.Common
   alias PhoenixKit.Install.PrefixConfig
+  alias PhoenixKit.Install.StatusReport
+  alias PhoenixKit.Install.StatusTree
+  alias PhoenixKit.Migrations.Modules, as: MigrationModules
   alias PhoenixKit.Migrations.Postgres
 
   @impl Mix.Task
@@ -89,25 +128,100 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     phoenix_kit_version = get_phoenix_kit_version()
     installation_status = get_installation_status(prefix)
     database_status = get_database_status(prefix)
-    next_action = determine_next_action(installation_status, prefix)
+
+    # Modules that own their migrations report their own schema version. Only
+    # queried when the database answered — otherwise every coordinator would
+    # time out one after another producing a wall of identical errors.
+    modules = module_entries(database_status, prefix)
+    next_action = determine_next_action(installation_status, modules, prefix)
 
     # Display header
     IO.puts("\n#{IO.ANSI.bright()}PhoenixKit v#{phoenix_kit_version}#{IO.ANSI.reset()}")
 
     # Display status tree
-    display_status_tree([
-      {"Installed", format_installation_status(installation_status)},
-      {"Database", format_database_status(database_status)},
-      {"Next", format_next_action(next_action)}
-    ])
+    display_status_tree(
+      [
+        {"Installed", format_installation_status(installation_status)},
+        {"Database", format_database_status(database_status)}
+      ] ++
+        module_tree_rows(modules) ++
+        [{"Next", format_next_action(next_action)}]
+    )
 
     # Show verbose information if requested
     if verbose do
-      show_verbose_diagnostics(prefix, installation_status, database_status)
+      show_verbose_diagnostics(prefix, installation_status, database_status, modules)
     end
 
     IO.puts("")
   end
+
+  # ── Module schema versions ──────────────────────────────────────────────────
+
+  # `:not_queried` is deliberately distinct from `[]`. Both used to collapse to
+  # an empty list, so a host with modules installed but an unreachable database
+  # was told "No installed module owns migrations" — a flat falsehood that
+  # sends whoever is debugging a missing table down the wrong path.
+  defp module_entries({:connected_with_tables, _version}, prefix),
+    do: MigrationModules.list(prefix: prefix)
+
+  defp module_entries(_database_status, _prefix), do: :not_queried
+
+  # Renders as a labelled row with one child line per module:
+  #
+  #   ├── Modules: 2 installed, 1 update available
+  #   │   ├── Boards: V01 ✅
+  #   │   └── Inbox: V01 → V02 ⬆
+  #
+  # Omitted entirely when no module owns migrations, so the common
+  # core-only install keeps the compact three-line tree it had before — and
+  # when the database never answered, since "we couldn't look" is already
+  # covered by the Database row above.
+  defp module_tree_rows(:not_queried), do: []
+  defp module_tree_rows([]), do: []
+
+  defp module_tree_rows(modules) do
+    [{"Modules", format_modules_summary(modules), Enum.map(modules, &format_module_entry/1)}]
+  end
+
+  defp format_modules_summary(modules) do
+    pending = MigrationModules.pending(modules)
+    failed = MigrationModules.failed(modules)
+    count = "#{length(modules)} #{pluralize(length(modules), "module", "modules")}"
+
+    cond do
+      failed != [] ->
+        "#{IO.ANSI.red()}#{count}, #{length(failed)} unreadable ❌#{IO.ANSI.reset()}"
+
+      # "behind", not "updates available" — same reasoning as the core version
+      # line: this is measured against the installed code, not against Hex, so
+      # nothing here is an optional upgrade being offered.
+      pending != [] ->
+        "#{IO.ANSI.yellow()}#{count}, #{length(pending)} behind ⚠#{IO.ANSI.reset()}"
+
+      true ->
+        "#{IO.ANSI.green()}#{count}, all up to date ✅#{IO.ANSI.reset()}"
+    end
+  end
+
+  defp format_module_entry(%{status: :up_to_date} = entry) do
+    "#{entry.name}: #{IO.ANSI.green()}V#{pad_version(entry.installed)} ✅#{IO.ANSI.reset()}"
+  end
+
+  defp format_module_entry(%{status: :needs_update} = entry) do
+    "#{entry.name}: #{IO.ANSI.yellow()}V#{pad_version(entry.installed)} ⚠ (code expects V#{pad_version(entry.target)})#{IO.ANSI.reset()}"
+  end
+
+  defp format_module_entry(%{status: :not_installed} = entry) do
+    "#{entry.name}: #{IO.ANSI.yellow()}tables not created ⚠ (code expects V#{pad_version(entry.target)})#{IO.ANSI.reset()}"
+  end
+
+  defp format_module_entry(%{status: :error} = entry) do
+    "#{entry.name}: #{IO.ANSI.red()}unreadable ❌#{IO.ANSI.reset()} (#{entry.error})"
+  end
+
+  defp pluralize(1, singular, _plural), do: singular
+  defp pluralize(_count, _singular, plural), do: plural
 
   # Get PhoenixKit module version
   defp get_phoenix_kit_version do
@@ -210,26 +324,10 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     end
   end
 
-  # Determine next recommended action
-  defp determine_next_action({:not_installed}, _prefix) do
-    {:install, "mix igniter.install phoenix_kit"}
-  end
-
-  defp determine_next_action({:unreachable, _reason}, _prefix) do
-    {:fix_connection, "Fix the database connection, then re-run mix phoenix_kit.status"}
-  end
-
-  defp determine_next_action({:needs_update, _current, _target}, prefix) do
-    cmd =
-      if prefix != "public",
-        do: "mix phoenix_kit.update --prefix=#{prefix}",
-        else: "mix phoenix_kit.update"
-
-    {:update, cmd}
-  end
-
-  defp determine_next_action({:up_to_date, _version}, _prefix) do
-    {:ready, "Ready"}
+  # Decision lives in PhoenixKit.Install.StatusReport so it can be unit tested
+  # across all five states without pointing the task at a live database.
+  defp determine_next_action(installation_status, modules, prefix) do
+    StatusReport.next_action(installation_status, modules, prefix)
   end
 
   # Format installation status for display
@@ -245,8 +343,13 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     "#{IO.ANSI.green()}V#{pad_version(version)} ✅#{IO.ANSI.reset()}"
   end
 
+  # "code expects V160", not "update available to V160". This task compares the
+  # database against the version compiled into the RUNNING release — it never
+  # asks Hex what exists. A gap here is therefore not an optional upgrade on
+  # offer; it is the schema disagreeing with the code already querying it,
+  # which surfaces as runtime errors on whatever the newer version added.
   defp format_installation_status({:needs_update, current, target}) do
-    "#{IO.ANSI.yellow()}V#{pad_version(current)} (needs update to V#{pad_version(target)})#{IO.ANSI.reset()}"
+    "#{IO.ANSI.yellow()}V#{pad_version(current)} ⚠ (code expects V#{pad_version(target)})#{IO.ANSI.reset()}"
   end
 
   # Format database status for display
@@ -275,8 +378,21 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     "#{IO.ANSI.cyan()}#{command}#{IO.ANSI.reset()}"
   end
 
-  defp format_next_action({:update, command}) do
+  # The command alone reads like housekeeping ("there's an update, run it").
+  # Stating WHY makes it what it actually is: a mismatch between the schema and
+  # the code running against it. Wording comes from StatusReport.describe/1;
+  # this only adds colour — the command in cyan, the reason dimmed after it.
+  defp format_next_action({:update, command, []}) do
     "#{IO.ANSI.cyan()}#{command}#{IO.ANSI.reset()}"
+  end
+
+  defp format_next_action({:update, command, reasons}) do
+    "#{IO.ANSI.cyan()}#{command}#{IO.ANSI.reset()} " <>
+      "#{IO.ANSI.faint()}— #{Enum.join(reasons, "; ")}#{IO.ANSI.reset()}"
+  end
+
+  defp format_next_action({:check_modules, _names} = action) do
+    "#{IO.ANSI.red()}#{StatusReport.describe(action)}#{IO.ANSI.reset()}"
   end
 
   defp format_next_action({:ready, message}) do
@@ -287,25 +403,53 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     "#{IO.ANSI.yellow()}#{message}#{IO.ANSI.reset()}"
   end
 
-  # Display status information in tree format
+  # Layout lives in PhoenixKit.Install.StatusTree so it can be unit tested
+  # without a database; this only supplies the ANSI label styling and prints.
   defp display_status_tree(items) do
     items
-    |> Enum.with_index()
-    |> Enum.each(fn {{label, value}, index} ->
-      is_last = index == length(items) - 1
-      prefix = if is_last, do: "└── ", else: "├── "
-
-      IO.puts("#{prefix}#{IO.ANSI.bright()}#{label}#{IO.ANSI.reset()}: #{value}")
-    end)
+    |> StatusTree.render(label_format: &"#{IO.ANSI.bright()}#{&1}#{IO.ANSI.reset()}")
+    |> IO.puts()
   end
 
   # Show detailed diagnostic information
-  defp show_verbose_diagnostics(prefix, installation_status, database_status) do
+  defp show_verbose_diagnostics(prefix, installation_status, database_status, modules) do
     IO.puts("\n#{IO.ANSI.bright()}═══ Detailed Diagnostics ═══#{IO.ANSI.reset()}")
 
     show_installation_diagnostics(installation_status, prefix)
+    show_module_diagnostics(modules)
     show_database_diagnostics(database_status, prefix)
     show_configuration_diagnostics()
+  end
+
+  # Per-module detail: which coordinator reports the version, and the exact
+  # numbers behind the summary line.
+  defp show_module_diagnostics(:not_queried) do
+    IO.puts("\n#{IO.ANSI.bright()}Modules:#{IO.ANSI.reset()}")
+    IO.puts("  Not queried — the database did not answer, so module schema")
+    IO.puts("  versions are unknown. This is not the same as having none.")
+  end
+
+  defp show_module_diagnostics([]) do
+    IO.puts("\n#{IO.ANSI.bright()}Modules:#{IO.ANSI.reset()}")
+    IO.puts("  No installed module owns migrations.")
+  end
+
+  defp show_module_diagnostics(modules) do
+    IO.puts("\n#{IO.ANSI.bright()}Modules:#{IO.ANSI.reset()}")
+
+    Enum.each(modules, fn entry ->
+      IO.puts("  #{entry.name} (#{inspect(entry.module)})")
+      IO.puts("    Coordinator: #{inspect(entry.migration_module)}")
+
+      case entry.status do
+        :error ->
+          IO.puts("    Version: unreadable — #{entry.error}")
+
+        _ ->
+          IO.puts("    Installed: V#{pad_version(entry.installed)}")
+          IO.puts("    Target: V#{pad_version(entry.target)}")
+      end
+    end)
   end
 
   # Show installation diagnostics

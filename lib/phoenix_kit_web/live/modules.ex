@@ -33,6 +33,8 @@ defmodule PhoenixKitWeb.Live.Modules do
     external_modules = load_external_modules(module_configs)
     dep_warnings = ModuleRegistry.dependency_warnings()
     not_installed = ModuleRegistry.not_installed_packages()
+    # Read AFTER the list: `not_installed_packages/0` is what triggers the fetch.
+    catalog_status = PhoenixKit.KnownPackages.status()
 
     socket =
       socket
@@ -43,6 +45,8 @@ defmodule PhoenixKitWeb.Live.Modules do
       |> assign(:external_modules, external_modules)
       |> assign(:dep_warnings, dep_warnings)
       |> assign(:not_installed_packages, not_installed)
+      |> assign(:catalog_status, catalog_status)
+      |> assign(:hex_browse_url, PhoenixKit.KnownPackages.browse_url())
 
     {:ok, socket}
   end

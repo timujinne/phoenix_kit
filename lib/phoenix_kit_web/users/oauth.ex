@@ -37,6 +37,8 @@ if Code.ensure_loaded?(Ueberauth) do
 
     alias PhoenixKit.Config
     alias PhoenixKit.Settings
+    alias PhoenixKit.Users.Auth
+    alias PhoenixKit.Users.Auth.Scope
     alias PhoenixKit.Users.OAuth
     alias PhoenixKit.Utils.IpAddress
     alias PhoenixKit.Utils.Routes
@@ -257,7 +259,7 @@ if Code.ensure_loaded?(Ueberauth) do
             add_account_intent == "add_account" ->
               conn
               |> put_flash(:error, "Account switching is currently disabled.")
-              |> redirect(to: Routes.path("/"))
+              |> redirect(to: Routes.safe_destination(conn, scope: conn_scope(conn)))
 
             true ->
               flash_message =
@@ -282,6 +284,25 @@ if Code.ensure_loaded?(Ueberauth) do
 
           conn
           |> put_flash(:error, "Authentication failed: #{errors}")
+          |> redirect(to: Routes.path("/users/log-in"))
+
+        {:error, :provider_email_unverified} ->
+          # An account with this address already exists locally and the provider
+          # did not assert that it verified the address, so attaching would be a
+          # takeover. Say what happened — a legitimate owner needs to know that
+          # signing in with a password is the way through, and that nothing is
+          # broken on their side.
+          Logger.warning(
+            "PhoenixKit: OAuth link refused for #{auth.info.email} via #{auth.provider} — " <>
+              "provider did not assert the address is verified and a local account already exists"
+          )
+
+          conn
+          |> put_flash(
+            :error,
+            "An account already exists for that email address. Sign in with your password " <>
+              "first, then connect this provider from your account settings."
+          )
           |> redirect(to: Routes.path("/users/log-in"))
 
         {:error, reason} ->
@@ -348,11 +369,29 @@ if Code.ensure_loaded?(Ueberauth) do
     end
 
     defp redirect_back(conn, return_to) do
-      if Routes.local_path?(return_to) do
-        redirect(conn, to: return_to)
-      else
-        redirect(conn, to: Routes.path("/"))
+      redirect(conn,
+        to: Routes.safe_destination(conn, scope: conn_scope(conn), return_to: return_to)
+      )
+    end
+
+    # Read from the SESSION, not from assigns: `handle_oauth_add_account/3` has
+    # already activated the newly added account by the time `redirect_back/2`
+    # runs, while `conn.assigns[:phoenix_kit_current_user]` still describes the
+    # account that started the OAuth round-trip. (This controller also runs on
+    # the `phoenix_kit_auto_setup` pipeline, which never assigns a scope at
+    # all.) `Scope.for_user(nil)` is anonymous — the right answer when the
+    # session carries no valid token.
+    defp conn_scope(conn) do
+      conn
+      |> get_session(:user_token)
+      |> case do
+        token when is_binary(token) -> Auth.get_user_by_session_token(token)
+        _ -> nil
       end
+      # Same reason as the twin in `PhoenixKitWeb.Users.Session`: a deactivated
+      # account resolves to anonymous, not to itself.
+      |> Auth.ensure_active_user()
+      |> Scope.for_user()
     end
 
     # Private helper functions

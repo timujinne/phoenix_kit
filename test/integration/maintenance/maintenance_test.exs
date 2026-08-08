@@ -8,6 +8,13 @@ defmodule PhoenixKit.Integration.MaintenanceTest do
   defp future(seconds), do: DateTime.add(DateTime.utc_now(), seconds, :second)
   defp past(seconds), do: DateTime.add(DateTime.utc_now(), -seconds, :second)
 
+  # `update_schedule/2` refuses a start more than 60 seconds in the past
+  # (`validate_not_past/2`). A test that passes exactly `past(60)` therefore sits
+  # ON that tolerance: this module's `setup` writes three settings rows first, so
+  # by the time validation runs the difference is -61, the write is refused, and
+  # `active?/0` answers false for a reason that has nothing to do with the test.
+  # Anything comfortably inside the window works; the three affected tests use 30.
+
   setup do
     # Reset all maintenance state before each test
     Settings.update_boolean_setting("maintenance_enabled", false)
@@ -32,7 +39,7 @@ defmodule PhoenixKit.Integration.MaintenanceTest do
     end
 
     test "returns true during scheduled window" do
-      Maintenance.update_schedule(past(60), future(3600))
+      Maintenance.update_schedule(past(30), future(3600))
       assert Maintenance.active?()
     end
 
@@ -49,7 +56,7 @@ defmodule PhoenixKit.Integration.MaintenanceTest do
     end
 
     test "start-only schedule stays on after start time" do
-      Maintenance.update_schedule(past(60), nil)
+      Maintenance.update_schedule(past(30), nil)
       assert Maintenance.active?()
     end
   end
@@ -191,7 +198,7 @@ defmodule PhoenixKit.Integration.MaintenanceTest do
     end
 
     test "returns positive seconds during scheduled window" do
-      Maintenance.update_schedule(past(60), future(3600))
+      Maintenance.update_schedule(past(30), future(3600))
       seconds = Maintenance.seconds_until_end()
       assert is_integer(seconds)
       assert seconds > 0

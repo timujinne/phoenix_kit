@@ -159,14 +159,18 @@ defmodule PhoenixKitWeb.Components.Core.TableRowMenu do
     "warning", "error" (optional, default: "default")
   * `rest` - Additional HTML attributes passed to the `<a>` element. Includes
     `target` and `rel` (e.g. `target="_blank" rel="noopener noreferrer"` for
-    external links opening in a new tab).
+    external links opening in a new tab), plus `method`, `csrf_token` and
+    `data-confirm` so an item can drive a non-GET action. Anything that
+    rewrites the session — signing in as another user, for one — has to leave
+    LiveView and go through a real request, which `href` + `method="post"`
+    does; a `phx-click` cannot, because it never touches the session cookie.
   """
   attr :navigate, :string, default: nil
   attr :href, :string, default: nil
   attr :icon, :string, default: nil
   attr :label, :string, required: true
   attr :variant, :string, default: "default"
-  attr :rest, :global, include: ~w(target rel)
+  attr :rest, :global, include: ~w(target rel method csrf_token data-confirm)
 
   def table_row_menu_link(assigns) do
     ~H"""

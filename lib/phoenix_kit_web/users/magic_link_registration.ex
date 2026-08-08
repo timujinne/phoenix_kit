@@ -19,50 +19,78 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
         {:ok, socket}
 
       :cont ->
-        case MagicLinkRegistration.verify_registration_token(token) do
-          {:ok, email} ->
-            # Get referral codes configuration
-            referral_codes_config = Referrals.get_config()
-
-            # Generate username suggestion from email
-            suggested_username = User.generate_username_from_email(email)
-
-            changeset =
-              Auth.change_user_registration(%User{
-                email: email,
-                username: suggested_username
-              })
-
-            # Extract IP address for geolocation
-            ip_address =
-              case get_connect_info(socket, :peer_data) do
-                %{address: {a, b, c, d}} -> "#{a}.#{b}.#{c}.#{d}"
-                %{address: address} -> to_string(address)
-                _ -> "unknown"
-              end
-
+        # Gate the completion page too, not just the request page. Otherwise a
+        # link already sitting in an inbox still creates an account after an
+        # admin has switched magic-link registration off.
+        #
+        # BOTH switches, matching the request page. `allow_registration` is the
+        # broader one — "no new accounts at all" — so honouring only the
+        # magic-link-specific setting here left the wider switch as exactly the
+        # kind of button-hiding-without-route-closing this page was fixed for.
+        cond do
+          not PhoenixKit.Settings.get_boolean_setting("allow_registration", true) ->
+            # Registration is closed outright, so /users/register is no help.
             {:ok,
              socket
-             |> assign(:page_title, "Complete Registration")
-             |> assign(:token, token)
-             |> assign(:email, email)
-             |> assign(:ip_address, ip_address)
-             |> assign(:referral_codes_enabled, referral_codes_config.enabled)
-             |> assign(:referral_codes_required, referral_codes_config.required)
-             |> assign(:referral_code, nil)
-             |> assign(:referral_code_error, nil)
-             |> assign(:trigger_submit, false)
-             |> assign(:check_errors, false)
-             |> assign(:remember_me_available, WebAuth.remember_me_enabled?())
-             |> assign(:remember_me, WebAuth.remember_me_default?())
-             |> assign_form(changeset)}
+             |> put_flash(:error, "Registration is currently disabled.")
+             |> redirect(to: Routes.path("/users/log-in"))}
 
-          {:error, _} ->
+          not WebAuth.magic_link_registration_enabled?() ->
             {:ok,
              socket
-             |> put_flash(:error, "Registration link is invalid or has expired.")
+             |> put_flash(:error, "Magic link registration is currently disabled.")
              |> redirect(to: Routes.path("/users/register"))}
+
+          true ->
+            mount_completion_form(token, socket)
         end
+    end
+  end
+
+  defp mount_completion_form(token, socket) do
+    case MagicLinkRegistration.verify_registration_token(token) do
+      {:ok, email} ->
+        # Get referral codes configuration
+        referral_codes_config = Referrals.get_config()
+
+        # Generate username suggestion from email
+        suggested_username = User.generate_username_from_email(email)
+
+        changeset =
+          Auth.change_user_registration(%User{
+            email: email,
+            username: suggested_username
+          })
+
+        # Extract IP address for geolocation
+        ip_address =
+          case get_connect_info(socket, :peer_data) do
+            %{address: {a, b, c, d}} -> "#{a}.#{b}.#{c}.#{d}"
+            %{address: address} -> to_string(address)
+            _ -> "unknown"
+          end
+
+        {:ok,
+         socket
+         |> assign(:page_title, "Complete Registration")
+         |> assign(:token, token)
+         |> assign(:email, email)
+         |> assign(:ip_address, ip_address)
+         |> assign(:referral_codes_enabled, referral_codes_config.enabled)
+         |> assign(:referral_codes_required, referral_codes_config.required)
+         |> assign(:referral_code, nil)
+         |> assign(:referral_code_error, nil)
+         |> assign(:trigger_submit, false)
+         |> assign(:check_errors, false)
+         |> assign(:remember_me_available, WebAuth.remember_me_enabled?())
+         |> assign(:remember_me, WebAuth.remember_me_default?())
+         |> assign_form(changeset)}
+
+      {:error, _} ->
+        {:ok,
+         socket
+         |> put_flash(:error, "Registration link is invalid or has expired.")
+         |> redirect(to: Routes.path("/users/register"))}
     end
   end
 
@@ -74,7 +102,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
     # Track the checkbox across re-renders so unticking it sticks.
     socket = assign(socket, :remember_me, user_params["remember_me"] == "true")
 
-    case validate_referral_code(referral_code, socket) do
+    case validate_referral_code(referral_code, socket, :change) do
       {:ok, _} ->
         socket =
           socket
@@ -108,7 +136,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
     referral_code = params["referral_code"]
     user_params = form_params(user_params)
 
-    case validate_referral_code(referral_code, socket) do
+    case validate_referral_code(referral_code, socket, :submit) do
       {:ok, _validated_code} ->
         # Add referral_code to user params
         user_params =
@@ -180,42 +208,15 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
     end
   end
 
-  defp validate_referral_code(referral_code, socket) do
-    cond do
-      not socket.assigns.referral_codes_enabled ->
-        {:ok, nil}
-
-      socket.assigns.referral_codes_required and
-          (is_nil(referral_code) or String.trim(referral_code) == "") ->
-        {:error, "Referral code is required"}
-
-      referral_code && String.trim(referral_code) != "" ->
-        validate_referral_code_value(String.trim(referral_code))
-
-      true ->
-        {:ok, nil}
-    end
-  end
-
-  defp validate_referral_code_value(code_string) do
-    case Referrals.get_code_by_string(code_string) do
-      nil ->
-        {:error, "Invalid referral code"}
-
-      code ->
-        cond do
-          not code.status ->
-            {:error, "This referral code is no longer active"}
-
-          Referrals.expired?(code) ->
-            {:error, "This referral code has expired"}
-
-          Referrals.usage_limit_reached?(code) ->
-            {:error, "This referral code has reached its usage limit"}
-
-          true ->
-            {:ok, code}
-        end
-    end
+  # `context` is `:change` while the user types and `:submit` on the final
+  # attempt. See `PhoenixKit.Users.Referrals.validate_for_signup/2` for why the
+  # two differ and why every rejection reads the same.
+  defp validate_referral_code(referral_code, socket, context) do
+    Referrals.validate_for_signup(referral_code,
+      enabled?: socket.assigns.referral_codes_enabled,
+      required?: socket.assigns.referral_codes_required,
+      context: context,
+      ip_address: socket.assigns[:ip_address]
+    )
   end
 end

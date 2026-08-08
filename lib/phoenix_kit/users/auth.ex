@@ -215,11 +215,13 @@ defmodule PhoenixKit.Users.Auth do
             # Treat as email
             Repo.get_by(User, email: email_or_username)
           else
-            # Treat as username - case-insensitive lookup
-            from(u in User,
-              where: fragment("LOWER(?)", u.username) == ^String.downcase(email_or_username)
-            )
-            |> Repo.one()
+            # Treat as username - case-insensitive lookup. Plain equality is
+            # enough since V161 made the column `citext`, and unlike the
+            # `LOWER(username)` fragment this replaces it can use
+            # `phoenix_kit_users_username_uidx`: that fragment matched no index,
+            # so every username login sequentially scanned the whole users table
+            # — on an endpoint anyone can hit without authenticating.
+            get_user_by_username(email_or_username)
           end
 
         # Return user if password is valid, regardless of is_active status
@@ -1280,11 +1282,30 @@ defmodule PhoenixKit.Users.Auth do
       iex> toggle_user_confirmation(unconfirmed_user)
       {:ok, %User{confirmed_at: ~N[2023-01-01 12:00:00]}}
   """
-  def toggle_user_confirmation(%User{confirmed_at: nil} = user) do
+  def toggle_user_confirmation(user, opts \\ [])
+
+  def toggle_user_confirmation(%User{} = user, opts) do
+    # Same rank rule as status and credentials, and for the same reason:
+    # `require_email_confirmation` is honoured at eleven gates, so UNCONFIRMING
+    # an account locks it out of every protected page. Offered from the same
+    # pages, to the same holders of the `users` permission, it is the same
+    # denial of service against accounts that outrank the actor.
+    case Keyword.get(opts, :actor) do
+      %User{} = actor ->
+        if can_manage_user_status?(user, actor),
+          do: do_toggle_user_confirmation(user),
+          else: {:error, :insufficient_permissions}
+
+      _system ->
+        do_toggle_user_confirmation(user)
+    end
+  end
+
+  defp do_toggle_user_confirmation(%User{confirmed_at: nil} = user) do
     admin_confirm_user(user)
   end
 
-  def toggle_user_confirmation(%User{} = user) do
+  defp do_toggle_user_confirmation(%User{} = user) do
     admin_unconfirm_user(user)
   end
 
@@ -1566,7 +1587,13 @@ defmodule PhoenixKit.Users.Auth do
   while URLs continue to use base codes (e.g., /en/).
   The locale is stored in the `custom_fields` JSONB column.
 
-  Uses `update_user_custom_fields/2` internally for consistency.
+  Writes through the atomic single-key primitives —
+  `merge_user_custom_fields/3` to set, `delete_user_custom_field/3` to
+  clear — so a concurrent writer of a different custom_fields key is
+  never lost. Passes `ensure_definitions: false` deliberately: the
+  locale is an internal preference, not an admin-managed custom field,
+  so the first write no longer auto-registers a field definition
+  (the old whole-map path did, as a side effect).
 
   ## Examples
 
@@ -1578,7 +1605,13 @@ defmodule PhoenixKit.Users.Auth do
 
       iex> update_user_locale_preference(user, nil)
       {:ok, %User{...}}  # Clears the preference
+
+  Two distinct error shapes: a validation failure returns `{:error, message}`
+  with a human-readable string, while a row deleted concurrently surfaces the
+  primitives' `{:error, :not_found}`.
   """
+  @spec update_user_locale_preference(User.t(), String.t() | nil) ::
+          {:ok, User.t()} | {:error, String.t()} | {:error, :not_found}
   def update_user_locale_preference(%User{} = user, preferred_locale) do
     case User.validate_locale_value(preferred_locale) do
       :ok ->
@@ -1690,7 +1723,12 @@ defmodule PhoenixKit.Users.Auth do
         where: u.uuid == ^user.uuid,
         update: [
           set: [
-            custom_fields: fragment("? || ?", u.custom_fields, type(^additions, :map)),
+            # COALESCE first: the column is nullable (V18) and
+            # `NULL || jsonb` is NULL — without it a NULL row would
+            # swallow the additions with no error. Same defensive idiom
+            # the V30 migration uses for its own atomic merge.
+            custom_fields:
+              fragment("COALESCE(?, '{}'::jsonb) || ?", u.custom_fields, type(^additions, :map)),
             updated_at: ^UtilsDate.utc_now()
           ]
         ],
@@ -2026,6 +2064,10 @@ defmodule PhoenixKit.Users.Auth do
 
       iex> set_user_custom_field(user, "department", "Product")
       {:ok, %User{}}
+
+  Returns `{:error, :not_found}` (not a changeset error) if the user
+  row was deleted concurrently — same contract as
+  `merge_user_custom_fields/3`, which this delegates to.
   """
   def set_user_custom_field(%User{} = user, key, value) when is_binary(key) do
     # Delegates to the atomic merge rather than the historical
@@ -2059,7 +2101,10 @@ defmodule PhoenixKit.Users.Auth do
         where: u.uuid == ^user.uuid,
         update: [
           set: [
-            custom_fields: fragment("? - ?::text", u.custom_fields, ^key),
+            # COALESCE for the same NULL gap as the merge (`NULL - key`
+            # stays NULL); also preserves the old path's side effect of
+            # normalizing a NULL column to '{}' on any delete.
+            custom_fields: fragment("COALESCE(?, '{}'::jsonb) - ?::text", u.custom_fields, ^key),
             updated_at: ^UtilsDate.utc_now()
           ]
         ],
@@ -2084,20 +2129,54 @@ defmodule PhoenixKit.Users.Auth do
 
   Prevents deactivation of the last Owner to maintain system security.
 
+  ## Authorization
+
+  Pass `actor: %User{}` and the RANK rule is enforced here, in the context —
+  the actor must outrank the target (`can_manage_user_status?/2`). Do that from
+  every request-driven path. The rank check lived only in the admin edit form
+  once, and the user-list and user-detail pages reached this function without
+  it, so a role holding merely the `users` permission could deactivate an Admin
+  or a non-last Owner from two of the three pages. Enforcing it here is what
+  makes a fourth caller safe by construction.
+
+  Omitting `:actor` means "system-initiated" and performs NO authorization —
+  correct for `PhoenixKit.Users.Referrals` expiring an account, wrong for
+  anything a user asked for.
+
   ## Parameters
 
   - `user`: User to update
   - `attrs`: Status attributes (typically %{"is_active" => true/false})
+  - `opts`: `:actor` — the `%User{}` performing the change, when there is one
 
   ## Examples
 
-      iex> update_user_status(user, %{"is_active" => false})
+      iex> update_user_status(user, %{"is_active" => false}, actor: admin)
       {:ok, %User{}}
+
+      iex> update_user_status(owner, %{"is_active" => false}, actor: admin)
+      {:error, :insufficient_permissions}
 
       iex> update_user_status(last_owner, %{"is_active" => false})
       {:error, :cannot_deactivate_last_owner}
   """
-  def update_user_status(%User{} = user, attrs) do
+  def update_user_status(user, attrs, opts \\ [])
+
+  def update_user_status(%User{} = user, attrs, opts) do
+    case Keyword.get(opts, :actor) do
+      %User{} = actor ->
+        if can_manage_user_status?(user, actor) do
+          do_update_user_status_with_owner_guard(user, attrs)
+        else
+          {:error, :insufficient_permissions}
+        end
+
+      _system ->
+        do_update_user_status_with_owner_guard(user, attrs)
+    end
+  end
+
+  defp do_update_user_status_with_owner_guard(user, attrs) do
     # Check if this would deactivate the last owner
     if attrs["is_active"] == false or attrs[:is_active] == false do
       do_deactivate_user(user, attrs)
@@ -2123,6 +2202,18 @@ defmodule PhoenixKit.Users.Auth do
          |> User.status_changeset(attrs)
          |> Repo.update() do
       {:ok, updated_user} ->
+        # Deactivation must REVOKE, not merely deny. Every gate that reads a
+        # session runs `ensure_active_user/1`, so a deactivated user is bounced
+        # from ordinary pages — but the token row itself survives for its full
+        # 60-day life, and any entry point that resolves a token without that
+        # filter still sees a live user behind it. Deleting the tokens here
+        # makes "deactivate" mean what an operator cutting off a departing or
+        # compromised account believes it means, and removes the standing
+        # dependency on every present and future caller remembering the filter.
+        if updated_user.is_active == false do
+          delete_all_user_session_tokens(updated_user)
+        end
+
         # Broadcast user status update event
         Events.broadcast_user_updated(updated_user)
         {:ok, updated_user}
@@ -2568,29 +2659,146 @@ defmodule PhoenixKit.Users.Auth do
 
   def can_delete_user?(_user, _current_user), do: false
 
-  # Validates deletion permissions and constraints
+  # Validates deletion permissions and constraints.
+  #
+  # Rule 3 used to be the whole authority check and it was two rules short: it
+  # only refused an ADMIN target, so an Owner who was not the last Owner could
+  # be deleted by an Admin, and it never asked whether the actor held a staff
+  # role at all — the comment deferred that to "the controller/LiveView", where
+  # the gate is `can_access_admin_area?/1`, true for any holder of a single
+  # permission. Deleting an account is at least as final as taking it over, so
+  # it now answers to the same rank rule as credentials and status.
   defp validate_can_delete_user(%User{} = user, %User{} = current_user) do
     cond do
       # Rule 1: Cannot delete self
       user.uuid == current_user.uuid ->
         {:error, :cannot_delete_self}
 
-      # Rule 2: Cannot delete last Owner
-      Roles.user_has_role_owner?(user) and count_remaining_owners(user.uuid) < 1 ->
+      # Rule 2: Cannot delete last Owner (a target-only rule, checked first so
+      # the last-Owner message survives even for an actor who outranks them)
+      has_system_role?(user, Role.system_roles().owner) and
+          count_remaining_owners(user.uuid) < 1 ->
         {:error, :cannot_delete_last_owner}
 
-      # Rule 3: Only Owner can delete Admin users
-      Roles.user_has_role_admin?(user) and not Roles.user_has_role_owner?(current_user) ->
-        {:error, :insufficient_permissions}
-
-      # Rule 4: Only Admin/Owner can delete (checked via scope in controller/LiveView)
+      # Rule 3: the shared rank rule — staff only, and never upwards
       true ->
-        :ok
+        validate_admin_authority_over(user, current_user)
     end
   end
 
   defp validate_can_delete_user(_user, _current_user) do
     {:error, :invalid_current_user}
+  end
+
+  @doc """
+  True when `current_user` may manage `user`'s credentials — set a new password,
+  send a password-reset mail, or change the address those mails are delivered to.
+
+  Credential management is the one admin action that hands over an account, so it
+  is decided by ROLE and by RANK, not by the `users` permission that admits a
+  visitor to the user pages. Holding `users` answers "may this person administer
+  users at all"; it must never answer "may this person take over that particular
+  account". The rules mirror `can_delete_user?/2` (only an Owner acts on an
+  Admin) and the impersonation authority in `PhoenixKitWeb.Users.MultiSession`
+  (an Owner is never a target for anyone but themselves), so the three
+  account-takeover surfaces agree.
+
+  1. Your own account is always yours to manage.
+  2. The actor must hold Owner or Admin **by role**.
+  3. An Owner target may be managed only by an Owner.
+  4. An Admin target may be managed only by an Owner.
+
+  Everything else — an ordinary user changing their own password — belongs on
+  their own settings page, not here.
+
+  ## Examples
+
+      iex> can_manage_user_credentials?(some_user, admin)
+      true
+
+      iex> can_manage_user_credentials?(owner, admin)
+      false
+  """
+  def can_manage_user_credentials?(%User{} = user, %User{} = current_user) do
+    case validate_admin_authority_over(user, current_user) do
+      :ok -> true
+      {:error, _reason} -> false
+    end
+  end
+
+  def can_manage_user_credentials?(_user, _current_user), do: false
+
+  @doc """
+  True when `current_user` may activate or deactivate `user`.
+
+  Same authority as `can_manage_user_credentials?/2`, for the same reason:
+  deactivation is decided by rank, not by the `users` permission that admits a
+  visitor to the user pages. Without it a role holding only `users` can switch
+  off an Admin — or a non-last Owner — which is a denial of service against the
+  accounts that are meant to outrank it.
+
+  Unlike credential management, **your own status is not yours to change**. The
+  admin UI has always said so ("You cannot deactivate your own account for
+  security reasons") but two of the three pages enforced it only in the
+  template, and the third not at all — so the rule lived in markup a client
+  composes for itself. It lives here now.
+
+  The last-Owner protection in `Roles.can_deactivate_user?/1` is a separate,
+  target-only rule and still applies on top of this one.
+  """
+  def can_manage_user_status?(%User{uuid: uuid}, %User{uuid: uuid}), do: false
+
+  def can_manage_user_status?(%User{} = user, %User{} = current_user) do
+    case validate_admin_authority_over(user, current_user) do
+      :ok -> true
+      {:error, _reason} -> false
+    end
+  end
+
+  def can_manage_user_status?(_user, _current_user), do: false
+
+  # The shared rank rule behind every administrative action taken ON an account
+  # rather than BY one. Kept private and expressed as `:ok | {:error, reason}`
+  # so a caller that needs to explain the refusal can be given a public wrapper
+  # without changing the decision itself.
+  defp validate_admin_authority_over(%User{} = user, %User{} = current_user) do
+    roles = Role.system_roles()
+    actor_is_owner = has_system_role?(current_user, roles.owner)
+
+    cond do
+      user.uuid == current_user.uuid ->
+        :ok
+
+      not (actor_is_owner or has_system_role?(current_user, roles.admin)) ->
+        {:error, :insufficient_permissions}
+
+      has_system_role?(user, roles.owner) and not actor_is_owner ->
+        {:error, :target_is_owner}
+
+      has_system_role?(user, roles.admin) and not actor_is_owner ->
+        {:error, :target_is_staff}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Reads the role set from a preloaded `:roles` association when the caller
+  # already has one, and only queries when it does not.
+  #
+  # This rule runs once per rendered row on `/admin/users`, and each evaluation
+  # asks up to four role questions — as four `EXISTS` queries that is 200 round
+  # trips on a fifty-row page, repeated on every sort, filter and PubSub
+  # re-render. `list_users_paginated/1` already preloads `:roles`, so the rows
+  # carry the answer; the templates additionally hand in an actor loaded the
+  # same way. Preloaded assignments are the live set — an inactive assignment
+  # is deleted, not flagged — so the two paths agree.
+  defp has_system_role?(%User{roles: roles}, role_name) when is_list(roles) do
+    Enum.any?(roles, &(&1.name == role_name))
+  end
+
+  defp has_system_role?(%User{} = user, role_name) do
+    Roles.user_has_role?(user, role_name)
   end
 
   # Count remaining active owners excluding the given user

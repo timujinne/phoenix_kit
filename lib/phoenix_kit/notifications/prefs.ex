@@ -53,10 +53,13 @@ defmodule PhoenixKit.Notifications.Prefs do
   every key they intend to keep, so this is for cases that own the whole map
   (pause/resume, which pass a computed full snapshot). For a partial write that
   must NOT drop keys it doesn't render, use `merge/2`. Other `custom_fields`
-  keys are preserved either way (we merge at the `custom_fields` level).
+  keys are preserved either way — the write touches the
+  `notification_preferences` key alone (see `write/2`).
+
+  Returns `{:error, :not_found}` if the user row was deleted concurrently.
   """
   @spec update(User.t(), %{optional(String.t()) => boolean()}) ::
-          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, User.t()} | {:error, :not_found}
   def update(%User{} = user, prefs) when is_map(prefs) do
     write(user, sanitize(prefs))
   end
@@ -69,9 +72,16 @@ defmodule PhoenixKit.Notifications.Prefs do
   keys but uses this anyway; the deprecated dashboard settings component renders
   only base keys and MUST use this or it would drop every sub-type entry). Using
   it by construction closes the whole "full-replace caller drops keys" class.
+
+  Note the overlay is computed from the passed `user`'s prefs, so a concurrent
+  write to the *same* `notification_preferences` key can still be lost; only
+  sibling `custom_fields` keys are protected. Callers that must not lose one
+  should pass a freshly-loaded user (same caveat as `ChannelConfig.update/3`).
+
+  Returns `{:error, :not_found}` if the user row was deleted concurrently.
   """
   @spec merge(User.t(), %{optional(String.t()) => boolean()}) ::
-          {:ok, User.t()} | {:error, Ecto.Changeset.t()}
+          {:ok, User.t()} | {:error, :not_found}
   def merge(%User{} = user, prefs) when is_map(prefs) do
     merged =
       prefs
@@ -89,9 +99,19 @@ defmodule PhoenixKit.Notifications.Prefs do
     end)
   end
 
+  # Writes ONLY the `notification_preferences` key, at the database level.
+  # The historical whole-map replace (`Map.put(user.custom_fields, ...)` +
+  # `update_user_custom_fields/3`) rebuilt the column from whatever snapshot
+  # the caller happened to hold — and both callers hold a long-lived one (the
+  # settings LiveView loads the user in `mount/3`, the settings component in
+  # its assigns). Every sibling key in that column is now written atomically
+  # (`ChannelConfig.put/delete`, `update_user_locale_preference`), so a save
+  # here would silently roll back a Telegram connect or a locale switch that
+  # landed after the page was opened. `ensure_definitions: false` because this
+  # is an internal blob, not an admin-managed custom field — same reason
+  # `ChannelConfig.put/3` passes it.
   defp write(%User{} = user, prefs_map) do
-    merged = Map.put(user.custom_fields || %{}, @prefs_key, prefs_map)
-    Auth.update_user_custom_fields(user, merged)
+    Auth.merge_user_custom_fields(user, %{@prefs_key => prefs_map}, ensure_definitions: false)
   end
 
   # ── The single-point per-key value seam ───────────────────────────────

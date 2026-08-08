@@ -22,7 +22,16 @@ defmodule PhoenixKitWeb.Users.Confirmation do
     # land in two different places. `?return_to=` is read as well as the
     # session key because a LiveView gate can only pass the destination in the
     # query string — it has no conn to `put_session` on.
-    destination = Routes.post_auth_path([params["return_to"], session["user_return_to"]])
+    #
+    # `:context` threads the socket's router into the resolver so that `"/"` —
+    # the host's home page that core cannot declare — is only used where the
+    # host proves it exists. Without it the resolver synthesises `"/"` literally,
+    # which 404s on any host that never declared a root route.
+    destination =
+      Routes.post_auth_path([params["return_to"], session["user_return_to"]],
+        context: socket,
+        scope: socket.assigns[:phoenix_kit_current_scope]
+      )
 
     {:ok, assign(socket, form: form, destination: destination), temporary_assigns: [form: nil]}
   end
@@ -55,7 +64,12 @@ defmodule PhoenixKitWeb.Users.Confirmation do
             {:noreply,
              socket
              |> put_flash(:error, "User confirmation link is invalid or it has expired.")
-             |> redirect(to: "/")}
+             |> redirect(
+               to:
+                 Routes.safe_destination(socket,
+                   scope: socket.assigns[:phoenix_kit_current_scope]
+                 )
+             )}
         end
     end
   end

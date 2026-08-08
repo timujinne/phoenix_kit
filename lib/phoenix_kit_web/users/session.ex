@@ -17,6 +17,7 @@ defmodule PhoenixKitWeb.Users.Session do
   use PhoenixKitWeb, :controller
 
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth, as: UserAuth
@@ -106,8 +107,11 @@ defmodule PhoenixKitWeb.Users.Session do
     case MultiSession.log_out_active(conn) do
       {:switched, conn, user} ->
         conn
+        # The subject here is the ROOT account that just became active — not
+        # `conn.assigns[:phoenix_kit_current_user]`, which still describes the
+        # account that was logged out.
         |> put_flash(:info, gettext("Logged out. Now signed in as %{email}.", email: user.email))
-        |> redirect(to: Routes.path("/"))
+        |> redirect(to: Routes.safe_destination(conn, scope: Scope.for_user(user)))
 
       {:full, conn} ->
         # Root account is active → full logout. log_out_user/1 drains the whole
@@ -129,16 +133,39 @@ defmodule PhoenixKitWeb.Users.Session do
       # never follows the Location header on a non-3xx response).
       conn
       |> put_flash(:error, "Multi-account switching is not available.")
-      |> redirect(to: Routes.path("/"))
+      |> redirect(to: Routes.safe_destination(conn, scope: conn_scope(conn)))
     end
   end
 
   defp redirect_back(conn, params) do
-    if Routes.local_path?(params["return_to"]) do
-      redirect(conn, to: params["return_to"])
-    else
-      redirect(conn, to: Routes.path("/"))
+    redirect(conn,
+      to: Routes.safe_destination(conn, scope: conn_scope(conn), return_to: params["return_to"])
+    )
+  end
+
+  # Read from the SESSION, never from assigns. Every `redirect_back/2` caller
+  # runs AFTER MultiSession has already swapped the active account —
+  # `add_account/3`, `switch_to/2` and `impersonate/2` all activate the new
+  # token, and `remove_account/2` falls back to root — while
+  # `conn.assigns[:phoenix_kit_current_user]` still describes whoever the
+  # pipeline saw on the way in. Building the scope from assigns would resolve
+  # "sign in as this user" against the *administrator's* roles and send the
+  # now-impersonated plain user to `/admin`, which then denies them.
+  #
+  # `with_gate/3` refuses before any mutation, so the same read is correct there.
+  defp conn_scope(conn) do
+    conn
+    |> get_session(:user_token)
+    |> case do
+      token when is_binary(token) -> Auth.get_user_by_session_token(token)
+      _ -> nil
     end
+    # A deactivated account must never produce a non-anonymous scope, wherever
+    # the scope is read. `with_gate/3` already refuses before any mutation here,
+    # so this is defence in depth rather than the control — but the filter
+    # belongs on every token resolution, not only the ones currently load-bearing.
+    |> Auth.ensure_active_user()
+    |> Scope.for_user()
   end
 
   # Changing a password deletes every token for the user, the one inside the
@@ -166,7 +193,7 @@ defmodule PhoenixKitWeb.Users.Session do
   # key afterwards (maybe_store_return_to_from_params/2 runs later in the
   # shared create/3).
   #
-  # Re-guarded on read exactly like `Routes.post_auth_path/1` does for
+  # Re-guarded on read exactly like `Routes.post_auth_path/2` does for
   # `after_login_path`: trimmed (the changeset trims the CHANGE, but settings
   # are persisted from `changeset.params`, so a stored value can still carry
   # surrounding whitespace), rejected if not local, and rejected if it points

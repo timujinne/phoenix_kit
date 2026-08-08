@@ -338,6 +338,23 @@
                   wrapper_class={oauth_locked? && "pointer-events-none"}
                 />
               </div>
+
+              <%!-- The security decision behind provider sign-in, kept next to the
+                   providers it governs so it is visible to whoever enables them. --%>
+              <.checkbox
+                name="settings[oauth_require_verified_email]"
+                checked={@settings["oauth_require_verified_email"] != "false"}
+                wrapper_class="mt-4 ml-4"
+              >
+                <span class="font-semibold">
+                  {gettext("Require the provider to confirm the email address")}
+                </span>
+              </.checkbox>
+              <p class="text-sm text-base-content/70 ml-4 mt-1">
+                {gettext(
+                  "When on, signing in with a provider can only join an existing account if the provider states it verified that address. Turning this off lets anyone who gets an address onto a provider account sign in as its owner — only do so for a provider that does not report verification."
+                )}
+              </p>
             </div>
 
             <%!-- OAuth Provider Credential Forms --%>

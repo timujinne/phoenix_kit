@@ -812,6 +812,24 @@
       <% end %>
     </div>
 
+    <%!-- Hex was unreachable. Rendered separately from the list below, because an
+         empty list and "we could not ask" look identical to an operator and
+         only one of them means there is nothing to install. --%>
+    <div :if={@catalog_status == :unavailable} class="mt-8">
+      <h2 class="text-lg font-semibold mb-3 text-base-content/70">
+        {gettext("Available Packages")}
+      </h2>
+      <div class="alert alert-warning">
+        <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
+        <span>
+          {gettext("Couldn't reach hex.pm, so the package list is unavailable right now.")}
+          <a href={@hex_browse_url} target="_blank" rel="noopener" class="link">
+            {gettext("Browse PhoenixKit packages on hex.pm")} →
+          </a>
+        </span>
+      </div>
+    </div>
+
     <%!-- Available Packages (known but not installed) --%>
     <%= if @not_installed_packages != [] do %>
       <div class="mt-8">
