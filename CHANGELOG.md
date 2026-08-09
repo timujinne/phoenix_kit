@@ -1,3 +1,69 @@
+## 1.7.236 - 2026-08-08
+
+### Added
+
+- **V163 repairs `phoenix_kit_*` tables whose `uuid` column is not a proper
+  primary key** (#688). A production database reached a state the chain claims is
+  impossible: `phoenix_kit_email_events` with `uuid` as `character varying(255)`,
+  nullable, no default, and **no primary key at all**, while 149 other tables were
+  correct. Three migrations each missed it for a different reason — V40's guard
+  tests column *existence* rather than *type*, so an older release's Ecto
+  `:string` column made V40 skip the table wholesale (backfill, `NOT NULL` and
+  index included) despite the table being listed in `@tables_to_migrate`; V56's
+  `ensure_all_uuid_columns_native_type/2` was added seventeen days *after* V56
+  shipped, and a recorded version never re-runs; V74 then dropped the legacy
+  bigint `id` but could not promote a wrong-typed nullable column to primary key,
+  and never verified its own documented post-condition. V163 is therefore
+  **catalog-driven** — it asks PostgreSQL which tables are actually broken instead
+  of consulting a list the table was missing from every time, including the list
+  in the migration written to repair its class of problem.
+- **`mix phoenix_kit.repair_uuid`** (#688) — the maintenance-window path for
+  tables V163 defers. Runs outside a transaction, so it builds the unique index
+  `CONCURRENTLY` and attaches it, holding the exclusive lock only for the attach.
+  Supports `--dry-run` and `--prefix`.
+- **`mix phoenix_kit.doctor` gains a "UUID Primary Keys" check** (#688). The
+  existing type check could not see a *missing key*, which is what the varchar
+  column actually cost. Its remedy is also corrected: the single `ALTER` it used
+  to suggest restores the type but not the `NOT NULL`, the default or the key,
+  leaving anyone who followed it literally still broken.
+
+### Fixed
+
+- **V163's per-table isolation could never have fired** (#688).
+  `Ecto.Migration.execute/1` *queues* a command, so the statements were flushed
+  after `up/1` returned — outside the `rescue` that exists to keep one table's
+  failure from aborting the rest of the run. A locked table would still have taken
+  down every repair after it *and* skipped the version marker, the worst outcome
+  available. `flush/0` runs the pending commands in scope, so the rescue actually
+  catches. The concurrent index name is also derived from the catalog name rather
+  than parsed back out of the quoted qualified string, which would corrupt any
+  name containing a dot or a quote.
+- **V163's row-count guard now covers every repair class, not just the type
+  rewrite** (#688 post-merge review). The guard deferred a table only when
+  `rewrite_needed?/1` was true, so a table that was already `uuid`-typed but had
+  **no primary key** skipped it at any size — and then took a full-table `DELETE`
+  self-join, a `SET NOT NULL` scan and a unique-index build, all under `ACCESS
+  EXCLUSIVE`, during `mix ecto.migrate`. That is exactly the pool-exhaustion
+  outage the two-million-row limit exists to prevent, on exactly the class of
+  table that prompted the migration.
+- **An interrupted `CREATE UNIQUE INDEX CONCURRENTLY` no longer strands
+  `mix phoenix_kit.repair_uuid`** (#688 post-merge review). `CONCURRENTLY` leaves
+  an `INVALID` index behind when interrupted; `IF NOT EXISTS` then skipped the
+  rebuild on the retry and `ADD PRIMARY KEY USING INDEX` failed on the invalid
+  index, permanently. The concurrent path now drops any leftover index first
+  (`CONCURRENTLY`, schema-qualified per the chain's `DROP INDEX` rule).
+- **`mix phoenix_kit.repair_uuid <table>` no longer answers a named table with the
+  global all-clear** (#688 post-merge review). A typo, a mismatched `--prefix`, or
+  an already-repaired table produced an empty list and printed "✓ Every
+  phoenix_kit table has a proper uuid primary key" — an assertion about every
+  table, made after checking none. V163's log tells operators to run this command
+  with a table name, so the two cases are now distinct.
+- **The de-duplicating `DELETE` announces itself** (#688 post-merge review). It is
+  the only destructive statement in V163, and neither caller reported how many
+  rows it would remove — `--dry-run` printed the SQL, which does not answer that.
+  `UUIDIntegrity.duplicate_rows/2` counts them before any DDL runs, and both
+  callers log the count.
+
 ## 1.7.235 - 2026-08-07
 
 ### Security

@@ -2,6 +2,7 @@
   # Mix functions are only available during Mix compilation context
   {"lib/mix/tasks/phoenix_kit.gen.migration.ex", :unknown_function},
   {"lib/mix/tasks/phoenix_kit.doctor.ex", :unknown_function},
+  {"lib/mix/tasks/phoenix_kit.repair_uuid.ex", :unknown_function},
   {"lib/mix/tasks/phoenix_kit.release_check.ex", :unknown_function},
   {"lib/mix/tasks/phoenix_kit.install.ex", :unknown_function},
   {"lib/mix/tasks/phoenix_kit.update.ex", :unknown_function},
@@ -17,11 +18,14 @@
   {"lib/mix/tasks/phoenix_kit.cleanup_orphaned_files.ex", :unknown_function},
   {"lib/mix/tasks/compile.phoenix_kit_css_sources.ex", :unknown_function},
   {"lib/mix/tasks/compile.phoenix_kit_js_sources.ex", :unknown_function},
+  {"lib/mix/tasks/phoenix_kit.consolidate_wrappers.ex", :unknown_function},
+  {"lib/mix/tasks/phoenix_kit.repair.ex", :unknown_function},
 
   # Mix.Task behaviour callbacks (expected in Mix tasks)
   # Note: Mix.Task behaviour info is not available to Dialyzer (compile-time only)
   # Adding @impl Mix.Task does not fix this warning
   {"lib/mix/tasks/phoenix_kit.doctor.ex", :callback_info_missing, 1},
+  {"lib/mix/tasks/phoenix_kit.repair_uuid.ex", :callback_info_missing, 1},
   {"lib/mix/tasks/phoenix_kit.release_check.ex", :callback_info_missing, 1},
   {"lib/mix/tasks/phoenix_kit.gen.migration.ex", :callback_info_missing, 1},
   {"lib/mix/tasks/phoenix_kit.install.ex", :callback_info_missing, 2},
@@ -34,6 +38,8 @@
   {"lib/mix/tasks/phoenix_kit.cleanup_orphaned_files.ex", :callback_info_missing, 1},
   {"lib/mix/tasks/compile.phoenix_kit_css_sources.ex", :callback_info_missing, 1},
   {"lib/mix/tasks/compile.phoenix_kit_js_sources.ex", :callback_info_missing, 1},
+  {"lib/mix/tasks/phoenix_kit.consolidate_wrappers.ex", :callback_info_missing},
+  {"lib/mix/tasks/phoenix_kit.repair.ex", :callback_info_missing},
 
   # Publishing module (extracted) — dynamic dispatch through publishing_module() helper
   # Ecto.Multi opaque type false positives (code works correctly)

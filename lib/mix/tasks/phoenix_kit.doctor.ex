@@ -38,13 +38,21 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
    15. **Child Start Order** — Does the Repo start before PhoenixKit/Oban in application.ex?
    16. **Update Mode** — Is update_mode active?
    17. **daisyUI Version** — Is the host's vendored daisyUI recent enough?
+   18. **Manifest Repair (dry-run)** — `PhoenixKit.Migrations.Repair.verify/1`
+       runs read-only against the generated
+       `PhoenixKit.Migrations.ExpectedSchema` manifest as an additional,
+       non-fatal check (never `:fail`). Passes and says so if the manifest
+       has been removed or overridden away in this checkout.
   """
 
   use Mix.Task
 
   alias PhoenixKit.Install.ChildOrder
   alias PhoenixKit.Install.PrefixConfig
+  alias PhoenixKit.Migrations.ExpectedSchema.Resolver
   alias PhoenixKit.Migrations.Postgres
+  alias PhoenixKit.Migrations.Repair
+  alias PhoenixKit.Migrations.Repair.Report
   alias PhoenixKit.Modules.Sitemap.RouteResolver
 
   @shortdoc "Diagnoses PhoenixKit installation, migration, and runtime issues"
@@ -91,6 +99,7 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
       run_check("Schema Drift", fn -> check_schema_drift(prefix) end),
       run_check("Pending Migrations", fn -> check_pending_migrations() end),
       run_check("UUID Column Types", fn -> check_uuid_column_types(prefix) end),
+      run_check("UUID Primary Keys", fn -> check_uuid_primary_keys(prefix) end),
       run_check("NULL UUIDs in FK Sources", fn -> check_null_uuids(prefix) end),
       run_check("Orphaned FK References", fn -> check_orphaned_fk_refs(prefix) end),
       run_check("Lock Conflicts", fn -> check_lock_conflicts() end),
@@ -102,7 +111,8 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
       run_check("daisyUI Version", fn -> check_daisyui() end),
       run_check("User Dashboard (deprecated)", fn -> check_user_dashboard_deprecation() end),
       run_check("Sitemap Discoverability", fn -> check_sitemap_serving() end),
-      run_check("Demo Auth Pages", fn -> check_demo_routes() end)
+      run_check("Demo Auth Pages", fn -> check_demo_routes() end),
+      run_check("Manifest Repair (dry-run)", fn -> check_manifest_repair(prefix) end)
     ]
 
     IO.puts("")
@@ -416,6 +426,53 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     Enum.join(overlaps, "\n       ")
   end
 
+  # A missing primary key is what the varchar column actually COST, and the type
+  # check could not see it: a table can have a perfectly typed uuid column and
+  # still have no key. Reported by a host whose phoenix_kit_email_events had
+  # both problems and whose doctor run named only the first.
+  defp check_uuid_primary_keys(prefix) do
+    repo = get_repo!()
+
+    query = """
+    SELECT t.table_name
+    FROM information_schema.tables t
+    WHERE t.table_schema = $1
+      AND t.table_name LIKE 'phoenix\\_kit\\_%'
+      AND t.table_type = 'BASE TABLE'
+      AND EXISTS (
+        SELECT 1 FROM information_schema.columns c
+        WHERE c.table_name = t.table_name
+          AND c.table_schema = t.table_schema
+          AND c.column_name = 'uuid'
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint pc
+        JOIN pg_class pcl ON pcl.oid = pc.conrelid
+        JOIN pg_namespace pn ON pn.oid = pcl.relnamespace
+        WHERE pcl.relname = t.table_name
+          AND pn.nspname = t.table_schema
+          AND pc.contype = 'p'
+      )
+    ORDER BY t.table_name
+    """
+
+    case repo.query(query, [prefix], log: false) do
+      {:ok, %{rows: []}} ->
+        {:pass, "Every phoenix_kit table with a uuid column has a primary key"}
+
+      {:ok, %{rows: rows}} ->
+        tables = Enum.map_join(rows, "\n       ", fn [t] -> t end)
+
+        {:fail,
+         "#{length(rows)} table(s) have a uuid column but NO primary key:\n       #{tables}\n       " <>
+           "Fix: mix phoenix_kit.repair_uuid  (or upgrade — V163 repairs this automatically)"}
+
+      _ ->
+        {:warn, "Could not check (phoenix_kit tables may not exist yet)"}
+    end
+  end
+
   # Pre-migration: check for varchar/text uuid columns that should be native uuid type.
   # A varchar uuid column on phoenix_kit_settings crashes the Ecto schema loader on startup,
   # blocking migrations from even running.
@@ -443,9 +500,14 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
             "#{table} (#{dtype})"
           end)
 
+        # The remedy is a task, not a single ALTER. The ALTER alone restores the
+        # TYPE and leaves the column nullable, without a UUIDv7 default and
+        # without a primary key — anyone following it literally ends up in a
+        # state that still fails this doctor. Reported by a host who did.
         {:fail,
-         "#{length(rows)} table(s) have varchar uuid columns (will crash Ecto on load):\n       #{tables}\n       " <>
-           "Fix: ALTER TABLE <table> ALTER COLUMN uuid TYPE uuid USING uuid::uuid"}
+         "#{length(rows)} table(s) have a varchar uuid column:\n       #{tables}\n       " <>
+           "These break any Ecto schema that maps to them, and cannot carry a uuid primary key.\n       " <>
+           "Fix: mix phoenix_kit.repair_uuid  (or upgrade — V163 repairs this automatically)"}
 
       _ ->
         {:warn, "Could not check (phoenix_kit tables may not exist yet)"}
@@ -1072,6 +1134,44 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     end
   rescue
     _ -> ""
+  end
+
+  # Additional, non-fatal check (task ask, spec §6.1's third manifest
+  # consumer): when the generated manifest exists, run
+  # `PhoenixKit.Migrations.Repair.verify/1` (read-only) against it and fold
+  # the result into doctor's report. Deliberately capped at `:warn` — this
+  # check exists to surface repair-relevant information during a routine
+  # diagnostic pass, not to make `mix phoenix_kit.doctor` fail a deploy gate
+  # over something `mix phoenix_kit.repair` itself reports in full. Wrapped
+  # in its own rescue (on top of `run_check/2`'s) so a bug in this brand-new
+  # code path can never turn into a `:fail` here either.
+  defp check_manifest_repair(prefix) do
+    case Resolver.resolve() do
+      {:error, :not_generated} ->
+        {:pass, Resolver.not_generated_message()}
+
+      {:ok, _module} ->
+        manifest_repair_result(prefix)
+    end
+  rescue
+    e -> {:warn, "Manifest repair check raised: #{Exception.message(e)}"}
+  end
+
+  defp manifest_repair_result(prefix) do
+    case Repair.verify(prefix: prefix) do
+      {:ok, report} ->
+        summary = Report.summary(report)
+
+        if Report.exit_code(report) == 0 do
+          {:pass, "clean — #{summary.total} finding(s), all info-level"}
+        else
+          {:warn,
+           "#{summary.total} finding(s): #{inspect(summary.by_severity)} — run mix phoenix_kit.repair for details"}
+        end
+
+      {:error, reason} ->
+        {:warn, Repair.error_message(reason)}
+    end
   end
 
   # ── Display ─────────────────────────────────────────────────────────
