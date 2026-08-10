@@ -117,6 +117,34 @@ defmodule PhoenixKit.Migrations.Postgres.V163 do
     qualified = UUIDIntegrity.qualify(prefix, name)
 
     cond do
+      # Checked BEFORE castability: `castable?/3` is a full-table
+      # `count(*) … !~*` scan, so asking it first made the deferral path pay an
+      # unbounded sequential scan on exactly the tables this limit exists to keep
+      # out of `mix ecto.migrate`. Read-only, so not the ACCESS EXCLUSIVE outage
+      # itself — but on a PgBouncer-fronted pool it pins a connection for minutes
+      # before deciding to skip. `estimated_rows/3` reads the catalog.
+      #
+      # The guard covers EVERY repair class, not just the rewrite. `ALTER COLUMN
+      # TYPE` rewrites the table, `SET NOT NULL` scans it, and `ADD PRIMARY KEY`
+      # builds a unique index over it — all three under ACCESS EXCLUSIVE, all
+      # three O(rows). Deferring only the rewrite left the worst case in: the
+      # table that prompted this work is an events table, and had it been uuid-
+      # typed-but-keyless it would have taken an index build over every row
+      # during `mix ecto.migrate` — exactly the outage this limit exists to stop.
+      too_big_or_unmeasured?(UUIDIntegrity.estimated_rows(repo(), prefix, name), limit) ->
+        Logger.warning("""
+        [PhoenixKit V163] #{name}: #{UUIDIntegrity.describe(table)} — but the \
+        table is over #{limit} rows, or has never been analyzed so its size is \
+        unknown. Skipped: the repair takes an ACCESS EXCLUSIVE lock for a full \
+        pass over the table. Run this in a maintenance window, where the key can \
+        be built CONCURRENTLY:
+          mix phoenix_kit.repair_uuid #{name}
+        That command reports the row count, and refuses with the offending values \
+        if the column holds anything that is not a valid UUID — fix those first if \
+        it does, because no repair can convert them.
+        `mix phoenix_kit.doctor` will keep reporting it until you do.
+        """)
+
       not UUIDIntegrity.castable?(repo(), qualified, table) ->
         # Aborting the migration over one table's bad data would strand every
         # other repair in this run, so this table is skipped and named.
@@ -127,28 +155,20 @@ defmodule PhoenixKit.Migrations.Postgres.V163 do
            AND uuid !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' LIMIT 20;
         """)
 
-      # The guard covers EVERY repair class, not just the rewrite. `ALTER COLUMN
-      # TYPE` rewrites the table, `SET NOT NULL` scans it, and `ADD PRIMARY KEY`
-      # builds a unique index over it — all three under ACCESS EXCLUSIVE, all
-      # three O(rows). Deferring only the rewrite left the worst case in: the
-      # table that prompted this work is an events table, and had it been uuid-
-      # typed-but-keyless it would have taken an index build over every row
-      # during `mix ecto.migrate` — exactly the outage this limit exists to stop.
-      UUIDIntegrity.estimated_rows(repo(), prefix, name) > limit ->
-        Logger.warning("""
-        [PhoenixKit V163] #{name}: #{UUIDIntegrity.describe(table)} — but the \
-        table holds more than #{limit} rows. Skipped: the repair takes an ACCESS \
-        EXCLUSIVE lock for a full pass over the table. Run this in a maintenance \
-        window, where the key can be built CONCURRENTLY:
-          mix phoenix_kit.repair_uuid #{name}
-        `mix phoenix_kit.doctor` will keep reporting it until you do.
-        """)
-
       true ->
         warn_about_duplicates(qualified, table)
         run_isolated(qualified, prefix, table)
     end
   end
+
+  # `:unknown` defers, exactly as an over-limit count does. The guard exists to
+  # keep an unbounded ACCESS EXCLUSIVE pass out of `mix ecto.migrate`, and "we
+  # never measured this table" is not evidence that the pass is bounded. The
+  # cost of being wrong is asymmetric: deferring leaves the table unrepaired and
+  # loudly reported by `doctor`, while proceeding can lock a large table for the
+  # length of a deploy.
+  defp too_big_or_unmeasured?(:unknown, _limit), do: true
+  defp too_big_or_unmeasured?(rows, limit) when is_integer(rows), do: rows > limit
 
   # Deleting rows is the only destructive thing V163 does, so it is never
   # silent — an operator reading the deploy log sees the count before the

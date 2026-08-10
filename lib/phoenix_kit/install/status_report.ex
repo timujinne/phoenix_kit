@@ -29,6 +29,8 @@ defmodule PhoenixKit.Install.StatusReport do
 
     * `{:install, command}` — PhoenixKit has never been installed
     * `{:fix_connection, message}` — the database could not be reached
+    * `{:fix_version_comment, message}` — installed, but the version comment is
+      missing or unreadable; the fix is a restamp by hand, not an update
     * `{:update, command, reasons}` — schema behind the code; `reasons` says how
     * `{:check_modules, names}` — a module's version could not be read
     * `{:ready, message}` — database and code agree
@@ -36,6 +38,7 @@ defmodule PhoenixKit.Install.StatusReport do
   @type action ::
           {:install, String.t()}
           | {:fix_connection, String.t()}
+          | {:fix_version_comment, String.t()}
           | {:update, String.t(), [String.t()]}
           | {:check_modules, [String.t()]}
           | {:ready, String.t()}
@@ -65,6 +68,15 @@ defmodule PhoenixKit.Install.StatusReport do
 
   def next_action({:unreachable, _reason}, _modules, _prefix) do
     {:fix_connection, "Fix the database connection, then re-run mix phoenix_kit.status"}
+  end
+
+  # Installed, but the version comment is missing or not a plain integer. The
+  # action is a restamp, not an update: every other task reads that comment, so
+  # until it says something true none of them can act safely. `doctor` first,
+  # because it is what establishes the real version to stamp.
+  def next_action({:unknown_version}, _modules, prefix) do
+    {:fix_version_comment,
+     "mix phoenix_kit.doctor — then COMMENT ON TABLE #{prefix}.phoenix_kit IS '<version>'"}
   end
 
   # Core behind. Modules fold into the SAME action rather than being ignored:

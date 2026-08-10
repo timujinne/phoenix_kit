@@ -5664,6 +5664,478 @@ if (typeof window.Chart === "undefined") {
   };
 })();
 
+// ---------------------------------------------------------------------------
+// Collapse scroll keeper. Closing an expanded <details class="collapse"> near
+// the bottom of the page shrinks the document; the browser clamps the scroll
+// position to the new maximum and the viewport jumps upward under the reader.
+// Just before the collapse, pad the document with a body spacer so it cannot
+// become shorter than the reader's current position — they stay put, looking
+// at the now-closed section, with blank space below the fold. Every pixel
+// they then scroll up releases a pixel of that spacer (height leaving from
+// entirely below the viewport is invisible), so the page works its way back
+// to its natural length without ever moving underfoot.
+//
+// Two deliberate choices, both learned from getting it wrong first:
+//
+//   * Measured on the summary ACTIVATION, not the `toggle` event. By the time
+//     `toggle` fires the element may already be collapsed — no animation
+//     under prefers-reduced-motion — leaving nothing to measure, and that is
+//     exactly the case where the jump is most jarring.
+//   * Released against the READER'S SCROLLING, not the live document height.
+//     Mid-collapse the document still contains the content that is on its way
+//     out, so height-based math reads the spacer as unnecessary and hands it
+//     back before the shrink lands — the clamp then happens anyway. Scroll
+//     distance is exact and needs no animation-timing machinery.
+//
+// The held height goes on the layout's [data-pk-collapse-pad] element when one
+// is present (PhoenixKit's admin layout marks its content column), so sticky
+// sidebars and page backgrounds extend through the blank area; otherwise a
+// body-level div is injected, which holds the position just as well but leaves
+// the blank area outside any app chrome. Only the window-scrolled case is
+// handled: inside an inner scroll container neither helps, so those bail out
+// to the browser default.
+(function() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+
+  // Extra spacer height so (scrollTop + viewport) still fits inside the
+  // document after `shrink` px of content collapses away. `docHeight`
+  // includes any existing spacer, so the result stacks on top of it.
+  // Pure — unit-tested in test/js/collapse_space.test.cjs.
+  function extraSpaceNeeded(scrollTop, viewport, docHeight, shrink) {
+    var overshoot = scrollTop + viewport - (docHeight - shrink);
+    return overshoot > 0 ? Math.ceil(overshoot) : 0;
+  }
+
+  // Height the spacer still needs once the reader has scrolled up away from
+  // the position it was installed to protect. `highestTop` is the smallest
+  // scrollTop seen since it was installed, so scrolling back down cannot
+  // re-claim space that was already given up — the page only ever gets
+  // shorter, and only from below the fold.
+  function spacerAfterScrollUp(installedHeight, installedTop, highestTop) {
+    var released = Math.max(0, installedTop - highestTop);
+    return Math.max(0, installedHeight - released);
+  }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.extraSpaceNeeded = extraSpaceNeeded;
+    module.exports.spacerAfterScrollUp = spacerAfterScrollUp;
+  }
+
+  var spacer = null;
+  var injected = false;
+  var installedHeight = 0;
+  var installedTop = 0;
+  var highestTop = 0;
+
+  function scrollTopNow() {
+    return (document.scrollingElement || document.documentElement).scrollTop;
+  }
+
+  function metrics() {
+    var el = document.scrollingElement || document.documentElement;
+    return { top: el.scrollTop, view: window.innerHeight, height: el.scrollHeight };
+  }
+
+  function insideInnerScroller(el) {
+    var node = el.parentElement;
+    while (node && node !== document.body) {
+      var oy = window.getComputedStyle(node).overflowY;
+      if (oy === "auto" || oy === "scroll") return true;
+      node = node.parentElement;
+    }
+    return false;
+  }
+
+  // The element that carries the held height. A layout that marks its content
+  // column with data-pk-collapse-pad gets the space INSIDE its own chrome, so
+  // sticky sidebars and page backgrounds extend through it; anything else
+  // falls back to a body-level div, which holds the scroll position just as
+  // well but leaves the blank area outside the app's layout.
+  function ensureSpacer() {
+    if (spacer && spacer.isConnected) return spacer;
+
+    var pad = document.querySelector("[data-pk-collapse-pad]");
+    if (pad) {
+      spacer = pad;
+      injected = false;
+    } else {
+      spacer = document.createElement("div");
+      spacer.setAttribute("data-pk-collapse-spacer", "");
+      spacer.setAttribute("aria-hidden", "true");
+      spacer.style.width = "100%";
+      spacer.style.flex = "0 0 auto";
+      spacer.style.pointerEvents = "none";
+      document.body.appendChild(spacer);
+      injected = true;
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return spacer;
+  }
+
+  function releaseSpacer() {
+    if (!spacer) return;
+    if (injected) spacer.remove();
+    else spacer.style.height = "";
+    spacer = null;
+    installedHeight = 0;
+    window.removeEventListener("scroll", onScroll);
+  }
+
+  function onScroll() {
+    if (!spacer) return;
+    var top = scrollTopNow();
+    if (top < highestTop) highestTop = top;
+    var next = spacerAfterScrollUp(installedHeight, installedTop, highestTop);
+    if (next <= 0) releaseSpacer();
+    else spacer.style.height = next + "px";
+  }
+
+  function hold(shrink) {
+    var m = metrics();
+    var extra = extraSpaceNeeded(m.top, m.view, m.height, shrink);
+    if (extra <= 0) return;
+
+    ensureSpacer();
+
+    // A second close stacks onto whatever is left and re-anchors: from here
+    // on, this is the position being protected.
+    installedHeight = spacer.offsetHeight + extra;
+    installedTop = m.top;
+    highestTop = m.top;
+    spacer.style.height = installedHeight + "px";
+  }
+
+  // Runs BEFORE the default action toggles the element, so the height read
+  // here is the full expanded one that is about to disappear.
+  function onSummaryActivate(e) {
+    var target = e.target;
+    if (!target || !target.closest) return;
+
+    var summary = target.closest("summary");
+    if (!summary) return;
+
+    var details = summary.closest("details");
+    if (!details || !details.classList.contains("collapse")) return;
+    if (!details.open) return; // opening: the document only grows
+    if (insideInnerScroller(details)) return;
+
+    var shrink = details.offsetHeight - summary.offsetHeight;
+    if (isFinite(shrink) && shrink > 0) hold(shrink);
+  }
+
+  document.addEventListener("click", onSummaryActivate, true);
+  document.addEventListener(
+    "keydown",
+    function(e) {
+      if (e.key === "Enter" || e.key === " " || e.key === "Spacebar") {
+        onSummaryActivate(e);
+      }
+    },
+    true
+  );
+
+  // Live navigation swaps the page content and resets the scroll position;
+  // whatever the old page was holding open is meaningless now.
+  window.addEventListener("phx:page-loading-stop", function() {
+    if (spacer && scrollTopNow() <= 0) releaseSpacer();
+  });
+})();
+
+// ---------------------------------------------------------------------------
+// Change cue — "that choice changed something you can't see".
+// Server side: PhoenixKitWeb.Components.Core.ChangeCue.push/3, whose
+// moduledoc is the reference. This is the client half.
+//
+// The server sends only WHAT changed (element ids). It cannot decide how to
+// show it, because it doesn't know what's on screen: whether a <details> is
+// open is client state, and so is the scroll position. So the client
+// resolves each id, walks up to its [data-change-region], and picks:
+//
+//   * region open   -> highlight the changed rows. Highlighting the whole
+//     region tells someone already reading it nothing.
+//   * region closed -> highlight the region and MARK it. Opening it replays
+//     the row highlights and clears the mark.
+//
+// The mark, not a timer, is what makes this survive reality. A highlight
+// that plays while the reader is scrolled away is simply lost, and an
+// N-second memory turns "what changed in here?" into a race against a
+// stopwatch. The mark waits.
+//
+// Won't scroll, open anything, or move focus.
+(function() {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+
+  var STYLE_ID = "pk-change-cue-style";
+  var CLASS = "pk-cued";
+  var REGION = "[data-change-region]";
+  var DURATION = 1400;
+  var MAX_TARGETS = 6;
+  var ANNOUNCE_GAP = 1000;
+
+  // Pending rows per region id. Kept off the DOM node: LiveView can replace
+  // an element between the change and the reader opening it, and state on
+  // the old node would go with it.
+  var pending = {};
+  var lastAnnounce = 0;
+
+  function ensureStyle() {
+    if (document.getElementById(STYLE_ID)) return;
+
+    var style = document.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent =
+      "@keyframes pk-cue-pulse {" +
+      "  0% { box-shadow: 0 0 0 0 var(--pk-cue-color, oklch(0.7 0.15 250 / 0.55)); }" +
+      "  70% { box-shadow: 0 0 0 6px var(--pk-cue-color, oklch(0.7 0.15 250 / 0)); }" +
+      "  100% { box-shadow: 0 0 0 0 var(--pk-cue-color, oklch(0.7 0.15 250 / 0)); }" +
+      "}" +
+      "." + CLASS + " {" +
+      "  animation: pk-cue-pulse 1.4s ease-out 1;" +
+      "  border-radius: 0.5rem;" +
+      "}" +
+      // The marker rides the region's own state, so it survives patches
+      // (the region declares data-changed client-owned) and needs no
+      // server round-trip to clear.
+      "[data-change-region][data-changed] [data-change-marker] { display: inline-flex; }" +
+      "@media (prefers-reduced-motion: reduce) {" +
+      "  ." + CLASS + " { animation: none; outline: 2px solid var(--pk-cue-color, currentColor); }" +
+      "}";
+
+    document.head.appendChild(style);
+  }
+
+  function cue(el) {
+    if (!el) return;
+
+    // Restart rather than re-add: a class an element already has changes
+    // nothing, so a rapid second change would look like nothing happened.
+    el.classList.remove(CLASS);
+    void el.offsetWidth;
+    el.classList.add(CLASS);
+
+    window.clearTimeout(el.__pkCueTimer);
+    el.__pkCueTimer = window.setTimeout(function() {
+      el.classList.remove(CLASS);
+    }, DURATION);
+  }
+
+  function announce(text) {
+    if (!text) return;
+
+    var now = Date.now();
+    if (now - lastAnnounce < ANNOUNCE_GAP) return;
+    lastAnnounce = now;
+
+    var live = document.getElementById("pk-change-cue-status");
+
+    if (!live) {
+      live = document.createElement("div");
+      live.id = "pk-change-cue-status";
+      live.setAttribute("role", "status");
+      live.setAttribute("aria-live", "polite");
+      live.setAttribute("aria-atomic", "true");
+      live.className = "sr-only";
+      document.body.appendChild(live);
+    }
+
+    live.textContent = text;
+  }
+
+  function onScreen(el) {
+    var r = el.getBoundingClientRect();
+    return r.bottom > 0 && r.top < (window.innerHeight || 0);
+  }
+
+  // Opening a long section puts most of it below the fold, so a highlight
+  // down there plays to nobody — the reader opens it, sees nothing, and
+  // the cue has cost them a click and told them less than nothing. Cue
+  // what is on screen now, and watch the rest until they scroll to it.
+  function replay(ids) {
+    var waiting = [];
+
+    ids.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+
+      if (onScreen(el)) {
+        cue(el);
+      } else {
+        waiting.push(el);
+      }
+    });
+
+    if (!waiting.length || typeof IntersectionObserver === "undefined") return;
+
+    var observer = new IntersectionObserver(
+      function(entries) {
+        entries.forEach(function(entry) {
+          if (!entry.isIntersecting) return;
+          cue(entry.target);
+          observer.unobserve(entry.target);
+        });
+      },
+      { threshold: 0.5 }
+    );
+
+    waiting.forEach(function(el) {
+      observer.observe(el);
+    });
+
+    // Don't watch forever: a section left open and never scrolled to
+    // shouldn't hold observers for the life of the page.
+    window.setTimeout(function() {
+      observer.disconnect();
+    }, 30000);
+  }
+
+  // One utterance per pushed change, however many regions it touched, and
+  // only for changes the reader cannot see: an open region announces
+  // itself by being visible.
+  function announceOnce(payload) {
+    if (payload.__announced) return;
+    payload.__announced = true;
+    announce(payload.announce);
+  }
+
+  function markRegion(region, ids) {
+    region.setAttribute("data-changed", "");
+
+    var key = region.getAttribute("data-change-region") || region.id;
+    if (!key) return;
+
+    var held = pending[key] || [];
+    // Union: a second change while still closed adds to the answer rather
+    // than replacing it.
+    ids.forEach(function(id) {
+      if (held.indexOf(id) === -1) held.push(id);
+    });
+
+    pending[key] = held;
+  }
+
+  function apply(payload) {
+    var targets = (payload.targets || []).map(function(t) {
+      // Ids alone are still accepted; the grouped form carries a fallback
+      // region for targets that may not exist any more.
+      return typeof t === "string" ? { id: t } : t;
+    });
+
+    if (!targets.length) return;
+
+    ensureStyle();
+
+    var byRegion = new Map();
+    var loose = [];
+    // Regions whose change REMOVED the element. There is nothing left to
+    // highlight, so the region itself carries the news — and nothing is
+    // queued for replay, because a missing id will still be missing when
+    // they open it.
+    var vanished = new Set();
+
+    targets.forEach(function(target) {
+      var el = document.getElementById(target.id);
+
+      if (!el) {
+        var anchor = target.region && document.getElementById(target.region);
+        if (anchor) vanished.add(anchor);
+        return;
+      }
+
+      var region = el.closest(REGION);
+
+      if (!region) {
+        loose.push(el);
+        return;
+      }
+
+      if (!byRegion.has(region)) byRegion.set(region, []);
+      byRegion.get(region).push(target.id);
+    });
+
+    loose.forEach(cue);
+
+    vanished.forEach(function(region) {
+      // Don't double-cue a region that also has surviving targets — those
+      // are handled below, and a row highlight says more than a region one.
+      if (byRegion.has(region)) return;
+
+      cue(region);
+
+      if (region.tagName === "DETAILS" && !region.open) {
+        region.setAttribute("data-changed", "");
+        announceOnce(payload);
+      }
+    });
+
+    byRegion.forEach(function(regionIds, region) {
+      var closed = region.tagName === "DETAILS" && !region.open;
+
+      if (closed) {
+        cue(region);
+        markRegion(region, regionIds);
+        announceOnce(payload);
+        return;
+      }
+
+      // Past a handful, individual highlights read as strobing rather than
+      // as information.
+      if (regionIds.length > MAX_TARGETS) {
+        cue(region);
+      } else {
+        regionIds.forEach(function(id) {
+          cue(document.getElementById(id));
+        });
+      }
+    });
+  }
+
+  // Opening a marked region answers the question the mark raised.
+  // Capture phase: `toggle` doesn't bubble.
+  document.addEventListener(
+    "toggle",
+    function(e) {
+      var region = e.target;
+      if (!region || region.tagName !== "DETAILS" || !region.open) return;
+      if (!region.hasAttribute("data-changed")) return;
+
+      var key = region.getAttribute("data-change-region") || region.id;
+      var ids = (key && pending[key]) || [];
+
+      region.removeAttribute("data-changed");
+      if (key) delete pending[key];
+      if (!ids.length) return;
+
+      ensureStyle();
+
+      // Let the reveal start first, or the highlight plays against content
+      // that is still zero-height. Deliberately silent for screen readers:
+      // the change was already announced when it landed.
+      window.setTimeout(function() {
+        replay(ids.slice(0, MAX_TARGETS));
+      }, 160);
+    },
+    true
+  );
+
+  function clearRegions(ids) {
+    ids.forEach(function(id) {
+      var region = document.getElementById(id);
+      if (region) region.removeAttribute("data-changed");
+      delete pending[id];
+    });
+  }
+
+  window.addEventListener("phx:pk:change-cue", function(event) {
+    var detail = event.detail || {};
+    // A region whose state went back to what the reader last saw has
+    // nothing to show. Without this, flipping a choice back and forth
+    // leaves every section marked.
+    if (detail.clear) clearRegions(detail.clear);
+    apply(detail);
+  });
+})();
+
 (function() {
   if (typeof window === "undefined") return;
   window.PhoenixKitHooks = window.PhoenixKitHooks || {};
@@ -5680,4 +6152,210 @@ if (typeof window.Chart === "undefined") {
   adopt(window.FrescoHooks);
   adopt(window.TesseraHooks);
   adopt(window.EtcherHooks);
+})();
+
+// ---------------------------------------------------------------------------
+// MentionInput — @ pings and # record links in any plain textarea.
+//
+// The surface this has to reach is ~70 ordinary `<textarea>` fields, not a
+// rich editor, so this attaches to the field itself and owns nothing else.
+// It watches for a trigger character at a word boundary, tracks the query
+// the user types after it, asks the server, and renders a small list
+// anchored under the caret.
+//
+// The server decides WHAT can be inserted; this decides only where the menu
+// sits and when it closes. Everything it inserts is a complete token, so a
+// half-typed mention is always just text.
+//
+// State is per-hook-instance, never global: several LiveViews can share a
+// page, and two textareas on one page must not fight over one menu.
+// ---------------------------------------------------------------------------
+(function() {
+  if (typeof window === "undefined") return;
+  window.PhoenixKitHooks = window.PhoenixKitHooks || {};
+
+  // A trigger only counts at the start of a word. Without this, an email
+  // address turns the rest of the line into a search box.
+  function triggerAt(value, caret) {
+    var i = caret - 1;
+    while (i >= 0) {
+      var ch = value[i];
+      if (ch === "@" || ch === "#") {
+        var before = i === 0 ? " " : value[i - 1];
+        if (/[\s(\[]/.test(before) || i === 0) {
+          return { char: ch, start: i, query: value.slice(i + 1, caret) };
+        }
+        return null;
+      }
+      // A query is one short run of ordinary characters. Newlines and the
+      // token's own delimiters end it, so an unclosed menu can't swallow a
+      // paragraph.
+      if (/[\n\r\]|]/.test(ch)) return null;
+      if (caret - i > 40) return null;
+      i--;
+    }
+    return null;
+  }
+
+  window.PhoenixKitHooks.MentionInput = {
+    mounted: function() {
+      var self = this;
+      this.el.setAttribute("autocomplete", "off");
+      this.active = null;
+      this.results = [];
+      this.cursor = 0;
+      this.seq = 0;
+
+      this.menu = document.createElement("ul");
+      this.menu.className =
+        "pk-mention-menu menu menu-sm bg-base-100 rounded-box shadow-lg border border-base-300 " +
+        "absolute z-[9999] hidden max-h-64 overflow-y-auto w-72 p-1";
+      this.menu.setAttribute("role", "listbox");
+      document.body.appendChild(this.menu);
+
+      this.close = function() {
+        self.active = null;
+        self.results = [];
+        self.cursor = 0;
+        self.menu.classList.add("hidden");
+      };
+
+      this.render = function() {
+        if (!self.active || !self.results.length) {
+          self.menu.classList.add("hidden");
+          return;
+        }
+        self.menu.innerHTML = "";
+        self.results.forEach(function(r, idx) {
+          var li = document.createElement("li");
+          var a = document.createElement("a");
+          a.className = idx === self.cursor ? "active" : "";
+          a.setAttribute("role", "option");
+          var title = document.createElement("span");
+          title.className = "font-medium truncate";
+          title.textContent = r.title;
+          a.appendChild(title);
+          if (r.subtitle) {
+            var sub = document.createElement("span");
+            sub.className = "text-xs opacity-60 truncate";
+            sub.textContent = r.subtitle;
+            a.appendChild(sub);
+          }
+          // mousedown, not click: click fires after blur, and blur has
+          // already closed the menu by then.
+          a.addEventListener("mousedown", function(e) {
+            e.preventDefault();
+            self.choose(idx);
+          });
+          li.appendChild(a);
+          self.menu.appendChild(li);
+        });
+        self.position();
+        self.menu.classList.remove("hidden");
+      };
+
+      // Anchored to the field rather than the caret: measuring a caret
+      // inside a textarea needs a mirror element, and being a few lines off
+      // is a much smaller problem than a menu that drifts as the text
+      // reflows.
+      this.position = function() {
+        var rect = self.el.getBoundingClientRect();
+        var top = rect.bottom + window.scrollY + 4;
+        var left = rect.left + window.scrollX;
+        var maxLeft = window.scrollX + document.documentElement.clientWidth - self.menu.offsetWidth - 8;
+        self.menu.style.top = top + "px";
+        self.menu.style.left = Math.max(8, Math.min(left, maxLeft)) + "px";
+      };
+
+      this.choose = function(idx) {
+        var r = self.results[idx];
+        if (!r || !self.active) return;
+        var value = self.el.value;
+        var before = value.slice(0, self.active.start);
+        var after = value.slice(self.el.selectionStart);
+        // The server sends the finished token: building it here by
+        // concatenation produced something unparseable whenever a
+        // record's own name contained a `|` or a `]`.
+        var token = r.token;
+        if (!token) return;
+        self.el.value = before + token + " " + after;
+        var caret = (before + token + " ").length;
+        self.el.setSelectionRange(caret, caret);
+        self.close();
+        // The field is inside a phx-change form; without this the server
+        // never sees the inserted token and the next save writes the old
+        // text back over it.
+        self.el.dispatchEvent(new Event("input", { bubbles: true }));
+        self.el.focus();
+      };
+
+      this.search = function() {
+        var caret = self.el.selectionStart;
+        var found = triggerAt(self.el.value, caret);
+        if (!found) {
+          self.close();
+          return;
+        }
+        self.active = found;
+        self.seq += 1;
+        var seq = self.seq;
+        self.pushEvent(
+          "pk_mention_search",
+          { kind: found.char === "@" ? "user" : "resource", query: found.query, seq: seq },
+          function(reply) {
+            // Out-of-order replies: the user kept typing while this one was
+            // in flight, so its results describe a query that no longer
+            // exists. Dropping them stops the list flickering backwards.
+            if (!reply || reply.seq !== self.seq) return;
+            self.results = reply.results || [];
+            self.cursor = 0;
+            self.render();
+          }
+        );
+      };
+
+      this.onInput = function() { self.search(); };
+
+      this.onKeyDown = function(e) {
+        if (!self.active || !self.results.length) {
+          if (e.key === "Escape") self.close();
+          return;
+        }
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          self.cursor = (self.cursor + 1) % self.results.length;
+          self.render();
+        } else if (e.key === "ArrowUp") {
+          e.preventDefault();
+          self.cursor = (self.cursor - 1 + self.results.length) % self.results.length;
+          self.render();
+        } else if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          self.choose(self.cursor);
+        } else if (e.key === "Escape") {
+          e.preventDefault();
+          self.close();
+        }
+      };
+
+      this.onBlur = function() { window.setTimeout(self.close, 120); };
+
+      this.el.addEventListener("input", this.onInput);
+      this.el.addEventListener("click", this.onInput);
+      this.el.addEventListener("keydown", this.onKeyDown);
+      this.el.addEventListener("blur", this.onBlur);
+      this.repositionHandler = function() { if (self.active) self.position(); };
+      window.addEventListener("scroll", this.repositionHandler, true);
+      window.addEventListener("resize", this.repositionHandler);
+    },
+
+    destroyed: function() {
+      // The menu lives on document.body, so it outlives the hook's element
+      // unless it is taken down explicitly — a LiveView patch that replaces
+      // the textarea would otherwise leave an orphan floating over the page.
+      if (this.menu && this.menu.parentNode) this.menu.parentNode.removeChild(this.menu);
+      window.removeEventListener("scroll", this.repositionHandler, true);
+      window.removeEventListener("resize", this.repositionHandler);
+    }
+  };
 })();

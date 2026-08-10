@@ -2912,7 +2912,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   # Display label for a creator — full name, falling back to email.
   defp creator_label(nil), do: nil
-  defp creator_label(user), do: User.full_name(user) || user.email
+  defp creator_label(user), do: User.display_name(user)
 
   # Display URL for a folder header image (cover or logo) by file uuid, or nil.
   # Loads the referenced file and enriches it for its signed URLs.

@@ -212,7 +212,155 @@ defmodule PhoenixKit.Modules.Storage.ImageProcessor do
       {:error, "Image center-crop failed: #{inspect(e)}"}
   end
 
+  # 40 megapixels — comfortably above any real camera or screenshot, far
+  # below what it takes to hurt. `-resize` bounds the OUTPUT; the decoder
+  # still rasterizes the input in full first, so a 5MB PNG declaring
+  # 50000x50000 is ~10GB of RAM before a single pixel is written. The
+  # `-limit` flags turn that into a failure rather than an outage, but
+  # reading the header and refusing costs nothing and never starts it.
+  @sanitize_max_pixels 40_000_000
+
+  defp check_pixel_budget(width, height, max_pixels)
+       when is_integer(width) and is_integer(height) and width * height > max_pixels,
+       do: {:error, "image is too large"}
+
+  defp check_pixel_budget(_width, _height, _max_pixels), do: :ok
+
+  @doc """
+  Re-encodes an image to known-good bytes, discarding everything else.
+
+  For uploads from people you do not trust. The point is not to *inspect*
+  the file — that is a losing game — but to stop serving the uploader's
+  bytes at all: what ends up stored is this encoder's output, produced by
+  decoding the input and writing a fresh image. A polyglot file (valid
+  GIF, valid JavaScript), an EXIF payload, a trailing ZIP, an embedded
+  colour profile — none of them survive being decoded to pixels and
+  written out again.
+
+  Also enforces a maximum edge length, because a 30000×30000 PNG is a
+  decompression bomb whatever its byte size, and rejects anything
+  ImageMagick cannot read as an image regardless of what the upload
+  claimed to be.
+
+  Returns `{:ok, output_path}` or `{:error, reason}`. Never raises.
+
+  ## ⚠️ Nothing in core calls this yet
+
+  It is a primitive, not a policy: no upload path in PhoenixKit routes
+  through it, so adding it did not change what any existing endpoint
+  stores. A caller that accepts untrusted uploads — a public portal
+  submission, an avatar from an unauthenticated form — has to invoke it
+  itself and store the OUTPUT path, discarding the original. Wiring it
+  into `Storage.upload/*` wholesale is not a drop-in: it re-encodes, which
+  is right for images from strangers and wrong for a designer uploading a
+  master PNG they expect back byte-for-byte.
+
+  ## Options
+
+    * `:max_edge` — longest side in pixels (default 2500); larger images
+      are scaled down, never up
+    * `:quality` — output quality (default 82)
+    * `:format` — output format (default "jpeg"; use "png" to keep
+      transparency)
+
+  ## Example
+
+      ImageProcessor.sanitize(upload.path, dest, format: "png")
+  """
+  @spec sanitize(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, String.t()}
+  def sanitize(input_path, output_path, opts \\ []) do
+    max_edge = Keyword.get(opts, :max_edge, 2500)
+    quality = Keyword.get(opts, :quality, 82)
+    format = Keyword.get(opts, :format, "jpeg")
+
+    max_pixels = Keyword.get(opts, :max_pixels, @sanitize_max_pixels)
+
+    with {:ok, {width, height}} <- extract_dimensions(input_path),
+         :ok <- check_pixel_budget(width, height, max_pixels),
+         {:ok, detected} <- detect_format(input_path) do
+      args =
+        [
+          # Resource ceilings, applied HERE rather than trusted to the
+          # host's policy.xml. A decompression bomb is a small file that
+          # decodes to gigabytes, and "the sysadmin configured ImageMagick
+          # correctly" is not a control this code can rely on.
+          "-limit",
+          "memory",
+          "256MiB",
+          "-limit",
+          "map",
+          "512MiB",
+          "-limit",
+          "disk",
+          "1GiB",
+          "-limit",
+          "time",
+          "20"
+        ] ++
+          [
+            # `[0]` takes the FIRST frame only: without it a multi-frame
+            # GIF writes N output files, which is a cheap way to burn disk.
+            # The format prefix pins how the bytes are decoded, so a file
+            # can never be interpreted as a coder we did not allow.
+            "#{detected}:#{input_path}[0]",
+            "-auto-orient",
+            # Strip metadata before anything else: EXIF, IPTC, XMP, colour
+            # profiles, comments. GPS coordinates in a bug report screenshot
+            # are a privacy leak the reporter did not intend.
+            "-strip",
+            "-alpha",
+            if(format == "png", do: "on", else: "remove"),
+            "-resize",
+            "#{max_edge}x#{max_edge}>",
+            "-quality",
+            Integer.to_string(quality),
+            "#{format}:#{output_path}"
+          ]
+
+      Logger.info(
+        "Sanitizing #{detected} upload #{input_path} (#{width}x#{height}) -> #{output_path}"
+      )
+
+      case System.cmd("convert", args, stderr_to_stdout: true) do
+        {_output, 0} ->
+          {:ok, output_path}
+
+        {output, exit_code} ->
+          Logger.warning("Upload sanitize failed (#{exit_code}): #{output}")
+          {:error, "could not process image"}
+      end
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  rescue
+    e ->
+      Logger.warning("Upload sanitize raised: #{Exception.message(e)}")
+      {:error, "could not process image"}
+  end
+
   # Private functions
+
+  # What ImageMagick actually thinks this is, checked against a short
+  # allowlist. The extension and the browser's content-type are both the
+  # uploader's claims; this is the only reading that counts, and it does
+  # not depend on the host having configured policy.xml.
+  @sanitize_formats ~w(PNG JPEG JPG WEBP GIF)
+
+  defp detect_format(path) do
+    case System.cmd("identify", ["-format", "%m", "#{path}[0]"], stderr_to_stdout: true) do
+      {output, 0} ->
+        format = output |> String.trim() |> String.upcase()
+
+        if format in @sanitize_formats,
+          do: {:ok, format},
+          else: {:error, "unsupported image format"}
+
+      _ ->
+        {:error, "not a readable image"}
+    end
+  rescue
+    _ -> {:error, "not a readable image"}
+  end
 
   defp calculate_resize_spec(current_width, current_height, target_width, target_height) do
     case {target_width, target_height} do

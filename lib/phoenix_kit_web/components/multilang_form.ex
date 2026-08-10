@@ -840,6 +840,13 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
   attr :title, :string, default: nil
   attr :hint, :string, default: nil
   attr :secondary_hint, :string, default: nil
+
+  attr :mentions, :boolean,
+    default: false,
+    doc:
+      "offer `@` people and `#` records while typing (textarea only). Needs " <>
+        "`use PhoenixKit.Mentions.Live` on the LiveView"
+
   attr :secondary_name, :string, default: nil
   attr :lang_data_key, :string, default: nil
   slot :label_extra
@@ -850,6 +857,16 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
       if is_map(assigns.lang_data), do: assigns, else: assign(assigns, :lang_data, %{})
 
     is_primary = !assigns.multilang_enabled || assigns.current_lang == assigns.primary_language
+
+    # Opt-in AND site-enabled AND a textarea: the typeahead has nowhere to
+    # go in a single-line input, and a hint promising a feature that is
+    # switched off is worse than no hint.
+    assigns =
+      assign(
+        assigns,
+        :mentions_on,
+        assigns.mentions and assigns.type == "textarea" and PhoenixKit.Mentions.enabled?()
+      )
 
     # Resolve the lang_data lookup key: custom or default "_field_name"
     data_key = assigns.lang_data_key || "_#{assigns.field_name}"
@@ -920,6 +937,7 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
             class={@input_class}
             rows={@rows}
             phx-debounce="300"
+            phx-hook={@mentions_on && "MentionInput"}
             required={@required}
             disabled={@disabled}
           >{@primary_value}</textarea>
@@ -931,9 +949,13 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
             rows={@rows}
             placeholder={@primary_value}
             phx-debounce="300"
+            phx-hook={@mentions_on && "MentionInput"}
             disabled={@disabled}
           >{@lang_value || ""}</textarea>
         <% end %>
+        <p :if={@mentions_on} class="mt-1 text-xs opacity-50">
+          {gettext("Type @ to mention someone, # to link a record.")}
+        </p>
       <% else %>
         <%= if @is_primary do %>
           <input

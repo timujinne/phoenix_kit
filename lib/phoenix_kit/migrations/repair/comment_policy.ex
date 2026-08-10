@@ -45,6 +45,7 @@ defmodule PhoenixKit.Migrations.Repair.CommentPolicy do
           :not_installed
           | {:below_floor, pos_integer()}
           | :adopt_required
+          | :comment_unreadable
           | {:in_range, pos_integer()}
           | {:above_current, pos_integer()}
 
@@ -72,6 +73,16 @@ defmodule PhoenixKit.Migrations.Repair.CommentPolicy do
   @spec classify(raw_comment(), floor :: pos_integer(), current :: pos_integer()) :: branch()
   def classify(:absent, _floor, _current), do: :not_installed
   def classify(nil, _floor, _current), do: :adopt_required
+
+  # Deliberately NOT folded into `:adopt_required`. Both mean "no usable
+  # version", but they are different facts about the database and the operator
+  # needs the difference: `nil` means there is nothing there, while
+  # `:unparseable` means someone wrote something and it is still readable. The
+  # `--adopt` path stamps the floor version over the comment, so collapsing the
+  # two silently destroyed the only record of what that person believed — and
+  # `adopt_required_message/0` told them the comment was "missing" while it sat
+  # in the table saying `v164`.
+  def classify(:unparseable, _floor, _current), do: :comment_unreadable
   def classify(0, _floor, _current), do: :adopt_required
 
   def classify(comment, floor, _current)

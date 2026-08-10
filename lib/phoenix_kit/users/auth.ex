@@ -822,9 +822,15 @@ defmodule PhoenixKit.Users.Auth do
     * `user` - The user whose password is being updated
     * `attrs` - Password attributes (password, password_confirmation)
     * `context` - Optional context map containing:
-      * `:admin_user` - The admin performing the action (for audit logging)
+      * `:admin_user` - The admin performing the action. **Authorizes as well as
+        audits**: when present, the write is refused unless
+        `can_manage_user_credentials?/2` allows this actor over this target.
       * `:ip_address` - IP address of the admin (for audit logging)
       * `:user_agent` - User agent of the admin (for audit logging)
+
+  Omitting `:admin_user` is the system path — seeds, migrations and mix tasks
+  act with no actor and are not rank-checked, matching `update_user_status/3`.
+  A web caller must always pass it; without it there is nothing to check.
 
   ## Examples
 
@@ -834,11 +840,73 @@ defmodule PhoenixKit.Users.Auth do
       iex> admin_update_user_password(user, %{password: "new_password", password_confirmation: "new_password"}, %{admin_user: admin, ip_address: "192.168.1.1"})
       {:ok, %User{}}
 
+      iex> admin_update_user_password(owner, %{password: "new_password"}, %{admin_user: admin})
+      {:error, :insufficient_permissions}
+
       iex> admin_update_user_password(user, %{password: "short"})
       {:error, %Ecto.Changeset{}}
 
   """
+  # The rank rule lives here rather than in the form that calls it. `:admin_user`
+  # was already threaded in for the audit row, so the actor was in hand the whole
+  # time and only the question was missing: the edit LiveView asked
+  # `can_manage_user_credentials?/2` to hide the UI and to refuse the event, but
+  # the context function wrote the hash for anyone who reached it. That is the
+  # same shape the status path had — a rule living in one LiveView while two
+  # other callers went around it — and it is why `update_user_status/3` was moved
+  # into the context. Credentials are the more final of the two, since setting a
+  # password also deletes every session token of the target.
   def admin_update_user_password(user, attrs, context \\ %{}) do
+    case Map.get(context, :admin_user) do
+      %User{} = actor ->
+        if can_manage_user_credentials?(user, actor) do
+          do_admin_update_user_password(user, attrs, context)
+        else
+          refuse_credential_write(user, actor)
+        end
+
+      # Only an ABSENT actor is the system path — seeds, migrations and mix
+      # tasks pass no context at all. A value that is present but not a `%User{}`
+      # (a map decoded from JSON by a host controller, a bare uuid string) is a
+      # caller that meant to supply an actor and got the shape wrong; treating
+      # that as "no actor" would hand it the unchecked path. This is a library,
+      # so it cannot see its hosts' callers — it fails closed instead.
+      nil ->
+        do_admin_update_user_password(user, attrs, context)
+
+      _malformed ->
+        Logger.warning(
+          "PhoenixKit: refused a password write for #{target_label(user)} — :admin_user was present but not a %User{}"
+        )
+
+        {:error, :insufficient_permissions}
+    end
+  end
+
+  # A refusal that leaves no trace is a guard nobody can tell fired. The whole
+  # point of moving this rule into the context is the caller that does not exist
+  # yet; when it arrives and is blocked, the operator needs to be able to see
+  # that rather than debug a silent no-op. `do_deactivate_user/2` already sets
+  # this precedent for a milder refusal (see the last-Owner branch below).
+  defp refuse_credential_write(user, %User{} = actor) do
+    Logger.warning(
+      "PhoenixKit: refused a password write for #{target_label(user)} by #{actor.uuid} — actor is out of rank"
+    )
+
+    {:error, :insufficient_permissions}
+  end
+
+  # The public head takes `user` unguarded, so both refusal branches can be
+  # handed whatever a host passes — and `can_manage_user_credentials?/2` answers
+  # `false` for a non-`%User{}` target rather than raising, which is how one
+  # reaches the refusal in the first place. Interpolating `user.uuid` there
+  # would raise `KeyError` on the JSON-decoded map the malformed-actor branch
+  # was written to expect, turning the fail-closed path into a crash: exactly
+  # the outcome the guard exists to prevent, and a louder one than the write.
+  defp target_label(%User{uuid: uuid}), do: uuid
+  defp target_label(_other), do: "an unrecognised target"
+
+  defp do_admin_update_user_password(user, attrs, context) do
     changeset = User.password_changeset(user, attrs)
 
     multi = Ecto.Multi.new()
@@ -1274,6 +1342,16 @@ defmodule PhoenixKit.Users.Auth do
   @doc """
   Toggles user confirmation status (admin function).
 
+  ## Authorization
+
+  Pass `actor: %User{}` and the RANK rule is enforced here, in the context —
+  the actor must outrank the target (`can_manage_user_status?/2`). Do that from
+  every request-driven path.
+
+  Omitting `:actor` is the system path and performs NO authorization, matching
+  `update_user_status/3`. An `:actor` that is PRESENT but is not a `%User{}` is
+  refused rather than read as absent.
+
   ## Examples
 
       iex> toggle_user_confirmation(confirmed_user)
@@ -1281,6 +1359,9 @@ defmodule PhoenixKit.Users.Auth do
 
       iex> toggle_user_confirmation(unconfirmed_user)
       {:ok, %User{confirmed_at: ~N[2023-01-01 12:00:00]}}
+
+      iex> toggle_user_confirmation(owner, actor: admin)
+      {:error, :insufficient_permissions}
   """
   def toggle_user_confirmation(user, opts \\ [])
 
@@ -1296,8 +1377,22 @@ defmodule PhoenixKit.Users.Auth do
           do: do_toggle_user_confirmation(user),
           else: {:error, :insufficient_permissions}
 
-      _system ->
+      # Only an ABSENT actor is the system path — seeds, migrations and mix
+      # tasks pass no opts at all. A value that is present but not a `%User{}`
+      # (a map decoded from JSON by a host controller, a bare uuid string) is a
+      # caller that meant to supply an actor and got the shape wrong; treating
+      # that as "no actor" would hand it the unchecked path. Fails closed for
+      # the same reason `admin_update_user_password/3` does, and it matters most
+      # here: the unchecked path can clear `confirmed_at`.
+      nil ->
         do_toggle_user_confirmation(user)
+
+      _malformed ->
+        Logger.warning(
+          "PhoenixKit: refused a confirmation toggle for #{target_label(user)} — :actor was present but not a %User{}"
+        )
+
+        {:error, :insufficient_permissions}
     end
   end
 
@@ -1748,6 +1843,24 @@ defmodule PhoenixKit.Users.Auth do
     end
   end
 
+  # Kept as a module attribute with a public reader rather than a literal inside
+  # `update_user_fields/2`, because a second list of the same names lives in the
+  # admin form — which drops them out of `custom_fields` precisely so they
+  # cannot reach the branch below unfiltered. Two hand-maintained copies of a
+  # security-relevant whitelist drift, and the drift is silent: adding a field
+  # here and forgetting the other copy re-opens the bypass for that one field.
+  # `test/integration/users/user_form_authority_test.exs` pins them together.
+  @updatable_profile_fields [:first_name, :last_name, :email, :username, :user_timezone]
+
+  @doc """
+  The schema fields `update_user_fields/2` routes OUT of `custom_fields` and
+  writes through `profile_changeset`.
+
+  Public so that callers filtering untrusted params against this rule read the
+  list rather than restating it.
+  """
+  def updatable_profile_fields, do: @updatable_profile_fields
+
   @doc """
   Updates both schema and custom fields in a single call.
 
@@ -1772,10 +1885,20 @@ defmodule PhoenixKit.Users.Auth do
 
       iex> update_user_fields(user, %{email: "invalid"})
       {:error, %Ecto.Changeset{}}
+
+  ## ⚠️ This function does not authorize, and `email` is a credential
+
+  A key named in `updatable_profile_fields/0` leaves `custom_fields` and is
+  written to the schema — including `:email`, with **no** confirmation-token
+  flow, and `:username`, which is the second credential
+  `get_user_by_email_or_username_and_password/3` accepts. Whoever may call this
+  may re-point the address a password-reset link is delivered to. Callers that
+  build `attrs` from request params must filter those names first (see
+  `PhoenixKitWeb.Users.UserForm`) or gate the call on
+  `can_manage_user_credentials?/2`.
   """
   def update_user_fields(%User{} = user, attrs) when is_map(attrs) do
-    # Fields that can be updated via profile_changeset
-    updatable_profile_fields = [:first_name, :last_name, :email, :username, :user_timezone]
+    updatable_profile_fields = updatable_profile_fields()
 
     # Split attrs into schema fields and custom fields using Map.has_key? pattern
     {schema_attrs, custom_attrs} =
@@ -2141,7 +2264,9 @@ defmodule PhoenixKit.Users.Auth do
 
   Omitting `:actor` means "system-initiated" and performs NO authorization —
   correct for `PhoenixKit.Users.Referrals` expiring an account, wrong for
-  anything a user asked for.
+  anything a user asked for. An `:actor` that is PRESENT but is not a `%User{}`
+  is refused rather than read as absent: it is a caller that meant to supply an
+  actor and got the shape wrong.
 
   ## Parameters
 
@@ -2171,8 +2296,22 @@ defmodule PhoenixKit.Users.Auth do
           {:error, :insufficient_permissions}
         end
 
-      _system ->
+      # Only an ABSENT actor is the system path — `PhoenixKit.Users.Referrals`
+      # expires an account with no `:actor` at all, as do seeds and mix tasks. A
+      # value that is present but not a `%User{}` (a map decoded from JSON by a
+      # host controller, a bare uuid string) is a caller that meant to supply an
+      # actor and got the shape wrong; treating that as "no actor" would hand it
+      # the unchecked path. Fails closed, matching
+      # `admin_update_user_password/3`.
+      nil ->
         do_update_user_status_with_owner_guard(user, attrs)
+
+      _malformed ->
+        Logger.warning(
+          "PhoenixKit: refused a status write for #{target_label(user)} — :actor was present but not a %User{}"
+        )
+
+        {:error, :insufficient_permissions}
     end
   end
 
@@ -2618,8 +2757,25 @@ defmodule PhoenixKit.Users.Auth do
   def delete_user(%User{} = user, opts \\ %{}) do
     current_user = Map.get(opts, :current_user)
 
-    with :ok <- validate_can_delete_user(user, current_user),
-         {:ok, result} <- execute_user_deletion(user, opts) do
+    with :ok <- validate_can_delete_user(user, current_user) do
+      # Module lifecycle hooks run BEFORE the row delete, while the
+      # user's related rows (memberships, assignments) still exist —
+      # remediation the DB cascades can't do (ownership succession,
+      # orphan audit trails). Best-effort: a raising hook never aborts.
+      # Hooks run OUTSIDE the delete transaction, deliberately: a hook's
+      # own writes (succession promotions, audit rows) must survive even
+      # if they use a different repo/pool. Accepted tradeoff: if the
+      # delete itself then fails, hook side-effects have already
+      # committed (e.g. an extra owner) — rare, admin-recoverable, and
+      # preferable to hooks silently vanishing with a rollback.
+      run_before_user_delete_hooks(user.uuid)
+
+      do_delete_user(user, opts, current_user)
+    end
+  end
+
+  defp do_delete_user(user, opts, current_user) do
+    with {:ok, result} <- execute_user_deletion(user, opts) do
       PhoenixKit.Activity.log(%{
         action: "user.deleted",
         module: "users",
@@ -2632,9 +2788,39 @@ defmodule PhoenixKit.Users.Auth do
       })
 
       {:ok, result}
-    else
-      {:error, reason} -> {:error, reason}
     end
+  end
+
+  @doc """
+  Runs every discovered module's optional `before_user_delete/1` hook.
+  Public with an injectable module list so the dispatch is testable;
+  production callers use the discovered default.
+  """
+  def run_before_user_delete_hooks(user_uuid, modules \\ nil) do
+    (modules || PhoenixKit.ModuleRegistry.all_modules())
+    |> Enum.each(fn module ->
+      if Code.ensure_loaded?(module) and function_exported?(module, :before_user_delete, 1) do
+        try do
+          module.before_user_delete(user_uuid)
+        rescue
+          e ->
+            require Logger
+
+            Logger.error(
+              "before_user_delete hook #{inspect(module)} failed: #{Exception.message(e)}"
+            )
+        catch
+          # `kind, reason` (not just :exit) — a hook that THROWS must not
+          # abort the deletion either.
+          kind, reason ->
+            require Logger
+
+            Logger.error("before_user_delete hook #{inspect(module)} #{kind}: #{inspect(reason)}")
+        end
+      end
+    end)
+
+    :ok
   end
 
   @doc """

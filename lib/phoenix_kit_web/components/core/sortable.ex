@@ -79,9 +79,9 @@ defmodule PhoenixKitWeb.Components.Core.Sortable do
       id={@id}
       phx-hook={if @enabled, do: "SortableGrid"}
       data-sortable={if @enabled, do: "true"}
-      data-sortable-event={@event}
-      data-sortable-items=".sortable-item"
-      data-sortable-handle=".pk-drag-handle"
+      data-sortable-event={if @enabled, do: @event}
+      data-sortable-items={if @enabled, do: ".sortable-item"}
+      data-sortable-handle={if @enabled, do: ".pk-drag-handle"}
       {@rest}
     >
       {render_slot(@inner_block)}

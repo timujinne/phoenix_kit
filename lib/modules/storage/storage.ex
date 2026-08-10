@@ -2086,6 +2086,19 @@ defmodule PhoenixKit.Modules.Storage do
 
     # Optional module tables — only included if the table exists
     optional_checks = [
+      # Portal submissions hold their attachments in a JSONB array rather
+      # than an FK column, so the reference is invisible to a plain join —
+      # which would make every PUBLISHED issue image look like an orphan
+      # and hand it to the delete job. `?` is the file uuid as text; the
+      # `jsonb` cast is what lets `?` match an element of the array.
+      {"phoenix_kit_project_portal_submissions",
+       dynamic(
+         [f],
+         fragment(
+           "NOT EXISTS (SELECT 1 FROM phoenix_kit_project_portal_submissions ps WHERE ps.file_uuids @> to_jsonb(ARRAY[?::text]))",
+           f.uuid
+         )
+       )},
       {"phoenix_kit_post_media",
        dynamic(
          [f],

@@ -21,6 +21,25 @@ defmodule PhoenixKit.Install.StatusReportTest do
     test "everything matching is Ready" do
       assert StatusReport.next_action({:up_to_date, 159}, [], "public") == {:ready, "Ready"}
     end
+
+    # This state reaches `next_action/3` only because `check_installation_status/1`
+    # learned to report it, and the clause was missing when it did — `mix
+    # phoenix_kit.status` died with a FunctionClauseError on the one anomaly it
+    # exists to diagnose. One line here would have caught that; it did not exist.
+    test "an unreadable version comment asks for a restamp, not an update" do
+      assert {:fix_version_comment, message} =
+               StatusReport.next_action({:unknown_version}, [], "public")
+
+      assert message =~ "phoenix_kit.doctor"
+      assert message =~ "COMMENT ON TABLE public.phoenix_kit"
+    end
+
+    test "the restamp instruction names the prefix it was asked about" do
+      assert {:fix_version_comment, message} =
+               StatusReport.next_action({:unknown_version}, :not_queried, "auth")
+
+      assert message =~ "COMMENT ON TABLE auth.phoenix_kit"
+    end
   end
 
   describe "next_action/3 — wording of a behind schema" do

@@ -157,25 +157,39 @@ defmodule PhoenixKit.Migrations.UUIDIntegrity do
   Estimated row count, from the planner's statistics rather than a count(*).
 
   A sequential scan to decide whether to avoid an expensive operation is
-  self-defeating. `reltuples` of -1 means "never analyzed" and is reported as 0,
-  so an un-analyzed table is repaired rather than skipped — being wrong in that
-  direction leaves the table correct.
+  self-defeating, so this reads the planner's `reltuples`.
+
+  Returns `:unknown` when the table has never been vacuumed or analyzed
+  (`reltuples = -1` on PostgreSQL >= 14) or the catalog read fails. That used to
+  be reported as `0` on the reasoning that "being wrong in that direction leaves
+  the table correct" — true of the outcome, false of the cost, which is the only
+  thing the caller is asking about. A freshly restored 200k-row table read as
+  zero and took `ACCESS EXCLUSIVE` for a full rewrite mid-deploy, which is the
+  exact event the size limit exists to prevent.
   """
+  @spec estimated_rows(Ecto.Repo.t(), String.t(), String.t()) :: non_neg_integer() | :unknown
   def estimated_rows(repo, prefix, name) do
     # A name-based pg_class + pg_namespace JOIN, never `'schema.table'::regclass`:
     # regclass RAISES when the relation does not exist, which inside a migration
     # aborts the surrounding transaction and takes every other repair with it.
     # This is the chain's documented prefix-safety rule.
+    # `reltuples = -1` is PostgreSQL >= 14 for "never vacuumed or analyzed" — a
+    # table from `pg_restore`, `CREATE TABLE AS`, logical replication, or with
+    # autovacuum off. Collapsing that to 0 answered "small enough, proceed" for a
+    # table nobody had ever measured, which is precisely the input the size guard
+    # exists to stop: a 200k-row table read as 0 and took ACCESS EXCLUSIVE for a
+    # full rewrite mid-deploy. `:unknown` is the honest answer, and callers
+    # decide — the guard defers, the interactive task says so out loud.
     sql = """
-    SELECT COALESCE(NULLIF(c.reltuples, -1), 0)::bigint
+    SELECT c.reltuples::bigint
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE c.relname = $1 AND n.nspname = $2
     """
 
     case repo.query(sql, [name, prefix], log: false) do
-      {:ok, %{rows: [[n]]}} -> n
-      _ -> 0
+      {:ok, %{rows: [[n]]}} when is_integer(n) and n >= 0 -> n
+      _ -> :unknown
     end
   end
 

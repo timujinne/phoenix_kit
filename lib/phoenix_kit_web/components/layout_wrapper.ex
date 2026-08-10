@@ -553,6 +553,24 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                 <div class="flex-1">
                   {render_slot(@original_inner_block)}
                 </div>
+
+                <%!-- Where the collapse scroll keeper (phoenix_kit.js) parks the
+                     height it holds when a section closes near the page bottom.
+                     It belongs INSIDE the content column: the sidebar is a
+                     sticky grid item, so it only extends into the held space if
+                     the grid row grows — padding the document below <main>
+                     instead leaves the sidebar and the page background cut off
+                     at the old bottom edge. Server-rendered so morphdom keeps
+                     it, with `style` handed to the client so the height it sets
+                     survives patches. --%>
+                <div
+                  id="pk-collapse-pad"
+                  data-pk-collapse-pad
+                  aria-hidden="true"
+                  class="shrink-0"
+                  phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["style"])}
+                >
+                </div>
               </div>
 
               <%!-- Desktop/Mobile Sidebar. lg:[scrollbar-gutter:stable]: the sidebar is

@@ -241,13 +241,18 @@ The same flags work with `mix phoenix_kit.install` if the dep is already in your
 
 ### Fallback: two-step install
 
-If you'd rather not use the `igniter_new` archive, add the dep yourself and invoke the installer directly — `:igniter` is already pulled in transitively, so this works on any Phoenix project:
+If you'd rather not use the `igniter_new` archive, add the deps yourself and
+invoke the installer directly. You need **both** — PhoenixKit declares
+`:igniter` as `optional: true` (so it converges with the
+`{:igniter, "~> 0.6", only: [:dev, :test]}` that `mix phx.new` generates), and
+an optional dep is not resolved transitively:
 
 ```elixir
 # mix.exs
 def deps do
   [
-    {:phoenix_kit, "~> 1.7"}
+    {:phoenix_kit, "~> 1.7"},
+    {:igniter, "~> 0.7", only: [:dev, :test]}
   ]
 end
 ```
@@ -256,6 +261,20 @@ end
 mix deps.get
 mix phoenix_kit.install
 ```
+
+`only: [:dev, :test]` is deliberate — igniter is build-time tooling and never
+reaches production. Every reference to it in PhoenixKit lives in the
+`mix phoenix_kit.*` tasks and their installer helpers; nothing in the
+supervision tree or the request path touches it, and Mix tasks aren't part of a
+release.
+
+Without `:igniter`, the two code-patching tasks — `mix phoenix_kit.install` and
+`mix phoenix_kit.update` — print these instructions instead of running. Tasks
+that don't generate or patch code (`mix phoenix_kit.status`,
+`mix phoenix_kit.gen.migration`, `mix phoenix_kit.assets.rebuild`) work without
+it. Adding the dep to an existing project is all that's needed: PhoenixKit
+detects the change and recompiles itself, so the tasks appear without a manual
+`mix deps.compile phoenix_kit --force`.
 
 ### Manual Installation
 

@@ -146,8 +146,19 @@ defmodule PhoenixKit.Install.Common do
   Returns one of:
   - `{:not_installed}` - the database is reachable and has no PhoenixKit install at the prefix
   - `{:current_version, version}` - PhoenixKit is installed with given version
+  - `{:unknown_version}` - installed, but the version comment is missing or
+    unreadable. Distinct from both of the above **because both of them route a
+    caller somewhere that writes**: "not installed" to a fresh install, and a
+    fabricated low version to the 1.7.x bridge, whose backfill invents uuids for
+    still-NULL tracked columns and then deletes the rows that match no user.
+    Callers must surface this and stop.
   - `{:unreachable, reason}` - the database cannot be queried, so the install
     state is UNKNOWN — callers must not treat this as "not installed"
+
+  This list is the contract callers pattern-match against, so it is exhaustive
+  on purpose. `{:unknown_version}` was added after the other three, and the one
+  consumer whose clause set was not extended with it — `StatusReport.next_action/3`
+  — crashed `mix phoenix_kit.status` with a `FunctionClauseError` until it was.
 
   ## Parameters
   - `prefix` - Database schema prefix (default: "public")
@@ -172,15 +183,29 @@ defmodule PhoenixKit.Install.Common do
     }
 
     try do
-      # Use PhoenixKit's centralized runtime version detection function
       current_version = Postgres.migrated_version_runtime(opts)
 
-      if current_version > 0 do
-        # Valid version found in database
-        {:current_version, current_version}
-      else
-        # Primary detection failed, try alternative detection methods
-        check_alternative_version_detection(prefix, opts)
+      cond do
+        # `migrated_version_runtime/1` is the DISPLAY twin: for a table with no
+        # comment it deliberately guesses V01 so `status`, `doctor` and the admin
+        # UI keep rendering, and warns that the migrator will refuse. That design
+        # is right for a read path — but THIS function feeds the update task,
+        # which acts on the value, and V01 is below the floor, so the guess came
+        # back out of it as "install the 1.7.x bridge first": exactly the
+        # destructive advice the warning promises will not be given.
+        #
+        # A bare 1 is therefore re-asked through the strict reader, which can
+        # tell "the comment says 1" from "there is no comment". Only that one
+        # value is re-checked; every other version is taken as read.
+        current_version == 1 and not comment_literally_says_one?(opts) ->
+          {:unknown_version}
+
+        current_version > 0 ->
+          {:current_version, current_version}
+
+        true ->
+          # Primary detection failed, try alternative detection methods
+          check_alternative_version_detection(prefix, opts)
       end
     rescue
       error ->
@@ -205,6 +230,12 @@ defmodule PhoenixKit.Install.Common do
       version when is_integer(version) and version > 0 ->
         {:current_version, version}
 
+      :unknown_version ->
+        # Installed, but the one record of WHAT is installed is gone. Neither
+        # "not installed" nor a version: both send the operator somewhere that
+        # writes. Callers surface this and stop.
+        {:unknown_version}
+
       _ ->
         # "No version found" is only "not installed" when we can actually
         # reach the database — a down DB must not masquerade as an absent
@@ -213,6 +244,18 @@ defmodule PhoenixKit.Install.Common do
           :ok -> {:not_installed}
           {:error, reason} -> {:unreachable, reason}
         end
+    end
+  end
+
+  # A comment that is not a plain integer is corruption, not a version. The
+  # migrator's `parse_version_comment!/2` raises with restamp instructions; this
+  # is the non-raising twin for the tasks that report rather than migrate — a
+  # bare `String.to_integer/1` here would crash `mix phoenix_kit.update` on
+  # exactly the hand-edited comments (`'v164'`, `' 164'`) the migrator documents.
+  defp parse_version_comment(version) when is_binary(version) do
+    case Integer.parse(String.trim(version)) do
+      {n, ""} when n > 0 -> n
+      _ -> :unknown_version
     end
   end
 
@@ -232,6 +275,32 @@ defmodule PhoenixKit.Install.Common do
   end
 
   # Try direct database connection (similar to what status command does)
+  # Only an affirmative "the comment reads 1" may produce `{:current_version, 1}`.
+  # Everything else — no comment, an unparseable one, a failed query, a repo this
+  # function cannot resolve — is unknown.
+  #
+  # Fail-CLOSED, because the two mistakes are not equally bad. A genuine V01
+  # install sent to `doctor` first loses a minute, and `doctor` then tells it the
+  # truth. A CURRENT database sent to the 1.7.x bridge has its still-NULL tracked
+  # columns backfilled with invented uuids and the rows deleted for matching no
+  # user.
+  #
+  # The earlier form asked `... == :unknown_version`, which only fires when the
+  # re-check positively reports "no comment" — so every way of FAILING to answer
+  # fell through to the destructive branch. That is not hypothetical:
+  # `try_direct_database_version_check/1` resolves the repo with
+  # `Config.get(:repo, nil)` alone, while `migrated_version_runtime/1` — the call
+  # that produced the 1 in the first place — resolves it through
+  # `Postgres.get_repo_with_fallback/0`, which additionally starts the app and
+  # auto-detects from the Mix project. On a host that never sets
+  # `config :phoenix_kit, repo:` and relies on that auto-detection, the first
+  # returns nil and the second returns the repo — so the guard silently did not
+  # fire on precisely the state it was written for. Same shape as the twin mixup
+  # this guard already exists to correct, one level down.
+  defp comment_literally_says_one?(opts) do
+    try_direct_database_version_check(opts) == 1
+  end
+
   defp try_direct_database_version_check(opts) do
     # Try to get the repo from application config first (same as status command)
     repo = Config.get(:repo, nil)
@@ -265,11 +334,22 @@ defmodule PhoenixKit.Install.Common do
 
         case repo.query(version_query, [escaped_prefix], log: false) do
           {:ok, %{rows: [[version]]}} when is_binary(version) ->
-            String.to_integer(version)
+            parse_version_comment(version)
 
           _ ->
-            # Table exists but no version comment - assume version 1
-            1
+            # A table with no comment is NOT "version 1". That guess is what the
+            # migrator refuses outright, in its own words: it "would route a
+            # possibly CURRENT database to the 1.7.x bridge, whose backfill
+            # overwrites still-NULL tracked columns with freshly generated uuids
+            # pointing at nothing" (`Postgres.migrated_version/1`).
+            #
+            # Reported as 1, it lands below the floor, and `phoenix_kit.update`
+            # tells the operator to install that very bridge — so the two halves
+            # of the same release gave opposite instructions for one state, and
+            # the destructive one was the one seen first. `:unknown_version` is
+            # distinguishable from every real version, and the update task routes
+            # it to doctor + restamp instead.
+            :unknown_version
         end
 
       _ ->
@@ -397,7 +477,16 @@ defmodule PhoenixKit.Install.Common do
   - `{:up_to_date, current_version}` - Already up to date
   - `{:update_needed, current_version, target_version}` - Update available
   - `{:not_installed}` - PhoenixKit not installed
+  - `{:unknown_version}` - installed, version comment unreadable; neither up to
+    date nor updatable, and answering either would send the caller somewhere
+    that writes (see `check_installation_status/1`)
   - `{:unreachable, reason}` - database cannot be queried (state unknown)
+
+  > #### No callers in this repo {: .info}
+  >
+  > Public API for host applications; nothing in `lib/` calls it today, so the
+  > clause set here is not exercised by the suite. Check it by hand when adding
+  > a state to `check_installation_status/1`.
   """
   def check_update_needed(prefix \\ "public", force \\ false) do
     case check_installation_status(prefix) do
@@ -406,6 +495,12 @@ defmodule PhoenixKit.Install.Common do
 
       {:unreachable, reason} ->
         {:unreachable, reason}
+
+      # Passed through rather than folded into one of the others: an install
+      # whose version is unreadable neither needs an update nor is up to date,
+      # and answering either would send a caller somewhere that writes.
+      {:unknown_version} ->
+        {:unknown_version}
 
       {:current_version, current_version} ->
         target_version = current_version()

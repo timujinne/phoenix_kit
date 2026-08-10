@@ -613,6 +613,14 @@ defmodule PhoenixKitWeb.Integration do
         authenticated_live_routes()
       end
 
+    # Auto-discovered user-dashboard pages: any external module tab from
+    # `user_dashboard_tabs/0` that carries a `live_view` gets its route
+    # generated here (mirrors `compile_module_admin_routes/0`; the
+    # `:user_dashboard` context in `tab_callback_context/1` was dormant
+    # until this). Tabs without `live_view` — the hardcoded module blocks
+    # above — are untouched.
+    user_tab_routes = compile_module_user_routes(__CALLER__.module)
+
     quote do
       # Core dashboard routes (conditional on config)
       if unquote(PhoenixKit.Config.user_dashboard_enabled?()) do
@@ -632,7 +640,26 @@ defmodule PhoenixKitWeb.Integration do
       # Module user pages (full module names — no PhoenixKitWeb alias)
       scope "/", alias: false do
         unquote(module_routes)
+        unquote_splicing(user_tab_routes)
       end
+    end
+  end
+
+  # Auto-discover user-dashboard routes from external modules'
+  # `user_dashboard_tabs/0` (tabs with a `live_view` field). Skipped for
+  # PhoenixKit's own dev/test router, where parent modules don't exist.
+  @doc false
+  def compile_module_user_routes(caller_module) do
+    if caller_module == PhoenixKitWeb.Router do
+      []
+    else
+      PhoenixKit.ModuleDiscovery.discover_external_modules()
+      |> Enum.flat_map(fn mod ->
+        case Code.ensure_compiled(mod) do
+          {:module, _} -> collect_module_tabs(mod, :user_dashboard_tabs)
+          _ -> []
+        end
+      end)
     end
   end
 

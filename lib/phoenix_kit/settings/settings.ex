@@ -136,6 +136,14 @@ defmodule PhoenixKit.Settings do
       "magic_link_registration_enabled" => "true",
       "qr_login_enabled" => "false",
       "new_login_alert_enabled" => "false",
+      # Cross-module @ mentions and # record links. On by default: the
+      # feature is inert until someone actually types a trigger, and
+      # everything it stores degrades to plain text when it is off.
+      "mentions_enabled" => "true",
+      # Extra-security mode: withhold the TITLE of a mention the reader
+      # can't open. Off by default — a record's name is rarely the secret,
+      # the access is — and worth turning on where the name itself is.
+      "mentions_redact_titles" => "false",
       "new_user_default_role" => "User",
       "new_user_default_status" => "true",
       "week_start_day" => "1",

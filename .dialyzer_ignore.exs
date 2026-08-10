@@ -52,6 +52,13 @@
   # is correct and well-covered.
   ~r/lib\/phoenix_kit\/users\/qr_login\.ex:.*call_without_opaque/,
 
+  # Mentions.Users.pingable?/1 pipes a User through Scope.for_user/1 into
+  # Scope.can_access_admin_area?/1. Scope carries an opaque MapSet in
+  # :cached_permissions, so dialyzer widens it across the pipe and flags the
+  # call — the same false positive as the auth.ex and qr_login.ex entries
+  # above. The code is correct and covered.
+  ~r/lib\/phoenix_kit\/mentions\/users\.ex:.*call_without_opaque/,
+
   # Connections module (extracted to phoenix_kit_user_connections) — conditional calls via Code.ensure_loaded?
   {"lib/phoenix_kit_web/live/users/user_details.ex", :unknown_function},
 

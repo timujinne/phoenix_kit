@@ -154,6 +154,15 @@ defmodule PhoenixKit.Module do
   @callback user_dashboard_tabs() :: [PhoenixKit.Dashboard.Tab.t()]
   @callback children() :: [Supervisor.child_spec() | module() | {module(), term()}]
   @callback route_module() :: module() | nil
+
+  @doc """
+  Lifecycle hook: called for every discovered module BEFORE a user row is
+  deleted (while the user's related rows — memberships, assignments —
+  still exist). Modules use it for remediation the DB cascades can't do:
+  succession, audit trails, orphan warnings. Best-effort — a raising
+  hook is logged and never aborts the deletion.
+  """
+  @callback before_user_delete(user_uuid :: String.t()) :: any()
   @callback version() :: String.t()
   @callback migration_module() :: module() | nil
   @callback required_modules() :: [String.t()]
@@ -500,6 +509,7 @@ defmodule PhoenixKit.Module do
     integration_providers: 0,
     notification_types: 0,
     notification_channels: 0,
+    before_user_delete: 1,
     resource_links: 0,
     css_sources: 0,
     js_sources: 0,

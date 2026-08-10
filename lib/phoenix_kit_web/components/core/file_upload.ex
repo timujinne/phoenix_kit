@@ -34,6 +34,13 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
     default: nil,
     doc: "List of file IDs from last upload (for external use)"
 
+  attr :standalone, :boolean,
+    default: true,
+    doc:
+      "wrap the drop zone in its own `<form>`. Set FALSE when embedding inside another form — " <>
+        "HTML forbids nested forms and the browser closes the outer one at the inner tag, " <>
+        "silently pushing every later field out of the host form"
+
   attr :variant, :string,
     default: "full",
     doc: "Display variant - 'full' for drag-drop zone, 'button' for simple button only"
@@ -48,40 +55,19 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
   defp full_upload(assigns) do
     ~H"""
     <div class="space-y-4">
-      <form phx-change="validate" id={"upload-form-" <> @upload.ref}>
-        <%!-- Drag and Drop Zone --%>
-        <div
-          class="border-2 border-dashed border-base-300 rounded-lg p-8 text-center transition-colors cursor-pointer hover:border-primary hover:bg-primary/5"
-          phx-drop-target={@upload.ref}
-          id={"drop-zone-" <> @upload.ref}
-        >
-          <label for={@upload.ref} class="cursor-pointer block">
-            <div class="flex flex-col items-center gap-2">
-              <.icon name={@icon} class="w-8 h-8 text-primary" />
-              <div>
-                <p class="font-semibold text-base-content">Drag files here or click to browse</p>
-                <p class="text-sm text-base-content/70 mt-1">
-                  <%= if @accept_description do %>
-                    {@accept_description}
-                  <% else %>
-                    Drop your files to upload
-                  <% end %>
-                </p>
-              </div>
-            </div>
-          </label>
-          <.live_file_input upload={@upload} class="hidden" />
-        </div>
-
-        <%!-- File Type and Size Info --%>
-        <%= if @accept_description != nil or @max_size_description != nil do %>
-          <p class="text-sm text-base-content/70 text-center">
-            <%= if @max_size_description do %>
-              Maximum file size: {@max_size_description}
-            <% end %>
-          </p>
-        <% end %>
+      <%!-- STANDALONE wraps the drop zone in its own form so `phx-change`
+           has something to hang on. Embedded, it must not: nested `<form>`
+           elements are invalid HTML, and the browser resolves that by
+           closing the OUTER form at the inner tag — which silently moves
+           every field after this point, including the host's submit
+           button and any hidden anti-spam field, outside the form that was
+           supposed to carry them. Nothing looks wrong; the host form just
+           stops containing half of itself. --%>
+      <form :if={@standalone} phx-change="validate" id={"upload-form-" <> @upload.ref}>
+        <.drop_zone {assigns} />
       </form>
+
+      <.drop_zone :if={not @standalone} {assigns} />
 
       <%!-- Active Uploads --%>
       <%= if length(@upload.entries) > 0 do %>
@@ -119,6 +105,44 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
         </div>
       <% end %>
     </div>
+    """
+  end
+
+  # The drop zone itself, shared by both wrappings so they cannot drift.
+  defp drop_zone(assigns) do
+    ~H"""
+    <%!-- Drag and Drop Zone --%>
+    <div
+      class="border-2 border-dashed border-base-300 rounded-lg p-8 text-center transition-colors cursor-pointer hover:border-primary hover:bg-primary/5"
+      phx-drop-target={@upload.ref}
+      id={"drop-zone-" <> @upload.ref}
+    >
+      <label for={@upload.ref} class="cursor-pointer block">
+        <div class="flex flex-col items-center gap-2">
+          <.icon name={@icon} class="w-8 h-8 text-primary" />
+          <div>
+            <p class="font-semibold text-base-content">Drag files here or click to browse</p>
+            <p class="text-sm text-base-content/70 mt-1">
+              <%= if @accept_description do %>
+                {@accept_description}
+              <% else %>
+                Drop your files to upload
+              <% end %>
+            </p>
+          </div>
+        </div>
+      </label>
+      <.live_file_input upload={@upload} class="hidden" />
+    </div>
+
+    <%!-- File Type and Size Info --%>
+    <%= if @accept_description != nil or @max_size_description != nil do %>
+      <p class="text-sm text-base-content/70 text-center">
+        <%= if @max_size_description do %>
+          Maximum file size: {@max_size_description}
+        <% end %>
+      </p>
+    <% end %>
     """
   end
 

@@ -510,12 +510,41 @@ defmodule PhoenixKit.Migrations.Postgres.V164 do
     # this whole migration exists to repair.
     flush()
 
-    if fk_exists?(table_str, constraint, escaped_prefix) do
-      validate_fk(table_str, uuid_fk, ref_table, ref_col, constraint, prefix, escaped_prefix)
-    else
-      {:failed,
-       "#{constraint} on #{table_str}.#{uuid_fk} could not be created — see the RAISE WARNING " <>
-         "above for the PostgreSQL error and SQLSTATE"}
+    # Verified by SHAPE, through the same probe the pre-ADD detection uses. A
+    # name lookup — with or without `contype = 'f'` — answers "something owns
+    # this name", which is a different question: an FK of the right name on the
+    # WRONG column is a real foreign key, so a type filter still matches it, and
+    # the run then reports `:created` for a constraint that does not exist.
+    # Demonstrated on PG 17.4 against this migration's own queries.
+    #
+    # Wrapped, because `fk_shape_present/5` RAISES on a failed probe. That is
+    # right before the ADD — guessing `:absent` there would mean trying to
+    # create a constraint that already exists — but inheriting it here would be
+    # a regression against the `fk_exists?/3` this replaced, which returned
+    # false and let the run finish. This migration has no `rescue` and no
+    # `run_isolated/3`: one flaky catalog read on one of ~70 constraints would
+    # abort mid-run with the earlier repairs already auto-committed
+    # (`@disable_ddl_transaction`) and the `COMMENT … IS '164'` at the tail of
+    # `up/1` never reached — so the whole version replays next time. Post-ADD a
+    # wrong guess only mislabels one outcome, and the summary is where it belongs.
+    probe =
+      try do
+        fk_shape_present(table_str, uuid_fk, ref_table, ref_col, escaped_prefix)
+      rescue
+        e -> {:probe_failed, Exception.message(e)}
+      end
+
+    case probe do
+      {:probe_failed, reason} ->
+        {:failed, "#{constraint} on #{table_str}.#{uuid_fk} could not be verified — #{reason}"}
+
+      :absent ->
+        {:failed,
+         "#{constraint} on #{table_str}.#{uuid_fk} could not be created — see the RAISE WARNING " <>
+           "above for the PostgreSQL error and SQLSTATE"}
+
+      _present ->
+        validate_fk(table_str, uuid_fk, ref_table, ref_col, constraint, prefix, escaped_prefix)
     end
   end
 
@@ -641,24 +670,14 @@ defmodule PhoenixKit.Migrations.Postgres.V164 do
     )
   end
 
-  defp fk_exists?(table_str, constraint, escaped_prefix) do
-    query = """
-    SELECT EXISTS (
-      SELECT 1 FROM pg_constraint c
-      JOIN pg_class t ON t.oid = c.conrelid
-      JOIN pg_namespace n ON n.oid = t.relnamespace
-      WHERE c.conname = '#{constraint}'
-        AND t.relname = '#{table_str}'
-        AND n.nspname = '#{escaped_prefix}'
-    )
-    """
-
-    case repo().query(query, [], log: false) do
-      {:ok, %{rows: [[true]]}} -> true
-      _ -> false
-    end
-  end
-
+  # Name-only on purpose, and safe only because of where it sits: every caller
+  # reaches it through `fk_shape_present/5`, which has already established that
+  # the constraint of this name on this table is a single-column foreign key on
+  # the expected column pointing at the expected reference. This asks the one
+  # remaining question — is it validated — about a constraint whose shape is
+  # already known. Do not call it from anywhere that has not passed that gate;
+  # the name alone has already produced one `:created` for a foreign key that
+  # did not exist.
   defp fk_validated?(table_str, constraint, escaped_prefix) do
     query = """
     SELECT convalidated FROM pg_constraint c
@@ -789,12 +808,23 @@ defmodule PhoenixKit.Migrations.Postgres.V164 do
   # `'<table>'::regclass` cast in an immediate check (CLAUDE.md's V146
   # 25P02 trap: it raises when the relation doesn't exist yet and aborts
   # the whole transaction).
+  # Anchored on the SHAPE, not just the name. Read by name alone, a constraint
+  # that merely owns `fk_comments_user_uuid` — a CHECK, or a foreign key on a
+  # different column — answered for the real one: a `confdeltype` of 'n' from an
+  # impostor reads as "already SET NULL, nothing to do", so `repair_comments_fk/2`
+  # returns [] and the actual missing FK is never created. Same
+  # name-versus-shape confusion that produced the defect this whole version
+  # repairs, so the column and referenced side are pinned here too.
   defp comments_fk_on_delete(escaped_prefix) do
     query = """
     SELECT c.confdeltype FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid
     JOIN pg_namespace n ON n.oid = t.relnamespace
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = c.conkey[1]
     WHERE c.conname = '#{@comments_constraint}'
+      AND c.contype = 'f'
+      AND array_length(c.conkey, 1) = 1
+      AND a.attname = 'user_uuid'
       AND t.relname = '#{@comments_table}'
       AND n.nspname = '#{escaped_prefix}'
     """

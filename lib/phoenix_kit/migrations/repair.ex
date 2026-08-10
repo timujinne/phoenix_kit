@@ -86,6 +86,7 @@ defmodule PhoenixKit.Migrations.Repair do
           :not_generated
           | {:not_installed, prefix :: String.t()}
           | {:below_floor, comment :: pos_integer(), floor :: pos_integer()}
+          | {:comment_unreadable, term()}
           | {:above_current, comment :: pos_integer(), current :: pos_integer()}
           | {:pooled_connection, String.t()}
           | {:concurrent_migration, before :: term(), after_ :: term()}
@@ -114,6 +115,15 @@ defmodule PhoenixKit.Migrations.Repair do
     "DB is at version #{comment}, below this release's floor (#{floor}). Repair is a " <>
       "completeness tool, not a migration bridge — install the last 1.x bridge release, " <>
       "run mix phoenix_kit.update to reach the floor, then upgrade to this release."
+  end
+
+  def error_message({:comment_unreadable, _comment}) do
+    "PhoenixKit tables exist and the version comment is present but is not a plain " <>
+      "version number, so nothing can tell which migrations this database has. Repair " <>
+      "will not guess and --adopt will not overwrite it: whatever is written there is " <>
+      "the only record of what the last person believed. Read it, establish the real " <>
+      "state with mix phoenix_kit.doctor, then restamp by hand: " <>
+      "COMMENT ON TABLE <prefix>.phoenix_kit IS '<version>';"
   end
 
   def error_message({:above_current, comment, current}) do
@@ -206,6 +216,14 @@ defmodule PhoenixKit.Migrations.Repair do
 
       :adopt_required ->
         run_adopt_branch(ctx, comment1, skip_validate?)
+
+      # Never routed to `run_adopt_branch/3`, even with `--adopt`. That path
+      # stamps the floor version over whatever the comment holds, and here the
+      # comment holds something an operator wrote. Overwriting it destroys the
+      # only evidence of what they believed the database was, in the one state
+      # where that belief is the most useful thing in the room.
+      :comment_unreadable ->
+        {:error, {:comment_unreadable, comment1}}
 
       {:in_range, comment} ->
         run_in_range_branch(ctx, comment1, comment, skip_validate?)

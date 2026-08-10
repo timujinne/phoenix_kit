@@ -58,6 +58,29 @@ defmodule PhoenixKit.Notifications do
       {:ok, :skipped}
   end
 
+  @doc """
+  Fans ONE committed activity entry out to MANY users' notification
+  rules — the multi-recipient counterpart to `maybe_create_from_activity/1`
+  for events whose audience is a set (project members, watchers) rather
+  than a single `target_uuid`.
+
+  Each recipient is evaluated independently through the SAME machinery
+  (prefs, per-channel routing, digest cadences, self-action skip) by
+  re-routing a copy of the entry with that recipient as target — WITHOUT
+  inserting additional activity rows, so the feed keeps one canonical
+  entry while deliveries still key on its committed uuid.
+
+  Returns the per-recipient results in order.
+  """
+  @spec fan_out_from_activity(Entry.t(), [String.t()]) :: [
+          {:ok, Notification.t() | :skipped} | {:error, term()}
+        ]
+  def fan_out_from_activity(%Entry{} = entry, user_uuids) when is_list(user_uuids) do
+    user_uuids
+    |> Enum.uniq()
+    |> Enum.map(&maybe_create_from_activity(%{entry | target_uuid: &1}))
+  end
+
   # Model B — the in-app inbox and external channels are INDEPENDENT
   # destinations. Create the inbox row iff the user wants it in-app AND in-app is
   # on the "immediate" cadence (a digest cadence skips the per-event row — the

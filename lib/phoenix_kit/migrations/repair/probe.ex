@@ -34,7 +34,7 @@ defmodule PhoenixKit.Migrations.Repair.Probe do
   alias PhoenixKit.Migrations.ExpectedSchema.Object
 
   @typedoc "`:absent` (table missing), `nil` (table exists, no comment), or the numeric comment."
-  @type raw_comment :: :absent | nil | non_neg_integer()
+  @type raw_comment :: :absent | nil | :unparseable | non_neg_integer()
 
   @typedoc "One schema's structural snapshot — mirrors `PhoenixKit.Squash.Generate.Catalog.snapshot/2`'s shape, minus seeds (see moduledoc \"Seeds\" note on `PhoenixKit.Migrations.Repair.Differ`)."
   @type snapshot :: %{
@@ -78,9 +78,28 @@ defmodule PhoenixKit.Migrations.Repair.Probe do
     """
 
     case repo.query(version_query, [prefix], log: false) do
-      {:ok, %{rows: [[version]]}} when is_binary(version) -> String.to_integer(version)
-      {:ok, %{rows: [[nil]]}} -> nil
-      _ -> nil
+      # `Integer.parse/1` on the trimmed value, not `String.to_integer/1`: the
+      # moduledoc above promises this never raises, and repair is the tool an
+      # operator reaches for when the comment is already anomalous. The exact
+      # hand-edits the migrator documents — `'v164'`, `' 164'` — used to end the
+      # run in a bare `** (ArgumentError) argument error` with no guidance.
+      # An unparseable comment reads as "no usable version", which every caller
+      # here already handles.
+      {:ok, %{rows: [[version]]}} when is_binary(version) ->
+        # `n > 0` matters as much as the parse. `CommentPolicy.classify/3` has
+        # no clause for a non-positive version, so `' -5 '` would parse cleanly
+        # here and raise one call later — and the trim this fix added is what
+        # widened the set of inputs that get that far.
+        case Integer.parse(String.trim(version)) do
+          {n, ""} when n > 0 -> n
+          _ -> :unparseable
+        end
+
+      {:ok, %{rows: [[nil]]}} ->
+        nil
+
+      _ ->
+        nil
     end
   end
 

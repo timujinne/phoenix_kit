@@ -615,6 +615,85 @@ defmodule PhoenixKit.Users.Auth.User do
   def excluded_fields, do: @excluded_fields
 
   @doc """
+  What to call this person when showing them TO OTHER PEOPLE.
+
+  The one canonical answer. Before this existed there were half a dozen
+  private copies, several of which ended `|| user.email` — which is how a
+  public issue board came to print commenters' full addresses next to their
+  words, indexed and scrapeable.
+
+  The chain, first non-blank wins:
+
+      organization account's name    (an org has no first/last)
+      first + last name
+      username
+      the local part of the email    (before the "@")
+      "User"
+
+  **Never the full email.** The local part is not anonymity —
+  `john.smith@…` still reads as "john.smith" — but it carries no domain, is
+  not directly mailable, and is not harvestable as an address.
+
+  Every rung is trimmed and rejected when blank: `full_name/1` happily
+  returns `""` for a first name of `"   "`, and an unguarded chain stops
+  dead on it.
+
+  Only fields the USER wrote about themselves. A name recorded by somebody
+  else — `phoenix_kit_staff`'s HR record, a CRM contact label — must never
+  reach this, whatever its quality: the people with no name set are exactly
+  the ones who are pseudonymous by choice or inertia, and publishing an
+  HR-entered legal name on their behalf is not ours to do.
+
+  For "does this person have a real name at all", keep using `full_name/1`
+  — it still answers `nil`, and that question is still worth asking.
+
+  ## Examples
+
+      iex> display_name(%User{first_name: "John", last_name: "Doe"})
+      "John Doe"
+
+      iex> display_name(%User{first_name: nil, username: "jdoe"})
+      "jdoe"
+
+      iex> display_name(%User{first_name: nil, username: nil, email: "j@x.com"})
+      "j"
+  """
+  @spec display_name(t() | nil) :: String.t()
+  def display_name(%__MODULE__{} = user) do
+    first_present([
+      full_name(user),
+      user.username,
+      email_local_part(user.email)
+    ]) || "User"
+  end
+
+  # A deleted or unloaded association. Callers that can say something better
+  # ("Former user") should; this keeps a nil from reaching a template raw.
+  def display_name(_), do: "User"
+
+  defp first_present(candidates) do
+    Enum.find_value(candidates, fn
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end)
+  end
+
+  defp email_local_part(email) when is_binary(email) do
+    case String.split(email, "@") do
+      [local | _] -> local
+      _ -> nil
+    end
+  end
+
+  defp email_local_part(_), do: nil
+
+  @doc """
   Gets the user's full name by combining first and last name.
 
   ## Examples

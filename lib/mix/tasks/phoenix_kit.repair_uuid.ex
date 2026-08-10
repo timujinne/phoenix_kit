@@ -93,11 +93,21 @@ defmodule Mix.Tasks.PhoenixKit.RepairUuid do
     if UUIDIntegrity.castable?(repo, qualified, table) do
       rows = UUIDIntegrity.estimated_rows(repo, prefix, name)
 
+      # `:unknown` is said out loud rather than printed as a number. This task
+      # is the maintenance-window path the migration defers TO, so the operator
+      # deciding whether they have a window needs to know the size is a guess
+      # nobody has ever taken — not read "~0 rows" and size the window for it.
+      size =
+        case rows do
+          :unknown -> "size unknown — never analyzed"
+          n -> "~#{n} rows"
+        end
+
       Mix.shell().info([
         :cyan,
         "\n#{name}",
         :reset,
-        " (~#{rows} rows) #{UUIDIntegrity.describe(table)}"
+        " (#{size}) #{UUIDIntegrity.describe(table)}"
       ])
 
       announce_duplicates(repo, qualified, table)

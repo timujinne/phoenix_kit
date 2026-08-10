@@ -3,6 +3,7 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
   Provides a default textarea UI component.
   """
   use Phoenix.Component
+  use Gettext, backend: PhoenixKitWeb.Gettext
 
   import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
   import PhoenixKitWeb.Components.Core.FormFieldError, only: [error: 1]
@@ -22,6 +23,13 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
     doc:
       "extra classes merged onto the `<textarea>` element (e.g. `textarea-sm`, `min-h-[12rem]`)"
 
+  attr :mentions, :boolean,
+    default: false,
+    doc:
+      "offer `@` people and `#` records as the user types. Needs " <>
+        "`use PhoenixKit.Mentions.Live` on the LiveView for the search handler; " <>
+        "without JavaScript the field behaves exactly as it does today"
+
   attr :rest, :global,
     include: ~w(autocomplete cols maxlength disabled placeholder readonly required rows)
 
@@ -38,6 +46,11 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
   end
 
   def textarea(assigns) do
+    # The site switch, checked at render: with mentions off the field is an
+    # ordinary textarea again — no hook, no hint promising a feature that
+    # would silently return nothing.
+    assigns = assign(assigns, :mentions, assigns.mentions and PhoenixKit.Mentions.enabled?())
+
     ~H"""
     <div phx-feedback-for={@name}>
       <%!-- Required marker, kept in sync with `<.input>`. --%>
@@ -52,6 +65,7 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
       <textarea
         id={@id}
         name={@name}
+        phx-hook={@mentions && "MentionInput"}
         class={[
           "textarea min-h-[6rem] w-full focus:textarea-primary",
           @errors != [] && "textarea-error",
@@ -59,6 +73,10 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
         ]}
         {@rest}
       ><%= Phoenix.HTML.Form.normalize_value("textarea", @value) %></textarea>
+
+      <p :if={@mentions} class="mt-1 text-xs opacity-50">
+        {gettext("Type @ to mention someone, # to link a record.")}
+      </p>
 
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>

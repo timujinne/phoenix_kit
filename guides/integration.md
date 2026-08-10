@@ -59,13 +59,14 @@ The installer will:
 
 ### Step 2: Install (two-step fallback)
 
-If you can't or don't want to use the `igniter_new` archive, add the dep manually and run the installer directly:
+If you can't or don't want to use the `igniter_new` archive, add the deps manually and run the installer directly. Declare **both** — PhoenixKit marks `:igniter` `optional: true`, and Mix does not resolve optional deps transitively, so a project that never declared igniter itself won't get it from PhoenixKit:
 
 ```elixir
 # mix.exs
 defp deps do
   [
-    {:phoenix_kit, "~> 1.7"}
+    {:phoenix_kit, "~> 1.7"},
+    {:igniter, "~> 0.7", only: [:dev, :test]}
   ]
 end
 ```
@@ -75,7 +76,11 @@ mix deps.get
 mix phoenix_kit.install
 ```
 
-`:igniter` is pulled in transitively, so this works on any Phoenix project.
+**Why optional?** A stock `mix phx.new` app declares `{:igniter, "~> 0.6", only: [:dev, :test]}`. A non-optional dep in PhoenixKit resolves for all environments and Mix refuses to converge the two (`the :only option for dependency igniter must include at least the environments of its parent`), which broke `mix igniter.install phoenix_kit` on every freshly generated project.
+
+**Dev-only.** `only: [:dev, :test]` is deliberate — igniter is build-time tooling that never reaches production. Every reference to it in PhoenixKit is inside the `mix phoenix_kit.*` tasks and their installer helpers; nothing in the supervision tree or request path touches it, and Mix tasks aren't part of a release.
+
+If `:igniter` is missing, `mix phoenix_kit.install` and `mix phoenix_kit.update` print setup instructions rather than running. Everything that doesn't patch code — `mix phoenix_kit.status`, `mix phoenix_kit.gen.migration`, `mix phoenix_kit.assets.rebuild` — is unaffected.
 
 ### Step 3: Configure
 
@@ -283,6 +288,38 @@ config :phoenix_kit, PhoenixKit.Users.RateLimiter,
   login_limit: 5,
   login_window_ms: 60_000
 ```
+
+### `mix phoenix_kit.install` / `mix phoenix_kit.update` needs `:igniter`
+
+Both tasks patch your code, so both require igniter — which PhoenixKit declares
+`optional: true` and therefore does **not** hand down transitively. If it's
+missing, the task prints setup instructions instead of running. Add it and
+re-run:
+
+```elixir
+{:igniter, "~> 0.7", only: [:dev, :test]}
+```
+
+`mix deps.get` is enough — PhoenixKit tracks whether igniter was available when
+it last compiled and recompiles itself when that changes, so the tasks appear
+without a manual `mix deps.compile phoenix_kit --force`.
+
+This bites most often on upgrade: a project that never declared igniter was
+getting it transitively from an older PhoenixKit, and the switch to `optional:
+true` drops it.
+
+### `mix igniter.install` crashes with `Igniter.CopiedTasks is not available`
+
+Not a PhoenixKit failure. When your `mix.exs` has no `{:igniter, ...}` line, the
+`igniter_new` archive temporarily injects one, shells out to `mix deps.get`,
+then removes it on exit. If that `deps.get` fails, the archive's cleanup handler
+crashes on top of the original error because igniter was never loaded — burying
+the real message. Read the `mix deps.get failed with exit code ...` output above
+that stack trace, and check `mix.exs` for a stray `{:igniter, "~> 0.6", only:
+[:dev, :test]}` line the crashed cleanup left behind.
+
+Declaring igniter permanently (see above) avoids the inject/cleanup dance
+entirely — `igniter_new` skips it when the dep is already present.
 
 ---
 

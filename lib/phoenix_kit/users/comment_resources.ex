@@ -43,13 +43,11 @@ defmodule PhoenixKit.Users.CommentResources do
     _ -> %{}
   end
 
-  # Prefer the user's name; fall back to their email so the chip is never blank.
-  defp display_name(user) do
-    case User.full_name(user) do
-      name when is_binary(name) and name != "" -> name
-      _ -> user.email
-    end
-  end
+  # This module is the registered `ResourceLinks` handler for the "user"
+  # type, so it names every `@` mention everywhere — including public issue
+  # boards. The old `|| user.email` fallback therefore published a full
+  # address for any commenter who had not set a name.
+  defp display_name(user), do: User.display_name(user)
 
   # Same avatar precedence the `user_avatar` component uses: an uploaded avatar
   # (storage thumbnail), then an OAuth avatar URL, else none (chip shows a badge).

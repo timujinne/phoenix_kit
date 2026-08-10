@@ -1,3 +1,224 @@
+## 1.7.237 - 2026-08-09
+
+### ⚠️ Upgrade requirement — databases below V135 must stop at 1.7.236 first
+
+**The migration chain is squashed** (#689). `V01`..`V134` are replaced by a
+single `V135` baseline, and V135 is now the chain's **floor**: this release no
+longer carries the migration modules below it.
+
+- **At V135 or above** (any install kept current through 1.7.x): nothing to do.
+  Upgrade normally.
+- **Below V135**: `mix ecto.migrate` raises `PhoenixKit.Migrations.BelowFloorError`
+  and refuses, rather than migrating. Install **1.7.236** — the migration bridge,
+  the last release carrying the full pre-squash chain — run its migrations until
+  the reported version is at least V135, and only then upgrade to this release.
+  The error message names the bridge and the procedure.
+
+Check where you are with `mix phoenix_kit.status` **before** upgrading. Note that
+`{:phoenix_kit, "~> 1.7"}` will resolve to this release on a routine
+`mix deps.update`, so a below-floor host can be moved across the floor without
+having asked to be; the failure is a refused migration, not data loss, and the
+remedy above still applies.
+
+Nothing is rolled back through this release either: a below-floor install cannot
+`down` through it.
+
+### Added
+
+- **Verify-and-repair for the schema** (#689). `mix phoenix_kit.repair` compares a
+  live database against a generated manifest of what the chain should have
+  produced (`PhoenixKit.Migrations.ExpectedSchema`) and can restore what is
+  missing; `mix phoenix_kit.repair_uuid` is the maintenance-window path for uuid
+  primary-key damage, building its unique index `CONCURRENTLY`. Both report
+  before they write, and `mix phoenix_kit.doctor` grew checks that use the same
+  manifest.
+- **`PhoenixKit.Migrations.BelowFloorError`** (#689) — the explicit refusal
+  described above, carrying the database's version, the floor, and the bridge
+  release to install. Names 1.7.236 rather than "the last 1.7.x" (#690).
+- **`mix prerelease`** (#690) — the release gate: locked deps, a production
+  compile, `quality.ci`, `deps.audit`, `hex.audit`, docs, `hex.build`, and
+  `mix phoenix_kit.release_check` (CHANGELOG heading, migration/version sync,
+  clean tree, branch, tag collision). It catches release-metadata drift that
+  `mix precommit` structurally cannot.
+
+- **Cross-module `@` mentions and `#` record links** (#692). `PhoenixKit.Mentions`
+  — typing `@` offers people, `#` offers records from every installed module. The
+  mention is stored as a self-contained token carrying its own label, so it
+  survives copy-paste, export, edit history and a module being uninstalled, and
+  degrades to readable text rather than a broken link. Titles are re-resolved per
+  viewer at render: a reader who may not open a record never sees a title
+  refreshed after the fact, and visibility fails CLOSED for any resource type
+  whose module declares no check. Adds `phoenix_kit_mentions` and
+  `phoenix_kit_access_requests` (**V165**), the `<.mention_text>` component,
+  `use PhoenixKit.Mentions.Live` for the write side, and `mentions` opt-in
+  attributes on `<.textarea>` and the multilang textarea. Settings:
+  `mentions_enabled` (default on), `mentions_redact_titles` (default off).
+- **Frozen comment attribution** (#692, **V166**). `author_display_name`,
+  `attribution_mode`, `attributed_project_uuid` and `attributed_label` on
+  `phoenix_kit_comments`: a name resolved at render time re-signs every comment
+  its author ever wrote, so what the reader was shown is pinned at write.
+  `user_uuid` is never cleared — posting as a project changes what the public
+  sees and nothing else.
+- **`Notifications.fan_out_from_activity/2`** (#692) — routes one committed
+  activity entry to many recipients through the same prefs/channel/digest
+  machinery, without inserting extra feed rows.
+- **`before_user_delete/1` module hook** (#692) — runs for every discovered
+  module before a user row is deleted, while their related rows still exist.
+  Best-effort: a hook that raises or throws is logged and never aborts the
+  deletion.
+- **`ImageProcessor.sanitize/3`** (#692) — re-encodes an untrusted upload to
+  known-good bytes (detected-and-allowlisted decoder, first frame only, metadata
+  stripped, local resource ceilings, declared-pixel-count refusal). A primitive:
+  no core upload path calls it yet.
+- **User-dashboard route auto-discovery** (#692) — an external module's
+  `user_dashboard_tabs/0` entry carrying a `live_view` now gets its route
+  generated, mirroring the admin-tab path.
+
+### Changed
+
+- **Slug generation moved onto the `locale_slug` package** (#693) — a new required
+  runtime dependency, pure Elixir with no dependencies of its own.
+  `PhoenixKit.Utils.Slug` keeps its public shape (`slugify/2`, `transliterate/1`,
+  `ensure_unique/2`) and delegates the rule. The hand-rolled table could not
+  express a locale, and produced `gro-e-fu-ball` for `Größe Fußball`, `caf` for
+  `Café`, `n-c-d-t-st` for `Ünïcödé Tëst`, and an **empty** slug for any
+  Cyrillic-only title whose caller forgot `transliterate: true` — which callers
+  read as "no slug yet" and regenerated forever. Romanization is now always on
+  (`:transliterate` is accepted and ignored), `:locale` and `:max_length` are new
+  options, and Greek is covered.
+
+  ⚠️ **Stored slugs are not rewritten and existing URLs are unaffected**, but a
+  caller that *re-derives* a slug from a title to look up a row now derives a
+  different string. This is not confined to Cyrillic content — see the accented
+  Latin examples above.
+
+  ⚠️ **`Slug.transliterate/1` now lower-cases its result.** The old table had only
+  lowercase Cyrillic keys, so it left case alone and half-mapped uppercase input
+  (`Кашпо` → `Кashpo`). Core's only caller downcases first; external callers that
+  need the original casing must keep their own copy.
+- **`locale_slug` pinned `~> 0.1.0`** (#693 post-merge review), not `~> 0.1`. The
+  looser form admits every 0.x, and the exposure is not the API but the OUTPUT: a
+  revised romanization table changes the slug a host derives from the same title,
+  and slugs are persisted in URLs. Adopting a new minor should be a deliberate
+  PhoenixKit release, not a `mix deps.update` side effect.
+- **One canonical `User.display_name/1`, and no more published email addresses**
+  (#692). Half a dozen private copies of the name chain ended `|| user.email`,
+  which is how a public issue board came to print commenters' full addresses next
+  to their words. The chain is now organization name → first+last → username →
+  the email's **local part** → `"User"`, with every rung trimmed and rejected when
+  blank. Never the full address.
+
+### Fixed
+
+- **`admin_update_user_password/3` wrote the password hash for any caller**
+  (#690). The rank rule lived only in the admin edit form, which asks
+  `can_manage_user_credentials?/2` to hide the UI and refuse the event — the
+  context function itself asked nothing. The actor was already threaded through
+  `context` for the audit row, so it now authorizes as well as audits: an actor
+  present and out of rank is refused, and an absent actor stays the system path
+  for seeds, migrations and mix tasks. Not reachable through the shipped UI at
+  the time — this closed the second caller before it existed. See also the
+  `custom_fields` bypass below, which was the second caller.
+- **A comment-less database reported itself as version 1** (#694). A database
+  that is current but has lost its `phoenix_kit` version comment — the
+  half-installed or adopted state — resolved to version 1, which is below the
+  floor, so `mix phoenix_kit.update` answered "install the 1.7.x bridge first":
+  the one instruction the migrator refuses to give, because replaying the
+  pre-squash chain over a possibly-current database backfills still-NULL tracked
+  columns with invented uuids and then deletes the rows that match no user. The
+  state is now distinct from both a real version and "not installed", and routes
+  to `doctor` + restamp. `mix phoenix_kit.status` reports it instead of crashing.
+- **`mix phoenix_kit.repair` crashed on the anomaly it exists to diagnose**
+  (#694). `Repair.Probe.read_comment/2` used `String.to_integer/1` eleven lines
+  below a docstring promising it never raises, so the exact hand-edits the
+  migrator documents (`'v164'`, `' 164'`) ended the run in a bare
+  `** (ArgumentError) argument error`.
+- **`ensure_uuid_v7_function/1` aborted migrations on DBA-owned functions**
+  (#690). Its `insufficient_privilege` rescue was dead code in migration
+  context: `Ecto.Migration.execute/1` only *queues* the statement, so the error
+  arrives at flush time where no rescue can reach it. That is the topology
+  `PhoenixKit.Migration`'s own moduledoc tells a DBA to adopt, and the helper
+  runs on every delta upgrade. The un-ownable case is now excluded before the
+  statement is queued, via `pg_has_role` — so a function owned by a role the
+  migrating role belongs to is still refreshed.
+- **V164 warned "reconcile by hand" about the foreign key it then repairs**
+  (#690), and **verified that key by name alone** (#694) — a CHECK constraint
+  owning the same name read as present, the guarded ADD failed with 42710 into
+  an `EXCEPTION WHEN OTHERS`, and the outcome was reported `:created` with no
+  foreign key. `contype = 'f'` is now part of the test.
+- **V163's size guard is checked before castability** (#694). `castable?/3` is a
+  full-table scan, so asking it first made the deferral path pay an unbounded
+  sequential scan on exactly the tables the size limit exists to keep out of
+  `mix ecto.migrate`.
+- **V165 recorded the schema version as `163`** (#692 post-merge review). Every
+  other migration in the chain stamps its own number going up; V165's `up/1`
+  stamped two behind, so an install migrated to exactly 165 reported 163 — behind
+  where it started — and the next `ensure_current/2` re-ran V164 and V165. A full
+  run to head hid it, because V166 stamps immediately afterwards.
+- **A record's NAME could inject a markdown link into every mention of it**
+  (#692 post-merge review). `to_markdown/2` escapes the value it splices into
+  `[text](url)` on the reasoning that the token grammar refuses `]` — true of the
+  author's stored label, false of the live resolved title, which is the record's
+  current name and unconstrained. Renaming a record to
+  `Evil](https://evil.example)` turned every markdown-rendered mention of it, for
+  every reader, into a link to the attacker's URL. `]` is now escaped, and the
+  destination uses the CommonMark angle form so a `)` in a handler-supplied path
+  cannot close it either.
+- **`<.mention_text>` told hosts to `use PhoenixKit.Mentions.RequestAccess`**
+  (#692 post-merge review), which does not exist — the module is
+  `PhoenixKit.Mentions.Live`, and it needs `<.access_request_dialog>` rendered
+  alongside it or the click sets an assign nothing reads.
+- **The credential rank rule was bypassable through `custom_fields`** (#691).
+  `Auth.update_user_fields/2` routes a `custom_fields` key whose name matches a
+  profile field out of the JSONB column and writes it to the schema — including
+  `:email`, with no confirmation-token flow. The admin user form handed it
+  `params["custom_fields"]` verbatim, so the `Map.drop` that protects the profile
+  params never saw it: an actor holding only the `users` permission could point an
+  Owner's address at their own inbox and then take the account through the public
+  password-reset page. The form now filters those names out of `custom_fields`
+  unconditionally, `admin_update_user_password/3` enforces the rank rule in the
+  context rather than trusting its callers, and the refusal no longer reaches a
+  clause that expects a changeset (which crashed the LiveView after the profile
+  write had already committed).
+- **A present-but-malformed `:admin_user` no longer takes the unchecked system
+  path** (#691). Only an *absent* actor is a seed/migration/mix-task caller; a
+  value of the wrong shape is a caller that meant to supply one, and is refused.
+- **The credential refusal path no longer raises instead of refusing** (#691
+  post-merge review). `admin_update_user_password/3` takes its target unguarded
+  and `can_manage_user_credentials?/2` answers `false` for a non-`%User{}`, so a
+  host passing a JSON-decoded map as the *target* reached a refusal branch that
+  pattern-matched `%User{}` and interpolated `user.uuid` — `FunctionClauseError`
+  and `KeyError` respectively, where the pre-#691 code returned
+  `{:error, :insufficient_permissions}`. A fail-closed guard that crashes has
+  failed differently, not safely.
+- **The form's filter no longer keeps a second hand-maintained copy of the
+  field whitelist** (#691 post-merge review). It read a literal list that
+  duplicated the one inside `update_user_fields/2`; adding a profile field to the
+  context and forgetting the copy would have re-opened the bypass for that field,
+  silently and with the existing tests still green. Both now read
+  `Auth.updatable_profile_fields/0`, and a new test poisons `custom_fields` with
+  every name in it, so coverage grows with the list.
+
+### Changed
+
+- **`Auth.updatable_profile_fields/0`** (#691 post-merge review) — new public
+  reader for the fields `update_user_fields/2` writes to the schema, so callers
+  filtering untrusted params read the rule instead of restating it.
+  `update_user_fields/2`'s docs now state outright that it does not authorize and
+  that `:email` / `:username` are credentials.
+- **`StatusReport.next_action/3` gained `{:fix_version_comment, message}`**
+  (#694 post-merge review) — the state existed in the function but not in the
+  `action()` type, so dialyzer proved the consumer clause unreachable and
+  `mix precommit` failed. The comment-less guard also now fails **closed**: it
+  required an affirmative "the comment reads 1" only after review, having
+  previously fallen through to the destructive advice whenever the confirming
+  query could not answer.
+- **The admin form logs the identity fields it strips from `custom_fields`**
+  (#691 post-merge review). The page renders a real input for every one of those
+  names, so such a key on the wire means a client composed its own payload — a
+  stronger signal than the rank refusal the context already logs, and it was
+  being discarded without a word.
+
 ## 1.7.236 - 2026-08-08
 
 ### Added

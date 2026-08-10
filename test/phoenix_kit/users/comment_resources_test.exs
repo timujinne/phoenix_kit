@@ -10,7 +10,14 @@ defmodule PhoenixKit.Users.CommentResourcesTest do
 
     result = CommentResources.resolve_comment_resources([user.uuid])
 
-    assert %{title: "moderate-me@example.com", path: path} = result[user.uuid]
+    # This module is the registered handler for the "user" type, so it names
+    # every `@` mention there is — public issue boards included. It used to
+    # answer with the full address, and this test pinned that. The title is
+    # now the auto-generated username; what matters is that the address
+    # itself never comes back.
+    assert %{title: title, path: path} = result[user.uuid]
+    refute title == user.email
+    refute title =~ "@"
     # Raw path — comments applies Routes.path/1 when rendering the chip.
     assert path == "/admin/users/view/#{user.uuid}"
     # No avatar configured → no thumbnail key (chip falls back to a badge).

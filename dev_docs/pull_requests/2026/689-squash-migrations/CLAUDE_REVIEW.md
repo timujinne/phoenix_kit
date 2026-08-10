@@ -364,3 +364,78 @@ engineering is careful, the honesty in the PR description is unusual and
 correct, and the parts I could verify statically hold up under scrutiny. The
 risk that remains is not in the design — it is that the strongest evidence for
 it was gathered against a tree that is no longer the tree being shipped.
+
+---
+
+# Second pass — 2026-08-09, cutting 1.7.237
+
+Re-opened while assembling the release, because #689 turned out to be in it and
+had no CHANGELOG entry. This section only records what changed since the review
+above; the findings there stand as written.
+
+## The five mechanical findings are fixed
+
+All landed in #690's `b3ef57b2` and are verified in
+`690-security-p1-and-squash-review-fixes/CLAUDE_REVIEW.md` — including a
+specific check that the `bridge_version` fix reached every raise site (it does:
+`:ensure_current` re-raises the existing struct rather than building a new one).
+
+## BLOCKER #7 is resolved — by the version number, not by a code change
+
+The finding was that `{:phoenix_kit, "~> 2.0"}` is unsatisfiable alongside any
+feature module. Re-verified in `/workspace` today; the pins have not moved:
+
+| Module | Pin | Accepts 1.7.237? | Accepts 2.0.0? |
+|---|---|---|---|
+| `phoenix_kit_customer_support` | `~> 1.7.189` | ✅ | ❌ |
+| `phoenix_kit_document_creator` | `~> 1.7.189` | ✅ | ❌ |
+| `phoenix_kit_user_connections` | `~> 1.7.189` | ✅ | ❌ |
+| `phoenix_kit_posts` | `~> 1.7.214` | ✅ | ❌ |
+| `phoenix_kit_legal` | `~> 1.7.227` | ✅ | ❌ |
+| `phoenix_kit_emails` | `~> 1.7.231` | ✅ | ❌ |
+| `phoenix_kit_newsletters` | `~> 1.7 and >= 1.7.211` | ✅ | ❌ |
+
+`~> 1.7.189` means `>= 1.7.189 and < 1.8.0`, so **1.7.237 satisfies all seven
+and needs no coordinated wave at all.** Shipping as a patch release dissolves
+the blocker rather than working around it.
+
+## …but the version choice is a trade, and it was made by a `sed`
+
+The first pass recommended `2.0.0`, on the grounds that refusing a below-floor
+install rather than migrating it is a breaking upgrade contract. I bumped
+`@version` to `1.7.237` while assembling this release **before reading this
+review**, so that recommendation was overridden by accident rather than
+decided. Both options have a real cost and the maintainer should pick knowingly:
+
+**Shipping 1.7.237 (current state).** No module breaks. But a host still below
+V135, pinned `{:phoenix_kit, "~> 1.7"}` — the pin the README tells people to
+use — is auto-upgraded into the floor by a routine `mix deps.update`, and the
+next `mix ecto.migrate` raises `BelowFloorError`. Recoverable and clearly
+messaged (the error names 1.7.236 and the exact procedure since #690), but it is
+a trap a patch bump walks them into with no opt-in.
+
+**Shipping 2.0.0.** `~> 1.7` never resolves to it, so below-floor hosts are
+never dragged across the floor unintentionally; they upgrade deliberately and
+read the notes. Cost: all seven modules above need a widened pin and a patch
+release, landing *before or with* the publish, or every host running one of them
+has an unsatisfiable dependency.
+
+My read: **1.7.237 is the better trade**, because the below-floor failure is a
+refused migration with a precise remedy, while the 2.0 failure is
+`mix deps.get` refusing to resolve for a host that did nothing wrong. But it is
+only the better trade if the below-floor requirement is impossible to miss in
+the release notes, which is why the CHANGELOG entry written in this pass leads
+with it rather than burying it under the feature list.
+
+## BLOCKER #6 is still open
+
+The equivalence evidence (21 PASS) still predates HEAD, and now predates it by
+considerably more: V165, V166 and the V163/V164 edits from #694 have all landed
+since. No PostgreSQL is reachable in this environment — nothing on 5432, no
+`psql`, no container runtime — so `verify.exs` cannot be re-run here. This is
+the same missing capability that blocks the manifest regeneration.
+
+## Finding #8 is closed by this pass
+
+`@version` is `1.7.237` and the CHANGELOG now carries an entry for this PR,
+leading with the below-floor upgrade requirement.

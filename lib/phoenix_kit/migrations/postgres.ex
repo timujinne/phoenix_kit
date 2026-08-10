@@ -7,8 +7,32 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
+  ### V166 - Frozen comment attribution ⚡ LATEST
+
+  Adds `author_display_name`, `attribution_mode`, `attributed_project_uuid`
+  and `attributed_label` to `phoenix_kit_comments`. A name resolved at
+  render time rewrites history — someone leaves or fills in a profile and
+  every comment they wrote is silently re-signed — so what the reader was
+  shown is pinned at write. The same applies to speaking on a project's
+  behalf, which is a choice made at the time and not a fact recomputed from
+  current membership. `user_uuid` is never cleared: posting as the project
+  changes what the PUBLIC sees and nothing else, so moderation and audit
+  keep their actor.
+
+  Existing rows are left NULL rather than backfilled — inventing a display
+  history we do not have would be worse than resolving those rows live.
+
+  ### V165 - Cross-module mentions and access requests
+
+  Adds `phoenix_kit_mentions` (the reverse index for `@`/`#` tokens — the
+  canonical mention lives in the text, this answers "what links here" and
+  gives notification fan-out something to diff) and
+  `phoenix_kit_access_requests` (asking the owner for access to a record a
+  mention pointed at but the reader cannot open). Neither target carries a
+  foreign key: both point into ~28 optional packages' tables.
+
   ### V164 - Repair the V56/V57 flush-order bug's fallout, and converge two
-  ### prefix-unsafe historical shapes ⚡ LATEST
+  ### prefix-unsafe historical shapes
   - Also folds in what an earlier draft carried as a separate V164: V68
     (partial `idx_publishing_posts_group_slug`) and V65 (the
     `phoenix_kit_subscription_plans_slug_uidx` -> `..._types_slug_uidx`
@@ -432,7 +456,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 164
+  @current_version 166
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries
@@ -444,6 +468,16 @@ defmodule PhoenixKit.Migrations.Postgres do
   # naming an earlier 1.7.x stays correct advice either way, since every 1.7.x
   # carries the whole pre-squash chain.
   @bridge_version "1.7.236"
+
+  @doc """
+  The release an below-floor host must install before this one.
+
+  Exposed because `mix phoenix_kit.update` refuses below-floor installs at
+  GENERATION time, before this module's raise sites are ever reached — so the
+  notice the operator sees first has to name the same version those raises do.
+  """
+  @spec bridge_version() :: String.t()
+  def bridge_version, do: @bridge_version
 
   # First version whose SQL referenced uuid_generate_v7() in the
   # pre-squash chain — V40/V56/V61/V63 were its historical

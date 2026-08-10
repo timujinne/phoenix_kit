@@ -1,7 +1,7 @@
 defmodule PhoenixKit.MixProject do
   use Mix.Project
 
-  @version "1.7.236"
+  @version "1.7.237"
   @description "A foundation for building Elixir Phoenix apps — SaaS, social networks, ERP systems, marketplaces, and more"
   @source_url "https://github.com/BeamLabEU/phoenix_kit"
 
@@ -74,6 +74,17 @@ defmodule PhoenixKit.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   # Dependencies - minimal and focused on library functionality
+  # Resolves a dep from Hex by default, or from a local checkout when <APP>_PATH is
+  # exported — e.g. LOCALE_SLUG_PATH=../../../Elixir/locale_slug. Unset means the
+  # published pin, so `mix hex.publish` and CI are unaffected. Never commit a
+  # hand-edited path: tuple; it ships a broken package.
+  defp local_dep(app, requirement) do
+    case System.get_env(String.upcase(Atom.to_string(app)) <> "_PATH") do
+      nil -> {app, requirement}
+      path -> {app, path: path, override: true}
+    end
+  end
+
   defp deps do
     [
       # Database
@@ -88,6 +99,24 @@ defmodule PhoenixKit.MixProject do
 
       # Web functionality
       {:gettext, "~> 1.0"},
+
+      # Slugs. Locale-aware because ö must expand to "oe" in German and fold to "o"
+      # in Estonian, and core's hand-rolled table could not express the difference —
+      # it produced "gro-e-fu-ball" for "Größe Fußball" and an EMPTY slug for any
+      # Cyrillic-only title. Pure Elixir, no dependencies of its own.
+      #
+      # local_dep/2 keeps the Hex pin by default so published builds and CI are
+      # unchanged, and swaps in a path dep when LOCALE_SLUG_PATH is exported —
+      # matching the PHOENIX_LIVE_GANTT_PATH / PHOENIX_KIT_PATH convention.
+      #
+      # Pinned `~> 0.1.0`, not `~> 0.1`. The looser form admits every 0.x, and a
+      # 0.x package promises nothing about its API — but the real exposure here
+      # is not the API, it is the OUTPUT. A revised romanization table changes
+      # the slug a host derives from the same title, and slugs are persisted in
+      # URLs and compared for uniqueness, so a `mix deps.update` would rewrite
+      # content by way of a dependency bump. Adopting a new minor should be a
+      # deliberate PhoenixKit release with a CHANGELOG line, not a side effect.
+      local_dep(:locale_slug, "~> 0.1.0"),
       {:bandit, "~> 1.0"},
       {:esbuild, "~> 0.8", only: :dev},
       {:tailwind, "~> 0.5", only: :dev},
@@ -337,12 +366,25 @@ defmodule PhoenixKit.MixProject do
       prerelease: [
         "deps.get --check-locked",
         "deps.unlock --check-unused",
-        "cmd MIX_ENV=prod mix compile --force --warnings-as-errors",
+        # `env` prefix, not a bare assignment: `mix cmd` shells out through
+        # System.cmd/3, which execs the first word directly — "MIX_ENV=prod" is
+        # not an executable, so this step raised :enoent and the whole gate
+        # aborted before reaching deps.audit/hex.audit/docs/hex.build/
+        # release_check. Found 2026-08-09, the first time the gate was run to
+        # completion.
+        "cmd env MIX_ENV=prod mix compile --force --warnings-as-errors",
         "quality.ci",
         "deps.audit",
-        "hex.audit",
+        # Both hex.* steps run in a subprocess: after the dialyzer step has
+        # run in this VM, Hex-archive tasks stop resolving ("The task
+        # "hex.audit" could not be found") while project-dep tasks
+        # (deps.audit, docs, release_check) still do. Bisected 2026-08-09:
+        # `mix do format --check-formatted + credo --strict + hex.audit`
+        # passes, `mix do quality.ci + hex.audit` fails — the added step is
+        # dialyzer. A fresh VM per hex.* step is immune.
+        "cmd mix hex.audit",
         "docs",
-        "hex.build",
+        "cmd mix hex.build",
         "phoenix_kit.release_check"
       ]
     ]

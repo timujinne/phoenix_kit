@@ -47,11 +47,15 @@ defmodule PhoenixKitWeb.Components.Core.SortableTest do
         """)
 
       refute result =~ ~s(phx-hook="SortableGrid")
-      # Implementation renders the attribute name with an empty value
-      # rather than omitting the attribute, because `if @enabled, do: ...`
-      # in HEEx evaluates to `nil` when false. Both states tell the hook
-      # "not me" identically — pin the practical outcome (no hook attached).
       refute result =~ ~s(data-sortable="true")
+      # A disabled tbody carries NO sortable attrs at all: the inert
+      # `data-sortable-handle=".pk-drag-handle"` used to render even when
+      # disabled, which broke consumers' honest `refute =~ "pk-drag-handle"`
+      # assertions (phoenix_kit_projects' DnD-truncation test) and shipped
+      # meaningless attributes to the client.
+      refute result =~ "data-sortable-event"
+      refute result =~ "data-sortable-items"
+      refute result =~ "pk-drag-handle"
     end
 
     test "extra attrs pass through via :rest" do

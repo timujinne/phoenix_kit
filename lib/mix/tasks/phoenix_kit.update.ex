@@ -430,6 +430,31 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       add_not_installed_notice(igniter, prefix)
     end
 
+    # Installed, but the version comment is gone or unparseable. Deliberately
+    # NOT routed to the below-floor branch: that reports "V1" and tells the
+    # operator to install the 1.7.x bridge, and the migrator refuses this exact
+    # state because replaying the pre-squash chain over a possibly CURRENT
+    # database backfills still-NULL tracked columns with invented uuids and then
+    # deletes the rows for matching no user. Two halves of one release must not
+    # give opposite instructions; this one matches the migrator's.
+    defp handle_installation_status({:unknown_version}, igniter, prefix, _force, _opts) do
+      Igniter.add_warning(igniter, """
+
+      ❌ #{prefix}.phoenix_kit exists but carries no readable version comment.
+
+      The comment is the only record of which migrations this database has, so
+      neither an update nor a fresh install can be generated safely — a guess
+      here can replay migrations over live data.
+
+      Establish the real state and restamp it by hand:
+
+          mix phoenix_kit.doctor       # reports schema-vs-comment discrepancies
+          COMMENT ON TABLE #{prefix}.phoenix_kit IS '<version>';
+
+      Then run mix phoenix_kit.update again.
+      """)
+    end
+
     defp handle_installation_status({:unreachable, reason}, igniter, _prefix, _force, _opts) do
       Igniter.add_warning(igniter, """
       ❌ Cannot reach the database to determine the installed PhoenixKit
@@ -608,7 +633,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       modules below the floor, so it cannot generate a migration that would
       bring this database current.
 
-      Install the last PhoenixKit 1.7.x release (the migration bridge) first,
+      Install PhoenixKit #{MigrationsPostgres.bridge_version()} (the migration bridge) first,
       run its migrations until the reported version is at least V#{floor_padded},
       THEN move the dependency pin to this release and run
       mix phoenix_kit.update again.
