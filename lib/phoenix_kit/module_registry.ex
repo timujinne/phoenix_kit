@@ -479,7 +479,7 @@ defmodule PhoenixKit.ModuleRegistry do
   @doc """
   Returns the optional gettext `{backend, domain}` pairs registered modules
   declare for translating their permission labels (see
-  `PhoenixKit.Module.permission_meta/0`). Modules without a
+  `t:PhoenixKit.Module.permission_meta/0`). Modules without a
   `gettext_backend` are absent from the map.
   """
   @spec permission_gettext() :: %{String.t() => {module(), String.t()}}

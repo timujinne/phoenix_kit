@@ -17,4 +17,15 @@
     deny_event="keyfob_deny"
     labels={confirm_labels()}
   />
+
+  <%!-- Every row of the device panel is behind a presence guard, so a request
+        we know nothing identifying about renders as an empty box — which reads
+        as "still loading" on the one screen where the details ARE the decision.
+        Say which it is, rather than leaving a blank panel to be read as either. --%>
+  <p
+    :if={@kf_state == :pending and not identifying_details?(@meta)}
+    class="mx-auto mt-3 max-w-sm text-center text-xs text-base-content/60"
+  >
+    {gettext("No device details could be determined for this request.")}
+  </p>
 </PhoenixKitWeb.Components.AuthPageWrapper.auth_page_wrapper>

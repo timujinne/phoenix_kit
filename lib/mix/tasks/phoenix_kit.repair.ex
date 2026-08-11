@@ -165,7 +165,81 @@ defmodule Mix.Tasks.PhoenixKit.Repair do
     IO.puts(
       "#{IO.ANSI.bright()}#{summary.total} finding(s)#{IO.ANSI.reset()} — #{inspect(summary.by_severity)}"
     )
+
+    breakdown(report.findings)
   end
+
+  # A severity count alone does not tell an operator what a run is ABOUT. A few
+  # hundred findings on a long-lived database are readable the moment they are
+  # grouped: "missing 221 / wrong_shape 32" separates absent objects from ones
+  # that exist in an older shape, and the per-table tally almost always shows
+  # the findings concentrated in one or two subsystems rather than spread across
+  # the schema. Without it the only way to tell those apart is to read every
+  # line, which is why a 265-finding report reads as a catastrophe.
+  defp breakdown([]), do: :ok
+
+  defp breakdown(findings) do
+    by_kind =
+      findings
+      |> Enum.frequencies_by(& &1.kind)
+      |> Enum.sort_by(fn {_kind, count} -> -count end)
+      |> Enum.map_join(" · ", fn {kind, count} -> "#{kind} #{count}" end)
+
+    IO.puts("  #{IO.ANSI.faint()}by kind:#{IO.ANSI.reset()}  #{by_kind}")
+
+    tables =
+      findings
+      |> Enum.map(&table_of/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.frequencies()
+      |> Enum.sort_by(fn {_table, count} -> -count end)
+
+    case tables do
+      [] ->
+        :ok
+
+      tables ->
+        shown = Enum.take(tables, 6)
+        rest = length(tables) - length(shown)
+
+        text =
+          Enum.map_join(shown, " · ", fn {table, count} -> "#{table} #{count}" end) <>
+            if rest > 0, do: " · +#{rest} more tables", else: ""
+
+        IO.puts("  #{IO.ANSI.faint()}by table:#{IO.ANSI.reset()} #{text}")
+    end
+  end
+
+  # Only the classes whose id is table-scoped BY CONSTRUCTION contribute a row:
+  #
+  #   table:<table>              column:<table>.<column>
+  #   constraint:<table>.<name>  seed:<table>:<seed_key>
+  #
+  # `index:`, `sequence:`, `function:` and `extension:` name the object itself
+  # and carry no table at all, so the old "segment before the first `.` or `:`"
+  # rule tallied `index:idx_calendar_events_owner_starts_at` as a table of that
+  # name. Not a rounding error: the manifest holds 616 index ids (plus 6
+  # sequences, 3 extensions, 2 functions) against 161 real tables, so a schema
+  # missing a subsystem invented one single-finding "table" per absent index and
+  # the `+N more tables` tail counted every one of them — inflating exactly the
+  # number an operator reads to judge how widespread the damage is.
+  #
+  # Recovering the table from an index NAME would be guessing, which is the one
+  # thing this tally must not do. Those findings stay visible under `by kind`.
+  @table_scoped_classes ~w(table column constraint seed)
+
+  @doc false
+  def table_of(%{object_id: id}) when is_binary(id) do
+    case String.split(id, ":", parts: 2) do
+      [class, rest] when class in @table_scoped_classes ->
+        rest |> String.split([".", ":"], parts: 2) |> List.first()
+
+      _ ->
+        nil
+    end
+  end
+
+  def table_of(_finding), do: nil
 
   # ── Exit codes ──────────────────────────────────────────────────────
 

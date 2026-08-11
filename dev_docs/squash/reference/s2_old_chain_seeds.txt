@@ -1,4 +1,4 @@
--- pk-squash-ref kind=s2 chain_version=164
+-- pk-squash-ref kind=s2 chain_version=166
 -- table: phoenix_kit_user_roles
 description,inserted_at,is_system_role,name,updated_at,uuid
 "Administrator with elevated privileges","<ts>","t","Admin","<ts>","<uuid-1>"

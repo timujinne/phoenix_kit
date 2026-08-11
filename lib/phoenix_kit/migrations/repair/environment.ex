@@ -22,7 +22,7 @@ defmodule PhoenixKit.Migrations.Repair.Environment do
   Transaction-pooling PgBouncer can hand each statement a different backend
   connection, because nothing binds them together outside an explicit
   transaction. `pooled?/1` therefore checks out **one** connection
-  (`Ecto.Adapters.SQL.checkout/2`) before sampling — sampling via two plain
+  (`c:Ecto.Repo.checkout/2`) before sampling — sampling via two plain
   `repo.query!/3` calls without checking out first would let *Ecto's own*
   pool (nothing to do with PgBouncer) hand the two queries to different
   workers and manufacture a false positive on a perfectly direct database.

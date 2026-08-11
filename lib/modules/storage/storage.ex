@@ -2469,9 +2469,11 @@ defmodule PhoenixKit.Modules.Storage do
   - the token is the first 4 hex characters of an MD5 — a ~65k space, and
     brute-forceable for a targeted file;
   - tokens **never expire**, though the 401 says "Invalid or expired token";
-  - `/api/files/:uuid/info` is unauthenticated and hands out a valid signed URL
-    for any uuid it is given;
   - with no `secret_key_base` the token degrades to a predictable no-secret hash.
+
+  `/api/files/:uuid/info` no longer hands these URLs out anonymously — it now
+  requires authentication and only answers for a file the caller owns (or an
+  Owner/Admin). The token-strength and expiry points above remain open.
 
   These are recorded as known work in core's `AGENTS.md` under "Signed file-URL
   hardening". Current usage (public images) is within what the scheme actually

@@ -50,7 +50,7 @@ defmodule PhoenixKit.Migrations.Repair.ObanRunner do
   failure exactly like a real migration would; the DDL Oban's migration
   queues via `execute/1` still runs immediately, autocommit, matching every
   other statement `PhoenixKit.Migrations.Repair.Executor` issues.
-  `PhoenixKit.Migrations.Repair.delegate_oban/2` is the caller that turns a
+  `PhoenixKit.Migrations.Repair`'s private `delegate_oban` is the caller that turns a
   raised error into an `:oban_delegation_failed` finding instead of
   crashing the whole repair run.
   """

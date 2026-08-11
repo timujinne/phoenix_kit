@@ -10,6 +10,8 @@ defmodule PhoenixKitWeb.FileController do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.{Manager, ProcessFileJob, TesseraAdapter, URLSigner}
+  alias PhoenixKit.Users.Auth.Scope
+  alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Utils.Routes
 
   @doc """
@@ -111,41 +113,82 @@ defmodule PhoenixKitWeb.FileController do
       }
   """
   def info(conn, %{"file_uuid" => file_uuid}) do
-    case get_file(file_uuid) do
-      {:ok, file} ->
-        instances = Storage.list_file_instances(file_uuid)
-
-        variant_urls =
-          Enum.map(instances, fn instance ->
-            token = URLSigner.generate_token(file_uuid, instance.variant_name)
-            file_path = "/file/#{file_uuid}/#{instance.variant_name}/#{token}"
-            url = Routes.path(file_path)
-
-            %{
-              variant_name: instance.variant_name,
-              mime_type: instance.mime_type,
-              size: instance.size,
-              width: instance.width,
-              height: instance.height,
-              url: url
-            }
-          end)
-
-        json(conn, %{
-          file_uuid: file.uuid,
-          original_filename: file.original_file_name,
-          mime_type: file.mime_type,
-          file_type: file.file_type,
-          size: file.size,
-          status: file.status,
-          variants: variant_urls
-        })
+    with {:ok, user} <- require_user(conn.assigns[:phoenix_kit_current_user]),
+         {:ok, file} <- authorize_file_read(Storage.get_file(file_uuid), user) do
+      info_response(conn, file)
+    else
+      {:error, :no_user} ->
+        conn
+        |> put_status(:unauthorized)
+        |> json(%{error: "UNAUTHORIZED", message: "Authentication required"})
 
       {:error, :not_found} ->
         conn
         |> put_status(:not_found)
         |> json(%{error: "FILE_NOT_FOUND", message: "File not found"})
     end
+  end
+
+  @doc """
+  Requires an authenticated caller for the info endpoint. It lives in the
+  unauthenticated `[:browser, :phoenix_kit_auto_setup]` scope, so this is the
+  gate: before it, any visitor got file metadata and a freshly-minted signed URL
+  for any uuid, which handed out capability URLs the signing scheme exists to
+  withhold (issue #687 class).
+  """
+  @spec require_user(term()) :: {:ok, User.t()} | {:error, :no_user}
+  def require_user(%User{} = user), do: {:ok, user}
+  def require_user(_), do: {:error, :no_user}
+
+  @doc """
+  Authorizes a file-info read. The owner (`file.user_uuid`) or an Owner/Admin may
+  read; everyone else — and a missing file — is `{:error, :not_found}`, the
+  *same* result, so the endpoint is not a file-existence oracle.
+
+  The staff bypass is `Scope.system_role?/1` (Owner/Admin), NOT
+  `can_access_admin_area?/1`: a holder of a single module permission must not be
+  able to read every other user's file metadata and signed variant URLs.
+  """
+  @spec authorize_file_read(term(), User.t()) :: {:ok, map()} | {:error, :not_found}
+  def authorize_file_read(nil, _user), do: {:error, :not_found}
+
+  def authorize_file_read(%{user_uuid: owner} = file, %User{uuid: uuid} = user) do
+    if owner == uuid or Scope.system_role?(Scope.for_user(user)) do
+      {:ok, file}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  defp info_response(conn, file) do
+    file_uuid = file.uuid
+    instances = Storage.list_file_instances(file_uuid)
+
+    variant_urls =
+      Enum.map(instances, fn instance ->
+        token = URLSigner.generate_token(file_uuid, instance.variant_name)
+        file_path = "/file/#{file_uuid}/#{instance.variant_name}/#{token}"
+        url = Routes.path(file_path)
+
+        %{
+          variant_name: instance.variant_name,
+          mime_type: instance.mime_type,
+          size: instance.size,
+          width: instance.width,
+          height: instance.height,
+          url: url
+        }
+      end)
+
+    json(conn, %{
+      file_uuid: file.uuid,
+      original_filename: file.original_file_name,
+      mime_type: file.mime_type,
+      file_type: file.file_type,
+      size: file.size,
+      status: file.status,
+      variants: variant_urls
+    })
   end
 
   @doc """

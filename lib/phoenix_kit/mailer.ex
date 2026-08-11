@@ -68,6 +68,40 @@ defmodule PhoenixKit.Mailer do
   end
 
   @doc """
+  Where an outgoing message will actually be sent, resolved the same way
+  `deliver_email/2` resolves it: the operator's default send integration wins,
+  then the delegated host mailer (`config :phoenix_kit, :mailer`), then the
+  built-in one. The adapter element is `nil` when the resolved mailer has no
+  adapter configured.
+
+  `PhoenixKit.Config.mailer_local?/0` derives from this — anything that needs
+  to know "does mail land in the local dev mailbox?" must go through one of
+  the two, never through a raw config read (issue #687: the raw read answered
+  for a mailer that may not be the one sending, in both directions).
+
+  For a delegated mailer the adapter is read from
+  `PhoenixKit.Config.get_parent_app/0`'s env, which assumes that app matches
+  the mailer's own `:otp_app` — the same assumption the SES detection in
+  delivery has always made. Set `:parent_app_name` explicitly if they differ.
+  """
+  @spec resolved_send_path() :: {:integration, String.t()} | {:mailer, module(), module() | nil}
+  def resolved_send_path do
+    case default_send_integration_uuid() do
+      {:ok, uuid} ->
+        {:integration, uuid}
+
+      :error ->
+        mailer = get_mailer()
+        {:mailer, mailer, configured_adapter(mailer)}
+    end
+  end
+
+  defp configured_adapter(__MODULE__), do: PhoenixKit.Config.get(__MODULE__, [])[:adapter]
+
+  defp configured_adapter(mailer),
+    do: PhoenixKit.Config.get_parent_app_config(mailer, [])[:adapter]
+
+  @doc """
   Sends an email using a template from the database.
 
   This is the main function for sending emails using PhoenixKit's template system.
@@ -208,6 +242,13 @@ defmodule PhoenixKit.Mailer do
   not a message id from a relay that has not seen it yet. Callers that only
   match `{:ok, _}` are unaffected; a caller that needs the message sent on this
   process can pass `skip_queue: true`.
+
+  When the resolved transport is the local dev mailbox and the
+  `dev_mailbox_enabled` setting is off (its default — see issue #687), the
+  message is written to the server log instead of being handed to any adapter,
+  and the result is `{:ok, %{id: "dev-mailbox-suppressed", suppressed: true}}`.
+  It reads as success on purpose — auth flows must not error over a dev-only
+  transport — but no mail was sent and nothing was recorded by tracking.
   """
   def deliver_email(email, opts \\ []) do
     case default_send_integration_uuid() do
@@ -217,10 +258,61 @@ defmodule PhoenixKit.Mailer do
   end
 
   defp deliver_via_configured_mailer(email, opts) do
+    mailer = get_mailer()
+
+    if configured_adapter(mailer) == Swoosh.Adapters.Local and not dev_mailbox_enabled?() do
+      # The local mailbox's /dev/mailbox page is unauthenticated by design and
+      # this mail carries single-use tokens that exist nowhere else — delivery
+      # is opt-in (issue #687). Returns before the tracking pipeline: a message
+      # that was never handed to an adapter must not be recorded as sent. This
+      # also short-circuits `check_recipient_allowed/1`; harmless, since nothing
+      # is delivered, but it means the blocklist is not exercised with the gate
+      # off against the Local adapter.
+      log_suppressed_local_delivery(email)
+      {:ok, %{id: "dev-mailbox-suppressed", suppressed: true}}
+    else
+      do_deliver_via_configured_mailer(email, opts, mailer)
+    end
+  end
+
+  # Guarded like its sibling `PhoenixKit.Config.mailer_local?/0`, and for the
+  # reason AGENTS.md gives: a settings read is ETS-cached, so on a cache MISS it
+  # touches the database, and an unreachable one raises on an unowned checkout
+  # but *exits* on a dead pool — `rescue` alone does not cover it. This read is
+  # new to the delivery path, so before it nothing here could fail that way.
+  #
+  # `false` on failure is the fail-CLOSED direction: it suppresses the send and
+  # logs the token rather than handing a message full of single-use links to an
+  # unauthenticated mailbox because a pool blipped. Only reachable on a
+  # Local-adapter install — `and` short-circuits, so a production adapter never
+  # evaluates this at all.
+  defp dev_mailbox_enabled? do
+    PhoenixKit.Settings.get_boolean_setting("dev_mailbox_enabled", false)
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
+  end
+
+  defp log_suppressed_local_delivery(email) do
+    # This log line is the developer's ONLY way to recover the single-use
+    # token while the mailbox is off — fall back to the HTML body for hosts
+    # whose overridden UserNotifier sends HTML-only mail.
+    body = email.text_body || email.html_body || ""
+
+    Logger.warning("""
+    PhoenixKit: outgoing email was NOT delivered — the local dev mailbox is disabled by default \
+    (its /dev/mailbox page is unauthenticated; see BeamLabEU/phoenix_kit#687).
+    To: #{inspect(email.to)} · Subject: #{email.subject}
+    #{body}
+    Enable the mailbox for this closed environment at /admin/settings/email-sending, \
+    or configure a send integration there.
+    """)
+  end
+
+  defp do_deliver_via_configured_mailer(email, opts, mailer) do
     with :ok <- check_recipient_allowed(email),
          {:continue, tracked_email} <- intercept_and_offer_queue(email, opts) do
-      mailer = get_mailer()
-
       result =
         if mailer == __MODULE__ do
           # Use built-in mailer with runtime config for AWS

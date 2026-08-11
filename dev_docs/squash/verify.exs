@@ -2435,6 +2435,15 @@ defmodule PhoenixKit.Squash.Verify do
   # therefore silently test nothing for that column; damaging it first and
   # confirming V164 leaves it alone is the real assertion.
 
+  # The version whose repair this scenario exercises. Pinned, NOT derived from
+  # the chain head: this was `current_version() - 1 .. current_version()` while
+  # V164 *was* the head, so every later migration (V165's mentions, V166's
+  # frozen attribution) silently moved the delta off V164 — the scenario went
+  # on asserting V164's repairs while never running V164, and reported the
+  # whole flush-order defect as unrepaired. The delta under test is a property
+  # of the migration, not of wherever the chain happens to end.
+  @s21_repair_version 164
+
   defp s21_v164_repair(ctx) do
     first_failure([
       s21_repair_and_idempotence(ctx),
@@ -2457,7 +2466,7 @@ defmodule PhoenixKit.Squash.Verify do
 
     s21_simulate_flush_defect!(ctx, t)
 
-    repair_to = MigrationRunner.current_version()
+    repair_to = @s21_repair_version
     repair_from = repair_to - 1
 
     IO.puts(
@@ -2479,7 +2488,7 @@ defmodule PhoenixKit.Squash.Verify do
   end
 
   defp s21_idempotence(ctx, t) do
-    repair_to = MigrationRunner.current_version()
+    repair_to = @s21_repair_version
     repair_from = repair_to - 1
 
     IO.puts(
@@ -2488,9 +2497,8 @@ defmodule PhoenixKit.Squash.Verify do
     )
 
     before_dump = DumpHelper.dump!(t)
-    repair_to = MigrationRunner.current_version()
-    restamp_comment!(ctx, t, repair_to - 1)
-    MigrationRunner.run_new_chain_existing(ctx.repo, t, repair_to - 1, to_version: repair_to)
+    restamp_comment!(ctx, t, repair_from)
+    MigrationRunner.run_new_chain_existing(ctx.repo, t, repair_from, to_version: repair_to)
     after_dump = DumpHelper.dump!(t)
 
     case compare_dumps(ctx, "s21_idempotent", before_dump, t, after_dump, t, []) do
@@ -2766,7 +2774,7 @@ defmodule PhoenixKit.Squash.Verify do
         @s21_orphan_fk_column => "'#{@s21_orphan_uuid}'"
       })
 
-    repair_to = MigrationRunner.current_version()
+    repair_to = @s21_repair_version
     restamp_comment!(ctx, t, repair_to - 1)
     MigrationRunner.run_new_chain_existing(ctx.repo, t, repair_to - 1, to_version: repair_to)
 

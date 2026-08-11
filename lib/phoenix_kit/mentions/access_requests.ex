@@ -21,6 +21,12 @@ defmodule PhoenixKit.Mentions.AccessRequests do
   alias PhoenixKit.Activity
   alias PhoenixKit.Mentions.AccessRequest
   alias PhoenixKit.RepoHelper
+  alias PhoenixKit.ResourceLinks
+  alias PhoenixKit.Users.RateLimiter
+
+  # Free-form on the wire; keep it short enough that a forged type cannot
+  # bloat the activity row / admin queue listing.
+  @max_resource_type_bytes 100
 
   defp repo, do: RepoHelper.repo()
 
@@ -30,35 +36,73 @@ defmodule PhoenixKit.Mentions.AccessRequests do
   Asking twice is the same ask — the partial unique index enforces it, and
   this returns `{:ok, existing}` rather than an error so the UI can say "already
   asked" without a special case.
+
+  Rejects unknown `resource_type`s, non-uuid targets, and accounts that have
+  already submitted too many requests in the window — the chip only ever
+  sends a type the renderer already resolved, so anything else is a client
+  composing its own payload.
   """
   @spec request(String.t(), String.t(), String.t(), keyword()) ::
           {:ok, AccessRequest.t()} | {:error, term()}
   def request(resource_type, resource_uuid, requester_uuid, opts \\ []) do
-    attrs = %{
-      resource_type: resource_type,
-      resource_uuid: resource_uuid,
-      requester_uuid: requester_uuid,
-      source_type: Keyword.get(opts, :source_type),
-      source_uuid: Keyword.get(opts, :source_uuid),
-      note: Keyword.get(opts, :note)
-    }
+    with :ok <- validate_target(resource_type, resource_uuid),
+         :ok <- RateLimiter.check_access_request_rate_limit(requester_uuid) do
+      attrs = %{
+        resource_type: resource_type,
+        resource_uuid: resource_uuid,
+        requester_uuid: requester_uuid,
+        source_type: Keyword.get(opts, :source_type),
+        source_uuid: Keyword.get(opts, :source_uuid),
+        note: Keyword.get(opts, :note)
+      }
 
-    %AccessRequest{}
-    |> AccessRequest.changeset(attrs)
-    |> repo().insert()
-    |> case do
-      {:ok, request} ->
-        notify_deciders(request, opts)
-        {:ok, request}
+      %AccessRequest{}
+      |> AccessRequest.changeset(attrs)
+      |> repo().insert()
+      |> case do
+        {:ok, request} ->
+          notify_deciders(request, opts)
+          {:ok, request}
 
-      {:error, changeset} ->
-        # The open-request index tripped: they already asked. Hand back the
-        # existing row so the caller can report state rather than failure.
-        case get_open(resource_type, resource_uuid, requester_uuid) do
-          %AccessRequest{} = existing -> {:ok, existing}
-          nil -> {:error, changeset}
-        end
+        {:error, changeset} ->
+          # The open-request index tripped: they already asked. Hand back the
+          # existing row so the caller can report state rather than failure.
+          case get_open(resource_type, resource_uuid, requester_uuid) do
+            %AccessRequest{} = existing -> {:ok, existing}
+            nil -> {:error, changeset}
+          end
+      end
     end
+  end
+
+  defp validate_target(resource_type, resource_uuid) do
+    cond do
+      not is_binary(resource_type) or resource_type == "" ->
+        {:error, :invalid_resource}
+
+      byte_size(resource_type) > @max_resource_type_bytes ->
+        {:error, :invalid_resource}
+
+      not known_resource_type?(resource_type) ->
+        {:error, :unknown_resource_type}
+
+      match?(:error, Ecto.UUID.cast(resource_uuid)) ->
+        {:error, :invalid_resource}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Only types a module has registered (plus core's built-ins on the same
+  # map). A free-text type would still insert and Activity.log, which is how
+  # an unauthenticated-looking spam path becomes a real write.
+  defp known_resource_type?(type) do
+    Map.has_key?(ResourceLinks.handlers(), type)
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 
   @doc "The open request from this person for this record, if any."

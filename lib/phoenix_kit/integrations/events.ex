@@ -32,7 +32,7 @@ defmodule PhoenixKit.Integrations.Events do
   @topic "phoenix_kit:integrations"
   @user_topic_prefix "phoenix_kit:integrations:"
 
-  @typedoc "Owner scope for routing a broadcast (mirrors `PhoenixKit.Integrations.owner/0`)."
+  @typedoc "Owner scope for routing a broadcast (mirrors `t:PhoenixKit.Integrations.owner/0`)."
   @type owner :: :system | {atom(), String.t()}
 
   # Mirror of PhoenixKit.Integrations.Encryption's sensitive fields — stripped

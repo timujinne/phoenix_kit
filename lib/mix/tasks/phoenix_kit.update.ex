@@ -755,9 +755,12 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
             run_migration_with_feedback(opts)
           else
-            raise_pending_migration("""
-            Migration not run automatically (#{reason}).
-            """)
+            raise_pending_migration(
+              """
+              Migration not run automatically (#{reason}).
+              """,
+              opts
+            )
           end
       end
     end
@@ -786,7 +789,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
             run_migration_with_feedback(opts)
 
           _ ->
-            raise_pending_migration("Migration skipped at your request.")
+            raise_pending_migration("Migration skipped at your request.", opts)
         end
       end
     end
@@ -799,16 +802,62 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     # `Mix.raise/1` gives a non-zero exit with a clean message and no stacktrace.
     # It fires for the interactive "no" too: the exit code answers "is this
     # install up to date?", and the answer does not depend on why it is not.
-    defp raise_pending_migration(reason) do
+    defp raise_pending_migration(reason, opts) do
+      # Hoisted out of the message below rather than called from inside the
+      # interpolation: this WRITES migration files to the host repo, and a side
+      # effect that big should be a visible statement on the failure path, not
+      # something a reader has to follow a formatting helper to discover. It
+      # runs even when the operator answered "no" — declining to *migrate* is
+      # not declining to have the file written, and the note says so.
+      staged = stage_module_migrations(opts)
+
       Mix.raise("""
       #{String.trim(reason)}
 
       PhoenixKit's code is updated but the database is not. Do one of:
 
-        mix ecto.migrate                 # run it now
         mix phoenix_kit.update --yes     # re-run this task and migrate without prompting
                                          # (this is the one for CI/CD and deploy scripts)
+        mix ecto.migrate                 # apply the migrations written so far
+      #{staged_module_note(staged)}
       """)
+    end
+
+    # Raising here aborts the task BEFORE `run_module_migrations/1` runs, so a
+    # module carrying its own schema never gets a migration file written. That
+    # made the advice above actively wrong: `mix ecto.migrate` applied the core
+    # chain, exited 0, and left the module's tables at their old version. The
+    # gap then surfaced as an undefined-column crash on a page with no visible
+    # connection to this run — core said V166 ✅ while a module sat four
+    # versions behind.
+    #
+    # Writing those files is what makes `mix ecto.migrate` sufficient again.
+    # Re-running the task later reuses them rather than writing a duplicate
+    # (see `generate_module_migration/3`). Pure formatting — the write happens
+    # in `raise_pending_migration/2`, where it is visible.
+    defp staged_module_note([]), do: ""
+
+    defp staged_module_note(staged) do
+      names = Enum.map_join(staged, ", ", & &1.name)
+
+      "\n  Module schema migrations were written for: #{names}.\n" <>
+        "  Either command above applies them; `mix phoenix_kit.status` reports what is left."
+    end
+
+    # The database is read here to decide what is pending, and this runs on a
+    # path that is already failing — an unreachable repo must not replace the
+    # migration advice with a connection error.
+    defp stage_module_migrations(opts) do
+      prefix = PrefixConfig.resolve_prefix(opts)
+
+      [prefix: prefix]
+      |> MigrationModules.list()
+      |> MigrationModules.pending()
+      |> write_pending_module_migrations(prefix)
+    rescue
+      _ -> []
+    catch
+      :exit, _ -> []
     end
 
     # Display comprehensive help information
@@ -933,19 +982,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
           report_modules_up_to_date(modules)
 
         pending ->
-          # Write every module's migration file FIRST, then migrate once.
-          # The old code ran a full `ecto.migrate` inside the loop, so N
-          # modules meant N migrator runs over the same (growing) directory.
-          written =
-            pending
-            |> Enum.with_index()
-            |> Enum.flat_map(fn {entry, index} ->
-              Mix.shell().info(
-                "\n⏳ #{entry.name}: V#{pad_version(entry.installed)} → V#{pad_version(entry.target)}"
-              )
-
-              write_module_migration(entry, prefix, index)
-            end)
+          written = write_pending_module_migrations(pending, prefix)
 
           if written != [] do
             migrate_host_repo()
@@ -953,6 +990,21 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
           verify_module_migrations(written, prefix)
       end
+    end
+
+    # Write every module's migration file FIRST, then migrate once. The old
+    # code ran a full `ecto.migrate` inside the loop, so N modules meant N
+    # migrator runs over the same (growing) directory.
+    defp write_pending_module_migrations(pending, prefix) do
+      pending
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {entry, index} ->
+        Mix.shell().info(
+          "\n⏳ #{entry.name}: V#{pad_version(entry.installed)} → V#{pad_version(entry.target)}"
+        )
+
+        write_module_migration(entry, prefix, index)
+      end)
     end
 
     # One module must not be able to abort the run. Writing a migration file

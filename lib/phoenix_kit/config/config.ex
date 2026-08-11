@@ -327,27 +327,37 @@ defmodule PhoenixKit.Config do
   end
 
   @doc """
-  Checks if the configured mailer adapter is the local adapter.
+  Checks whether outgoing mail will actually land in the local dev mailbox.
 
-  Returns true if the mailer is configured to use Swoosh.Adapters.Local,
-  which is typically used for development and testing environments where
-  emails are stored locally rather than being sent to actual recipients.
+  True iff the send path `deliver_email/2` would take resolves to
+  `Swoosh.Adapters.Local`. Resolution order (via
+  `PhoenixKit.Mailer.resolved_send_path/0`): the operator's default send
+  integration, then the delegated host mailer (`config :phoenix_kit, :mailer`,
+  adapter read from the parent app's env), then the built-in mailer's own
+  config. A raw read of `config :phoenix_kit, PhoenixKit.Mailer` answered for
+  a mailer that may not be the one sending — false negative under delegation,
+  false positive when the installer-written Local block coexists with a real
+  delegated mailer (issue #687).
+
+  This renders on public pages, so a dead database (the integration lookup
+  reads Settings) means `false`, never a raise or exit.
 
   ## Examples
 
       iex> PhoenixKit.Config.mailer_local?
-      true  # when using Swoosh.Adapters.Local
+      true  # when the resolved send path uses Swoosh.Adapters.Local
 
       iex> PhoenixKit.Config.mailer_local?
-      false  # when using a real mailer like SMTP or SendGrid
+      false  # when a send integration or a real adapter (SMTP, SES, ...) sends
 
   """
   @spec mailer_local? :: boolean()
   def mailer_local? do
-    case get(PhoenixKit.Mailer, nil)[:adapter] do
-      Swoosh.Adapters.Local -> true
-      _ -> false
-    end
+    match?({:mailer, _, Swoosh.Adapters.Local}, PhoenixKit.Mailer.resolved_send_path())
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 
   @doc """

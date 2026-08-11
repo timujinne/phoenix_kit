@@ -775,7 +775,9 @@ defmodule PhoenixKit.Migrations.Repair do
         report
 
       {:ahead_of_schema, lower} ->
-        msg = ahead_of_schema_message(ctx.dry_run, comment, lower)
+        msg =
+          ahead_of_schema_message(ctx.dry_run, comment, lower, first_gap_version(presence, lower))
+
         Report.add_finding(report, finding(:comment_ahead_of_schema, :info, nil, nil, msg))
 
       {:stale_low, target} ->
@@ -810,15 +812,48 @@ defmodule PhoenixKit.Migrations.Repair do
     presence ++ padding
   end
 
-  defp ahead_of_schema_message(true, comment, lower) do
-    "comment claims V#{comment} but the highest fully-present version is V#{lower} " <>
-      "(objects since #{lower + 1}..#{comment} are missing or diverged — see the findings " <>
-      "above; run mix phoenix_kit.repair to address them)"
+  # The version `highest_fully_present_version/1`'s `take_while` actually
+  # stopped on — NOT `lower + 1`. That helper returns the `since` of the last
+  # consecutive PRESENT bucket, so the next integer is only the first gap where
+  # the bucket list is contiguous, and it is contiguous only from `floor` up,
+  # where `pad_vacuous_versions/3` fills it. Below the floor a version exists in
+  # the list only if some manifest object carries that `since`, and 28 versions
+  # in the chain introduce none — so `lower + 1` down there names a version with
+  # nothing to be missing. The helper's own doctest is the case:
+  # `[{53, true}, {114, true}, {137, false}, {142, true}]` answers 114, and the
+  # first version not all present is 137, not 115.
+  defp first_gap_version(presence, lower) do
+    presence
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.find(fn {since, all_present?} -> since > lower and not all_present? end)
+    |> case do
+      {since, _all_present?} -> since
+      # Unreachable while `marker_cross_check/2` only says `:ahead_of_schema`
+      # when a bucket halted the take_while, but this is an error message: it
+      # must degrade to the old approximation, never crash the run.
+      nil -> lower + 1
+    end
   end
 
-  defp ahead_of_schema_message(false, comment, lower) do
-    "comment claims V#{comment} but the highest fully-present version is V#{lower} " <>
-      "(objects since #{lower + 1}..#{comment} were missing and have been addressed above)"
+  # `highest_fully_present_version/1` is a `take_while`: it stops at the FIRST
+  # version with a missing object and never looks higher. Phrasing that as
+  # "objects since N..comment are missing" therefore overstates it by however
+  # much of the range was never examined — on a long-lived database the first
+  # gap can sit near the floor and make one cluster of absent objects read as a
+  # hundred broken versions. Name the boundary and say what it does not mean.
+  defp ahead_of_schema_message(true, comment, lower, gap) do
+    "comment claims V#{comment} but V#{gap} is the first version whose objects " <>
+      "are not all present, so the schema cannot be confirmed past V#{lower} " <>
+      "(the check stops at the first gap — versions above V#{gap} were not " <>
+      "examined and are not being called broken). Findings above list what is " <>
+      "actually absent; run mix phoenix_kit.repair to address them."
+  end
+
+  defp ahead_of_schema_message(false, comment, _lower, gap) do
+    "comment claims V#{comment} but V#{gap} was the first version whose objects " <>
+      "were not all present; what was missing has been addressed above. Re-run to " <>
+      "confirm — the check stops at the first gap, so a later one can only surface " <>
+      "once this one is closed."
   end
 
   defp stale_low_message(comment, target) do

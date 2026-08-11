@@ -1,4 +1,140 @@
-## 1.7.237 - 2026-08-09
+## 2.1.0 - 2026-08-11
+
+Notification reads sort unseen first. No schema change — the chain stays at V166.
+
+### Changed
+
+- **A user's notifications now sort unseen-before-seen, newest-first within
+  each group** (#702), in both `Notifications.list_for_user/2` and
+  `recent_for_user/2`. Plain newest-first interleaved the two, so reading a
+  notification left it exactly where it was and anything still outstanding
+  ended up scattered among things already dealt with. It mattered most in the
+  bell: the dropdown shows ten, so an already-read notification could push an
+  unread one off the bottom entirely — the badge counted something opening the
+  bell did not show.
+
+  `admin_list/1` is deliberately unchanged. "Seen" belongs to the recipient,
+  and an admin scanning everybody's notifications is reading a chronological
+  record, not working an inbox.
+
+- **Notification ordering is now total.** `inserted_at` is second-granularity,
+  so a fan-out writing many rows inside one second tied every one of them, and
+  a tie under `LIMIT`/`OFFSET` lets Postgres return a row on two pages or on
+  neither. `uuid` is now the final sort key on all three paginated reads; the
+  keys are UUIDv7, so descending on it agrees with newest-first.
+
+### Fixed
+
+- **The notifications inbox rendered duplicate day headers.** `grouped/1`
+  chunked rows into day buckets on the day alone, which was correct only while
+  the list was globally chronological. Under the new order the day sequence
+  restarts at the seen block, so an inbox holding read and unread rows across
+  more than one day showed "Today" twice, a week of history apart. Sections are
+  now keyed on `{unread?, day}` and the unread run is labelled `Unread · <day>`,
+  so the outstanding work is named rather than inferred from row tint.
+
+## 2.0.1 - 2026-08-10
+
+Closes the "reports a problem, then exits 0" gaps across `status`, `doctor` and
+`update`, and adopts `locale_slug` 0.2.0 so Cyrillic slugs beyond Russian stop
+coming back empty. No schema change — the chain stays at V166.
+
+### Added
+
+- **`mix phoenix_kit.status --exit-code`** (#701). The report is identical on
+  stdout whether an install is clean or has a module sitting four versions
+  behind, so a deploy script had nothing to gate on. Opt-in, because the default
+  is load-bearing the other way: pipelines that run the task purely for its log
+  line must not start failing on an upgrade. It **fails closed** — an install
+  whose core marker reads `Ready` while the module list was never queried exits
+  `1`, since the two reads are independent and a connection dropping between them
+  produces exactly the silent pass the flag exists to remove.
+- **`mix phoenix_kit.doctor` gains a "Module Schema Versions" check** (#701).
+  Core's version marker says nothing about a module that owns its own migration
+  chain, so an install could pass `status`, pass `doctor`, and still run code
+  against tables several versions behind — surfacing as an undefined-column 500
+  on that module's admin page, with no visible connection to the upgrade that
+  caused it. Fails on a module that is behind; warns, rather than passing, when a
+  version cannot be read at all.
+- **`mix phoenix_kit.doctor --exit-code`** (#701 post-merge review). Doctor
+  printed `N failures` and `Fix the FAIL items above before running migrations.`
+  and then exited `0` — including for the new module-version check, whose whole
+  purpose is to catch an install nothing else reports on. `status` and `repair`
+  both gate; doctor was the only one of the three that could not. Opt-in, same
+  reasoning as above. Warnings deliberately do not gate: several fire on healthy
+  installs (a pool capped by `update_mode`, an unlocatable `application.ex`), and
+  gating on them would put the flag straight back to a signal nobody can act on.
+
+### Changed
+
+- **`locale_slug` adopted at `~> 0.2.0`** (#701). 0.1.0's Cyrillic layer only
+  really covered Russian, and against core's `fallback: :empty` passing the
+  *correct* locale reproduced the bug the dependency exists to fix:
+  `slugify("Київ", locale: "uk")` and `slugify("България", locale: "bg")` both
+  returned `""`, which callers read as "not generated yet" and regenerate
+  forever. 0.2.0 returns `kyiv` and `bulgaria`. Cyrillic output is the only thing
+  that moves — German, Estonian, Greek, `script: :native` and plain accented
+  Latin are byte-identical. Stored slugs are never rewritten. The pin stays
+  three-segment on purpose: a revised romanization table changes slugs that are
+  persisted in URLs and compared for uniqueness, so adopting a minor is a
+  deliberate release decision, not something `mix deps.update` should do.
+- **`mix phoenix_kit.repair`'s footer groups findings by kind and by table**
+  (#701). A severity count does not say what a run is *about*. A few hundred
+  findings on a long-lived database become readable the moment they are grouped —
+  on one real install the new footer showed 97 of 265 findings concentrated in
+  five warehouse tables, the one fact that makes the report actionable, and
+  previously reachable only by reading every line.
+- **The "comment ahead of schema" message no longer overstates the damage**
+  (#701). `highest_fully_present_version/1` is a `take_while`: it stops at the
+  first version with a missing object and never looks higher. Reporting that as
+  "objects since N..comment are missing or diverged" claimed a range the check
+  had not examined — on a real install the headline read **V35..V166** when all
+  that had been established was that V35 was incomplete. The message now names
+  the boundary and states plainly what it does not mean.
+
+### Fixed
+
+- **Module schema migrations were skipped when the migrate step aborted** (#701).
+  A pending core migration raised *before* `run_module_migrations/1`, so no module
+  migration file was ever written — and the error message listed `mix ecto.migrate`
+  **first**, which applied the core chain, exited 0, and left the module's tables
+  where they were. The files are now written before the raise (including when the
+  operator answers "no" at the prompt, which the note says plainly), and the
+  advice leads with `mix phoenix_kit.update --yes`.
+- **`mix phoenix_kit.repair`'s by-table breakdown invented tables out of index
+  names** (#701 post-merge review). The table was parsed as "the segment between
+  the first `:` and the first following `.` or `:`", which four of the manifest's
+  eight object classes satisfy without carrying a table at all —
+  `index:idx_calendar_events_owner_starts_at` was tallied as a table of that
+  name. Against the manifest that is 616 index ids (plus 6 sequences, 3
+  extensions, 2 functions) inventing single-finding rows, versus 161 real tables.
+  Since missing tables come with their missing indexes, the `+N more tables` tail
+  was inflated worst on exactly the runs where an operator is trying to judge how
+  widespread the damage is — the number the feature was added to provide. Only
+  the four table-scoped classes now contribute; deriving a table from an index
+  *name* would be guessing, and those findings stay visible under `by kind`.
+- **The reworded "comment ahead of schema" message named a version that has
+  nothing to be missing** (#701 post-merge review). It derived the first gap as
+  `lower + 1`, but `highest_fully_present_version/1` returns the *`since` of the
+  last consecutive present bucket*, not an ordinal — its own doctest answers `114`
+  for a list whose first absent version is `137`, which rendered as "V115 is the
+  first version whose objects are not all present". Reachable in practice: the
+  bucket list is only contiguous from the migration floor up, and 28 chain
+  versions introduce no manifest object. The first genuinely absent bucket is now
+  read from the presence list.
+- **`mix phoenix_kit.doctor`'s module check dropped unreadable modules when
+  another module was behind** (#701 post-merge review). Its `cond` tested
+  "behind" before "unreadable", so a run with both reported only the first and
+  the unreadable module vanished from the report entirely — the one condition an
+  operator cannot discover any other way, and the reason `StatusReport.next_action/3`
+  and the status tree both surface it first. Both are now reported; the severity
+  stays `:fail`.
+- **The doctor moduledoc's "Checks Performed" list was five checks stale**
+  (#701 post-merge review) — missing UUID Primary Keys, User Dashboard, Sitemap
+  Discoverability, Demo Auth Pages and the new Module Schema Versions. Rebuilt
+  against the order `run/1` actually executes.
+
+## 2.0.0 - 2026-08-10
 
 ### ⚠️ Upgrade requirement — databases below V135 must stop at 1.7.236 first
 
@@ -14,11 +150,27 @@ longer carries the migration modules below it.
   the reported version is at least V135, and only then upgrade to this release.
   The error message names the bridge and the procedure.
 
-Check where you are with `mix phoenix_kit.status` **before** upgrading. Note that
-`{:phoenix_kit, "~> 1.7"}` will resolve to this release on a routine
-`mix deps.update`, so a below-floor host can be moved across the floor without
-having asked to be; the failure is a refused migration, not data loss, and the
-remedy above still applies.
+Check where you are with `mix phoenix_kit.status` **before** upgrading.
+
+**This is why the version is 2.0.0.** Refusing a below-floor install rather than
+migrating it is a breaking upgrade contract, and a major version is what stops a
+host from being carried across the floor by a routine `mix deps.update`: a
+`{:phoenix_kit, "~> 1.7"}` requirement does not resolve to 2.0, so reaching this
+release is now a deliberate act with a chance to read this section first.
+
+### Feature modules need a widened pin before you move to `~> 2.0`
+
+`phoenix_kit_*` packages pin core at `~> 1.7.x`, which does not accept 2.0. So
+`{:phoenix_kit, "~> 2.0"}` alongside a module that has not yet widened its
+requirement is an unsatisfiable dependency: `mix deps.get` fails and names the
+conflict. Each module needs a widened requirement and a patch release; none of
+them call migration internals, so the change is the pin itself.
+
+**If you stay on `{:phoenix_kit, "~> 1.7"}`, nothing changes for you** — that
+requirement does not resolve to 2.0, which is the same property that protects
+below-floor installs. Move your own pin to `~> 2.0` once the modules you use have
+released theirs; until then the failure is a resolver error at `mix deps.get`
+time, not a broken build.
 
 Nothing is rolled back through this release either: a below-floor install cannot
 `down` through it.
@@ -35,6 +187,15 @@ Nothing is rolled back through this release either: a below-floor install cannot
 - **`PhoenixKit.Migrations.BelowFloorError`** (#689) — the explicit refusal
   described above, carrying the database's version, the floor, and the bridge
   release to install. Names 1.7.236 rather than "the last 1.7.x" (#690).
+- **`dev_mailbox_enabled` setting and its toggle** (#697) on
+  `/admin/settings/email-sending` — the section appears only when the resolved
+  transport is the local mailbox, and switching it on states the consequence.
+- **`PhoenixKit.Mailer.resolved_send_path/0`** (#697) — the one answer to "where
+  will this message actually go": `{:integration, uuid}` or
+  `{:mailer, module, adapter}`.
+- **Upload rate limiting** (#697) — `RateLimiter.check_upload_rate_limit/1`,
+  30/min keyed on the **uploading** account (never the attributed owner, which
+  would hand an admin a fresh window per victim uuid).
 - **`mix prerelease`** (#690) — the release gate: locked deps, a production
   compile, `quality.ci`, `deps.audit`, `hex.audit`, docs, `hex.build`, and
   `mix phoenix_kit.release_check` (CHANGELOG heading, migration/version sync,
@@ -76,6 +237,41 @@ Nothing is rolled back through this release either: a below-floor install cannot
 
 ### Changed
 
+- **⚠️ Local dev-mailbox delivery is now opt-in** (#697, issue #687). A stock
+  `mix phx.new` app puts `Swoosh.Adapters.Local` in `dev.exs` and forwards
+  `/dev/mailbox` with **no authentication** — and PhoenixKit sends password-reset,
+  magic-link, confirmation, email-change and invitation mail through it, each
+  carrying a single-use token that exists nowhere else (only its SHA-256 hash is
+  stored). Anyone who could reach the dev server could read those links.
+
+  New setting `dev_mailbox_enabled`, default **off**. While it is off and the
+  resolved transport is the local mailbox, mail is **not** handed to the adapter:
+  recipient, subject and body go to the server log, and the call returns
+  `{:ok, %{suppressed: true, …}}` so auth flows still succeed. The gate sits
+  before the tracking pipeline, so a suppressed message is not recorded as sent.
+  Turn it on for a closed environment at `/admin/settings/email-sending`, or
+  configure a send integration there.
+
+  **The cost, named:** an upgraded dev install stops filling `/dev/mailbox` until
+  someone flips the switch. Every suppressed send says so in the log, the
+  development notice changes visibly, and the settings page carries a banner.
+- **⚠️ `GET /api/files/:uuid/info` now requires authentication** (#697) and
+  answers only for a file the caller owns, or to an Owner/Admin — with an
+  identical `not_found` for a foreign and a missing file, so it is no longer an
+  existence oracle. This is documented host API: a caller using it anonymously,
+  such as a public gallery front-end, must now authenticate.
+- **`Config.mailer_local?/0` resolves the way `deliver_email/2` actually sends**
+  (#697, issue #687). It read `config :phoenix_kit, PhoenixKit.Mailer` alone, so
+  it was wrong in both directions: `false` on a delegation-mode host whose real
+  mailer is Local, and `true` on a host with the installer-written Local block
+  that delegates to a real mailer. New `PhoenixKit.Mailer.resolved_send_path/0`
+  is the single source — default send integration → delegated host mailer →
+  built-in — and anything asking "does mail land in the local mailbox?" must go
+  through it rather than a raw config read.
+- **The development notice no longer links to `/dev/mailbox`** (#697). It was
+  rendered to anonymous visitors on the login, registration, forgot-password and
+  magic-link pages — a signpost for a developer and a map for everyone else. The
+  copy now reflects the gate's state instead.
 - **Slug generation moved onto the `locale_slug` package** (#693) — a new required
   runtime dependency, pure Elixir with no dependencies of its own.
   `PhoenixKit.Utils.Slug` keeps its public shape (`slugify/2`, `transliterate/1`,
@@ -119,6 +315,54 @@ Nothing is rolled back through this release either: a below-floor install cannot
   for seeds, migrations and mix tasks. Not reachable through the shipped UI at
   the time — this closed the second caller before it existed. See also the
   `custom_fields` bypass below, which was the second caller.
+- **`POST /api/upload` and `GET /api/files/:uuid/info` required no
+  authentication** (#697). Both live in a scope that fetches a user but never
+  requires one. Upload took the file owner from `params["user_uuid"]` with the
+  check never written, so an anonymous client could attribute a 100 MB upload —
+  and the variant-processing job it enqueues — to any account. File-info handed
+  out freshly-signed capability URLs for any file uuid to anyone, defeating the
+  signing scheme, and its 200/404 split was a file-existence oracle. Upload now
+  authorizes before touching the body (401 when unauthenticated, the `user_uuid`
+  override honored only for an Owner/Admin, otherwise attributed to the
+  uploader) and is rate-limited at 30/min per account.
+- **`update_user_status/3` and `toggle_user_confirmation/2` wrote for a malformed
+  actor** (#696). Both ended in a catch-all that performed the *unchecked* write.
+  That branch exists for callers with no actor — seeds, mix tasks, and
+  `Users.Referrals` expiring an account — but it also swallowed an `:actor` that
+  was present and the wrong shape: a map decoded from JSON by a host controller,
+  a bare uuid string. `toggle_user_confirmation/2` is the serious one, since its
+  unchecked path clears `confirmed_at` and locks the target out of every
+  confirmation-gated page. Both now use the three-branch shape from
+  `admin_update_user_password/3`. An explicit `actor: nil` still takes the system
+  path, identically in all three.
+- **A never-analyzed table was sized as 0 rows** (#695). `reltuples = -1`
+  (PostgreSQL ≥ 14: never vacuumed or analyzed — a `pg_restore`, a
+  `CREATE TABLE AS`, logical replication, autovacuum off) was collapsed to `0`,
+  so V163's size guard read "small enough, proceed" for a table nobody had ever
+  measured. A restored 200k-row table took `ACCESS EXCLUSIVE` for a full rewrite
+  mid-deploy — the exact event the guard exists to prevent. `estimated_rows/3`
+  now answers `:unknown`, V163 defers on it, and `mix phoenix_kit.repair_uuid`
+  prints "size unknown — never analyzed" rather than "~0 rows" to whoever is
+  sizing a maintenance window.
+- **`mix phoenix_kit.repair --adopt` stamped over a corrupt version comment**
+  (#695). `Repair.Probe` collapsed "no comment" and "unreadable comment" into the
+  same `nil`, so the operator was told the comment was *missing* while the table
+  said `v164`, and adopt overwrote it — destroying the only record of what the
+  last person believed. Unreadable is now its own state and refuses instead.
+- **One flaky catalog read could abort V164 mid-run** (#695). Its post-ADD
+  verification moved to a probe that *raises*, where the check it replaced
+  returned false; V164 has no `rescue` and runs with `@disable_ddl_transaction`,
+  so a single failed read on one of ~70 constraints aborted with earlier repairs
+  already committed and the version comment never stamped, replaying the whole
+  version next time. A probe failure is now one `{:failed, …}` summary line.
+- **`comments_fk_on_delete/1` read a constraint by name alone** (#695), so a
+  CHECK or a foreign key on a different column owning `fk_comments_user_uuid`
+  answered for the real one — an impostor's `confdeltype` of `'n'` read as
+  "already SET NULL, nothing to do" and the genuinely missing foreign key was
+  never created.
+- **`mix phoenix_kit.status --verbose` crashed on an unreadable version comment**
+  (#695) — the non-verbose path reported the state correctly and the same run
+  then died with `CaseClauseError` immediately after printing a correct tree.
 - **A comment-less database reported itself as version 1** (#694). A database
   that is current but has lost its `phoenix_kit` version comment — the
   half-installed or adopted state — resolved to version 1, which is below the
@@ -155,6 +399,23 @@ Nothing is rolled back through this release either: a below-floor install cannot
   stamped two behind, so an install migrated to exactly 165 reported 163 — behind
   where it started — and the next `ensure_current/2` re-ran V164 and V165. A full
   run to head hid it, because V166 stamps immediately afterwards.
+- **The `@` mention typeahead no longer issues ~128 queries per keystroke**
+  (#692 recheck). `Mentions.Users.search/2` over-fetched and then called
+  `Scope.for_user/1` per candidate (roles + permissions each), so a full page of
+  results paid two round trips per row. The admin-area rule is now one SQL
+  `EXISTS` for Owner/Admin and one for any `role_permissions` grant, with the
+  `limit` applied in the database.
+- **Access requests no longer accept free-form type/uuid payloads unthrottled**
+  (#692 recheck). `AccessRequests.request/4` now requires a type registered in
+  `ResourceLinks.handlers/0`, a castable uuid, and a per-account rate limit
+  (10 / 10 minutes) — the partial unique index only stops repeats for the *same*
+  resource.
+- **`ExpectedSchema` knew nothing of V165/V166 objects** (#692 recheck). The
+  schema manifest was still stamped at V164, so `release_check` blocked the
+  release and `repair`/`verify` would have been blind to the two new tables and
+  the comment-attribution columns. V165/V166 objects are now hand-declared
+  (same post-generation path as V164) and `chain_hash` restamped over the 32
+  shipped files.
 - **A record's NAME could inject a markdown link into every mention of it**
   (#692 post-merge review). `to_markdown/2` escapes the value it splices into
   `[text](url)` on the reasoning that the token grammar refuses `]` — true of the

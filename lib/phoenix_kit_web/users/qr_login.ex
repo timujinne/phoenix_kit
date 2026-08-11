@@ -13,6 +13,8 @@ defmodule PhoenixKitWeb.Users.QrLogin do
   """
   use PhoenixKitWeb, :live_view
 
+  require Logger
+
   alias PhoenixKit.Users.QrLogin, as: QrLoginContext
   alias PhoenixKit.Users.RateLimiter
   alias PhoenixKit.Utils.IpAddress
@@ -82,6 +84,17 @@ defmodule PhoenixKitWeb.Users.QrLogin do
       %{state: :waiting, token: ^token} -> {:noreply, Keyfob.Live.expire(socket)}
       _ -> {:noreply, socket}
     end
+  end
+
+  # Defensive, same reasoning as the confirm screen: the auth hooks pass any
+  # message they don't recognise through to the LiveView, and a crash here is
+  # invisible — the client rejoins and reloads, which on the page showing the
+  # QR code looks like the code "not working" rather than like an error. The
+  # two clauses above cover everything known to arrive; this survives the rest
+  # and names it in the log.
+  def handle_info(msg, socket) do
+    Logger.debug("[PhoenixKit.QrLogin] ignoring unexpected message: #{inspect(msg)}")
+    {:noreply, socket}
   end
 
   # Refresh button on an expired code — mint a new one and re-arm the timer.

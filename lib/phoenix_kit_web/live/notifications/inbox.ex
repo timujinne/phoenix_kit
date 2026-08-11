@@ -167,16 +167,29 @@ defmodule PhoenixKitWeb.Live.Notifications.Inbox do
 
   defp relative_time(_), do: ""
 
-  # Group the (already newest-first) rows into contiguous day buckets so a long
-  # history stays scannable. Rows are desc-sorted by inserted_at, so buckets are
-  # contiguous — chunk_by preserves order without a re-sort.
+  # Group the rows into contiguous day buckets so a long history stays
+  # scannable. chunk_by preserves order without a re-sort.
+  #
+  # The chunk key is `{unread?, day}`, not the day alone. `list_for_user/2`
+  # returns unseen first and only then newest-first, so the day sequence
+  # restarts at the seen block — chunking on the day alone emits "Today" once
+  # for the unread run and again for the read one, two identical headers with
+  # a week of history between them, reading as a bug. Chunking on both keeps
+  # every header unique and puts the outstanding work in its own labelled run
+  # at the top, which is the whole point of the order.
   defp grouped(notifications) do
     today = Date.utc_today()
 
     notifications
-    |> Enum.chunk_by(&bucket_key(&1, today))
-    |> Enum.map(fn [first | _] = chunk -> {bucket_label(bucket_key(first, today)), chunk} end)
+    |> Enum.chunk_by(&{is_nil(&1.seen_at), bucket_key(&1, today)})
+    |> Enum.map(fn [first | _] = chunk -> {section_label(first, today), chunk} end)
   end
+
+  defp section_label(%{seen_at: nil} = notification, today) do
+    gettext("Unread · %{day}", day: bucket_label(bucket_key(notification, today)))
+  end
+
+  defp section_label(notification, today), do: bucket_label(bucket_key(notification, today))
 
   defp bucket_key(%{inserted_at: %DateTime{} = dt}, today) do
     case Date.diff(today, DateTime.to_date(dt)) do

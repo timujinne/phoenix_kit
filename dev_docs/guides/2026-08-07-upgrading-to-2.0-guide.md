@@ -2,7 +2,7 @@
 
 2.0 consolidates the versioned migration chain. `V01`..`V134` no longer exist as
 individual modules; `V135` is a generated **baseline** that produces their
-cumulative schema in one step, and `V136`..`V164` remain as ordinary deltas.
+cumulative schema in one step, and `V136`..`V166` remain as ordinary deltas.
 Nothing about your data changes because of the consolidation itself — but this
 release also carries a **repair** for a long-standing defect, and that part does
 change behavior. Read the whole page before upgrading a production database.
@@ -13,7 +13,7 @@ If your database is already at `V135` or above, the baseline never runs: the
 version comment gates it exactly as it gates any other version, so upgrading is
 an ordinary delta run. If your database is **below** `V135`, 2.0 refuses to
 migrate it and tells you so — you must first upgrade on the last `1.7.x`
-release (the **bridge**, `{:phoenix_kit, "~> 1.7.235"}`), which still carries
+release (the **bridge**, `{:phoenix_kit, "~> 1.7.236"}`), which still carries
 the full chain, and only then move the pin to `~> 2.0`. Separately, this
 release repairs schema damage that a migration-ordering defect left on
 essentially every install created by
@@ -29,7 +29,7 @@ same `mix phoenix_kit.update` run; you do not invoke them separately.
 
 ## Step by step
 
-1. **Land on the bridge first.** Pin `{:phoenix_kit, "~> 1.7.235"}` — the last
+1. **Land on the bridge first.** Pin `{:phoenix_kit, "~> 1.7.236"}` — the last
    `1.7.x` release, and the one this guide calls the bridge — run
    `mix phoenix_kit.update`, and confirm the version comment reaches `V135` or
    higher before you touch the `~> 2.0` pin:
@@ -110,7 +110,7 @@ Incrementally-upgraded installs that crossed `V56`/`V57` in separate narrow
 wrappers are unaffected. To see where you stand:
 
 ```sql
--- expect ~86 on a healthy install (measured against a fresh V135..V164 build):
+-- expect ~86 on a healthy install (measured against a fresh V135..V166 build):
 -- 70 are the UUID FK layer this repair targets, the rest are unrelated
 -- fk_-prefixed constraints already present elsewhere in the schema. A much
 -- lower number means the defect hit you.

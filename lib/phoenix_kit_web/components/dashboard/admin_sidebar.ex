@@ -19,7 +19,7 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
   now renders this shell, where before only a permission holder could.
 
   The registry already drops a tab whose `:permission` key the scope does not
-  hold (`Registry.get_tabs/1` → `Tab.permission_granted?/2`) and a tab whose
+  hold (`PhoenixKit.Dashboard.Registry.get_tabs/1` → `Tab.permission_granted?/2`) and a tab whose
   `:visible` function says no. Two gates it does NOT apply are added here:
 
     * `Scope.can_access_admin_area?/1`, the first thing
@@ -136,7 +136,7 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
      here, so a rendered entry and its destination cannot disagree.
 
   An entry with no `live_view:` is left to the registry's own `:permission` /
-  `:visible` filtering — `Registry.get_admin_tabs/1` applies both before the
+  `:visible` filtering — `PhoenixKit.Dashboard.Registry.get_admin_tabs/1` applies both before the
   sidebar calls this. Every tab core ships is of that shape: core declares its
   admin routes in the router rather than on the tab, so there is no module to
   ask, and gate 2 is a structural no-op over core's own menu.

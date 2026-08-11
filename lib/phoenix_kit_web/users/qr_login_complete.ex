@@ -13,14 +13,49 @@ defmodule PhoenixKitWeb.Users.QrLoginComplete do
   """
   use PhoenixKitWeb, :controller
 
+  require Logger
+
   alias PhoenixKit.Users.Auth, as: Users
   alias PhoenixKit.Users.QrLogin, as: QrLoginContext
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth, as: UserAuth
 
+  # Guards ONLY the store call, and only against not answering.
+  #
+  # PR #699 pinned keyfob 0.1.1 because before it an unreachable store made
+  # `consume/2` exit, and this `with` matches return values — so the exit became
+  # a 500 on the finish URL where "this link is invalid or has expired" was both
+  # the honest answer and the same outcome. The pin fixes keyfob's OWN store.
+  # `Keyfob.Store` is a behaviour a host may implement over Redis, a database or
+  # a cluster cache, and #699's own reasoning for guarding `peek/1` is that core
+  # cannot assume a stranger's implementation is total. That argument applies
+  # here unchanged, and here the cost really is the 500 it describes.
+  #
+  # Deliberately NOT wrapped around the whole `with`: `log_in_user/3` writes the
+  # session, and turning a genuine failure there into "invalid or expired" would
+  # hide a real bug behind a message about the token.
+  defp safe_consume(token) do
+    QrLoginContext.consume(token)
+  rescue
+    error ->
+      Logger.warning(
+        "[PhoenixKit.QrLoginComplete] could not consume the token: #{inspect(error)}"
+      )
+
+      :error
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "[PhoenixKit.QrLoginComplete] store did not answer: #{inspect(reason)} — " <>
+          "treating the link as expired"
+      )
+
+      :error
+  end
+
   def complete(conn, %{"token" => token} = params) do
     with true <- QrLoginContext.enabled?(),
-         {:ok, user_uuid} <- QrLoginContext.consume(token),
+         {:ok, user_uuid} <- safe_consume(token),
          %{} = user <- Users.get_user(user_uuid) do
       conn
       # log_in_user/3 reads :user_return_to from the session for its redirect,

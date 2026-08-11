@@ -21,14 +21,12 @@ defmodule PhoenixKit.Mentions.Users do
   import Ecto.Query
 
   alias PhoenixKit.RepoHelper
-  alias PhoenixKit.Users.Auth.{Scope, User}
+  alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Users.Role
+  alias PhoenixKit.Users.RoleAssignment
+  alias PhoenixKit.Users.RolePermission
 
   @default_limit 8
-
-  # How many rows to pull per requested result before the in-memory
-  # permission filter. Bounded so a site with thousands of non-admin
-  # accounts can't turn one keystroke into a full scan.
-  @overfetch 8
 
   defp repo, do: RepoHelper.repo()
 
@@ -37,26 +35,28 @@ defmodule PhoenixKit.Mentions.Users do
 
   An empty query returns a short list of candidates rather than nothing:
   opening the picker with `@` and seeing who is around beats a blank box.
+
+  The admin-area rule is evaluated in SQL (Owner/Admin role, or any
+  `phoenix_kit_role_permissions` grant), not per-row after fetch. The earlier
+  over-fetch + `Scope.for_user/1` filter issued two queries per candidate —
+  up to ~128 round trips per keystroke on a full page of results.
   """
   @spec search(String.t(), keyword()) :: [map()]
   def search(query, opts \\ []) do
     limit = Keyword.get(opts, :limit, @default_limit)
 
-    User
-    # Confirmation is a column, so it belongs in the query. The admin-area
-    # check is not — it walks roles and permissions per user.
-    |> where([u], u.is_active == true and not is_nil(u.confirmed_at))
+    from(u in User, as: :user)
+    |> where([user: u], u.is_active == true and not is_nil(u.confirmed_at))
     |> maybe_match(String.trim(query))
-    |> order_by([u], asc: u.username, asc: u.email)
-    # Over-fetch, because the remaining filter runs in memory: taking
-    # `limit` rows first and filtering after returns an EMPTY list whenever
-    # the first N happen to be non-admins, which looks exactly like "nobody
-    # matches" and is how this was first written.
-    |> limit(^(limit * @overfetch))
+    |> where_pingable()
+    |> order_by([user: u], asc: u.username, asc: u.email)
+    |> limit(^limit)
     |> repo().all()
-    |> Enum.filter(&pingable?/1)
-    |> Enum.take(limit)
     |> Enum.map(&to_result/1)
+  rescue
+    _ -> []
+  catch
+    :exit, _ -> []
   end
 
   defp maybe_match(queryable, ""), do: queryable
@@ -67,7 +67,7 @@ defmodule PhoenixKit.Mentions.Users do
 
     where(
       queryable,
-      [u],
+      [user: u],
       ilike(u.username, ^contains) or ilike(u.first_name, ^contains) or
         ilike(u.last_name, ^contains) or ilike(u.email, ^prefix)
     )
@@ -82,18 +82,35 @@ defmodule PhoenixKit.Mentions.Users do
     |> String.replace("_", "\\_")
   end
 
-  # Confirmation is the line between "this address was typed into a form"
-  # and "a person holds this account".
-  defp pingable?(%User{confirmed_at: nil}), do: false
+  # Mirrors `Scope.can_access_admin_area?/1`: Owner or Admin role, OR any
+  # module-permission grant on any of the user's roles. Pushed into the WHERE
+  # so the typeahead pays one query per keystroke rather than two per
+  # candidate. Floor is V135 (permissions table is V53), so the
+  # role_permissions EXISTS is always against a real table on a current host.
+  defp where_pingable(queryable) do
+    roles = Role.system_roles()
+    privileged = [roles.owner, roles.admin]
 
-  defp pingable?(%User{} = user) do
-    user
-    |> Scope.for_user()
-    |> Scope.can_access_admin_area?()
-  rescue
-    _ -> false
-  catch
-    :exit, _ -> false
+    where(
+      queryable,
+      [user: u],
+      exists(
+        from(ra in RoleAssignment,
+          join: r in Role,
+          on: r.uuid == ra.role_uuid,
+          where: ra.user_uuid == parent_as(:user).uuid and r.name in ^privileged,
+          select: 1
+        )
+      ) or
+        exists(
+          from(rp in RolePermission,
+            join: ra in RoleAssignment,
+            on: ra.role_uuid == rp.role_uuid,
+            where: ra.user_uuid == parent_as(:user).uuid,
+            select: 1
+          )
+        )
+    )
   end
 
   defp to_result(%User{} = user) do
@@ -115,21 +132,4 @@ defmodule PhoenixKit.Mentions.Users do
   """
   @spec display_name(User.t()) :: String.t()
   def display_name(%User{} = user), do: User.display_name(user)
-
-  @doc """
-  Resolves mentioned user uuids to `%{uuid => %{title, path}}` — the
-  `resolve_comment_resources/1` shape, so `@` mentions render through the
-  same `ResourceLinks` path `#` does.
-  """
-  @spec resolve(list()) :: map()
-  def resolve(uuids) do
-    User
-    |> where([u], u.uuid in ^uuids)
-    |> repo().all()
-    |> Map.new(fn user ->
-      {user.uuid, %{title: display_name(user), full_title: display_name(user), path: nil}}
-    end)
-  rescue
-    _ -> %{}
-  end
 end

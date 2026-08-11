@@ -293,6 +293,12 @@ release, but that is a coordinated wave that has to land *before or with* the
 2.0 publish, not after. Publishing 2.0 first strands every host running a
 feature module.
 
+> **This last sentence is wrong** — see "CORRECTION — core publishes FIRST" in
+> the second pass below. Publishing core 2.0.0 first strands nobody: a host on
+> `~> 1.7` cannot resolve to 2.0 at all. Left here as written, because the
+> conclusion it fed into (ship 2.0.0) was reached partly by weighing a cost that
+> does not exist.
+
 (`phoenix_kit_legal` also still owes its unpublished 0.1.10 — worth folding
 into the same wave.)
 
@@ -420,12 +426,66 @@ read the notes. Cost: all seven modules above need a widened pin and a patch
 release, landing *before or with* the publish, or every host running one of them
 has an unsatisfiable dependency.
 
-My read: **1.7.237 is the better trade**, because the below-floor failure is a
-refused migration with a precise remedy, while the 2.0 failure is
-`mix deps.get` refusing to resolve for a host that did nothing wrong. But it is
-only the better trade if the below-floor requirement is impossible to miss in
-the release notes, which is why the CHANGELOG entry written in this pass leads
-with it rather than burying it under the feature list.
+My read at the time: 1.7.237 is the better trade, because the below-floor
+failure is a refused migration with a precise remedy while the 2.0 failure is
+`mix deps.get` refusing to resolve for a host that did nothing wrong.
+
+## DECIDED: 2.0.0 (Tim, 2026-08-10)
+
+The release ships as **2.0.0**, and the module pins are being widened the same
+day so the ecosystem lands with it rather than after it. That removes the cost I
+weighted most heavily — the unsatisfiable-dependency window is coordinated away
+rather than endured — and it restores the property the patch-release route could
+not offer: `{:phoenix_kit, "~> 1.7"}` does not resolve to 2.0, so no below-floor
+host is carried across the floor by a routine `mix deps.update`. Given the pin
+wave is happening anyway, this is the stronger of the two options and the first
+pass's original recommendation was right.
+
+`@version` is `2.0.0` and the CHANGELOG entry is retitled. Two consequences are
+now recorded in the release notes that were not before: the major is *why*
+below-floor hosts are protected, and feature modules need widened pins to
+resolve at all. The earlier "a routine `mix deps.update` can drag a host across
+the floor" warning was true of 1.7.237 and is **false** of 2.0.0 — it has been
+replaced rather than left to mislead.
+
+## CORRECTION — core publishes FIRST, and the pin wave follows
+
+I wrote here, and in the first pass's blocker #7 above, that publishing core
+2.0.0 before the module patch releases "strands every host running a feature
+module" and that the wave must land "before or with" the 2.0 publish. **That is
+wrong.** Max pushed back on it and was right.
+
+Publishing core 2.0.0 first harms nobody, for exactly the reason this release is
+a major in the first place (measured, not assumed):
+
+| Requirement | accepts 1.7.237 | accepts 2.0.0 |
+|---|---|---|
+| `~> 1.7` | ✅ | ❌ |
+| `~> 1.7.189` | ✅ | ❌ |
+| `~> 1.7 and >= 1.7.211` | ✅ | ❌ |
+| `~> 1.7.231 or ~> 2.0` | ✅ | ✅ |
+
+A host on `{:phoenix_kit, "~> 1.7"}` plus any feature module is **untouched** by
+2.0.0 existing on Hex — `mix deps.update --all` cannot pull it. The only host
+affected is one who *deliberately* changes their own requirement to `~> 2.0`
+while a module still pins `~> 1.7.x`, and what they get is a resolver error at
+`mix deps.get` naming the conflict: opt-in, non-destructive, and self-explaining.
+Nothing is stranded, and I had contradicted my own argument two paragraphs
+earlier in the CHANGELOG, where the major's whole justification is that `~> 1.7`
+does not resolve to 2.0.
+
+**And core generally has to go first anyway.** A module cannot be published with
+a bare `{:phoenix_kit, "~> 2.0"}` requirement until 2.0.0 exists on Hex —
+`mix hex.publish` builds the package, and `mix deps.get` cannot resolve a
+requirement no published version satisfies. The one way to invert the order is an
+**OR** pin (`"~> 1.7.231 or ~> 2.0"`), which resolves against 1.7.x today and so
+can ship before core; a module wanting to drop 1.7 support entirely must wait for
+core.
+
+So: **publish core 2.0.0, then the modules.** Cross-repo testing against
+unpublished core is what `PHOENIX_KIT_PATH` / the `pk_dep/3` helper already
+exist for (AGENTS.md, "Local cross-repo development"), so the modules can be
+verified against 2.0 before it is public without needing it on Hex.
 
 ## BLOCKER #6 is still open
 

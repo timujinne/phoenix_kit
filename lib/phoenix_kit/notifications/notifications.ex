@@ -406,7 +406,8 @@ defmodule PhoenixKit.Notifications do
   # ── Reads ────────────────────────────────────────────────────────────
 
   @doc """
-  Returns `{notifications, total_count}` for the given user, newest first.
+  Returns `{notifications, total_count}` for the given user — unseen first,
+  then newest first within each group.
 
   Options:
     * `:page` (default 1) / `:per_page` (default 25)
@@ -430,7 +431,7 @@ defmodule PhoenixKit.Notifications do
 
     rows =
       base_query
-      |> order_by([n], desc: n.inserted_at)
+      |> order_unseen_first()
       |> limit(^per_page)
       |> offset(^((page - 1) * per_page))
       |> repo().all()
@@ -439,10 +440,45 @@ defmodule PhoenixKit.Notifications do
     {rows, total}
   end
 
+  # Unseen first, then newest first inside each group.
+  #
+  # Newest-first alone interleaves the two: read one notification and it stays
+  # where it was, so anything you haven't looked at yet ends up scattered among
+  # things you have. On an inbox of any size that means scrolling the whole
+  # list to find what you missed — the one question a notification centre
+  # exists to answer at a glance.
+  #
+  # Ordering by seen-ness pulls everything outstanding to the top and keeps it
+  # there until you deal with it, which is also why "seen" is only ever set by
+  # an explicit action: nothing moves while you are looking at it.
+  #
+  # `IS NOT NULL` rather than `is_nil(...)` inverted, because false sorts
+  # before true — so unseen (NULL `seen_at`, hence false) comes first without
+  # a negation to read past.
+  #
+  # `uuid` last makes the order total. `inserted_at` is `:utc_datetime`, so
+  # everything fanned out inside the same second ties, and a tie under
+  # LIMIT/OFFSET lets Postgres return a row on two pages or on neither. The
+  # keys are UUIDv7, which is time-ordered, so descending on it agrees with
+  # newest-first instead of scrambling the tied block.
+  defp order_unseen_first(query) do
+    order_by(query, [n],
+      asc: fragment("? IS NOT NULL", n.seen_at),
+      desc: n.inserted_at,
+      desc: n.uuid
+    )
+  end
+
   @doc """
   Returns `{notifications, total_count}` across ALL users, newest first, for the
   admin overview. Recipient and activity(+actor) are preloaded so the admin
   table can show who each notification is for and what it's about.
+
+  Deliberately plain newest-first, unlike the per-user reads: "seen" belongs to
+  the recipient, and an admin scanning everybody's notifications is reading a
+  chronological record, not working through their own inbox. Sorting a shared
+  audit feed by whether somebody else has read each row would reorder it
+  differently for no one's benefit.
 
   Options: `:page` (default 1) / `:per_page` (default 25).
   """
@@ -454,7 +490,10 @@ defmodule PhoenixKit.Notifications do
 
     rows =
       Notification
-      |> order_by([n], desc: n.inserted_at)
+      # `uuid` breaks second-granularity `inserted_at` ties so this offset
+      # paging is stable — see `order_unseen_first/1`. The seen-ness key is
+      # deliberately absent, per the note above.
+      |> order_by([n], desc: n.inserted_at, desc: n.uuid)
       |> limit(^per_page)
       |> offset(^((page - 1) * per_page))
       |> repo().all()
@@ -466,14 +505,20 @@ defmodule PhoenixKit.Notifications do
   end
 
   @doc """
-  Returns the N most-recent undismissed notifications for a user.
+  Returns the N most-recent undismissed notifications for a user, unseen
+  first.
 
   Drives the bell dropdown. Activity (and actor) are preloaded.
+
+  Unseen first matters more here than in the full list: the dropdown shows a
+  handful, so with a plain newest-first order a notification you had already
+  read could push an unread one off the bottom entirely — the badge counts it,
+  and opening the bell doesn't show it.
   """
   def recent_for_user(user_uuid, limit \\ 10) when is_binary(user_uuid) do
     Notification
     |> where([n], n.recipient_uuid == ^user_uuid and is_nil(n.dismissed_at))
-    |> order_by([n], desc: n.inserted_at)
+    |> order_unseen_first()
     |> limit(^limit)
     |> repo().all()
     |> repo().preload(activity: [:actor])

@@ -144,6 +144,41 @@
       </div>
     </.form_section>
 
+    <.form_section
+      :if={@mailbox_local?}
+      title={gettext("Local dev mailbox")}
+      icon="hero-inbox"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext("Where development mail goes while the resolved transport is the local adapter.")}
+      </:subtitle>
+
+      <div :if={@dev_mailbox_enabled} class="alert alert-warning">
+        <.icon name="hero-exclamation-triangle" class="w-5 h-5 shrink-0" />
+        <div class="text-sm">
+          {gettext(
+            "Auth mail carries single-use tokens, and /dev/mailbox has no authentication — anyone who can reach this server can read them. Only for closed environments."
+          )}
+        </div>
+      </div>
+      <div :if={!@dev_mailbox_enabled} class="alert alert-info">
+        <.icon name="hero-information-circle" class="w-5 h-5 shrink-0" />
+        <div class="text-sm">
+          {gettext("The mailbox is off: outgoing mail is written to the server log instead.")}
+        </div>
+      </div>
+
+      <form id="dev-mailbox-form" phx-change="toggle_dev_mailbox">
+        <.checkbox
+          id="dev_mailbox_enabled"
+          name="enabled"
+          checked={@dev_mailbox_enabled}
+          label={gettext("Deliver development mail to /dev/mailbox")}
+        />
+      </form>
+    </.form_section>
+
     <.form_section title={gettext("Default Transactional Integration")} icon="hero-paper-airplane">
       <:subtitle>
         {gettext(

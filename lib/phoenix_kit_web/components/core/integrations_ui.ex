@@ -65,7 +65,13 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationsUI do
   defp gettext_days(1), do: gettext("1 day ago")
   defp gettext_days(n), do: gettext("%{n} days ago", n: n)
 
-  @doc "Simple inline markdown: **bold**, [links](url), `code`, and {variables}."
+  # The link example is in backticks on purpose. Unfenced, ExDoc reads
+  # `[links](url)` as a real markdown link and publishes `<a href="url">`, which
+  # 404s from the hexdocs page — the same class of dead link #700 set out to
+  # remove, and the two "references file \"url\"" warnings it left behind.
+  # Backticked, it renders as the syntax this function accepts, which is what the
+  # sentence is describing anyway.
+  @doc "Simple inline markdown: `**bold**`, `[links](url)`, `` `code` `` and `{variables}`."
   @spec render_markdown_inline(String.t(), map() | keyword()) :: String.t()
   def render_markdown_inline(text, vars) do
     text

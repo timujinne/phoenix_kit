@@ -120,6 +120,12 @@ defmodule PhoenixKit.Settings do
       # login, OAuth — follow, since there's nothing to tick there).
       "remember_me_enabled" => "true",
       "remember_me_default" => "true",
+      # Local dev mailbox (Swoosh.Adapters.Local + /dev/mailbox) is OPT-IN: the
+      # page is unauthenticated by design, and the auth mail it would collect
+      # carries single-use tokens that exist nowhere else (issue #687). Off =
+      # deliver_email/2 writes the message to the server log instead of handing
+      # it to the mailbox.
+      "dev_mailbox_enabled" => "false",
       # Local paths users land on after signing in / registering.
       # after_registration_path empty = fall back to after_login_path.
       "after_login_path" => "/",

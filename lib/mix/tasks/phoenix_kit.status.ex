@@ -16,6 +16,11 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     * `--prefix` - Database schema prefix. When omitted, resolves from
       `config :phoenix_kit, :prefix`, then defaults to "public".
     * `--verbose` - Show detailed diagnostic information
+    * `--exit-code` - Exit non-zero unless `Next` is `Ready`. For deploy scripts
+      and CI, which otherwise cannot tell a clean install from a module sitting
+      four versions behind — the report is identical on stdout either way.
+      Off by default so existing deploys that run this for its log line keep
+      passing.
 
   ## Examples
 
@@ -27,6 +32,9 @@ defmodule Mix.Tasks.PhoenixKit.Status do
 
       # Show detailed diagnostic information
       mix phoenix_kit.status --verbose
+
+      # Fail a deploy when core or any module schema is behind
+      mix phoenix_kit.status --exit-code
 
   ## Sample Output
 
@@ -92,7 +100,8 @@ defmodule Mix.Tasks.PhoenixKit.Status do
 
   @switches [
     prefix: :string,
-    verbose: :boolean
+    verbose: :boolean,
+    exit_code: :boolean
   ]
 
   @aliases [
@@ -119,8 +128,65 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     prefix = PrefixConfig.resolve_prefix(opts)
     verbose = opts[:verbose] || false
 
-    show_comprehensive_status(prefix, verbose)
+    {next_action, modules} = show_comprehensive_status(prefix, verbose)
+    maybe_exit_non_zero(next_action, modules, opts[:exit_code] || false)
   end
+
+  @doc """
+  The process exit status `--exit-code` should produce: `0` only when the
+  install is verifiably ready, `1` otherwise.
+
+  Public because `run/1` is not a unit-test seam (it starts the app and needs a
+  real database) — this is the pure decision behind the flag, in the same shape
+  as `Mix.Tasks.PhoenixKit.Repair.exit_code/1`.
+
+  `modules` is a `PhoenixKit.Migrations.Modules.list/1` result, or `:not_queried`
+  when the database never answered.
+  """
+  @spec exit_code(tuple(), [map()] | :not_queried) :: 0 | 1
+  # Fail closed when the module list was never queried. `next_action/3` maps
+  # {:up_to_date, _} + :not_queried to {:ready, "Ready"}, which is right for a
+  # human reading the tree — the Database row above already says it could not
+  # look — but as a deploy gate it is the exact silent pass this flag exists to
+  # remove. The two reads are independent, so a connection that drops between
+  # them yields a readable core marker and unqueried modules in one run.
+  def exit_code({:ready, _message}, :not_queried), do: 1
+  def exit_code({:ready, _message}, _modules), do: 0
+  def exit_code(_next_action, _modules), do: 1
+
+  # Reporting a gap on stdout and then exiting 0 makes this task unusable as a
+  # deploy gate: a script that restarts the app after it cannot tell "Ready"
+  # from "a module is four versions behind". `--exit-code` is opt-in because
+  # the default is load-bearing the other way — deploys that run this purely
+  # for its log line must not start failing on an upgrade.
+  defp maybe_exit_non_zero(_next_action, _modules, false), do: :ok
+
+  defp maybe_exit_non_zero(next_action, modules, true) do
+    case exit_code(next_action, modules) do
+      0 -> :ok
+      1 -> Mix.raise(exit_message(next_action, modules))
+    end
+  end
+
+  defp exit_message({:ready, _message}, :not_queried) do
+    """
+    PhoenixKit is not verifiably up to date (--exit-code).
+
+      Core reports Ready, but the database did not answer when module schema
+      versions were queried, so a module may be behind and nothing can tell.
+      Re-run mix phoenix_kit.status once the database is reachable.
+    """
+  end
+
+  defp exit_message(next_action, _modules) do
+    """
+    PhoenixKit is not up to date (--exit-code).
+
+      #{strip_ansi(format_next_action(next_action))}
+    """
+  end
+
+  defp strip_ansi(string), do: String.replace(string, ~r/\e\[[0-9;]*m/, "")
 
   # Main status display function
   defp show_comprehensive_status(prefix, verbose) do
@@ -154,6 +220,10 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     end
 
     IO.puts("")
+
+    # `modules` rides along for the `--exit-code` decision: whether the list was
+    # queried at all is not recoverable from `next_action` alone.
+    {next_action, modules}
   end
 
   # ── Module schema versions ──────────────────────────────────────────────────

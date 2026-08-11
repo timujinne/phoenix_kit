@@ -11,6 +11,7 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
       $ mix phoenix_kit.doctor
       $ mix phoenix_kit.doctor --prefix=auth
+      $ mix phoenix_kit.doctor --exit-code
 
   ## Options
 
@@ -18,6 +19,12 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
       `config :phoenix_kit, :prefix`, then `"public"` — the same resolution
       `mix phoenix_kit.update` / `--status` use, so a prefixed install is
       diagnosed against the schema it actually lives in.
+    * `--exit-code` - Exit non-zero when any check FAILED. Without it this task
+      prints "N failures" and still exits 0, so a deploy script that runs it
+      cannot act on the result — the same silent success `mix phoenix_kit.status
+      --exit-code` exists to remove. Warnings never fail the run; they are
+      advisory by construction and several fire on healthy installs. Off by
+      default so deploys that run this purely for its report keep passing.
 
   ## Checks Performed
 
@@ -26,19 +33,24 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     3. **Pool Configuration** — Pool size, checkout timeout, queue settings
     4. **PgBouncer Detection** — Is PgBouncer between app and PostgreSQL?
     5. **Migration State** — PhoenixKit version (COMMENT), schema_migrations alignment
-    6. **Schema Drift** — Columns a migration should have added but the DB lacks
-    7. **Pending Migrations** — Migration files not yet recorded in schema_migrations
-    8. **UUID Column Types** — Detects varchar uuid columns that crash Ecto on startup
-    9. **NULL UUIDs in FK Sources** — Detects NULL uuids that cause infinite backfill loops
-   10. **Orphaned FK References** — Detects orphaned rows that block FK constraint creation
-   11. **Lock Conflicts** — Any blocked or long-running queries?
-   12. **Orphaned Connections** — Idle-in-transaction or stuck connections
-   13. **Oban Configuration** — Queues and plugins that consume pool connections
-   14. **Supervisor Children** — What's running (update_mode vs full)?
-   15. **Child Start Order** — Does the Repo start before PhoenixKit/Oban in application.ex?
-   16. **Update Mode** — Is update_mode active?
-   17. **daisyUI Version** — Is the host's vendored daisyUI recent enough?
-   18. **Manifest Repair (dry-run)** — `PhoenixKit.Migrations.Repair.verify/1`
+    6. **Module Schema Versions** — Modules owning their own chain, vs what their code expects
+    7. **Schema Drift** — Columns a migration should have added but the DB lacks
+    8. **Pending Migrations** — Migration files not yet recorded in schema_migrations
+    9. **UUID Column Types** — Detects varchar uuid columns that crash Ecto on startup
+   10. **UUID Primary Keys** — Detects primary keys that are not the expected uuid type
+   11. **NULL UUIDs in FK Sources** — Detects NULL uuids that cause infinite backfill loops
+   12. **Orphaned FK References** — Detects orphaned rows that block FK constraint creation
+   13. **Lock Conflicts** — Any blocked or long-running queries?
+   14. **Orphaned Connections** — Idle-in-transaction or stuck connections
+   15. **Oban Configuration** — Queues and plugins that consume pool connections
+   16. **PhoenixKit Supervisor** — What's running (update_mode vs full)?
+   17. **Child Start Order** — Does the Repo start before PhoenixKit/Oban in application.ex?
+   18. **Update Mode** — Is update_mode active?
+   19. **daisyUI Version** — Is the host's vendored daisyUI recent enough?
+   20. **User Dashboard (deprecated)** — Is the host still on the retired dashboard?
+   21. **Sitemap Discoverability** — Is the sitemap actually reachable?
+   22. **Demo Auth Pages** — Are the demo auth routes still exposed?
+   23. **Manifest Repair (dry-run)** — `PhoenixKit.Migrations.Repair.verify/1`
        runs read-only against the generated
        `PhoenixKit.Migrations.ExpectedSchema` manifest as an additional,
        non-fatal check (never `:fail`). Passes and says so if the manifest
@@ -50,6 +62,7 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
   alias PhoenixKit.Install.ChildOrder
   alias PhoenixKit.Install.PrefixConfig
   alias PhoenixKit.Migrations.ExpectedSchema.Resolver
+  alias PhoenixKit.Migrations.Modules, as: MigrationModules
   alias PhoenixKit.Migrations.Postgres
   alias PhoenixKit.Migrations.Repair
   alias PhoenixKit.Migrations.Repair.Report
@@ -57,7 +70,7 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
   @shortdoc "Diagnoses PhoenixKit installation, migration, and runtime issues"
 
-  @switches [prefix: :string]
+  @switches [prefix: :string, exit_code: :boolean]
   @aliases [p: :prefix]
 
   # The longest timeout/1 any worker PhoenixKit ships declares
@@ -96,6 +109,7 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
       run_check("Pool Configuration", fn -> check_pool_config() end),
       run_check("PgBouncer Detection", fn -> check_pgbouncer() end),
       run_check("Migration State", fn -> check_migration_state(prefix) end),
+      run_check("Module Schema Versions", fn -> check_module_schema_versions(prefix) end),
       run_check("Schema Drift", fn -> check_schema_drift(prefix) end),
       run_check("Pending Migrations", fn -> check_pending_migrations() end),
       run_check("UUID Column Types", fn -> check_uuid_column_types(prefix) end),
@@ -117,6 +131,44 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
     IO.puts("")
     summary(results)
+    maybe_halt(results, opts[:exit_code] || false)
+  end
+
+  @doc """
+  The process exit status `--exit-code` should produce: `1` when any check
+  failed, `0` otherwise.
+
+  Public because `run/1` is not a unit-test seam (it starts the app and needs a
+  real database) — this is the pure decision behind the flag, in the same shape
+  as `Mix.Tasks.PhoenixKit.Status.exit_code/2` and
+  `Mix.Tasks.PhoenixKit.Repair.exit_code/1`.
+
+  Only `:fail` gates. A `:warn` is advisory by construction — several fire on
+  perfectly healthy installs (a capped pool under `update_mode`, an unreadable
+  `application.ex`) — and gating on them would make the flag unusable, which is
+  how a task ends up back at "reports a problem and exits 0".
+  """
+  @spec exit_code([{String.t(), {:pass | :warn | :fail, String.t()}}]) :: 0 | 1
+  def exit_code(results) do
+    if Enum.any?(results, fn {_name, {status, _detail}} -> status == :fail end), do: 1, else: 0
+  end
+
+  # Printing "N failures" and exiting 0 makes this task unusable as a deploy
+  # gate — and it now owns a check (Module Schema Versions) whose whole point is
+  # to catch an install nothing else reports on. Opt-in for the same reason
+  # `mix phoenix_kit.status --exit-code` is: an existing pipeline that runs
+  # doctor for its report must not start failing on an upgrade.
+  #
+  # `exit({:shutdown, code})` rather than `Mix.raise/1`, matching
+  # `mix phoenix_kit.repair`: the failures are already printed above in full,
+  # and re-raising would bury them under a second copy.
+  defp maybe_halt(_results, false), do: :ok
+
+  defp maybe_halt(results, true) do
+    case exit_code(results) do
+      0 -> :ok
+      1 -> exit({:shutdown, 1})
+    end
   end
 
   # ── Check implementations (return {:pass|:warn|:fail, detail}) ──────
@@ -275,6 +327,54 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     {150, "phoenix_kit_users_tokens", "browser"},
     {150, "phoenix_kit_users_tokens", "os"}
   ]
+
+  # Core's marker says nothing about a module that owns its own chain, so every
+  # check above can pass while a module's tables sit versions behind the code
+  # querying them. That gap presents as an undefined-column 500 on the module's
+  # admin page — no migration error, and `doctor` previously gave the install a
+  # clean bill of health, which is the worst possible moment to be reassuring.
+  defp check_module_schema_versions(prefix) do
+    modules = MigrationModules.list(prefix: prefix)
+
+    failed = MigrationModules.failed(modules)
+    pending = MigrationModules.pending(modules)
+
+    cond do
+      modules == [] ->
+        {:pass, "No installed module owns migrations."}
+
+      pending != [] ->
+        {:fail,
+         "Behind: #{describe_module_versions(pending)}#{unreadable_suffix(failed)}. " <>
+           "Run mix phoenix_kit.update --yes (mix ecto.migrate alone does not write these)."}
+
+      failed != [] ->
+        {:warn,
+         "Version unreadable for #{Enum.map_join(failed, ", ", & &1.name)} — " <>
+           "their tables may be behind and nothing can tell. See mix phoenix_kit.status --verbose."}
+
+      true ->
+        {:pass, "#{length(modules)} module(s), all at the version their code expects."}
+    end
+  end
+
+  defp describe_module_versions(entries) do
+    Enum.map_join(entries, ", ", fn entry ->
+      "#{entry.name} V#{entry.installed} (code expects V#{entry.target})"
+    end)
+  end
+
+  # Behind and unreadable are not alternatives — one run can hold both, and the
+  # `cond` above reaches the `failed` branch only when nothing is pending. Left
+  # to it, an install with one module behind and another whose coordinator
+  # raised reported only the first, and the unreadable module vanished from the
+  # report entirely. It is the one an operator cannot discover any other way,
+  # which is why `StatusReport.next_action/3` and the status tree both surface
+  # it first; the severity stays `:fail` because a behind module is actionable.
+  defp unreadable_suffix([]), do: ""
+
+  defp unreadable_suffix(failed),
+    do: "; version unreadable for #{Enum.map_join(failed, ", ", & &1.name)}"
 
   defp check_schema_drift(prefix) do
     repo = get_repo!()

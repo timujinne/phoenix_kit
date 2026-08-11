@@ -33,15 +33,31 @@ defmodule PhoenixKitWeb.Components.Core.DevNotice do
   attr :class, :string, default: "mt-4"
 
   def dev_mailbox_notice(assigns) do
+    assigns = assign(assigns, :mailbox_enabled, mailbox_enabled?())
+
     ~H"""
     <div :if={Config.mailer_local?()} class={["alert alert-info text-sm", @class]}>
       <.icon name="hero-information-circle" class="stroke-current shrink-0 h-6 w-6" />
-      <span>
-        Development mode: Check
-        <.link href="/dev/mailbox" class="font-semibold underline">mailbox</.link>
-        for {@message}
+      <span :if={@mailbox_enabled}>
+        Development mode: check the local mailbox for {@message}
+      </span>
+      <span :if={!@mailbox_enabled}>
+        Development mode: outgoing email is written to the server log
       </span>
     </div>
     """
+  end
+
+  # This renders on the public auth pages: a dead database must read as
+  # "mailbox closed", never break the page. Deliberately NO link to
+  # /dev/mailbox in either branch — the page is unauthenticated, and an
+  # anchor on the exact pages that trigger token mail is a map for
+  # strangers, not just a convenience for the developer (issue #687).
+  defp mailbox_enabled? do
+    PhoenixKit.Settings.get_boolean_setting("dev_mailbox_enabled", false)
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 end

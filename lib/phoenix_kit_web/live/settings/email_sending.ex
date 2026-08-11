@@ -20,7 +20,7 @@ defmodule PhoenixKitWeb.Live.Settings.EmailSending do
   ## Module-contributed sections
 
   Modules can extend this page without the core page knowing anything
-  about them, via `PhoenixKit.Module.email_settings_sections/0` — see
+  about them, via `c:PhoenixKit.Module.email_settings_sections/0` — see
   `PhoenixKit.ModuleRegistry.all_email_settings_sections/0`. Each
   section is a module-owned `Phoenix.LiveComponent`, rendered below the
   core sections, gated by its declared permission (or shown to any admin
@@ -57,6 +57,7 @@ defmodule PhoenixKitWeb.Live.Settings.EmailSending do
       |> assign_transport_info()
       |> assign_email_integrations()
       |> assign_default_integration()
+      |> assign_dev_mailbox()
       |> assign_email_settings_sections()
 
     {:ok, socket}
@@ -109,6 +110,30 @@ defmodule PhoenixKitWeb.Live.Settings.EmailSending do
       {:error, _changeset} ->
         {:noreply,
          put_flash(socket, :error, gettext("Could not update default send integration"))}
+    end
+  end
+
+  def handle_event("toggle_dev_mailbox", %{"enabled" => enabled}, socket) do
+    value = if enabled == "true", do: "true", else: "false"
+
+    case Settings.update_setting("dev_mailbox_enabled", value) do
+      {:ok, _} ->
+        message =
+          if value == "true" do
+            gettext(
+              "Local mailbox enabled — tokens in auth mail are now readable at /dev/mailbox"
+            )
+          else
+            gettext("Local mailbox disabled — outgoing dev mail goes to the server log")
+          end
+
+        {:noreply,
+         socket
+         |> put_flash(:info, message)
+         |> assign_dev_mailbox()}
+
+      {:error, _changeset} ->
+        {:noreply, put_flash(socket, :error, gettext("Could not update the mailbox setting"))}
     end
   end
 
@@ -238,6 +263,17 @@ defmodule PhoenixKitWeb.Live.Settings.EmailSending do
       :default_integration_uuid,
       Settings.get_setting(@default_integration_setting, "")
     )
+  end
+
+  # The section only exists when mail would actually land in the local
+  # mailbox — the resolution must match deliver_email/2, not a raw config
+  # read (issue #687). mailer_local?/0 is that resolution plus the
+  # rescue/catch guard, so a dead pool degrades to a hidden section
+  # instead of a crashed mount.
+  defp assign_dev_mailbox(socket) do
+    socket
+    |> assign(:mailbox_local?, Config.mailer_local?())
+    |> assign(:dev_mailbox_enabled, Settings.get_boolean_setting("dev_mailbox_enabled", false))
   end
 
   defp assign_email_settings_sections(socket) do

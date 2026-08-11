@@ -13,6 +13,8 @@ defmodule PhoenixKitWeb.Users.QrLoginConfirm do
   """
   use PhoenixKitWeb, :live_view
 
+  require Logger
+
   alias PhoenixKit.Users.QrLogin, as: QrLoginContext
   alias PhoenixKit.Utils.Routes
 
@@ -23,38 +25,91 @@ defmodule PhoenixKitWeb.Users.QrLoginConfirm do
       |> assign(:project_title, PhoenixKit.Settings.get_project_title())
       |> assign(:page_title, gettext("Approve sign-in"))
 
-    cond do
-      # Disabling the setting must act as an immediate kill switch — even
-      # for a request minted while it was on.
-      not QrLoginContext.enabled?() ->
-        {:ok,
-         socket
-         |> put_flash(:error, gettext("QR code sign-in is not available."))
-         |> redirect(
-           to:
-             Routes.safe_destination(socket,
-               scope: socket.assigns[:phoenix_kit_current_scope]
-             )
-         )}
-
-      # peek/2 is a read-only, idempotent ETS lookup, but gate it behind
-      # connected? anyway so a future non-ETS (e.g. DB/Redis) keyfob store
-      # doesn't get queried on both the dead and the connected mount.
-      connected?(socket) ->
-        {state, meta} =
-          case QrLoginContext.peek(token) do
-            {:ok, %{state: :pending, meta: meta}} -> {:pending, meta}
-            {:ok, %{state: :approved, meta: meta}} -> {:approved, meta}
-            # not_found / expired both present as "expired" to the user —
-            # the code is no longer actionable either way.
-            _ -> {:expired, %{}}
-          end
-
-        {:ok, socket |> assign(:kf_state, state) |> assign(:meta, meta)}
-
-      true ->
-        {:ok, socket |> assign(:kf_state, :pending) |> assign(:meta, %{})}
+    # Disabling the setting must act as an immediate kill switch — even for a
+    # request minted while it was on.
+    if QrLoginContext.enabled?() do
+      # Looked up on the dead render as well as the connected one.
+      #
+      # This used to be gated behind `connected?` so a future non-ETS (DB /
+      # Redis) keyfob store wouldn't be queried twice per mount. That saved
+      # one read of a read-only, idempotent lookup, and cost the thing this
+      # screen exists for: the disconnected render assigned `meta: %{}`, and
+      # every row in the device panel is behind a presence guard, so the
+      # panel came up EMPTY while the heading, the warning and both buttons
+      # rendered fully and looked ready.
+      #
+      # So the one screen whose whole job is "here is the device asking to
+      # sign in as you — is this you?" presented a complete, confident
+      # approval prompt with the identifying information silently missing.
+      # Usually that window is too short to notice; behind a proxy that does
+      # not forward the WebSocket upgrade cleanly it lasts as long as the
+      # transport takes to fall back, and it is paid again on every remount.
+      # Training people to approve before the details arrive defeats the
+      # defense this page is.
+      #
+      # One extra read is the cheaper side of that trade by a wide margin.
+      {state, meta} = look_up(token)
+      {:ok, socket |> assign(:kf_state, state) |> assign(:meta, meta)}
+    else
+      {:ok,
+       socket
+       |> put_flash(:error, gettext("QR code sign-in is not available."))
+       |> redirect(
+         to: Routes.safe_destination(socket, scope: socket.assigns[:phoenix_kit_current_scope])
+       )}
     end
+  end
+
+  # The `case` matches return values, so a store that RAISES instead of
+  # answering would go straight past it — and this runs on the disconnected
+  # render, where that is a 500 page rather than a LiveView that quietly
+  # remounts.
+  #
+  # keyfob's own store no longer does that (0.1.1 made its reads total, which
+  # is why the dependency is pinned there). But `Keyfob.Store` is a behaviour
+  # a host may implement over anything — Redis, a database, a cluster-wide
+  # cache — and the one thing every one of those has in common is that it can
+  # be unreachable in ways ETS cannot. Core cannot assume a stranger's
+  # implementation is total.
+  #
+  # A store that cannot answer means the request is not actionable, which is
+  # what "expired" already tells the user — so say that, and log the reason
+  # rather than showing them a stack trace.
+  @doc false
+  # Public only so the raise path can be tested directly.
+  def look_up(token) do
+    case QrLoginContext.peek(token) do
+      {:ok, %{state: :pending, meta: meta}} -> {:pending, meta}
+      {:ok, %{state: :approved, meta: meta}} -> {:approved, meta}
+      # not_found / expired both present as "expired" to the user — the code
+      # is no longer actionable either way.
+      _ -> {:expired, %{}}
+    end
+  rescue
+    error ->
+      Logger.warning("[PhoenixKit.QrLoginConfirm] could not read the request: #{inspect(error)}")
+      {:expired, %{}}
+  catch
+    # `rescue` alone does not cover this, and this is the shape the failure
+    # actually takes. The comment above is right that a host `Keyfob.Store`
+    # over Redis or a database "can be unreachable in ways ETS cannot" — and
+    # the way those stores are reached is a `GenServer.call`, which EXITS
+    # (`:noproc` when the process is gone, `:timeout` when it is wedged)
+    # rather than raising. This module's own dependency note says so in as
+    # many words: before keyfob 0.1.1 an unreachable store made its reads
+    # raise "and its GenServer-backed calls EXIT".
+    #
+    # So the guard covered one of the two failure modes it was added for, and
+    # the uncovered one is the more likely of the pair for exactly the
+    # third-party stores the guard exists to survive — on the dead render,
+    # where the comment above notes the cost is a 500 page.
+    :exit, reason ->
+      Logger.warning(
+        "[PhoenixKit.QrLoginConfirm] store did not answer: #{inspect(reason)} — " <>
+          "presenting the request as expired"
+      )
+
+      {:expired, %{}}
   end
 
   def handle_event("keyfob_approve", _params, socket) do
@@ -86,6 +141,40 @@ defmodule PhoenixKitWeb.Users.QrLoginConfirm do
     QrLoginContext.deny(socket.assigns.token)
     {:noreply, assign(socket, :kf_state, :denied)}
   end
+
+  # Defensive, and the reason is specific to this page.
+  #
+  # It is an authenticated mount, so the auth `on_mount` subscribes it to that
+  # user's scope topic, and every one of those hooks passes a message it does
+  # not recognise through to the LiveView (`{:cont, socket}`). This module had
+  # no `handle_info` at all, so any such message was a FunctionClauseError —
+  # and a LiveView that crashes here does not fail visibly. The client rejoins
+  # and reloads the page, which on the approval screen looks like the scan
+  # "not working" rather than like an error.
+  #
+  # Nothing is known to send one today. That is exactly why it costs nothing
+  # to survive, and the log line names the message if something ever does.
+  def handle_info(msg, socket) do
+    Logger.debug("[PhoenixKit.QrLoginConfirm] ignoring unexpected message: #{inspect(msg)}")
+    {:noreply, socket}
+  end
+
+  @doc false
+  # Does this request carry anything that actually identifies the device?
+  #
+  # `requested_at` is stamped for every request, so its presence says nothing
+  # about whether we know WHO is asking — only these four do, and every one of
+  # them is absent when the underlying connect-info or geo lookup is
+  # unavailable.
+  #
+  # Public only so it can be tested directly: it decides whether this screen
+  # shows a bare empty panel or says the device could not be determined, and
+  # reaching it through a full render drags in settings and a database.
+  def identifying_details?(meta) do
+    Enum.any?([:browser, :os, :ip, :location], &present?(Map.get(meta, &1)))
+  end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   # A no-longer-pending request (expired / consumed / already approved on
   # another device) renders as "expired"; a genuine deny is separate.

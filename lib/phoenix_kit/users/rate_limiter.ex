@@ -88,6 +88,11 @@ defmodule PhoenixKit.Users.RateLimiter do
     # QR login request creation: 10 per minute per IP (pre-auth, no email to key on)
     qr_login_limit: 10,
     qr_login_window_ms: 60_000,
+    # File upload: 30 per minute per account. The endpoint requires auth, so an
+    # account is always available to key on; this bounds storage/queue abuse by
+    # an authenticated user without impeding a normal media-browser session.
+    upload_limit: 30,
+    upload_window_ms: 60_000,
     # Referral code validation: 20 per minute per IP. Pre-auth and IP-only —
     # there is no account to key on, and the point is to stop an anonymous
     # visitor searching the code space. Generous enough that a real person
@@ -99,7 +104,13 @@ defmodule PhoenixKit.Users.RateLimiter do
     # fresh IP-keyed bucket — the account limit is the one that actually bounds
     # how much of the code space a determined attacker can sweep.
     referral_redemption_limit: 10,
-    referral_redemption_window_ms: 600_000
+    referral_redemption_window_ms: 600_000,
+    # Access requests from redacted mentions: 10 per 10 minutes per ACCOUNT.
+    # The partial unique index already stops repeat asks for the *same*
+    # resource; this caps how many distinct invented uuids one client can
+    # spam into the activity feed / admin queue.
+    access_request_limit: 10,
+    access_request_window_ms: 600_000
   ]
 
   @doc """
@@ -151,6 +162,35 @@ defmodule PhoenixKit.Users.RateLimiter do
 
       {:error, :rate_limit_exceeded} = error ->
         log_rate_limit_violation("login", "email:#{email}", limit, window)
+        error
+    end
+  end
+
+  @doc """
+  Checks whether file uploads are within rate limit, keyed on the uploading
+  account. `POST /api/upload` requires authentication (see
+  `PhoenixKitWeb.UploadController.resolve_upload_user/2`), so there is always an
+  account to key on; this bounds storage-exhaustion and Oban-queue abuse by an
+  authenticated user.
+
+  ## Examples
+
+      iex> PhoenixKit.Users.RateLimiter.check_upload_rate_limit(user_uuid)
+      :ok
+  """
+  def check_upload_rate_limit(user_uuid) when is_binary(user_uuid) do
+    config = get_config()
+
+    key = "storage:upload:#{user_uuid}"
+    limit = Keyword.get(config, :upload_limit)
+    window = Keyword.get(config, :upload_window_ms)
+
+    case check_rate_limit(key, window, limit) do
+      :ok ->
+        :ok
+
+      {:error, :rate_limit_exceeded} = error ->
+        log_rate_limit_violation("upload", user_uuid, limit, window)
         error
     end
   end
@@ -409,6 +449,39 @@ defmodule PhoenixKit.Users.RateLimiter do
   end
 
   def check_referral_redemption_rate_limit(_), do: :ok
+
+  @doc """
+  Checks if a logged-in account's mention access-request submissions are
+  within limit.
+
+  Keyed on the account: the request path is post-login, and the partial
+  unique index only bounds repeats for one resource. Without a per-account
+  limit a client can invent distinct uuids and fill the activity feed one
+  row at a time.
+
+  ## Examples
+
+      iex> PhoenixKit.Users.RateLimiter.check_access_request_rate_limit("0193a5e4-0000-7000-8000-000000000001")
+      :ok
+  """
+  def check_access_request_rate_limit(user_uuid) when is_binary(user_uuid) do
+    config = get_config()
+
+    key = "mentions:access_request:user:#{user_uuid}"
+    limit = Keyword.get(config, :access_request_limit)
+    window = Keyword.get(config, :access_request_window_ms)
+
+    case check_rate_limit(key, window, limit) do
+      :ok ->
+        :ok
+
+      {:error, :rate_limit_exceeded} = error ->
+        log_rate_limit_violation("access_request", "user:#{user_uuid}", limit, window)
+        error
+    end
+  end
+
+  def check_access_request_rate_limit(_), do: :ok
 
   @doc """
   Resets rate limit for a specific action and identifier.

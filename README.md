@@ -29,7 +29,7 @@ mix igniter.install phoenix_kit
 
 This will automatically:
 
-- Add `{:phoenix_kit, "~> 1.7"}` to your `mix.exs` and fetch deps
+- Add `{:phoenix_kit, "~> 2.0"}` to your `mix.exs` and fetch deps
 - Auto-detect your Ecto repository
 - **Validate PostgreSQL compatibility** with adapter detection
 - Generate migration files for authentication tables
@@ -61,6 +61,37 @@ resolved transitively:
 Without `rustler` present the build fails with a compilation error from
 `mdex_native` rather than anything naming PhoenixKit, which is why this is
 worth stating up front.
+
+## Upgrading to 2.0
+
+**New installs need nothing from this section.**
+
+2.0 consolidates the migration chain: `V01`..`V134` no longer exist as
+individual modules, and `V135` is a baseline that produces their cumulative
+schema in one step.
+
+- **Database already at `V135` or above** — nothing special. The baseline is
+  gated by the version comment exactly like any other version, so this is an
+  ordinary delta run.
+- **Database below `V135`** — 2.0 **refuses to migrate it** and says so with a
+  `BelowFloorError` rather than doing anything silently. Land on the last
+  `1.7.x` release first, which still carries the full chain:
+
+  ```elixir
+  {:phoenix_kit, "~> 1.7.236"}   # the bridge
+  ```
+
+  Run `mix phoenix_kit.update`, confirm the version comment has reached `V135`
+  or higher, and only then move the pin to `~> 2.0`.
+
+2.0 also repairs schema damage left by a long-standing migration-ordering
+defect that affected essentially every install created by
+`mix phoenix_kit.install`. One consequence changes behavior you may rely on:
+the comments foreign key is corrected from `ON DELETE CASCADE` to
+`ON DELETE SET NULL`, so deleting a user no longer deletes their comments.
+
+Read the full guide before upgrading a production database:
+[Upgrading to PhoenixKit 2.0](https://github.com/BeamLabEU/phoenix_kit/blob/main/dev_docs/guides/2026-08-07-upgrading-to-2.0-guide.md).
 
 ## 📦 Current PhoenixKit Features / Modules:
 
@@ -251,7 +282,7 @@ an optional dep is not resolved transitively:
 # mix.exs
 def deps do
   [
-    {:phoenix_kit, "~> 1.7"},
+    {:phoenix_kit, "~> 2.0"},
     {:igniter, "~> 0.7", only: [:dev, :test]}
   ]
 end
@@ -280,7 +311,7 @@ detects the change and recompiles itself, so the tasks appear without a manual
 
 For full control, skip the installer entirely:
 
-1. Add `{:phoenix_kit, "~> 1.7"}` to `mix.exs`
+1. Add `{:phoenix_kit, "~> 2.0"}` to `mix.exs`
 2. Run `mix deps.get && mix phoenix_kit.gen.migration`
 3. Configure repository: `config :phoenix_kit, repo: MyApp.Repo`
 4. Add `phoenix_kit_routes()` to your router
