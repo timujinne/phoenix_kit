@@ -28,7 +28,7 @@ defmodule PhoenixKit.Integration.Sitemap.DomainGenerationTest do
   setup do
     {:ok, _} = Settings.update_boolean_setting("sitemap_enabled", true)
     {:ok, _} = Settings.update_setting("site_url", @base_url)
-    {:ok, _} = Settings.update_boolean_setting("seo_no_index", false)
+    {:ok, _} = Settings.update_boolean_setting("crawlers_no_index", false)
 
     Application.put_env(:phoenix_kit, :sitemap_domains_provider, {Stub, :domains})
 
@@ -61,7 +61,7 @@ defmodule PhoenixKit.Integration.Sitemap.DomainGenerationTest do
   end
 
   test "noindex publishes empty urlsets per host" do
-    {:ok, _} = Settings.update_boolean_setting("seo_no_index", true)
+    {:ok, _} = Settings.update_boolean_setting("crawlers_no_index", true)
     assert {:ok, %{total_urls: 0}} = Generator.generate_all(base_url: @base_url)
 
     {:ok, com_path} = FileStorage.domain_file_path("gen.example.com")
