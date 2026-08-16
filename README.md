@@ -601,7 +601,7 @@ PhoenixKitAI.disable_system()
 - `{prefix}/admin/settings/languages` - Multi-language configuration
 - `{prefix}/admin/settings/media` - Storage buckets and image dimensions
 - `{prefix}/admin/settings/sitemap` - Sitemap generation settings
-- `{prefix}/admin/settings/seo` - SEO configuration
+- `{prefix}/admin/settings/crawlers` - Crawler / bot-policy configuration
 
 ## Architecture
 

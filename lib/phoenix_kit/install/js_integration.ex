@@ -40,6 +40,8 @@ defmodule PhoenixKit.Install.JsIntegration do
   @modules_filename "phoenix_kit_modules.js"
   @modules_script_marker "<!-- PhoenixKit Module Hooks -->"
 
+  @bootstrap_marker "<%!-- PhoenixKit theme bootstrap: pre-paint theme stamp --%>"
+
   @doc """
   Copies phoenix_kit.js to the parent app's static vendor directory and
   adds a script tag to the root layout.
@@ -52,6 +54,112 @@ defmodule PhoenixKit.Install.JsIntegration do
     |> add_script_tag_to_layout()
     |> add_hooks_to_app_js()
     |> ensure_module_js_integration()
+    |> ensure_theme_bootstrap()
+  end
+
+  @doc """
+  Ensures the host root layout stamps the saved theme before first paint.
+
+  Renders `PhoenixKitWeb.Components.ThemeBootstrap` at the top of `<head>`.
+  Without it, admin pages served under the host's root layout paint in the
+  default theme and swap after load — the one page class the kit's own
+  layouts (which all render the bootstrap themselves) cannot cover.
+
+  Skipped when the layout already renders the component. A stock
+  `phx:theme` script (phx.new 1.8) is NOT a substitute: it treats
+  `"system"` as "remove `data-theme`", which is how branded hosts flashed
+  daisyUI's default over the configured pair. Those layouts still get
+  the bootstrap, injected just before `</head>` so it runs *after* the
+  stock script and the configured pair wins.
+
+  Safe to run multiple times (idempotent). Called from both install and
+  `mix phoenix_kit.update`, so existing hosts pick it up on upgrade.
+  """
+  def ensure_theme_bootstrap(igniter) do
+    layout_paths = [
+      "lib/#{Mix.Phoenix.otp_app()}_web/components/layouts/root.html.heex",
+      "lib/#{Mix.Phoenix.otp_app()}_web/templates/layout/root.html.heex"
+    ]
+
+    case find_existing_file(layout_paths) do
+      {:ok, layout_path} ->
+        content = File.read!(layout_path)
+
+        case theme_bootstrap_plan(content) do
+          :already_present -> igniter
+          _ -> inject_theme_bootstrap(igniter, layout_path, content)
+        end
+
+      {:error, :not_found} ->
+        Igniter.add_notice(
+          igniter,
+          """
+          ⚠️  Could not find root layout. To avoid a theme flash on first paint,
+          render this at the top of <head>:
+
+              #{@bootstrap_marker}
+              <PhoenixKitWeb.Components.ThemeBootstrap.theme_bootstrap />
+          """
+        )
+    end
+  end
+
+  # Where the bootstrap should land. Public so the two placement rules
+  # (skip if already present; after a stock phx:theme script, not before)
+  # can be asserted without writing a host layout to disk.
+  @doc false
+  def theme_bootstrap_plan(content) when is_binary(content) do
+    cond do
+      String.contains?(content, "ThemeBootstrap") -> :already_present
+      String.contains?(content, "phx:theme") -> :before_head_close
+      true -> :top_of_head
+    end
+  end
+
+  # Pure half of the write — returns the updated HTML, or the original
+  # when there is nowhere to land. The `<head>` matcher must not also
+  # match `<header>`.
+  @doc false
+  def inject_theme_bootstrap_into(content) when is_binary(content) do
+    block = """
+        #{@bootstrap_marker}
+        <PhoenixKitWeb.Components.ThemeBootstrap.theme_bootstrap />\
+    """
+
+    case theme_bootstrap_plan(content) do
+      :before_head_close ->
+        String.replace(content, "</head>", "    #{block}\n  </head>", global: false)
+
+      :top_of_head ->
+        String.replace(content, ~r{(<head(?:\s[^>]*)?>)}, "\\1\n#{block}", global: false)
+
+      :already_present ->
+        content
+    end
+  end
+
+  defp inject_theme_bootstrap(igniter, layout_path, content) do
+    updated = inject_theme_bootstrap_into(content)
+
+    if updated != content do
+      File.write!(layout_path, updated)
+
+      Igniter.add_notice(
+        igniter,
+        "✅ Added the PhoenixKit theme bootstrap (pre-paint theme stamp) to #{layout_path}"
+      )
+    else
+      Igniter.add_warning(
+        igniter,
+        """
+        ⚠️  Could not automatically add the theme bootstrap to #{layout_path}.
+        To avoid a theme flash on first paint, render this at the top of <head>:
+
+            #{@bootstrap_marker}
+            <PhoenixKitWeb.Components.ThemeBootstrap.theme_bootstrap />
+        """
+      )
+    end
   end
 
   @doc """

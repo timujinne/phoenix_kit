@@ -80,9 +80,9 @@
           <.section_header icon="hero-paint-brush" title={gettext("Login Page Branding")} />
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">
+                <span class="fieldset-legend text-base font-medium">
                   {gettext("Background Image (Desktop)")}
                 </span>
               </label>
@@ -131,7 +131,7 @@
                 </button>
               <% end %>
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext(
                     "Background image for auth pages on desktop screens (wider than 768px)."
                   )}
@@ -143,9 +143,9 @@
               } />
             </div>
 
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">
+                <span class="fieldset-legend text-base font-medium">
                   {gettext("Background Image (Mobile)")}
                 </span>
               </label>
@@ -197,7 +197,7 @@
                 </button>
               <% end %>
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext(
                     "Background image for auth pages on mobile screens (768px and below). Falls back to desktop image if not set."
                   )}
@@ -210,9 +210,9 @@
             </div>
           </div>
 
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">
+              <span class="fieldset-legend text-base font-medium">
                 {gettext("Background Color")}
               </span>
             </label>
@@ -225,7 +225,7 @@
               phx-debounce="500"
             />
             <div class="label">
-              <span class="label-text-alt text-xs text-base-content/50">
+              <span class="fieldset-label text-xs text-base-content/50">
                 {gettext(
                   "CSS color or gradient for auth page background. Ignored if a background image is set."
                 )}
@@ -242,7 +242,7 @@
           <.section_header icon="hero-key" title={gettext("Authentication Methods")} />
 
           <%!-- Authentication Methods Setting --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <%!-- Magic Link Methods --%>
             <div class="mb-3">
               <div class="text-sm font-semibold text-base-content/70 mb-2">
@@ -370,7 +370,7 @@
                   </h3>
 
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div class="form-control">
+                    <div class="fieldset">
                       <.input
                         type="text"
                         name="settings[oauth_google_client_id]"
@@ -380,7 +380,7 @@
                       />
                     </div>
 
-                    <div class="form-control">
+                    <div class="fieldset">
                       <.input
                         type="password"
                         name="settings[oauth_google_client_secret]"
@@ -450,7 +450,7 @@
                 </h3>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="form-control">
+                  <div class="fieldset">
                     <.input
                       type="text"
                       name="settings[oauth_github_client_id]"
@@ -460,7 +460,7 @@
                     />
                   </div>
 
-                  <div class="form-control">
+                  <div class="fieldset">
                     <.input
                       type="password"
                       name="settings[oauth_github_client_secret]"
@@ -533,7 +533,7 @@
                 </h3>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div class="form-control">
+                  <div class="fieldset">
                     <.input
                       type="text"
                       name="settings[oauth_facebook_app_id]"
@@ -543,7 +543,7 @@
                     />
                   </div>
 
-                  <div class="form-control">
+                  <div class="fieldset">
                     <.input
                       type="password"
                       name="settings[oauth_facebook_app_secret]"
@@ -647,12 +647,12 @@
           <.section_header icon="hero-user-group" title={gettext("Sessions")} />
 
           <%!-- Multiple Sessions (account switcher) --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">
+              <span class="fieldset-legend text-base font-medium">
                 {gettext("Multiple Sessions")}
               </span>
-              <span class="label-text-alt text-sm text-base-content/60">
+              <span class="fieldset-label text-sm text-base-content/60">
                 {gettext("Account switcher for signing in to several accounts at once")}
               </span>
             </label>
@@ -696,6 +696,11 @@
     id="authorization-media-selector"
     show={@show_media_selector}
     mode={:single}
+    title={
+      if @media_selection_target == :background,
+        do: gettext("Select Background Image"),
+        else: gettext("Select Logo")
+    }
     selected_uuids={[]}
     phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
   />

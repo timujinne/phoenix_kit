@@ -369,7 +369,7 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
           value={@new_title}
           placeholder="Optional title (shows on the shape)"
           maxlength="200"
-          class="input input-bordered input-sm w-full text-sm"
+          class="input input-sm w-full text-sm"
           phx-mounted={Phoenix.LiveView.JS.focus()}
           phx-debounce="500"
         />
@@ -378,7 +378,7 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
           name="comment"
           placeholder={gettext("Write a note about this annotation...")}
           rows="3"
-          class="textarea textarea-bordered w-full text-sm"
+          class="textarea w-full text-sm"
           phx-debounce="500"
         ><%= @new_comment %></textarea>
 
@@ -537,7 +537,7 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
                       name="q"
                       value={@giphy_query}
                       placeholder={gettext("Search GIFs...")}
-                      class="input input-bordered input-sm w-full"
+                      class="input input-sm w-full"
                       phx-keyup="giphy_search"
                       phx-target={@myself}
                       phx-debounce="300"

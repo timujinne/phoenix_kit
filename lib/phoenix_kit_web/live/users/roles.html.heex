@@ -13,7 +13,7 @@
     <.modal show={@show_create_form} on_close="hide_form" max_width="2xl">
       <:title>{gettext("Create New Role")}</:title>
       <form id="create-role-form" phx-submit="create_role" class="space-y-4">
-        <div class="form-control">
+        <div class="fieldset">
           <.input
             field={@create_role_form[:name]}
             label={gettext("Role Name")}
@@ -23,7 +23,7 @@
           />
           <p class="label mt-1">{gettext("Must be unique, 1-50 characters.")}</p>
         </div>
-        <div class="form-control">
+        <div class="fieldset">
           <.textarea
             field={@create_role_form[:description]}
             label={gettext("Description")}
@@ -47,7 +47,7 @@
     <.modal show={@show_edit_form} on_close="hide_form" max_width="2xl">
       <:title>{gettext("Edit Role")}</:title>
       <form id="edit-role-form" phx-submit="update_role" class="space-y-4">
-        <div class="form-control">
+        <div class="fieldset">
           <.input
             field={@edit_role_form[:name]}
             label={gettext("Role Name")}
@@ -57,7 +57,7 @@
           />
           <p class="label mt-1">{gettext("Must be unique, 1-50 characters.")}</p>
         </div>
-        <div class="form-control">
+        <div class="fieldset">
           <.textarea
             field={@edit_role_form[:description]}
             label={gettext("Description")}

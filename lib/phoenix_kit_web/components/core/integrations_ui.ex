@@ -229,9 +229,9 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationsUI do
 
   def setup_field(assigns) do
     ~H"""
-    <div class="form-control">
+    <div class="fieldset">
       <label class="label" for={"field-#{@field.key}"}>
-        <span class="label-text">
+        <span class="fieldset-legend">
           {@field.label}
           <span :if={@field.required} class="text-error">*</span>
         </span>
@@ -245,7 +245,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationsUI do
         :if={field_type(@field) == :select}
         name={@field.key}
         id={"field-#{@field.key}"}
-        class="select select-bordered w-full"
+        class="select w-full"
         required={@field.required}
       >
         <option
@@ -261,7 +261,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationsUI do
         :if={field_type(@field) == :textarea}
         name={@field.key}
         id={"field-#{@field.key}"}
-        class="textarea textarea-bordered w-full font-mono text-xs"
+        class="textarea w-full font-mono text-xs"
         rows="5"
         placeholder={Map.get(@field, :placeholder) || ""}
         required={@field.required}
@@ -274,14 +274,14 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationsUI do
         name={@field.key}
         id={"field-#{@field.key}"}
         value={@value}
-        class="input input-bordered w-full"
+        class="input w-full"
         placeholder={Map.get(@field, :placeholder) || ""}
         required={@field.required}
         autocomplete="off"
       />
 
       <label :if={Map.get(@field, :help)} class="label">
-        <span class="label-text-alt text-base-content/50">{@field.help}</span>
+        <span class="fieldset-label text-base-content/50">{@field.help}</span>
       </label>
     </div>
     """

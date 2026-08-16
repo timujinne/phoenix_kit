@@ -55,6 +55,23 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # files. `verify.exs --scenario s7,s8` against a real database is still
   # what proves the body.
   #
+  # V167 is carried the same way, and is the first of these to RESHAPE an
+  # existing object rather than add one: `index:phoenix_kit_posts_slug_index`
+  # gains a `{167, ...}` revision flipping `unique` to true. The revision is
+  # APPENDED — `Object.shape_at/2` takes the last revision at or below the
+  # database's version, so editing `{29, ...}` in place would tell every V166
+  # install its plain index is drift and offer a repair that cannot run,
+  # because the duplicate slugs V167 exists to clear are still there.
+  #
+  # V173 (2026-08-15) is carried the same way: four catalogue attribute-group
+  # tables (groups / attributes / values / item assignments), hand-declared at
+  # the end of objects/1. Unlike the earlier hand declarations, these entries
+  # were EMITTED by running the generator's own Catalog introspection against a
+  # V173-migrated database and formatting the snapshot shapes — so the
+  # pg-normalized check/FK definitions, opclasses, and quoted "position" index
+  # keys are catalog-exact rather than transcribed. chain_hash restamped over
+  # the shipped set; `verify.exs --scenario s7,s8` remains the body's proof.
+  #
   # Chain at generation: object/revision/legacy_optional DATA was captured from a
   # per-version replay of the TRUE pre-squash chain (initial=1 current=163 files=163
   # — the only run that can see pre-floor-only bimodal drift, e.g. V28/V30's
@@ -97,7 +114,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "596fca593c6972b65718d3ad6b44fe323ac1b92aeeebf8a42e3baed20dc6fb85"
+  @chain_hash "9597cd5cbe566e644c30ff866ce9ba57407038b15d6448280f064dda732a6349"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)
@@ -10169,7 +10186,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
           {:catalog,
            %{name: "phoenix_kit_posts_slug_index", table: "phoenix_kit_posts", kind: :index}},
         create:
-          "CREATE INDEX IF NOT EXISTS phoenix_kit_posts_slug_index ON __SCHEMA__.phoenix_kit_posts USING btree (slug)",
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_posts_slug_index ON __SCHEMA__.phoenix_kit_posts USING btree (slug)",
         since: 29,
         class: :index,
         revisions: [
@@ -10181,6 +10198,23 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              method: "btree",
              definition:
                "CREATE INDEX phoenix_kit_posts_slug_index ON __SCHEMA__.phoenix_kit_posts USING btree (slug)",
+             predicate: nil,
+             opclasses: ["text_ops"],
+             name_template: nil
+           }},
+          # Appended, never edited in place. `Object.shape_at/2` takes the last
+          # revision <= the database's own version, so rewriting {29, ...}
+          # would tell every V166 install that its plain index is drift — and
+          # offer a repair that cannot succeed, because the duplicates the
+          # migration exists to clear are still sitting there.
+          {167,
+           %{
+             table: "phoenix_kit_posts",
+             keys: ["slug"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_posts_slug_index ON __SCHEMA__.phoenix_kit_posts USING btree (slug)",
              predicate: nil,
              opclasses: ["text_ops"],
              name_template: nil
@@ -17494,7 +17528,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
           {:catalog,
            %{name: "phoenix_kit_tickets_slug_index", table: "phoenix_kit_tickets", kind: :index}},
         create:
-          "CREATE INDEX IF NOT EXISTS phoenix_kit_tickets_slug_index ON __SCHEMA__.phoenix_kit_tickets USING btree (slug)",
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_tickets_slug_index ON __SCHEMA__.phoenix_kit_tickets USING btree (slug)",
         since: 35,
         class: :index,
         revisions: [
@@ -17506,6 +17540,23 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              method: "btree",
              definition:
                "CREATE INDEX phoenix_kit_tickets_slug_index ON __SCHEMA__.phoenix_kit_tickets USING btree (slug)",
+             predicate: nil,
+             opclasses: ["text_ops"],
+             name_template: nil
+           }},
+          # Appended, never edited in place — the V167 rule. `Object.shape_at/2`
+          # takes the last revision <= the database's own version, so rewriting
+          # {35, ...} would tell every V167 install that its plain index is
+          # drift and offer a repair that cannot succeed, because the duplicate
+          # slugs V168 exists to clear are still sitting there.
+          {168,
+           %{
+             table: "phoenix_kit_tickets",
+             keys: ["slug"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_tickets_slug_index ON __SCHEMA__.phoenix_kit_tickets USING btree (slug)",
              predicate: nil,
              opclasses: ["text_ops"],
              name_template: nil
@@ -27532,8 +27583,12 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              table: "phoenix_kit_shop_categories",
              kind: :index
            }},
-        create:
-          "CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_categories_slug_primary ON __SCHEMA__.phoenix_kit_shop_categories USING btree (__SCHEMA__.extract_primary_slug(slug)) WHERE (__SCHEMA__.extract_primary_slug(slug) IS NOT NULL)",
+        # DROPPED BY V171: superseded by the phoenix_kit_shop_category_slugs
+        # projection pkey, which enforces (base language, value) — the bucket
+        # the resolver reads — instead of the alphabetically-first key's value.
+        # legacy_optional: still present on installs below 171, gone at 171+,
+        # and never to be repaired back in.
+        create: nil,
         since: 52,
         class: :index,
         revisions: [
@@ -27550,7 +27605,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              name_template: nil
            }}
         ],
-        presence: :required,
+        presence: :legacy_optional,
         backfill: nil
       },
       %{
@@ -27563,8 +27618,12 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              table: "phoenix_kit_shop_products",
              kind: :index
            }},
-        create:
-          "CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_products_slug_primary ON __SCHEMA__.phoenix_kit_shop_products USING btree (__SCHEMA__.extract_primary_slug(slug)) WHERE (__SCHEMA__.extract_primary_slug(slug) IS NOT NULL)",
+        # DROPPED BY V171: superseded by the phoenix_kit_shop_product_slugs
+        # projection pkey, which enforces (base language, value) — the bucket
+        # the resolver reads — instead of the alphabetically-first key's value.
+        # legacy_optional: still present on installs below 171, gone at 171+,
+        # and never to be repaired back in.
+        create: nil,
         since: 52,
         class: :index,
         revisions: [
@@ -27578,6 +27637,97 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
                "CREATE UNIQUE INDEX idx_shop_products_slug_primary ON __SCHEMA__.phoenix_kit_shop_products USING btree (__SCHEMA__.extract_primary_slug(slug)) WHERE (__SCHEMA__.extract_primary_slug(slug) IS NOT NULL)",
              predicate: "(__SCHEMA__.extract_primary_slug(slug) IS NOT NULL)",
              opclasses: ["text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :legacy_optional,
+        backfill: nil
+      },
+      # DECLARED POST-GENERATION (V171): the shop slug projection tables and
+      # their pkeys, hand-declared the way V165/V166/V168's objects are — a
+      # full regenerate needs a pre-squash checkout that cannot see them. The
+      # trigger functions are deliberately NOT declared: the manifest has no
+      # :function/:trigger class, and inventing one for two objects is drift
+      # risk without a consumer. `ShopSlugProjection.up_sql/2` is idempotent
+      # and owns the full build, which is what a repair should call.
+      %{
+        id: "table:phoenix_kit_shop_product_slugs",
+        owner: :core,
+        check: {:catalog, %{name: "phoenix_kit_shop_product_slugs", kind: :table}},
+        create:
+          "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_shop_product_slugs (lang text NOT NULL, value text NOT NULL, product_uuid uuid NOT NULL REFERENCES __SCHEMA__.phoenix_kit_shop_products(uuid) ON DELETE CASCADE, PRIMARY KEY (lang, value))",
+        since: 171,
+        class: :table,
+        revisions: [{171, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_shop_product_slugs_pkey",
+        owner: :core,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_shop_product_slugs_pkey",
+             table: "phoenix_kit_shop_product_slugs",
+             kind: :index
+           }},
+        create: nil,
+        since: 171,
+        class: :index,
+        revisions: [
+          {171,
+           %{
+             table: "phoenix_kit_shop_product_slugs",
+             keys: ["lang", "value"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_shop_product_slugs_pkey ON __SCHEMA__.phoenix_kit_shop_product_slugs USING btree (lang, value)",
+             predicate: nil,
+             opclasses: ["text_ops", "text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "table:phoenix_kit_shop_category_slugs",
+        owner: :core,
+        check: {:catalog, %{name: "phoenix_kit_shop_category_slugs", kind: :table}},
+        create:
+          "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_shop_category_slugs (lang text NOT NULL, value text NOT NULL, category_uuid uuid NOT NULL REFERENCES __SCHEMA__.phoenix_kit_shop_categories(uuid) ON DELETE CASCADE, PRIMARY KEY (lang, value))",
+        since: 171,
+        class: :table,
+        revisions: [{171, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_shop_category_slugs_pkey",
+        owner: :core,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_shop_category_slugs_pkey",
+             table: "phoenix_kit_shop_category_slugs",
+             kind: :index
+           }},
+        create: nil,
+        since: 171,
+        class: :index,
+        revisions: [
+          {171,
+           %{
+             table: "phoenix_kit_shop_category_slugs",
+             keys: ["lang", "value"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_shop_category_slugs_pkey ON __SCHEMA__.phoenix_kit_shop_category_slugs USING btree (lang, value)",
+             predicate: nil,
+             opclasses: ["text_ops", "text_ops"],
              name_template: nil
            }}
         ],
@@ -29210,7 +29360,22 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
           "ALTER TABLE __SCHEMA__.phoenix_kit_entity_data ADD COLUMN IF NOT EXISTS \"created_by_uuid\" uuid",
         since: 56,
         class: :column,
-        revisions: [{56, %{default: nil, type: "uuid", pos: 12, not_null: true}}],
+        # DECLARED POST-GENERATION CORRECTION (2026-08-14): a {169, not_null:
+        # false} revision. The public entity form is deliberately
+        # unauthenticated and has no creator to record, so anonymous submissions
+        # store NULL here (BeamLabEU/phoenix_kit#706). V169 drops the constraint;
+        # corrected here, in v135.ex's CREATE TABLE and in v164.ex's
+        # @relaxed_after_v57 together.
+        #
+        # A REVISION, not a rewrite of {56}: Scope resolves each object at the
+        # newest revision <= the database's comment, so claiming nullable from
+        # version 56 would make repair report a pre-V169 database — where the
+        # column is still legitimately NOT NULL — as wrong-shaped for the whole
+        # deploy window between shipping the code and running the migration.
+        revisions: [
+          {56, %{default: nil, type: "uuid", pos: 12, not_null: true}},
+          {169, %{default: nil, type: "uuid", pos: 12, not_null: false}}
+        ],
         presence: :required,
         backfill: nil
       },
@@ -31158,6 +31323,44 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
                "CREATE INDEX phoenix_kit_post_groups_user_uuid_idx ON __SCHEMA__.phoenix_kit_post_groups USING btree (user_uuid)",
              predicate: nil,
              opclasses: ["uuid_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      # DECLARED POST-GENERATION (V168). New object rather than a reshape:
+      # `PhoenixKitPosts.PostGroup` has always declared
+      # `unique_constraint([:user_uuid, :slug], name:
+      # :phoenix_kit_post_groups_user_uuid_slug_index)`, but no index of that
+      # name has ever existed, so the constraint could never fire and one user
+      # could hold two groups on one slug. Scoped to the owner, not global —
+      # two different users may share a slug.
+      %{
+        id: "index:phoenix_kit_post_groups_user_uuid_slug_index",
+        owner: :core,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_post_groups_user_uuid_slug_index",
+             table: "phoenix_kit_post_groups",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_post_groups_user_uuid_slug_index ON __SCHEMA__.phoenix_kit_post_groups USING btree (user_uuid, slug)",
+        since: 168,
+        class: :index,
+        revisions: [
+          {168,
+           %{
+             table: "phoenix_kit_post_groups",
+             keys: ["user_uuid", "slug"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_post_groups_user_uuid_slug_index ON __SCHEMA__.phoenix_kit_post_groups USING btree (user_uuid, slug)",
+             predicate: nil,
+             opclasses: ["uuid_ops", "text_ops"],
              name_template: nil
            }}
         ],
@@ -33247,8 +33450,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              table: "phoenix_kit_ai_requests",
              kind: :constraint
            }},
-        create:
-          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'fk_ai_requests_prompt_uuid'\n      AND t.relname = 'phoenix_kit_ai_requests'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_ai_requests ADD CONSTRAINT fk_ai_requests_prompt_uuid FOREIGN KEY (prompt_uuid) REFERENCES __SCHEMA__.phoenix_kit_ai_prompts(uuid) ON DELETE SET NULL;\n  END IF;\nEND\n$$",
+        create: nil,
         since: 56,
         class: :constraint,
         revisions: [
@@ -33265,7 +33467,21 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              on_update: "a"
            }}
         ],
-        presence: :required,
+        # DECLARED POST-GENERATION CORRECTION (2026-08-14): `:legacy_optional`.
+        # v135 adds this FK twice under two names, each block guarded only by
+        # its own name, so a freshly migrated database ends up with BOTH this
+        # and `phoenix_kit_ai_requests_prompt_uuid_fkey` (BeamLabEU/phoenix_kit_ai#20).
+        # V169 drops this one and keeps the legacy name, which is what the
+        # installed base carries and what Ecto derives by default, so no live
+        # database needs a rename.
+        #
+        # Optional rather than deleted, because a pre-169 install still
+        # legitimately has it. Required would make repair RE-ADD the duplicate
+        # after every upgrade, and on legacy-only installs ADD a second
+        # constraint that was never there. `create: nil` above is what
+        # legacy_optional requires — repair must hold no SQL for an object it
+        # may not create.
+        presence: :legacy_optional,
         backfill: nil
       },
       %{
@@ -49062,6 +49278,81 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
                "CREATE INDEX phoenix_kit_notifications_recipient_inbox_index ON __SCHEMA__.phoenix_kit_notifications USING btree (recipient_uuid, inserted_at DESC) WHERE (dismissed_at IS NULL)",
              predicate: "(dismissed_at IS NULL)",
              opclasses: ["uuid_ops", "timestamptz_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      # DECLARED POST-GENERATION (2026-08-14): V170 adds these two indexes for
+      # the notification-collapsing API — carried the same way the V165..V167
+      # objects are (hand-declared, chain_hash restamped over the shipped
+      # files). Definitions and opclasses were captured from pg_get_indexdef /
+      # pg_index on a live V169 database after creating the indexes, not
+      # hand-derived. `verify.exs --scenario s7,s8` against a real database is
+      # still what proves the body.
+      %{
+        id: "index:phoenix_kit_notifications_dedupe_unseen_idx",
+        owner: :core,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_notifications_dedupe_unseen_idx",
+             table: "phoenix_kit_notifications",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_notifications_dedupe_unseen_idx ON __SCHEMA__.phoenix_kit_notifications USING btree (recipient_uuid, ((metadata ->> 'dedupe_key'::text))) WHERE ((seen_at IS NULL) AND (dismissed_at IS NULL) AND ((metadata ->> 'dedupe_key'::text) IS NOT NULL))",
+        since: 170,
+        class: :index,
+        revisions: [
+          {170,
+           %{
+             table: "phoenix_kit_notifications",
+             keys: ["recipient_uuid", "((metadata ->> 'dedupe_key'::text))"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_notifications_dedupe_unseen_idx ON __SCHEMA__.phoenix_kit_notifications USING btree (recipient_uuid, ((metadata ->> 'dedupe_key'::text))) WHERE ((seen_at IS NULL) AND (dismissed_at IS NULL) AND ((metadata ->> 'dedupe_key'::text) IS NOT NULL))",
+             predicate:
+               "((seen_at IS NULL) AND (dismissed_at IS NULL) AND ((metadata ->> 'dedupe_key'::text) IS NOT NULL))",
+             opclasses: ["uuid_ops", "text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_notifications_recipient_unseen_first_idx",
+        owner: :core,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_notifications_recipient_unseen_first_idx",
+             table: "phoenix_kit_notifications",
+             kind: :index
+           }},
+        create:
+          "CREATE INDEX IF NOT EXISTS phoenix_kit_notifications_recipient_unseen_first_idx ON __SCHEMA__.phoenix_kit_notifications USING btree (recipient_uuid, ((seen_at IS NOT NULL)), inserted_at DESC, uuid DESC) WHERE (dismissed_at IS NULL)",
+        since: 170,
+        class: :index,
+        revisions: [
+          {170,
+           %{
+             table: "phoenix_kit_notifications",
+             keys: [
+               "recipient_uuid",
+               "((seen_at IS NOT NULL))",
+               "inserted_at",
+               "uuid"
+             ],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX phoenix_kit_notifications_recipient_unseen_first_idx ON __SCHEMA__.phoenix_kit_notifications USING btree (recipient_uuid, ((seen_at IS NOT NULL)), inserted_at DESC, uuid DESC) WHERE (dismissed_at IS NULL)",
+             predicate: "(dismissed_at IS NULL)",
+             opclasses: ["uuid_ops", "bool_ops", "timestamptz_ops", "uuid_ops"],
              name_template: nil
            }}
         ],
@@ -68223,6 +68514,1159 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
              definition:
                "CREATE INDEX phoenix_kit_comments_attributed_project_idx ON __SCHEMA__.phoenix_kit_comments USING btree (attributed_project_uuid) WHERE (attributed_project_uuid IS NOT NULL)",
              predicate: "(attributed_project_uuid IS NOT NULL)",
+             opclasses: ["uuid_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+
+      # ── DECLARED POST-GENERATION (2026-08-15): V173 catalogue attribute groups ──
+      # Four new tables (groups / attributes / values / item assignments). Objects
+      # were emitted by introspecting a V173-migrated database with the generator's
+      # own Catalog module (not hand-typed), then owner-tagged :catalogue; carried
+      # here the same way V165/V166/V170/V171's objects are — see module header.
+      # chain_hash restamped over the shipped v*.ex set afterwards.
+
+      %{
+        id: "table:phoenix_kit_cat_attribute_groups",
+        owner: :catalogue,
+        check: {:catalog, %{name: "phoenix_kit_cat_attribute_groups", kind: :table}},
+        create: "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_cat_attribute_groups ()",
+        since: 173,
+        class: :table,
+        revisions: [{173, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.uuid",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_groups", column: "uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"uuid\" uuid DEFAULT __SCHEMA__.uuid_generate_v7() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "__SCHEMA__.uuid_generate_v7()", type: "uuid", pos: 1, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.name",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_groups", column: "name", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"name\" character varying(255) NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: nil, type: "character varying(255)", pos: 2, not_null: true}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.data",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_groups", column: "data", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"data\" jsonb DEFAULT '{}'::jsonb NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "'{}'::jsonb", type: "jsonb", pos: 3, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.status",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_groups", column: "status", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"status\" character varying(20) DEFAULT 'active'::character varying NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173,
+           %{
+             default: "'active'::character varying",
+             type: "character varying(20)",
+             pos: 4,
+             not_null: true
+           }}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.position",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_groups", column: "position", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"position\" integer DEFAULT 0 NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "0", type: "integer", pos: 5, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.inserted_at",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_groups", column: "inserted_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"inserted_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 6, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_groups.updated_at",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_groups", column: "updated_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD COLUMN IF NOT EXISTS \"updated_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 7, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_attribute_groups.phoenix_kit_cat_attribute_groups_status_check",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_groups_status_check",
+             table: "phoenix_kit_cat_attribute_groups",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attribute_groups_status_check'\n      AND t.relname = 'phoenix_kit_cat_attribute_groups'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD CONSTRAINT phoenix_kit_cat_attribute_groups_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])));\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "c",
+             columns: ["status"],
+             definition:
+               "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_attribute_groups.phoenix_kit_cat_attribute_groups_pkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_groups_pkey",
+             table: "phoenix_kit_cat_attribute_groups",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attribute_groups_pkey'\n      AND t.relname = 'phoenix_kit_cat_attribute_groups'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_groups ADD CONSTRAINT phoenix_kit_cat_attribute_groups_pkey PRIMARY KEY (uuid);\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "p",
+             columns: ["uuid"],
+             definition: "PRIMARY KEY (uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "table:phoenix_kit_cat_attributes",
+        owner: :catalogue,
+        check: {:catalog, %{name: "phoenix_kit_cat_attributes", kind: :table}},
+        create: "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_cat_attributes ()",
+        since: 173,
+        class: :table,
+        revisions: [{173, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.uuid",
+        owner: :catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_attributes", column: "uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"uuid\" uuid DEFAULT __SCHEMA__.uuid_generate_v7() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "__SCHEMA__.uuid_generate_v7()", type: "uuid", pos: 1, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.group_uuid",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attributes", column: "group_uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"group_uuid\" uuid NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: nil, type: "uuid", pos: 2, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.key",
+        owner: :catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_attributes", column: "key", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"key\" character varying(100) NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: nil, type: "character varying(100)", pos: 3, not_null: true}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.name",
+        owner: :catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_attributes", column: "name", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"name\" character varying(255) NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: nil, type: "character varying(255)", pos: 4, not_null: true}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.data",
+        owner: :catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_attributes", column: "data", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"data\" jsonb DEFAULT '{}'::jsonb NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "'{}'::jsonb", type: "jsonb", pos: 5, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.kind",
+        owner: :catalogue,
+        check: {:catalog, %{table: "phoenix_kit_cat_attributes", column: "kind", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"kind\" character varying(20) DEFAULT 'multi'::character varying NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173,
+           %{
+             default: "'multi'::character varying",
+             type: "character varying(20)",
+             pos: 6,
+             not_null: true
+           }}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.status",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attributes", column: "status", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"status\" character varying(20) DEFAULT 'active'::character varying NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173,
+           %{
+             default: "'active'::character varying",
+             type: "character varying(20)",
+             pos: 7,
+             not_null: true
+           }}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.position",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attributes", column: "position", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"position\" integer DEFAULT 0 NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "0", type: "integer", pos: 8, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.inserted_at",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attributes", column: "inserted_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"inserted_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 9, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attributes.updated_at",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attributes", column: "updated_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD COLUMN IF NOT EXISTS \"updated_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 10, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_attributes.phoenix_kit_cat_attributes_kind_check",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attributes_kind_check",
+             table: "phoenix_kit_cat_attributes",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attributes_kind_check'\n      AND t.relname = 'phoenix_kit_cat_attributes'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD CONSTRAINT phoenix_kit_cat_attributes_kind_check CHECK (((kind)::text = ANY ((ARRAY['fixed'::character varying, 'multi'::character varying])::text[])));\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "c",
+             columns: ["kind"],
+             definition:
+               "CHECK (((kind)::text = ANY ((ARRAY['fixed'::character varying, 'multi'::character varying])::text[])))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_attributes.phoenix_kit_cat_attributes_status_check",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attributes_status_check",
+             table: "phoenix_kit_cat_attributes",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attributes_status_check'\n      AND t.relname = 'phoenix_kit_cat_attributes'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD CONSTRAINT phoenix_kit_cat_attributes_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])));\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "c",
+             columns: ["status"],
+             definition:
+               "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_attributes.phoenix_kit_cat_attributes_group_uuid_fkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attributes_group_uuid_fkey",
+             table: "phoenix_kit_cat_attributes",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attributes_group_uuid_fkey'\n      AND t.relname = 'phoenix_kit_cat_attributes'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD CONSTRAINT phoenix_kit_cat_attributes_group_uuid_fkey FOREIGN KEY (group_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_attribute_groups(uuid) ON DELETE RESTRICT;\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "f",
+             columns: ["group_uuid"],
+             definition:
+               "FOREIGN KEY (group_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_attribute_groups(uuid) ON DELETE RESTRICT",
+             name_template: nil,
+             foreign_table: "phoenix_kit_cat_attribute_groups",
+             foreign_columns: ["uuid"],
+             on_delete: "r",
+             on_update: "a"
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_attributes.phoenix_kit_cat_attributes_pkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attributes_pkey",
+             table: "phoenix_kit_cat_attributes",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attributes_pkey'\n      AND t.relname = 'phoenix_kit_cat_attributes'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attributes ADD CONSTRAINT phoenix_kit_cat_attributes_pkey PRIMARY KEY (uuid);\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "p",
+             columns: ["uuid"],
+             definition: "PRIMARY KEY (uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_attributes_group_key_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attributes_group_key_index",
+             table: "phoenix_kit_cat_attributes",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_attributes_group_key_index ON __SCHEMA__.phoenix_kit_cat_attributes USING btree (group_uuid, key)",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_attributes",
+             keys: ["group_uuid", "key"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_cat_attributes_group_key_index ON __SCHEMA__.phoenix_kit_cat_attributes USING btree (group_uuid, key)",
+             predicate: nil,
+             opclasses: ["uuid_ops", "text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_attributes_group_position_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attributes_group_position_index",
+             table: "phoenix_kit_cat_attributes",
+             kind: :index
+           }},
+        create:
+          "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_attributes_group_position_index ON __SCHEMA__.phoenix_kit_cat_attributes USING btree (group_uuid, \"position\")",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_attributes",
+             keys: ["group_uuid", "\"position\""],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX phoenix_kit_cat_attributes_group_position_index ON __SCHEMA__.phoenix_kit_cat_attributes USING btree (group_uuid, \"position\")",
+             predicate: nil,
+             opclasses: ["uuid_ops", "int4_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "table:phoenix_kit_cat_attribute_values",
+        owner: :catalogue,
+        check: {:catalog, %{name: "phoenix_kit_cat_attribute_values", kind: :table}},
+        create: "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_cat_attribute_values ()",
+        since: 173,
+        class: :table,
+        revisions: [{173, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.uuid",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_values", column: "uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"uuid\" uuid DEFAULT __SCHEMA__.uuid_generate_v7() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "__SCHEMA__.uuid_generate_v7()", type: "uuid", pos: 1, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.attribute_uuid",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_values", column: "attribute_uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"attribute_uuid\" uuid NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: nil, type: "uuid", pos: 2, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.key",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_values", column: "key", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"key\" character varying(100) NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: nil, type: "character varying(100)", pos: 3, not_null: true}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.value",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_values", column: "value", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"value\" character varying(255) NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: nil, type: "character varying(255)", pos: 4, not_null: true}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.data",
+        owner: :catalogue,
+        check:
+          {:catalog, %{table: "phoenix_kit_cat_attribute_values", column: "data", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"data\" jsonb DEFAULT '{}'::jsonb NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "'{}'::jsonb", type: "jsonb", pos: 5, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.is_default",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_values", column: "is_default", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"is_default\" boolean DEFAULT false NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "false", type: "boolean", pos: 6, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.status",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_values", column: "status", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"status\" character varying(20) DEFAULT 'active'::character varying NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173,
+           %{
+             default: "'active'::character varying",
+             type: "character varying(20)",
+             pos: 7,
+             not_null: true
+           }}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.position",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_values", column: "position", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"position\" integer DEFAULT 0 NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "0", type: "integer", pos: 8, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.inserted_at",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_values", column: "inserted_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"inserted_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 9, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_attribute_values.updated_at",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_attribute_values", column: "updated_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD COLUMN IF NOT EXISTS \"updated_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 10, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_attribute_values.phoenix_kit_cat_attribute_values_status_check",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_values_status_check",
+             table: "phoenix_kit_cat_attribute_values",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attribute_values_status_check'\n      AND t.relname = 'phoenix_kit_cat_attribute_values'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD CONSTRAINT phoenix_kit_cat_attribute_values_status_check CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])));\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "c",
+             columns: ["status"],
+             definition:
+               "CHECK (((status)::text = ANY ((ARRAY['active'::character varying, 'archived'::character varying])::text[])))",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_attribute_values.phoenix_kit_cat_attribute_values_attribute_uuid_fkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_values_attribute_uuid_fkey",
+             table: "phoenix_kit_cat_attribute_values",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attribute_values_attribute_uuid_fkey'\n      AND t.relname = 'phoenix_kit_cat_attribute_values'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD CONSTRAINT phoenix_kit_cat_attribute_values_attribute_uuid_fkey FOREIGN KEY (attribute_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_attributes(uuid) ON DELETE RESTRICT;\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "f",
+             columns: ["attribute_uuid"],
+             definition:
+               "FOREIGN KEY (attribute_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_attributes(uuid) ON DELETE RESTRICT",
+             name_template: nil,
+             foreign_table: "phoenix_kit_cat_attributes",
+             foreign_columns: ["uuid"],
+             on_delete: "r",
+             on_update: "a"
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "constraint:phoenix_kit_cat_attribute_values.phoenix_kit_cat_attribute_values_pkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_values_pkey",
+             table: "phoenix_kit_cat_attribute_values",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_attribute_values_pkey'\n      AND t.relname = 'phoenix_kit_cat_attribute_values'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_attribute_values ADD CONSTRAINT phoenix_kit_cat_attribute_values_pkey PRIMARY KEY (uuid);\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "p",
+             columns: ["uuid"],
+             definition: "PRIMARY KEY (uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_attribute_values_attr_key_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_values_attr_key_index",
+             table: "phoenix_kit_cat_attribute_values",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_attribute_values_attr_key_index ON __SCHEMA__.phoenix_kit_cat_attribute_values USING btree (attribute_uuid, key)",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_attribute_values",
+             keys: ["attribute_uuid", "key"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_cat_attribute_values_attr_key_index ON __SCHEMA__.phoenix_kit_cat_attribute_values USING btree (attribute_uuid, key)",
+             predicate: nil,
+             opclasses: ["uuid_ops", "text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_attribute_values_attr_position_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_values_attr_position_index",
+             table: "phoenix_kit_cat_attribute_values",
+             kind: :index
+           }},
+        create:
+          "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_attribute_values_attr_position_index ON __SCHEMA__.phoenix_kit_cat_attribute_values USING btree (attribute_uuid, \"position\")",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_attribute_values",
+             keys: ["attribute_uuid", "\"position\""],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX phoenix_kit_cat_attribute_values_attr_position_index ON __SCHEMA__.phoenix_kit_cat_attribute_values USING btree (attribute_uuid, \"position\")",
+             predicate: nil,
+             opclasses: ["uuid_ops", "int4_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_attribute_values_default_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_attribute_values_default_index",
+             table: "phoenix_kit_cat_attribute_values",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_attribute_values_default_index ON __SCHEMA__.phoenix_kit_cat_attribute_values USING btree (attribute_uuid) WHERE is_default",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_attribute_values",
+             keys: ["attribute_uuid"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_cat_attribute_values_default_index ON __SCHEMA__.phoenix_kit_cat_attribute_values USING btree (attribute_uuid) WHERE is_default",
+             predicate: "is_default",
+             opclasses: ["uuid_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "table:phoenix_kit_cat_item_attribute_groups",
+        owner: :catalogue,
+        check: {:catalog, %{name: "phoenix_kit_cat_item_attribute_groups", kind: :table}},
+        create: "CREATE TABLE IF NOT EXISTS __SCHEMA__.phoenix_kit_cat_item_attribute_groups ()",
+        since: 173,
+        class: :table,
+        revisions: [{173, %{}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_attribute_groups.uuid",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_attribute_groups", column: "uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD COLUMN IF NOT EXISTS \"uuid\" uuid DEFAULT __SCHEMA__.uuid_generate_v7() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "__SCHEMA__.uuid_generate_v7()", type: "uuid", pos: 1, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_attribute_groups.item_uuid",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_attribute_groups", column: "item_uuid", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD COLUMN IF NOT EXISTS \"item_uuid\" uuid NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: nil, type: "uuid", pos: 2, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_attribute_groups.attribute_group_uuid",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             table: "phoenix_kit_cat_item_attribute_groups",
+             column: "attribute_group_uuid",
+             kind: :column
+           }},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD COLUMN IF NOT EXISTS \"attribute_group_uuid\" uuid NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: nil, type: "uuid", pos: 3, not_null: true}}],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_attribute_groups.position",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_attribute_groups", column: "position", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD COLUMN IF NOT EXISTS \"position\" integer DEFAULT 0 NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [{173, %{default: "0", type: "integer", pos: 4, not_null: true}}],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_attribute_groups.inserted_at",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_attribute_groups", column: "inserted_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD COLUMN IF NOT EXISTS \"inserted_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 5, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_cat_item_attribute_groups.updated_at",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{table: "phoenix_kit_cat_item_attribute_groups", column: "updated_at", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD COLUMN IF NOT EXISTS \"updated_at\" timestamp with time zone DEFAULT now() NOT NULL",
+        since: 173,
+        class: :column,
+        revisions: [
+          {173, %{default: "now()", type: "timestamp with time zone", pos: 6, not_null: true}}
+        ],
+        presence: :required,
+        backfill: :default
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_item_attribute_groups.phoenix_kit_cat_item_attribute_groups_attribute_group_uuid_fkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_item_attribute_groups_attribute_group_uuid_fkey",
+             table: "phoenix_kit_cat_item_attribute_groups",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_item_attribute_groups_attribute_group_uuid_fkey'\n      AND t.relname = 'phoenix_kit_cat_item_attribute_groups'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD CONSTRAINT phoenix_kit_cat_item_attribute_groups_attribute_group_uuid_fkey FOREIGN KEY (attribute_group_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_attribute_groups(uuid) ON DELETE RESTRICT;\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "f",
+             columns: ["attribute_group_uuid"],
+             definition:
+               "FOREIGN KEY (attribute_group_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_attribute_groups(uuid) ON DELETE RESTRICT",
+             name_template: nil,
+             foreign_table: "phoenix_kit_cat_attribute_groups",
+             foreign_columns: ["uuid"],
+             on_delete: "r",
+             on_update: "a"
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_item_attribute_groups.phoenix_kit_cat_item_attribute_groups_item_uuid_fkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_item_attribute_groups_item_uuid_fkey",
+             table: "phoenix_kit_cat_item_attribute_groups",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_item_attribute_groups_item_uuid_fkey'\n      AND t.relname = 'phoenix_kit_cat_item_attribute_groups'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD CONSTRAINT phoenix_kit_cat_item_attribute_groups_item_uuid_fkey FOREIGN KEY (item_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_items(uuid) ON DELETE CASCADE;\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "f",
+             columns: ["item_uuid"],
+             definition:
+               "FOREIGN KEY (item_uuid) REFERENCES __SCHEMA__.phoenix_kit_cat_items(uuid) ON DELETE CASCADE",
+             name_template: nil,
+             foreign_table: "phoenix_kit_cat_items",
+             foreign_columns: ["uuid"],
+             on_delete: "c",
+             on_update: "a"
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id:
+          "constraint:phoenix_kit_cat_item_attribute_groups.phoenix_kit_cat_item_attribute_groups_pkey",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_item_attribute_groups_pkey",
+             table: "phoenix_kit_cat_item_attribute_groups",
+             kind: :constraint
+           }},
+        create:
+          "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = 'phoenix_kit_cat_item_attribute_groups_pkey'\n      AND t.relname = 'phoenix_kit_cat_item_attribute_groups'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.phoenix_kit_cat_item_attribute_groups ADD CONSTRAINT phoenix_kit_cat_item_attribute_groups_pkey PRIMARY KEY (uuid);\n  END IF;\nEND\n$$",
+        since: 173,
+        class: :constraint,
+        revisions: [
+          {173,
+           %{
+             type: "p",
+             columns: ["uuid"],
+             definition: "PRIMARY KEY (uuid)",
+             name_template: nil,
+             foreign_table: nil,
+             foreign_columns: nil,
+             on_delete: nil,
+             on_update: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_item_attr_groups_group_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_item_attr_groups_group_index",
+             table: "phoenix_kit_cat_item_attribute_groups",
+             kind: :index
+           }},
+        create:
+          "CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attr_groups_group_index ON __SCHEMA__.phoenix_kit_cat_item_attribute_groups USING btree (attribute_group_uuid)",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_item_attribute_groups",
+             keys: ["attribute_group_uuid"],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX phoenix_kit_cat_item_attr_groups_group_index ON __SCHEMA__.phoenix_kit_cat_item_attribute_groups USING btree (attribute_group_uuid)",
+             predicate: nil,
+             opclasses: ["uuid_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:phoenix_kit_cat_item_attr_groups_item_index",
+        owner: :catalogue,
+        check:
+          {:catalog,
+           %{
+             name: "phoenix_kit_cat_item_attr_groups_item_index",
+             table: "phoenix_kit_cat_item_attribute_groups",
+             kind: :index
+           }},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_item_attr_groups_item_index ON __SCHEMA__.phoenix_kit_cat_item_attribute_groups USING btree (item_uuid)",
+        since: 173,
+        class: :index,
+        revisions: [
+          {173,
+           %{
+             table: "phoenix_kit_cat_item_attribute_groups",
+             keys: ["item_uuid"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX phoenix_kit_cat_item_attr_groups_item_index ON __SCHEMA__.phoenix_kit_cat_item_attribute_groups USING btree (item_uuid)",
+             predicate: nil,
              opclasses: ["uuid_ops"],
              name_template: nil
            }}

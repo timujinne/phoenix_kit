@@ -46,10 +46,10 @@ defmodule PhoenixKitWeb.Users.Auth do
   alias Phoenix.LiveView
   alias PhoenixKit.Admin.Events
   alias PhoenixKit.ModuleRegistry
+  alias PhoenixKit.Modules.Crawlers
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Modules.Maintenance
-  alias PhoenixKit.Modules.SEO
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.{Scope, User}
   alias PhoenixKit.Users.LoginAlerts
@@ -407,37 +407,7 @@ defmodule PhoenixKitWeb.Users.Auth do
 
   defp do_fetch_phoenix_kit_current_user(conn) do
     {user_token, conn} = ensure_user_token(conn)
-
-    # Verify session fingerprint if token exists
-    fingerprint_valid? =
-      if user_token do
-        case Auth.verify_session_fingerprint(conn, user_token) do
-          :ok ->
-            true
-
-          {:warning, reason} ->
-            # Log warning but allow access (IP/UA can legitimately change)
-            Logger.warning("PhoenixKit: Session fingerprint warning: #{reason} for token")
-
-            # In non-strict mode, allow access despite warning
-            not SessionFingerprint.strict_mode?()
-
-          {:error, :fingerprint_mismatch} ->
-            # Both IP and UA changed - likely hijacking
-            Logger.error(
-              "PhoenixKit: Session fingerprint mismatch detected - possible hijacking attempt"
-            )
-
-            # Strict mode: deny access; non-strict: log but allow
-            not SessionFingerprint.strict_mode?()
-
-          {:error, :token_not_found} ->
-            # Token expired or invalid
-            false
-        end
-      else
-        true
-      end
+    {conn, fingerprint_valid?} = check_fingerprint_once(conn, user_token)
 
     user =
       if fingerprint_valid? do
@@ -453,6 +423,42 @@ defmodule PhoenixKitWeb.Users.Auth do
     assign(conn, :phoenix_kit_current_user, active_user)
   end
 
+  # Verify the session fingerprint at most ONCE per request, whatever the
+  # pipeline shape. The shipped `:phoenix_kit_admin_only` pipeline runs BOTH
+  # fetch plugs, and each used to verify independently — so every mismatch
+  # was checked twice and `verify_fingerprint/4` logged its line twice. The
+  # first verification's result is cached on the conn and reused.
+  #
+  # No logging here on any branch, deliberately: `verify_fingerprint/4` has
+  # already logged what changed, for which session, at a level that matches
+  # whether the request is about to be refused — extra lines here said only
+  # "for token", naming neither, and doubled (or tripled) the volume of the
+  # noisiest thing in the log.
+  defp check_fingerprint_once(conn, nil), do: {conn, true}
+
+  defp check_fingerprint_once(conn, user_token) do
+    case conn.private[:phoenix_kit_fingerprint_valid] do
+      nil ->
+        result = Auth.verify_session_fingerprint(conn, user_token)
+        valid? = fingerprint_allows_access?(result)
+        {Plug.Conn.put_private(conn, :phoenix_kit_fingerprint_valid, valid?), valid?}
+
+      valid? ->
+        {conn, valid?}
+    end
+  end
+
+  defp fingerprint_allows_access?(:ok), do: true
+
+  defp fingerprint_allows_access?({:warning, _reason}),
+    do: not SessionFingerprint.strict_mode?()
+
+  defp fingerprint_allows_access?({:error, :fingerprint_mismatch}),
+    do: not SessionFingerprint.strict_mode?()
+
+  # Token expired or invalid
+  defp fingerprint_allows_access?({:error, :token_not_found}), do: false
+
   @doc """
   Fetches the current user and creates a scope for authentication context.
 
@@ -467,36 +473,12 @@ defmodule PhoenixKitWeb.Users.Auth do
   def fetch_phoenix_kit_current_scope(conn, _opts) do
     {user_token, conn} = ensure_user_token(conn)
 
-    # Verify session fingerprint if token exists
-    fingerprint_valid? =
-      if user_token do
-        case Auth.verify_session_fingerprint(conn, user_token) do
-          :ok ->
-            true
-
-          {:warning, reason} ->
-            # Log warning but allow access (IP/UA can legitimately change)
-            Logger.warning("PhoenixKit: Session fingerprint warning: #{reason} for token (scope)")
-
-            # In non-strict mode, allow access despite warning
-            not SessionFingerprint.strict_mode?()
-
-          {:error, :fingerprint_mismatch} ->
-            # Both IP and UA changed - likely hijacking
-            Logger.error(
-              "PhoenixKit: Session fingerprint mismatch detected in scope - possible hijacking"
-            )
-
-            # Strict mode: deny access; non-strict: log but allow
-            not SessionFingerprint.strict_mode?()
-
-          {:error, :token_not_found} ->
-            # Token expired or invalid
-            false
-        end
-      else
-        true
-      end
+    # Shares the once-per-request verification (and its no-extra-logging
+    # policy) with `fetch_phoenix_kit_current_user` — this plug used to
+    # carry its own copy of the old logging, so a pipeline running both
+    # plugs logged every mismatch three times, including an `:error`
+    # "possible hijacking" line for requests that were then served.
+    {conn, fingerprint_valid?} = check_fingerprint_once(conn, user_token)
 
     user =
       if fingerprint_valid? do
@@ -989,12 +971,18 @@ defmodule PhoenixKitWeb.Users.Auth do
       |> maybe_update_locale_from_params(params)
       # This hook fires on `handle_params` for every LiveView mounted through
       # PhoenixKit's on_mount chain (admin and host-app public pages alike),
-      # so it is the one place that can guarantee `:seo_no_index` reaches
-      # root.html.heex's noindex meta tag before the first render — unlike
-      # LayoutWrapper.app_layout_inner/1, which only wraps admin/plugin views
-      # and never runs for a host app's own public LiveViews. assign_new is
-      # a no-op if LayoutWrapper already set it, so this is safe either way.
-      |> Phoenix.Component.assign_new(:seo_no_index, fn -> SEO.no_index_enabled?() end)
+      # so it is the one place that can publish `:crawlers_no_index` to a host
+      # app's own public LiveViews — LayoutWrapper.app_layout_inner/1 only
+      # wraps admin/plugin views. assign_new is a no-op if LayoutWrapper
+      # already set it, so this is safe either way.
+      #
+      # The head metas no longer read it: `Core.CrawlerMetas` reads the
+      # settings itself so it works in a HOST root layout too. This assign
+      # stays as the published read-only signal for host templates that want
+      # to branch on the directive. Deliberately just the one — a second
+      # assign for the verification metas would be two more settings reads on
+      # every navigation with nothing to read them.
+      |> Phoenix.Component.assign_new(:crawlers_no_index, fn -> Crawlers.no_index_enabled?() end)
 
     {:cont, socket}
   end
@@ -1512,7 +1500,7 @@ defmodule PhoenixKitWeb.Users.Auth do
     {"integrations_system", "/admin/settings/integrations/website"},
     # Settings sub-pages (lower priority landing pages)
     {"languages", "/admin/settings/languages"},
-    {"seo", "/admin/settings/seo"},
+    {"crawlers", "/admin/settings/crawlers"},
     {"sitemap", "/admin/settings/sitemap"},
     {"maintenance", "/admin/settings/maintenance"},
     {"legal", "/admin/settings/legal"},
@@ -1882,7 +1870,7 @@ defmodule PhoenixKitWeb.Users.Auth do
     PhoenixKitWeb.Live.Settings.EmailSending => "settings",
     PhoenixKitWeb.Live.Settings.SendProfiles => "settings",
     PhoenixKitWeb.Live.Settings.SendProfileForm => "settings",
-    PhoenixKitWeb.Live.Settings.SEO => "seo",
+    PhoenixKitWeb.Live.Settings.Crawlers => "crawlers",
     PhoenixKitWeb.Live.Modules.Languages => "languages",
     PhoenixKitWeb.Live.Modules.Maintenance.Settings => "maintenance",
     PhoenixKitWeb.Live.Modules.Storage.Settings => "media",
@@ -2077,7 +2065,13 @@ defmodule PhoenixKitWeb.Users.Auth do
     scope = socket.assigns[:phoenix_kit_current_scope]
 
     if scope && (Scope.can_access_admin_area?(scope) || Scope.owner?(scope)) do
-      {:cont, socket}
+      # HALT, not cont: for an admin the message is fully handled — maintenance
+      # never blocks them, so there is nothing further to do. Continuing handed
+      # the message to the LiveView's own handle_info, and any LV without a
+      # clause for it (most of them) died in FunctionClauseError the moment a
+      # maintenance toggle broadcast — or this hook's own end-of-window timer —
+      # fired while an admin had the page open.
+      {:halt, socket}
     else
       # Schedule may have changed — re-read the end time and reset the auto-off timer.
       # Note: we intentionally distrust the payload's :active value and re-check via

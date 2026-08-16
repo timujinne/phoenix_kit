@@ -10,6 +10,11 @@ defmodule PhoenixKit.Integration.Users.SecurityAuthorityTest do
   """
   use PhoenixKitWeb.ConnCase, async: true
 
+  # These tests assert BOOTSTRAP semantics (first-user-becomes-Owner, last-
+  # Owner guards, owner counts), so the suite's committed seed Owner is
+  # demoted inside this test's own sandbox transaction — see DataCase.
+  setup {PhoenixKit.DataCase, :demote_seed_owner}
+
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Users.RoleAssignment

@@ -5,13 +5,13 @@
   data-theme="light"
 >
   <head>
+    <%!-- Pre-paint: without this the kit's own root layout was permanently
+         light — the data-theme="light" above is only the no-JS fallback. --%>
+    <PhoenixKitWeb.Components.ThemeBootstrap.theme_bootstrap />
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="csrf-token" content={get_csrf_token()} />
-    <%= if assigns[:seo_no_index] do %>
-      <meta name="robots" content="noindex,nofollow" />
-      <meta name="googlebot" content="noindex,nofollow" />
-    <% end %>
+    <PhoenixKitWeb.Components.Core.CrawlerMetas.crawler_metas />
     <%= if og = assigns[:og] do %>
       <meta property="og:type" content={og[:type] || "article"} />
       <%= if og[:title] do %>
@@ -47,6 +47,13 @@
       {assigns[:page_title]}
     </.live_title>
     <link phx-track-static rel="stylesheet" href={~p"/assets/app.css"} />
+    <%!-- The bootstrap above stamps phoenix-*/host theme names; without this
+         block those names had no palette on auth pages — a dark-OS visitor
+         got data-theme="phoenix-dark" + color-scheme: dark over light
+         variables. --%>
+    <style data-phoenix-kit-themes>
+      <%= Phoenix.HTML.raw(PhoenixKit.ThemeConfig.custom_theme_css()) %>
+    </style>
     <script defer phx-track-static type="text/javascript" src={~p"/assets/app.js"}>
     </script>
     <%!-- PhoenixKit Cookie Consent Widget Setup --%>

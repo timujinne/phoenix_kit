@@ -48,10 +48,10 @@
           <.section_header icon="hero-identification" title={gettext("Site Identity")} />
 
           <%!-- Project Title Setting --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">{gettext("Project Title")}</span>
-              <span class="label-text-alt text-sm text-base-content/60">
+              <span class="fieldset-legend text-base font-medium">{gettext("Project Title")}</span>
+              <span class="fieldset-label text-sm text-base-content/60">
                 {gettext("Application name display")}
               </span>
             </label>
@@ -70,9 +70,9 @@
           </div>
 
           <%!-- Project Logo --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">{gettext("Project Logo")}</span>
+              <span class="fieldset-legend text-base font-medium">{gettext("Project Logo")}</span>
             </label>
             <input
               type="hidden"
@@ -106,7 +106,7 @@
               </button>
             <% end %>
             <div class="label">
-              <span class="label-text-alt text-xs text-base-content/50">
+              <span class="fieldset-label text-xs text-base-content/50">
                 {gettext(
                   "Logo displayed across the application. Falls back to the site icon, then the project title text."
                 )}
@@ -120,10 +120,10 @@
 
           <%!-- Browser Tab: site icon + default tab title as one identity group,
                with a live browser-chrome preview (WordPress site-icon style). --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">{gettext("Browser Tab")}</span>
-              <span class="label-text-alt text-sm text-base-content/60">
+              <span class="fieldset-legend text-base font-medium">{gettext("Browser Tab")}</span>
+              <span class="fieldset-label text-sm text-base-content/60">
                 {gettext("Site icon and tab title")}
               </span>
             </label>
@@ -249,7 +249,7 @@
 
                 <div class="flex-1 min-w-0">
                   <label class="label pt-0 pb-1">
-                    <span class="label-text text-sm font-medium">
+                    <span class="fieldset-legend text-sm font-medium">
                       {gettext("Default Tab Title")}
                     </span>
                   </label>
@@ -271,7 +271,7 @@
             </div>
 
             <div class="label">
-              <span class="label-text-alt text-xs text-base-content/50">
+              <span class="fieldset-label text-xs text-base-content/50">
                 {gettext(
                   "The icon appears in browser tabs, bookmarks, and on phone home screens."
                 )}
@@ -282,12 +282,12 @@
           <.section_header icon="hero-globe-alt" title={gettext("Site Address")} />
 
           <%!-- Site Address URL Setting --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">
+              <span class="fieldset-legend text-base font-medium">
                 {gettext("Site Address (URL)")}
               </span>
-              <span class="label-text-alt text-sm text-base-content/60">
+              <span class="fieldset-label text-sm text-base-content/60">
                 {gettext("Public base URL of this application")}
               </span>
             </label>
@@ -312,12 +312,12 @@
           <%!-- Main Page: where core sends a visitor who is not signed in.
                 Empty = core's own /users/log-in, which exists in every install
                 and every locale. --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">
+              <span class="fieldset-legend text-base font-medium">
                 {gettext("Main Page")}
               </span>
-              <span class="label-text-alt text-sm text-base-content/60">
+              <span class="fieldset-label text-sm text-base-content/60">
                 {gettext("Local path of the site's home page")}
               </span>
             </label>
@@ -347,12 +347,12 @@
           <.section_header icon="hero-adjustments-horizontal" title={gettext("Features")} />
 
           <%!-- Notifications --%>
-          <div class="form-control w-full">
+          <div class="fieldset w-full">
             <label class="label">
-              <span class="label-text text-base font-medium">
+              <span class="fieldset-legend text-base font-medium">
                 {gettext("Notifications")}
               </span>
-              <span class="label-text-alt text-sm text-base-content/60">
+              <span class="fieldset-label text-sm text-base-content/60">
                 {gettext("Per-user inbox driven by the activity feed")}
               </span>
             </label>
@@ -370,7 +370,7 @@
 
             <%!-- Default notification destination (catch-all click target) --%>
             <label class="label pt-3">
-              <span class="label-text">{gettext("Default notification link")}</span>
+              <span class="fieldset-legend">{gettext("Default notification link")}</span>
             </label>
             <.input
               type="text"
@@ -380,7 +380,7 @@
               class="input-sm max-w-md"
             />
             <div class="label">
-              <span class="label-text-alt text-xs text-base-content/50">
+              <span class="fieldset-label text-xs text-base-content/50">
                 {gettext(
                   "Where a notification opens when it has no link of its own. Defaults to /dashboard (every signed-in user can reach it). Clear the field to make such notifications non-clickable instead. The URL prefix and locale are added automatically."
                 )}
@@ -392,12 +392,12 @@
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
             <%!-- Default Editor Mode Setting --%>
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">
+                <span class="fieldset-legend text-base font-medium">
                   {gettext("Default Editor Mode")}
                 </span>
-                <span class="label-text-alt text-sm text-base-content/60">
+                <span class="fieldset-label text-sm text-base-content/60">
                   {gettext("Mode every content editor opens in")}
                 </span>
               </label>
@@ -408,7 +408,7 @@
                 class="focus-within:select-primary"
               />
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext(
                     "Applies site-wide wherever the rich-text editor is rendered (posts, comments). Users can still switch modes inside the editor."
                   )}
@@ -426,7 +426,7 @@
             </div>
 
             <%!-- Mentions --%>
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <.checkbox
                 name="settings[mentions_enabled]"
                 checked={@settings["mentions_enabled"] == "true"}
@@ -434,7 +434,7 @@
                 wrapper_class="mb-3"
               />
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext(
                     "Lets people type @ to mention someone and # to link a record, anywhere they can write free text. Turning it off stops the suggestions; mentions already written stay readable as plain text."
                   )}
@@ -447,7 +447,7 @@
                 wrapper_class="mb-3"
               />
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext(
                     "By default a mention shows what it names even to someone without access, with a lock icon and no link. Turn this on where the name itself is sensitive; they then see the name as it was when it was written, not its current one."
                   )}
@@ -473,10 +473,10 @@
 
           <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
             <%!-- Week Start Day Setting --%>
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">{gettext("Week Start On")}</span>
-                <span class="label-text-alt text-sm text-base-content/60">
+                <span class="fieldset-legend text-base font-medium">{gettext("Week Start On")}</span>
+                <span class="fieldset-label text-sm text-base-content/60">
                   {gettext("First day of the week")}
                 </span>
               </label>
@@ -498,10 +498,10 @@
             </div>
 
             <%!-- Time Zone Setting --%>
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">{gettext("Time Zone")}</span>
-                <span class="label-text-alt text-sm text-base-content/60">
+                <span class="fieldset-legend text-base font-medium">{gettext("Time Zone")}</span>
+                <span class="fieldset-label text-sm text-base-content/60">
                   {gettext("System default timezone")}
                 </span>
               </label>
@@ -518,10 +518,10 @@
             </div>
 
             <%!-- Date Format Setting --%>
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">{gettext("Date Format")}</span>
-                <span class="label-text-alt text-sm text-base-content/60">
+                <span class="fieldset-legend text-base font-medium">{gettext("Date Format")}</span>
+                <span class="fieldset-label text-sm text-base-content/60">
                   {gettext("How dates are displayed")}
                 </span>
               </label>
@@ -532,7 +532,7 @@
                 class="focus-within:select-primary"
               />
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext("Example:")} {get_current_date_example(@settings["date_format"])}
                 </span>
               </div>
@@ -548,10 +548,10 @@
             </div>
 
             <%!-- Time Format Setting --%>
-            <div class="form-control w-full">
+            <div class="fieldset w-full">
               <label class="label">
-                <span class="label-text text-base font-medium">{gettext("Time Format")}</span>
-                <span class="label-text-alt text-sm text-base-content/60">
+                <span class="fieldset-legend text-base font-medium">{gettext("Time Format")}</span>
+                <span class="fieldset-label text-sm text-base-content/60">
                   {gettext("How times are displayed")}
                 </span>
               </label>
@@ -562,7 +562,7 @@
                 class="focus-within:select-primary"
               />
               <div class="label">
-                <span class="label-text-alt text-xs text-base-content/50">
+                <span class="fieldset-label text-xs text-base-content/50">
                   {gettext("Example:")} {get_current_time_example(@settings["time_format"])}
                 </span>
               </div>
@@ -630,6 +630,11 @@
     id="settings-media-selector"
     show={@show_media_selector}
     mode={:single}
+    title={
+      if @media_selector_target == "site_icon",
+        do: gettext("Select Site Icon"),
+        else: gettext("Select Logo")
+    }
     selected_uuids={[]}
     phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
   />

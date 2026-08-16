@@ -170,7 +170,7 @@ defmodule PhoenixKit.Modules.Storage.FileInstance do
     |> unique_constraint([:file_uuid, :variant_name],
       name: :phoenix_kit_file_instances_file_uuid_variant_name_index
     )
-    |> foreign_key_constraint(:file_uuid)
+    |> foreign_key_constraint(:file_uuid, name: :phoenix_kit_file_instances_file_id_fkey)
   end
 
   @doc """

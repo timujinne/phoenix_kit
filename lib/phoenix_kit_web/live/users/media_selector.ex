@@ -45,6 +45,7 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Utils.Format
+  alias PhoenixKit.Utils.Pagination
   alias PhoenixKit.Utils.Routes
 
   import Ecto.Query
@@ -182,7 +183,7 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     socket
     |> assign(:uploaded_files, files)
     |> assign(:total_count, total_count)
-    |> assign(:total_pages, ceil(total_count / socket.assigns.per_page))
+    |> assign(:total_pages, Pagination.total_pages(total_count, socket.assigns.per_page))
   end
 
   defp handle_progress(:media_files, entry, socket) do

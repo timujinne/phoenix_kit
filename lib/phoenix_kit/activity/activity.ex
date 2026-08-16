@@ -1,4 +1,6 @@
 defmodule PhoenixKit.Activity do
+  alias PhoenixKit.Utils.Pagination
+
   @moduledoc """
   Activity feed for tracking business-level actions across the platform.
 
@@ -28,6 +30,8 @@ defmodule PhoenixKit.Activity do
   alias PhoenixKit.Activity.Entry
   alias PhoenixKit.PubSub.Manager, as: PubSubManager
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth.Scope
+  alias PhoenixKit.Users.Role
 
   @pubsub_topic "phoenix_kit:activity"
 
@@ -175,7 +179,7 @@ defmodule PhoenixKit.Activity do
       total: total,
       page: page,
       per_page: per_page,
-      total_pages: max(ceil(total / per_page), 1)
+      total_pages: Pagination.total_pages(total, per_page)
     }
   end
 
@@ -343,12 +347,83 @@ defmodule PhoenixKit.Activity do
     end
   end
 
+  @doc """
+  Whether `scope` may read the WHOLE activity log — every user's actions —
+  rather than only its own.
+
+  Administrators qualify: the Admin or Owner role, or any `"*"` superadmin
+  role. Everyone else (a custom role that merely holds `dashboard`) is scoped
+  to their own actions. The activity LiveViews share this as the single gate
+  for both the list and the single-entry page.
+  """
+  @spec full_log_access?(Scope.t() | nil) :: boolean()
+  def full_log_access?(scope) do
+    Scope.superadmin?(scope) or Scope.owner?(scope) or
+      Scope.has_role?(scope, Role.system_roles().admin)
+  end
+
+  @doc """
+  Whether `entry` is `scope`'s OWN activity.
+
+  "Own" is defined by AUTHORSHIP: the scope's user is the entry's `actor_uuid`
+  (the account that performed the action). A record where the user is only the
+  `target_uuid` — someone else acted on or for them — is NOT their own and stays
+  hidden from a non-administrator.
+
+  This is the single definition the audit log enforces in two places, and they
+  must not drift: the list pins `actor_uuid` to the user (`Activity.Index`) and
+  the single-entry page gates on this predicate (`Activity.Show`). If "own" ever
+  needs to include target-side records, change it HERE and switch the list's
+  filter in lock-step — do not fork the rule per view.
+  """
+  @spec own_entry?(Scope.t() | nil, Entry.t()) :: boolean()
+  def own_entry?(%Scope{user: %{uuid: uuid}}, %Entry{actor_uuid: actor_uuid})
+      when is_binary(uuid) and is_binary(actor_uuid),
+      do: actor_uuid == uuid
+
+  def own_entry?(_scope, _entry), do: false
+
   @doc "Returns a CSS badge class based on the mode."
   def mode_badge_color("manual"), do: "badge-warning"
   def mode_badge_color("auto"), do: "badge-info"
   def mode_badge_color("cron"), do: "badge-secondary"
   def mode_badge_color("script"), do: "badge-accent"
   def mode_badge_color(_), do: "badge-ghost"
+
+  @doc """
+  Renders an activity-metadata VALUE as human-readable text, tolerant of the
+  shapes host apps store.
+
+  The admin feed and detail page display arbitrary per-module metadata, so this
+  must never raise `Protocol.UndefinedError` (`String.Chars`/`to_string` on a
+  Map): a field-change diff carries a nested `%{"from" => _, "to" => _}` map,
+  which is rendered as `"1 → 2"`; any other map is rendered as
+  `"key: value, ..."`. Legacy entries whose scalar was serialised via `inspect`
+  (`"Decimal.new(\\"1\\")"`) are unwrapped to their inner value so old rows read
+  cleanly instead of leaking Elixir syntax.
+  """
+  def humanize_metadata_value(%{"from" => from, "to" => to}),
+    do: "#{humanize_metadata_value(from)} → #{humanize_metadata_value(to)}"
+
+  def humanize_metadata_value(value) when is_map(value) and not is_struct(value) do
+    Enum.map_join(value, ", ", fn {k, v} -> "#{k}: #{humanize_metadata_value(v)}" end)
+  end
+
+  def humanize_metadata_value(value) when is_list(value),
+    do: Enum.map_join(value, ", ", &humanize_metadata_value/1)
+
+  def humanize_metadata_value(value) when is_binary(value), do: unwrap_inspect_scalar(value)
+  def humanize_metadata_value(nil), do: ""
+  def humanize_metadata_value(value), do: to_string(value)
+
+  # Legacy rows serialised a Decimal via inspect/1 ("Decimal.new(\"1\")"); show
+  # the number instead. Anything that doesn't match is returned unchanged.
+  defp unwrap_inspect_scalar(str) do
+    case Regex.run(~r/^Decimal\.new\("?(-?\d+(?:\.\d+)?)"?\)$/, str) do
+      [_, number] -> number
+      _ -> str
+    end
+  end
 
   # Private
 

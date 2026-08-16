@@ -12,7 +12,7 @@
   <div class="flex flex-col px-4 py-6">
     <div class="flex items-center gap-2 justify-end mb-4">
       <label class="label cursor-pointer gap-2">
-        <span class="label-text font-medium">
+        <span class="fieldset-legend font-medium">
           {if @config.enabled, do: gettext("Enabled"), else: gettext("Disabled")}
         </span>
         <input
@@ -398,7 +398,7 @@
             <%!-- Login - always excluded --%>
             <div class="flex items-center justify-between p-3 rounded-lg bg-base-100">
               <div>
-                <span class="label-text font-medium">{gettext("Login")}</span>
+                <span class="fieldset-legend font-medium">{gettext("Login")}</span>
                 <span class="text-xs text-base-content/60 block">
                   {gettext("Always excluded from sitemap")}
                 </span>
@@ -409,7 +409,7 @@
             <%!-- Logout - always excluded --%>
             <div class="flex items-center justify-between p-3 rounded-lg bg-base-100">
               <div>
-                <span class="label-text font-medium">{gettext("Logout")}</span>
+                <span class="fieldset-legend font-medium">{gettext("Logout")}</span>
                 <span class="text-xs text-base-content/60 block">
                   {gettext("Always excluded from sitemap")}
                 </span>
@@ -420,7 +420,7 @@
             <%!-- Registration - toggleable --%>
             <label class="flex items-center justify-between cursor-pointer p-3 rounded-lg bg-base-100">
               <div>
-                <span class="label-text font-medium">{gettext("Registration")}</span>
+                <span class="fieldset-legend font-medium">{gettext("Registration")}</span>
                 <span class="text-xs text-base-content/60 block">
                   {gettext("Include in static sitemap")}
                 </span>
@@ -450,7 +450,7 @@
                 class="flex items-center justify-between cursor-pointer"
               >
                 <div>
-                  <span class="label-text font-medium">{field.label}</span>
+                  <span class="fieldset-legend font-medium">{field.label}</span>
                   <span :if={field.help} class="text-xs text-base-content/60 block">
                     {field.help}
                   </span>
@@ -468,10 +468,10 @@
                 :if={field.type != :boolean}
                 phx-submit="save_extension_setting"
                 phx-value-key={field.key}
-                class="form-control"
+                class="fieldset"
               >
                 <label class="label">
-                  <span class="label-text font-medium">{field.label}</span>
+                  <span class="fieldset-legend font-medium">{field.label}</span>
                 </label>
                 <p :if={field.help} class="text-xs text-base-content/60 mb-1">{field.help}</p>
                 <div class="flex gap-2">
@@ -479,7 +479,7 @@
                     type={if field.type == :integer, do: "number", else: "text"}
                     name="value"
                     value={field.value}
-                    class="input input-bordered input-sm w-full"
+                    class="input input-sm w-full"
                   />
                   <button type="submit" class="btn btn-sm btn-primary">{gettext("Save")}</button>
                 </div>
@@ -499,14 +499,14 @@
 
             <div class="space-y-4 mt-4">
               <%!-- Site URL (read-only) --%>
-              <div class="form-control">
+              <div class="fieldset">
                 <label class="label">
-                  <span class="label-text font-medium">{gettext("Site URL")}</span>
+                  <span class="fieldset-legend font-medium">{gettext("Site URL")}</span>
                 </label>
                 <div class="flex gap-2">
                   <input
                     type="url"
-                    class="input input-bordered w-full bg-base-200"
+                    class="input w-full bg-base-200"
                     value={@site_url || ""}
                     disabled
                     readonly
@@ -524,7 +524,7 @@
               <%!-- XSL Styling --%>
               <label class="flex items-center justify-between cursor-pointer">
                 <div>
-                  <span class="label-text font-medium">{gettext("Browser Display Styling")}</span>
+                  <span class="fieldset-legend font-medium">{gettext("Browser Display Styling")}</span>
                   <span class="text-xs text-base-content/60 block">
                     {gettext("Style XML with XSL for beautiful browser display")}
                   </span>
@@ -538,9 +538,9 @@
               </label>
 
               <%!-- Display Style --%>
-              <form id="sitemap-style-form" phx-change="update_style" class="form-control">
+              <form id="sitemap-style-form" phx-change="update_style" class="fieldset">
                 <label class="label">
-                  <span class="label-text font-medium">{gettext("Display Style")}</span>
+                  <span class="fieldset-legend font-medium">{gettext("Display Style")}</span>
                 </label>
                 <.select
                   name="style"
@@ -673,10 +673,10 @@
               "Served at the site root as well as under the PhoenixKit prefix, because that is where crawlers look. A priv/static/sitemap.xml file would be served instead of this one."
             )}
             <.link
-              navigate={Routes.path("/admin/settings/seo")}
+              navigate={Routes.path("/admin/settings/crawlers")}
               class="link link-primary"
             >
-              {gettext("SEO settings")}
+              {gettext("Crawler settings")}
             </.link>
             {gettext("has the robots.txt line that points crawlers here.")}
           </p>
@@ -697,9 +697,9 @@
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-2">
             <%!-- Exclude Patterns --%>
-            <form phx-submit="save_exclude_patterns" class="form-control">
+            <form phx-submit="save_exclude_patterns" class="fieldset">
               <label class="label">
-                <span class="label-text font-medium">
+                <span class="fieldset-legend font-medium">
                   {gettext("Router Discovery: Exclude Patterns")}
                 </span>
               </label>
@@ -724,9 +724,9 @@
             </form>
 
             <%!-- Protected Pipelines --%>
-            <form phx-submit="save_protected_pipelines" class="form-control">
+            <form phx-submit="save_protected_pipelines" class="fieldset">
               <label class="label">
-                <span class="label-text font-medium">{gettext("Protected Pipelines")}</span>
+                <span class="fieldset-legend font-medium">{gettext("Protected Pipelines")}</span>
               </label>
               <p class="text-xs text-base-content/60 mb-1">
                 {gettext("One pipeline name per line. Added on top of the built-in defaults:")}
@@ -747,9 +747,9 @@
             </form>
 
             <%!-- Custom URLs --%>
-            <form phx-submit="save_custom_urls" class="form-control">
+            <form phx-submit="save_custom_urls" class="fieldset">
               <label class="label">
-                <span class="label-text font-medium">{gettext("Custom URLs")}</span>
+                <span class="fieldset-legend font-medium">{gettext("Custom URLs")}</span>
               </label>
               <p class="text-xs text-base-content/60 mb-1">
                 {gettext(
@@ -771,9 +771,9 @@
             </form>
 
             <%!-- Static Routes --%>
-            <form phx-submit="save_static_routes" class="form-control">
+            <form phx-submit="save_static_routes" class="fieldset">
               <label class="label">
-                <span class="label-text font-medium">{gettext("Static Routes")}</span>
+                <span class="fieldset-legend font-medium">{gettext("Static Routes")}</span>
               </label>
               <p class="text-xs text-base-content/60 mb-1">
                 {gettext(

@@ -191,6 +191,11 @@ defmodule PhoenixKitWeb.Integration do
       # Define the auto-setup pipeline
       pipeline :phoenix_kit_auto_setup do
         plug PhoenixKitWeb.Plugs.RequestTimer
+        # Best-effort bot blocking (default off; see the plug's moduledoc).
+        # Early, before auth work is spent on a request we intend to 403 —
+        # but only on page pipelines: the public sitemap/llms.txt scopes skip
+        # it on purpose, policy files must stay fetchable by any bot.
+        plug PhoenixKitWeb.Plugs.CrawlerBlocker
         plug PhoenixKitWeb.Users.Auth, :fetch_phoenix_kit_current_user
         plug PhoenixKitWeb.Integration, :phoenix_kit_auto_setup
       end
@@ -324,7 +329,10 @@ defmodule PhoenixKitWeb.Integration do
       end
 
       # Sitemap routes - public XML/XSL endpoints, no session/CSRF/auto_setup needed
+      # llms.txt rides along: same public, session-free shape, and policy files
+      # must stay fetchable even by bots the Crawlers module blocks.
       scope unquote(url_prefix) do
+        get "/llms.txt", PhoenixKit.Modules.Crawlers.Web.Controller, :llms_txt
         get "/sitemap.xml", PhoenixKit.Modules.Sitemap.Web.Controller, :xml
         get "/sitemap.html", PhoenixKit.Modules.Sitemap.Web.Controller, :html
         get "/sitemaps/:filename", PhoenixKit.Modules.Sitemap.Web.Controller, :module_sitemap
@@ -548,7 +556,7 @@ defmodule PhoenixKitWeb.Integration do
       live "/admin/settings/languages/frontend", Live.Modules.Languages, :frontend
 
       live "/admin/settings/maintenance", Live.Modules.Maintenance.Settings, :index
-      live "/admin/settings/seo", Live.Settings.SEO, :index
+      live "/admin/settings/crawlers", Live.Settings.Crawlers, :index
       live "/admin/settings/media", Live.Modules.Storage.Settings, :index
       live "/admin/settings/media/buckets/new", Live.Modules.Storage.BucketForm, :new
       live "/admin/settings/media/buckets/:id/edit", Live.Modules.Storage.BucketForm, :edit
@@ -1156,6 +1164,149 @@ defmodule PhoenixKitWeb.Integration do
     end
   end
 
+  @doc false
+  # Warn when installed modules ship JS hooks the host will never load.
+  #
+  # A module declares its hook bundle with `js_sources/0`, and the ONLY thing
+  # that consumes that declaration is the `:phoenix_kit_js_sources` compiler.
+  # A host without it in `:compilers` gets nothing: no vendored bundle, no
+  # error, no warning — `window.PhoenixKitHooks` simply never gains those
+  # hooks, while the module's templates go on rendering `phx-hook="..."` names
+  # the LiveSocket has never heard of.
+  #
+  # That failure is the worst available shape. The page renders, the module
+  # looks installed, and only the half of the feature that needed JS is
+  # missing — so it reads as "this module is broken" rather than "its JS never
+  # loaded". `phoenix_kit_boards` shipped that state twice before anyone
+  # traced it, and a host running the CSS compiler but not the JS one (an easy
+  # asymmetry to end up with) hits it without ever having made a decision.
+  #
+  # Cheap to detect and worth saying out loud: if any module declares a bundle
+  # and the compiler is absent, name the modules and the one line that fixes
+  # it. Silence here has cost more than a warning ever will.
+  def warn_missing_js_compiler do
+    modules = modules_declaring_js_sources()
+
+    # A module PACKAGE compiling its own (test) router is not a host. Its
+    # mix.exs legitimately has no :phoenix_kit_js_sources compiler — the
+    # host it ships to is where that belongs — yet discovery finds the
+    # package's own beams and `Mix.Project.config/0` answers for the
+    # package, so without this check every `mix test` in e.g.
+    # phoenix_kit_boards printed the fix-your-mix.exs warning for a
+    # configuration that was already correct. Recurring false warnings
+    # train exactly the scroll-past behavior this warning exists to fight.
+    # The tell: a host never compiles a js_sources module from its own
+    # source tree; a package always does.
+    if Enum.any?(modules, &compiled_from_current_project?/1) do
+      :ok
+    else
+      warn_missing_js_compiler(modules, js_compiler_configured?())
+    end
+  end
+
+  # Public (@doc false) so the suppression can be tested with real modules:
+  # this library's own modules ARE compiled from the current project when its
+  # suite runs, and dep-compiled modules are not.
+  #
+  # Hex deps compile from `<cwd>/deps/...` — UNDER the project directory —
+  # so "under cwd" alone would call every dep locally compiled and suppress
+  # the warning on exactly the hosts it exists for. Path deps (`../sibling`)
+  # sit outside cwd and were never at risk.
+  @doc false
+  def compiled_from_current_project?(mod) do
+    cwd = File.cwd!()
+
+    case mod.module_info(:compile)[:source] do
+      source when is_list(source) ->
+        path = List.to_string(source)
+
+        String.starts_with?(path, cwd <> "/") and
+          not String.starts_with?(path, cwd <> "/deps/")
+
+      _ ->
+        false
+    end
+  rescue
+    _ -> false
+  catch
+    _kind, _value -> false
+  end
+
+  @doc false
+  # Split from the discovery so the decision can be tested for what it is: a
+  # question about two facts. Reaching it through the real dep tree would mean
+  # the interesting branch only runs on a host that happens to be misconfigured
+  # — i.e. never, in this library's own suite.
+  def warn_missing_js_compiler(modules, compiler_configured?)
+
+  def warn_missing_js_compiler([], _compiler_configured?), do: :ok
+  def warn_missing_js_compiler(_modules, true), do: :ok
+
+  def warn_missing_js_compiler(modules, false) do
+    # `IO.warn/1` registers a compiler diagnostic, so on a host building with
+    # `--warnings-as-errors` — the ordinary CI setting — this did not warn,
+    # it broke the build, on upgrade, over a condition in mix.exs that was
+    # not a regression in the host's own code. That contradicted the point of
+    # the check twice over: the discovery below is rescued and the Mix lookup
+    # guarded precisely so this can never take a host's compile down, and a
+    # warning nobody can turn off except by editing mix.exs is a breaking
+    # change wearing a warning's clothes. Written straight to stderr instead:
+    # just as visible in the build output, not a diagnostic.
+    IO.puts(:stderr, """
+
+    warning: PhoenixKit: these modules ship JavaScript hooks that will not be loaded:
+
+      #{Enum.map_join(modules, "\n  ", &inspect/1)}
+
+    They declare `js_sources/0`, which only the `:phoenix_kit_js_sources`
+    compiler consumes, and it is not in this app's `:compilers`. Their hooks
+    will be missing from `window.PhoenixKitHooks` with no further error —
+    their pages will render and the parts that need JavaScript will not work.
+
+    Add it to mix.exs:
+
+        compilers: [:phoenix_kit_js_sources, :phoenix_live_view] ++ Mix.compilers()
+
+    and make sure the root layout loads the vendored bundles before app.js:
+
+        <script src={~p"/assets/vendor/phoenix_kit.js"}></script>
+        <script src={~p"/assets/vendor/phoenix_kit_modules.js"}></script>
+    """)
+
+    :ok
+  end
+
+  defp modules_declaring_js_sources do
+    PhoenixKit.ModuleDiscovery.discover_external_modules()
+    |> Enum.filter(fn mod ->
+      Code.ensure_loaded?(mod) and function_exported?(mod, :js_sources, 0) and
+        mod.js_sources() != []
+    end)
+  rescue
+    # Discovery reaches into the dep tree; a warning is never worth failing a
+    # host's compile over.
+    _ -> []
+  catch
+    # A discovered module's js_sources/0 can throw or exit as well as raise
+    # (a compile-time call into an unstarted process exits) — `rescue` alone
+    # let those escape the macro expansion and abort the host's compile,
+    # which is precisely what the comment above promises cannot happen.
+    _kind, _value -> []
+  end
+
+  # Mix is present while the host's router compiles, which is when this runs.
+  # Guarded anyway: releases and escripts can evaluate code with Mix unloaded,
+  # and there is nothing to warn about there — the compile already happened.
+  defp js_compiler_configured? do
+    if Code.ensure_loaded?(Mix.Project) and function_exported?(Mix.Project, :config, 0) do
+      :phoenix_kit_js_sources in (Mix.Project.config()[:compilers] || [])
+    else
+      true
+    end
+  rescue
+    _ -> true
+  end
+
   # Compile public routes from external route modules.
   # Each module should implement public_routes/1 (receives url_prefix).
   @doc false
@@ -1316,6 +1467,7 @@ defmodule PhoenixKitWeb.Integration do
   defp root_sitemap_routes(_url_prefix) do
     quote do
       scope "/" do
+        get "/llms.txt", PhoenixKit.Modules.Crawlers.Web.Controller, :llms_txt
         get "/sitemap.xml", PhoenixKit.Modules.Sitemap.Web.Controller, :xml
         get "/sitemap.html", PhoenixKit.Modules.Sitemap.Web.Controller, :html
         get "/sitemaps/:filename", PhoenixKit.Modules.Sitemap.Web.Controller, :module_sitemap
@@ -1419,6 +1571,10 @@ defmodule PhoenixKitWeb.Integration do
     # here would be silently ignored (it was, for months). Which locales
     # are actually accepted is decided at runtime by the locale
     # validation plug; see `build_live_surface/5`.
+
+    # Every host compiles this macro, which makes it the one place that can
+    # see a host-side integration gap the compiler itself cannot report.
+    warn_missing_js_compiler()
 
     # External route modules with public/non-admin routes
     external_public_routes = compile_external_public_routes(url_prefix)

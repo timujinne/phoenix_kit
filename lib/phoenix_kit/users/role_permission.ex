@@ -51,6 +51,6 @@ defmodule PhoenixKit.Users.RolePermission do
       name: :phoenix_kit_role_permissions_role_uuid_module_key_idx,
       message: "permission already granted"
     )
-    |> foreign_key_constraint(:role_uuid)
+    |> foreign_key_constraint(:role_uuid, name: :fk_role_permissions_role_uuid)
   end
 end

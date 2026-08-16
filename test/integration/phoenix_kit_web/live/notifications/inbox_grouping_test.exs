@@ -17,6 +17,7 @@ defmodule PhoenixKitWeb.Live.Notifications.InboxGroupingTest do
   alias PhoenixKit.Activity
   alias PhoenixKit.Notifications
   alias PhoenixKit.Notifications.Notification
+  alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Utils.Routes
 
@@ -60,7 +61,7 @@ defmodule PhoenixKitWeb.Live.Notifications.InboxGroupingTest do
   defp backdate(uuid, days_ago) do
     at = DateTime.utc_now() |> DateTime.add(-days_ago, :day) |> DateTime.truncate(:second)
 
-    PhoenixKit.repo().update_all(
+    RepoHelper.repo().update_all(
       from(n in Notification, where: n.uuid == ^uuid),
       set: [inserted_at: at]
     )

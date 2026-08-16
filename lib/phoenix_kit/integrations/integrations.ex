@@ -1072,6 +1072,9 @@ defmodule PhoenixKit.Integrations do
   defp do_validate(%{auth_type: :api_key, validation: %{strategy: :brevo_api}}, data),
     do: Validators.brevo_api(data)
 
+  defp do_validate(%{auth_type: :api_key, validation: %{strategy: :amazon_bedrock}}, data),
+    do: Validators.amazon_bedrock(data)
+
   defp do_validate(%{auth_type: :bot_token, validation: %{strategy: :telegram}}, data),
     do: Validators.telegram(data)
 

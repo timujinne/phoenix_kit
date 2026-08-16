@@ -506,7 +506,7 @@ defmodule PhoenixKitWeb.Live.Modules do
     if Code.ensure_loaded?(mod) and function_exported?(mod, :admin_tabs, 0) do
       mod.admin_tabs()
       |> Enum.filter(fn tab ->
-        tab.live_view != nil and tab.visible != false and tab.parent != nil
+        tab.live_view != nil and not Tab.hard_hidden?(tab) and tab.parent != nil
       end)
       |> Enum.uniq_by(fn tab -> tab.path end)
       |> Enum.take(3)

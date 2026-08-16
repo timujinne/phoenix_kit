@@ -741,8 +741,14 @@ defmodule PhoenixKit.Dashboard.Registry do
     _ -> []
   end
 
-  defp maybe_filter_visibility(tabs, nil, _include_hidden), do: tabs
   defp maybe_filter_visibility(tabs, _scope, true), do: tabs
+
+  # No scope to evaluate visibility functions against — those stay — but
+  # hard-hidden tabs (visible: false, or parameterized paths) must not leak
+  # just because the caller had no scope. They used to.
+  defp maybe_filter_visibility(tabs, nil, false) do
+    Enum.reject(tabs, &Tab.hard_hidden?/1)
+  end
 
   defp maybe_filter_visibility(tabs, scope, false) do
     Enum.filter(tabs, &Tab.visible?(&1, scope))

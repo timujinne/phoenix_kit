@@ -708,7 +708,8 @@ defmodule PhoenixKit.Users.Roles do
   @doc """
   Safely assigns Owner role to first user using database transaction.
 
-  This function prevents race conditions by using FOR UPDATE lock.
+  Concurrent registrations are serialized by a row lock on the Owner role row,
+  taken only while no active Owner exists yet — see the transaction body.
 
   ## Parameters
 
@@ -731,24 +732,15 @@ defmodule PhoenixKit.Users.Roles do
     roles = Role.system_roles()
 
     repo.transaction(fn ->
-      # Lock the Owner role to prevent race conditions during concurrent user registrations
-      # Note: Cannot use FOR UPDATE with aggregate functions, so we split into two queries
-      owner_role =
-        repo.one(
-          from r in Role,
-            where: r.name == ^roles.owner,
-            lock: "FOR UPDATE"
-        )
-
-      # Count existing active owners in a separate query (within the same transaction)
+      # Once an active Owner exists the answer can never flip to "you are the
+      # first user", so the overwhelmingly common path — every registration
+      # after the bootstrap one — decides from an unlocked read and takes no
+      # lock at all. Only a genuine 0-owner install pays for the serialization.
       owner_count =
-        repo.one(
-          from assignment in RoleAssignment,
-            join: u in User,
-            on: assignment.user_uuid == u.uuid and u.is_active == true,
-            where: assignment.role_uuid == ^owner_role.uuid,
-            select: count(u.uuid)
-        )
+        case count_active_owners_by_name(repo, roles.owner, lock: false) do
+          0 -> count_active_owners_by_name(repo, roles.owner, lock: true)
+          count -> count
+        end
 
       case owner_count do
         0 ->
@@ -775,6 +767,39 @@ defmodule PhoenixKit.Users.Roles do
           end
       end
     end)
+  end
+
+  # Active users holding the Owner role.
+  #
+  # With `lock: true` the Owner role row is locked first, so that a concurrent
+  # registration cannot read the same zero count and mint a second Owner. The
+  # mode is FOR NO KEY UPDATE, not FOR UPDATE: these paths never touch the
+  # role's key, and FOR UPDATE additionally conflicts with the FOR KEY SHARE
+  # that Postgres takes on this very row for the foreign key of every
+  # `phoenix_kit_user_role_assignments` insert. That made unrelated role
+  # assignments queue behind registrations — and, crossed with the identical
+  # lock in `Permissions.lock_role_for_update/2` on a different role row,
+  # produced 40P01 deadlocks. FOR NO KEY UPDATE still excludes the other
+  # writers of this row while leaving FK checks free to proceed.
+  defp count_active_owners_by_name(repo, owner_role_name, opts) do
+    if Keyword.fetch!(opts, :lock) do
+      repo.one(
+        from r in Role,
+          where: r.name == ^owner_role_name,
+          select: r.uuid,
+          lock: "FOR NO KEY UPDATE"
+      )
+    end
+
+    repo.one(
+      from assignment in RoleAssignment,
+        join: u in User,
+        on: assignment.user_uuid == u.uuid and u.is_active == true,
+        join: r in Role,
+        on: r.uuid == assignment.role_uuid,
+        where: r.name == ^owner_role_name,
+        select: count(u.uuid)
+    ) || 0
   end
 
   # Activate and confirm first owner

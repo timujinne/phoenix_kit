@@ -76,6 +76,7 @@ defmodule PhoenixKit.Users.Auth do
   alias PhoenixKit.Users.{CustomFields, RateLimiter, Role, Roles}
   alias PhoenixKit.Utils.Date, as: UtilsDate
   alias PhoenixKit.Utils.Geolocation
+  alias PhoenixKit.Utils.Pagination
   alias PhoenixKit.Utils.SessionFingerprint
   alias PhoenixKit.Utils.UUID, as: UUIDUtils
 
@@ -1166,13 +1167,35 @@ defmodule PhoenixKit.Users.Auth do
           SessionFingerprint.verify_fingerprint(
             conn,
             token_record.ip_address,
-            token_record.user_agent_hash
+            token_record.user_agent_hash,
+            session: session_label(token)
           )
       end
     else
       :ok
     end
   end
+
+  # A short, stable label for one session, so fingerprint lines can be
+  # correlated to each other and to a row in the sessions UI.
+  #
+  # THE SAME derivation the sessions UI displays as its token preview —
+  # `encode(substring(token, 1, 4), 'hex')` in `PhoenixKit.Users.Sessions` —
+  # because the label exists to be searched for on that page, and the
+  # previous derivation (truncated sha256) could never match it: an operator
+  # pasting the logged label into the sessions search got zero results every
+  # time. Four of the token's ~32 random bytes in a log is not a usable
+  # credential (the UI already shows admins these same bytes), and 8 hex
+  # characters is plenty to group a handful of lines by.
+  #
+  # Public (@doc false) so the test suite can hold the two derivations
+  # together — they drifted apart silently once already.
+  @doc false
+  def session_label(token) when is_binary(token) and byte_size(token) >= 4 do
+    token |> binary_part(0, 4) |> Base.encode16(case: :lower)
+  end
+
+  def session_label(_), do: "unknown"
 
   @doc """
   Ensures the user is active by checking the is_active field.
@@ -2405,7 +2428,7 @@ defmodule PhoenixKit.Users.Auth do
       |> maybe_filter_by_account_type(account_type_filter)
 
     total_count = PhoenixKit.RepoHelper.aggregate(query, :count, :uuid)
-    total_pages = div(total_count + page_size - 1, page_size)
+    total_pages = Pagination.total_pages(total_count, page_size)
 
     users =
       query

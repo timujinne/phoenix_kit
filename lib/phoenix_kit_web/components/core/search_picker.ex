@@ -108,7 +108,7 @@ defmodule PhoenixKitWeb.Components.Core.SearchPicker do
   attr :text_event, :string, default: nil
   attr :staged_event, :string, default: "picker_staged"
   attr :placeholder, :string, default: nil
-  attr :class, :any, default: "input input-bordered w-full"
+  attr :class, :any, default: "input w-full"
   attr :searching_label, :string, default: "Searching…"
   attr :add_prefix_label, :string, default: "Add"
   attr :add_suffix_label, :string, default: "as text"

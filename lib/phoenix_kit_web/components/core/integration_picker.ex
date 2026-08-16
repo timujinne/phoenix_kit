@@ -146,7 +146,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
           phx-hook="IntegrationPickerSearch"
           id={"#{@id}-search"}
           data-picker-id={@id}
-          class="input input-bordered input-sm w-full"
+          class="input input-sm w-full"
         />
       </div>
 
@@ -327,7 +327,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
                  see WHY without clicking through. --%>
             <% {status_label, status_class} = status_badge(@conn.data) %>
             <span
-              class={"badge badge-xs phx-click-loading:hidden " <> status_class}
+              class={"badge badge-xs phx-click-loading:hidden" <> status_class}
               title={@conn.data["validation_status"]}
             >
               {status_label}
@@ -340,7 +340,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
             <.icon
               name="hero-check-circle-solid"
               class={
-                "w-5 h-5 " <>
+                "w-5 h-5" <>
                   if(@selected, do: "text-primary", else: "text-base-content/20")
               }
             />

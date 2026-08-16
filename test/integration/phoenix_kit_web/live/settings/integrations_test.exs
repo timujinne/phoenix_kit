@@ -17,6 +17,8 @@ defmodule PhoenixKitWeb.Live.Settings.IntegrationsTest do
   use PhoenixKitWeb.ConnCase, async: true
 
   alias PhoenixKit.Integrations
+  alias PhoenixKit.Users.Permissions
+  alias PhoenixKit.Users.Roles
   alias PhoenixKit.Utils.Routes
 
   @list_path Routes.path("/admin/settings/integrations/website")
@@ -24,6 +26,18 @@ defmodule PhoenixKitWeb.Live.Settings.IntegrationsTest do
 
   defp setup_admin(%{conn: conn}) do
     {user, _token} = create_admin_user()
+
+    # These tests exercise the WEBSITE integrations pages, gated by the
+    # "integrations_system" key. The test database's Admin role carries no
+    # permission rows (the auto-grant sweep runs at app boot, not here), so
+    # the key is granted the way an Owner would. Before the suite seeded a
+    # committed Owner, this fixture's user was silently the bootstrap Owner
+    # and held "*" — these tests were passing as Owner while claiming Admin.
+    admin_role = Roles.get_role_by_name("Admin")
+
+    {:ok, _} =
+      Permissions.grant_permission(admin_role.uuid, "integrations_system")
+
     conn = log_in_user(conn, user)
     %{conn: conn, user: user}
   end

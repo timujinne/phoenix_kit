@@ -139,8 +139,8 @@ defmodule PhoenixKitWeb.Components.AdminNav do
           <.icon name="hero-cpu-chip" class="w-5 h-5" />
         <% "language" -> %>
           <.icon name="hero-language" class="w-5 h-5" />
-        <% "seo" -> %>
-          <.icon name="hero-magnifying-glass-circle" class="w-5 h-5" />
+        <% "crawlers" -> %>
+          <.icon name="hero-bug-ant" class="w-5 h-5" />
         <% "sitemap" -> %>
           <.icon name="hero-map" class="w-5 h-5" />
         <% "document" -> %>
@@ -174,7 +174,13 @@ defmodule PhoenixKitWeb.Components.AdminNav do
 
   def admin_theme_controller(assigns) do
     ~H"""
-    <.theme_controller themes={:all} id="admin-theme-dropdown" />
+    <%!-- :dashboard_themes applies HERE too — hardcoding :all meant a host's
+         narrowed theme list governed only the user dashboard while every
+         admin page kept the full catalogue, silently. --%>
+    <.theme_controller
+      themes={PhoenixKit.Config.get(:dashboard_themes, :all)}
+      id="admin-theme-dropdown"
+    />
     """
   end
 
@@ -423,22 +429,22 @@ defmodule PhoenixKitWeb.Components.AdminNav do
               class="space-y-4"
             >
               <input type="hidden" name="return_to" value={@current_path} />
-              <div class="form-control">
-                <label class="label"><span class="label-text">Email or username</span></label>
+              <div class="fieldset">
+                <label class="label"><span class="fieldset-legend">Email or username</span></label>
                 <input
                   name="user[email_or_username]"
                   type="text"
                   required
-                  class="input input-bordered w-full"
+                  class="input w-full"
                 />
               </div>
-              <div class="form-control">
-                <label class="label"><span class="label-text">Password</span></label>
+              <div class="fieldset">
+                <label class="label"><span class="fieldset-legend">Password</span></label>
                 <input
                   name="user[password]"
                   type="password"
                   required
-                  class="input input-bordered w-full"
+                  class="input w-full"
                 />
               </div>
               <div class="modal-action">

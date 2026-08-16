@@ -395,16 +395,16 @@ defmodule PhoenixKitWeb.Live.Integrations.MyIntegrationForm do
               <div class="card-body py-4 space-y-4">
                 <%!-- Connection name — editable in both modes; the edit save
                      renames when it changes. --%>
-                <div class="form-control">
+                <div class="fieldset">
                   <label class="label" for="field-name">
-                    <span class="label-text">{gettext("Connection Name")}</span>
+                    <span class="fieldset-legend">{gettext("Connection Name")}</span>
                   </label>
                   <input
                     type="text"
                     id="field-name"
                     name="name"
                     value={@name || @new_name}
-                    class="input input-bordered w-full"
+                    class="input w-full"
                     placeholder={gettext("e.g. My personal key")}
                     required
                   />

@@ -426,6 +426,36 @@ defmodule PhoenixKitWeb.Live.UrlStateTest do
     end
   end
 
+  describe "extras_from_uri/2" do
+    test "takes extras from the query string, never from a path segment" do
+      extras =
+        UrlState.extras_from_uri(
+          "/admin/catalogue/0193aaaa-bbbb-7000-8000-000000000001?q=oak&return_to=/admin/media",
+          cfg()
+        )
+
+      # `q` is a declared url_key; the uuid lives only in the path
+      refute Map.has_key?(extras, "q")
+      refute Map.has_key?(extras, "uuid")
+      assert extras == %{"return_to" => "/admin/media"}
+    end
+
+    test "a uuid that really is a query key is still preserved" do
+      extras =
+        UrlState.extras_from_uri(
+          "/admin/users?uuid=0193aaaa-bbbb-7000-8000-000000000001",
+          cfg()
+        )
+
+      assert extras == %{"uuid" => "0193aaaa-bbbb-7000-8000-000000000001"}
+    end
+
+    test "an empty or missing query yields no extras" do
+      assert UrlState.extras_from_uri("/admin/users", cfg()) == %{}
+      assert UrlState.extras_from_uri("/admin/users?", cfg()) == %{}
+    end
+  end
+
   describe "round trip" do
     test "decode(encode(state)) is the identity for every declared param" do
       original = UrlState.decode(%{"q" => "ivan", "role" => "admin", "sort_dir" => "asc"}, cfg())

@@ -97,7 +97,15 @@ defmodule PhoenixKit.Settings.Setting do
     "from_email",
     # Blank means "no default send integration" — deliver_email/2 falls back
     # to the static app-config/built-in mailer (see PhoenixKit.Mailer)
-    "default_email_integration_uuid"
+    "default_email_integration_uuid",
+    # Crawlers — verification tags and the llms.txt extra are legitimately
+    # empty. Without these entries the FIRST write of an empty value (no row
+    # yet) fails validation, so a form saving both slots partially applies:
+    # the non-empty slot lands, the empty one errors, and the flash reports
+    # failure for a half-applied save.
+    "crawlers_google_verification",
+    "crawlers_bing_verification",
+    "crawlers_llms_extra"
   ]
 
   @doc false

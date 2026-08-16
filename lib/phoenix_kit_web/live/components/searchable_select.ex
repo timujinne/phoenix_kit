@@ -123,7 +123,7 @@ defmodule PhoenixKitWeb.Live.Components.SearchableSelect do
 
       <%!-- Display input --%>
       <div
-        class="input input-bordered w-full flex items-center justify-between cursor-pointer"
+        class="input w-full flex items-center justify-between cursor-pointer"
         phx-click="toggle"
         phx-target={@myself}
       >
@@ -151,7 +151,7 @@ defmodule PhoenixKitWeb.Live.Components.SearchableSelect do
               type="text"
               value={@search}
               placeholder={@placeholder}
-              class="input input-sm input-bordered w-full"
+              class="input input-sm w-full"
               name="search"
               autocomplete="off"
               autofocus

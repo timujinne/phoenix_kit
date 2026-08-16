@@ -21,7 +21,7 @@
             <div class="space-y-2">
               <%= for role <- @all_roles do %>
                 <% owner_role? = role.name == PhoenixKit.Users.Role.system_roles().owner %>
-                <div class="form-control">
+                <div class="fieldset">
                   <%!-- DO NOT convert to <.checkbox>: the submitted VALUE is the
                        payload here. `sync_user_roles` reads Map.values(params["roles"])
                        and the context diffs that list against the user's current roles,
@@ -244,7 +244,7 @@
         </:toolbar_title>
         <:sort_bar :if={@show_search or @search_query != ""}>
           <form id="users-search-form" phx-change="search" phx-submit="search">
-            <label class="input input-sm input-bordered flex items-center gap-2 w-full">
+            <label class="input input-sm flex items-center gap-2 w-full">
               <.icon name="hero-magnifying-glass" class="h-4 w-4 opacity-50 shrink-0" />
               <input
                 id="users-search-input"
@@ -966,7 +966,7 @@
                       <.icon name="hero-bars-3" class="h-5 w-5" />
                     </div>
                     <div class="flex flex-col flex-1">
-                      <span class="label-text font-medium text-base-content">
+                      <span class="fieldset-legend font-medium text-base-content">
                         {(column_meta && column_meta.label) || column_id}
                       </span>
                     </div>
@@ -1021,7 +1021,7 @@
                               data-section="available-standard"
                             >
                               <div class="flex flex-col flex-1">
-                                <span class="label-text font-medium text-sm text-base-content">
+                                <span class="fieldset-legend font-medium text-sm text-base-content">
                                   {column_meta.label}
                                 </span>
                               </div>
@@ -1071,7 +1071,7 @@
                               data-section="available-custom"
                             >
                               <div class="flex flex-col flex-1">
-                                <span class="label-text font-medium text-sm text-base-content">
+                                <span class="fieldset-legend font-medium text-sm text-base-content">
                                   {column_meta.label}
                                 </span>
                               </div>

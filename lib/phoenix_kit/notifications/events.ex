@@ -8,6 +8,8 @@ defmodule PhoenixKit.Notifications.Events do
   Events sent to these topics:
 
     * `{:notification_created, %Notification{}}`
+    * `{:notification_updated, %Notification{}}` — an existing row refreshed by
+      `upsert_inapp/3` rather than a new one added
     * `{:notification_seen, %Notification{}}`
     * `{:notification_dismissed, %Notification{}}`
   """

@@ -38,6 +38,7 @@ defmodule PhoenixKitWeb.Live.Users.LiveSessions do
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.Date, as: UtilsDate
   alias PhoenixKit.Utils.IpAddress
+  alias PhoenixKit.Utils.Pagination
   alias PhoenixKit.Utils.Routes
 
   # Refresh every 5 seconds
@@ -217,7 +218,7 @@ defmodule PhoenixKitWeb.Live.Users.LiveSessions do
 
     # Calculate pagination
     total_count = length(filtered_sessions)
-    total_pages = max(1, ceil(total_count / socket.assigns.per_page))
+    total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
     page = min(socket.assigns.page, total_pages)
 
     # Get page sessions

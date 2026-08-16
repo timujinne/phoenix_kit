@@ -16,6 +16,11 @@ defmodule PhoenixKit.Users.ReferralAccessGateTest do
   """
   use PhoenixKit.DataCase, async: false
 
+  # These tests assert BOOTSTRAP semantics (first-user-becomes-Owner, last-
+  # Owner guards, owner counts), so the suite's committed seed Owner is
+  # demoted inside this test's own sandbox transaction — see DataCase.
+  setup {PhoenixKit.DataCase, :demote_seed_owner}
+
   alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
@@ -27,6 +32,14 @@ defmodule PhoenixKit.Users.ReferralAccessGateTest do
     @moduledoc false
     def module_key, do: "referrals"
     def get_config, do: %{enabled: true, required: true}
+  end
+
+  defmodule ReferralsWithHistoricalUse do
+    @moduledoc false
+    def module_key, do: "referrals"
+    def get_config, do: %{enabled: true, required: true}
+    # Every account "has" a 0.4-era usage row.
+    def signup_use_exists?(_user_uuid), do: true
   end
 
   setup do
@@ -419,5 +432,41 @@ defmodule PhoenixKit.Users.ReferralAccessGateTest do
       )
 
     :ok
+  end
+
+  describe "pre-0.6 code redemption (lazy backfill)" do
+    setup do
+      on_exit(fn -> ModuleRegistry.unregister(ReferralsWithHistoricalUse) end)
+      :ok
+    end
+
+    test "a usage row satisfies the gate and stamps the account" do
+      # The 0.4 flows recorded usage but never wrote the satisfied-stamp; the
+      # 0.6 gate trusted only the stamp, parking exactly the users who did
+      # what invite-only asked of them. Found on a live install the day of
+      # its 2.5.0 upgrade.
+      user = register_user()
+      enable_invite_only(long_ago())
+      ModuleRegistry.unregister(EnabledReferrals)
+      ModuleRegistry.register(ReferralsWithHistoricalUse)
+
+      refute Referrals.marked_satisfied?(user)
+
+      assert Referrals.access_satisfied?(user)
+
+      # And the answer was stamped, so the usage query never runs again.
+      assert Referrals.marked_satisfied?(Auth.get_user(user.uuid))
+    end
+
+    test "no usage row, no admission" do
+      # EnabledReferrals exports no signup_use_exists?/1 — the dispatch
+      # returns :error, which the gate reads as "cannot confirm, do not
+      # admit", same rule as every other predicate here.
+      user = register_user()
+      enable_invite_only(long_ago())
+
+      refute Referrals.access_satisfied?(user)
+      refute Referrals.marked_satisfied?(Auth.get_user(user.uuid))
+    end
   end
 end

@@ -587,18 +587,22 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
     * `language_tabs` — list of tab maps from `PhoenixKit.Utils.Multilang.build_language_tabs/0`
     * `current_lang` — the currently selected language code
     * `compact` — force compact mode (short codes). Default: nil (auto)
-    * `show_header` — show the "Content Language" header. Default: true
+    * `show_header` — show the "Content Language" header row (title +
+      info tooltip + "Primary: …" label). Default: **false** — removed as
+      a deliberate product call (2026-08-15): the tab strip itself says
+      "languages", and the primary language is already marked by the star
+      on its tab, so the row was redundant chrome that pushed the actual
+      fields down. The attr remains as an opt-in escape hatch.
     * `show_info` — show an info tooltip next to the header. Default:
-      true. The tooltip surface explains the primary-language /
-      fallback semantics on hover; requires `show_header: true` to
-      have an anchor element.
+      false (it anchors inside the header, so it follows the same call);
+      requires `show_header: true` to have an anchor element.
   """
   attr :multilang_enabled, :boolean, required: true
   attr :language_tabs, :list, required: true
   attr :current_lang, :string, required: true
   attr :compact, :boolean, default: nil
-  attr :show_header, :boolean, default: true
-  attr :show_info, :boolean, default: true
+  attr :show_header, :boolean, default: false
+  attr :show_info, :boolean, default: false
   attr :class, :string, default: "card-body pb-0"
 
   def multilang_tabs(assigns) do
@@ -656,6 +660,7 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
           primary_divider={true}
           variant={:tabs}
           size={:sm}
+          class="w-full"
         />
       </div>
     </div>
@@ -903,8 +908,8 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
         # the input's intrinsic content width.
         base =
           if assigns.type == "textarea",
-            do: "textarea textarea-bordered w-full",
-            else: "input input-bordered w-full"
+            do: "textarea w-full",
+            else: "input w-full"
 
         base = if assigns.class, do: "#{base} #{assigns.class}", else: base
         if errors != [], do: "#{base} input-error", else: base
@@ -917,11 +922,11 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
          puts a small breathing room between label and field that
          matches the `<.input>` core component's `mb-2`. --%>
     <div
-      class="form-control flex flex-col gap-1"
+      class="fieldset flex flex-col gap-1"
       phx-feedback-for={if @is_primary, do: "#{@form_prefix}[#{@field_name}]"}
     >
       <label for={@input_id} class="label">
-        <span class="label-text font-semibold">
+        <span class="fieldset-legend font-semibold">
           {@label}
           <%= if @required && @is_primary do %>
             *
@@ -988,10 +993,10 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
       <% end %>
       <.error :for={msg <- @errors}>{msg}</.error>
       <label :if={@hint && @is_primary && @errors == []} class="label">
-        <span class="label-text-alt">{@hint}</span>
+        <span class="fieldset-label">{@hint}</span>
       </label>
       <label :if={@secondary_hint && !@is_primary} class="label">
-        <span class="label-text-alt">{@secondary_hint}</span>
+        <span class="fieldset-label">{@secondary_hint}</span>
       </label>
     </div>
     """

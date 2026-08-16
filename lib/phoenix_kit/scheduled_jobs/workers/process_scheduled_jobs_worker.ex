@@ -43,19 +43,14 @@ defmodule PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: _args}) do
-    pending_jobs = ScheduledJobs.get_pending_jobs()
-    pending_count = length(pending_jobs)
-
-    if pending_count > 0 do
-      Logger.info("ProcessScheduledJobsWorker: Found #{pending_count} pending job(s) to process")
-
-      Enum.each(pending_jobs, fn job ->
-        Logger.debug(
-          "ProcessScheduledJobsWorker: Job #{job.id} - type=#{job.job_type}, resource=#{job.resource_type}/#{job.resource_uuid}, scheduled_at=#{job.scheduled_at}"
-        )
-      end)
-    end
-
+    # This used to announce the work before doing it, by running
+    # get_pending_jobs/0 a second time purely to log a count that the
+    # completion line below already reports — and logging `job.id`, a field
+    # ScheduledJob does not have: its key is `:uuid`. Logger.debug defers
+    # evaluation, so at :info the interpolation never ran and the mistake was
+    # invisible. At :debug it raised KeyError, and with max_attempts: 1 the
+    # sweep was discarded rather than retried, so a host with debug logging
+    # and one pending job simply never published anything.
     {:ok, stats} = ScheduledJobs.process_pending_jobs()
 
     if stats.executed > 0 or stats.failed > 0 do

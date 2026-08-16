@@ -2,9 +2,7 @@ defmodule Mix.Tasks.Compile.PhoenixKitJsSources do
   @moduledoc """
   Mix compiler that vendors PhoenixKit's JS hooks into the host app.
 
-  A LiveView JS hook must be present in the host's single `LiveSocket` at
-  construction time — a nested LiveView cannot register one at runtime. This
-  compiler keeps two vendored files current on **every** `mix compile`:
+  This compiler keeps two vendored files current on **every** `mix compile`:
 
   1. `priv/static/assets/vendor/phoenix_kit.js` — a straight copy of
      PhoenixKit's own core hooks file. Previously this was only copied once,
@@ -43,6 +41,30 @@ defmodule Mix.Tasks.Compile.PhoenixKitJsSources do
   Failures are loud: a missing core JS file (corrupted/incomplete dependency
   fetch) or a declared module bundle that can't be resolved raises a compile
   error rather than silently shipping "unknown hook" console errors.
+
+  ## This is a fast path, not the only way
+
+  It used to be the only way, on the reasoning that a hook had to be in the
+  host's single `LiveSocket` at construction time because a nested LiveView
+  could not register one at runtime. That stopped being true in LiveView 1.1:
+  `getHookDefinition/1` resolves a hook name when its element mounts, and falls
+  back to a `script[data-phx-runtime-hook="Name"]` in the document whose
+  `window.phx_hook_<Name>()` returns the callbacks. LiveView re-creates such a
+  script when a patch adds it, so it works on a page delivered over the socket
+  as well as in the first HTML.
+
+  A module can therefore ship its hooks itself and ask nothing of the host —
+  `phoenix_kit_boards` does, after two releases where `js_sources/0` alone
+  silently delivered nothing to hosts that bundle dependency JS their own way.
+  The host's own registration still wins (`getHookDefinition` checks
+  `liveSocket.hooks` first), so the two never collide and this compiler stays
+  the cheaper path where it is set up.
+
+  What it must not be is a *silent* requirement. `PhoenixKitWeb.Integration`
+  warns at compile time when installed modules declare `js_sources/0` and this
+  compiler is absent from the host's `:compilers` — the state where those
+  modules' hooks are never delivered, no error appears anywhere, and only the
+  feature is missing.
   """
 
   use Mix.Task.Compiler

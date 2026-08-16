@@ -1,3 +1,699 @@
+## 2.8.0 - 2026-08-16
+
+The admin header becomes a real breadcrumb for drill-down pages, and
+catalogue's live column editor lands in core as a reusable modal. UrlState
+stops leaking router path params into every patched query (#719).
+
+### Added
+
+- **`page_crumbs` on `app_layout`.** Extra `%{label, path | patch}` crumbs
+  between `page_section` and the page title for pages nested deeper than
+  one level. The last crumb stays visible below `sm`; earlier crumbs and
+  the section drop first, so a drilled page reads `… / parent / page`
+  instead of the bare title (#719).
+
+- **`Core.ColumnSettings`** (`<.column_settings_modal>`). Live
+  column-configuration modal: Shown list (SortableGrid drag-reorder,
+  remove) beside Available (click to add), Reset + Close, no Apply
+  step. Labels accept strings or 0-arity functions. The consumer owns
+  the catalog, selection, and persistence (#719).
+
+- **`table_row_menu_link` `patch` attr.** Same-LiveView navigation for
+  menus that drill via `push_patch` (#719).
+
+### Changed
+
+- **Admin header progressive collapse.** Below `lg` the site name and
+  "Admin Panel" give way to a home-linked `…`; below `sm` the trail
+  truncates from the left rather than collapsing to the page title
+  (#719).
+
+### Fixed
+
+- **UrlState extras come from the URI query string**, not LiveView's
+  merged params map. A `/:uuid` segment was being re-encoded into every
+  patched URL (`?q=oak` became `?q=oak&uuid=<uuid>`). `decode/2`'s spec
+  now admits `:not_mounted_at_router` (#719).
+
+- **ColumnSettings Shown list is actually sortable.** Rows use the
+  `sortable-item` class SortableGrid reads; a custom `.col-item` was
+  silently ignored. Drag starts on `.pk-drag-handle` only (post-merge
+  review of #719).
+
+- **`page_crumbs` accept `patch:`** for same-LiveView drill trails,
+  matching the row-menu attr the PR already added (post-merge review
+  of #719).
+
+- **`column_settings_modal` is imported** with the other list-UI
+  primitives (post-merge review of #719).
+
+## 2.7.0 - 2026-08-15
+
+Catalogue gets reusable, translatable attribute groups; list tables grow a
+comfortable density between compact and cards; uploads say what is happening
+after the bar hits 100%. Chain moves V172 → **V173** (#718).
+
+### Added
+
+- **V173 — catalogue attribute groups.** Four tables (groups / attributes /
+  values / item assignments) for `phoenix_kit_catalogue`: a group owns
+  ordered attributes, each attribute owns ordered values with an explicit
+  `is_default`, and items link through a join table. One-group-per-item is
+  a droppable `UNIQUE (item_uuid)` index, so multi-group later is not a
+  data migration. Definition-tree FKs are `RESTRICT`; a group any item still
+  references can only be archived. ExpectedSchema entries were emitted from
+  a migrated database and `chain_hash` restamped (#718).
+
+- **`Core.TreeTable`** (`<.tree_name_cell>`). File-explorer name cell —
+  depth indent, disclosure chevron, optional type icon — that composes
+  into `<.table_default>` rows instead of replacing the table. The consumer
+  owns the walk and the expanded set (#718).
+
+- **Comfortable view mode** on `<.table_default>` and the `TableCardView`
+  hook. The same table with roomier cell padding (`pk-comfy`), sitting
+  between compact rows and cards, and the default when nothing is stored
+  (#718).
+
+- **Live upload transfer stats.** The `UploadStats` JS hook computes
+  transferred bytes, sliding-window speed, and ETA from the patched
+  `data-progress` attribute, then flips to a ticking "Processing on
+  server…" clock at 100%. Wired through `<.upload_entry_stats>` on both
+  `<.file_upload>` variants, the media selector, and MediaBrowser
+  (#718).
+
+### Changed
+
+- **FolderExplorer wrapper `class` attr.** The hardcoded `hidden lg:block`
+  is now overridable so embeds outside MediaBrowser can pick their own
+  breakpoint (#718).
+
+- **Drag handles stay visible.** A muted grip that strengthens on hover
+  replaces `opacity-0` + `group-hover/row` — an affordance you cannot see
+  is one nobody discovers (#718).
+
+- **Multilang tabs drop the "Content Language" header** by default
+  (`show_header` / `show_info` remain as an opt-in). The tab strip itself
+  stretches full width (#718).
+
+- **Media picker names its purpose.** Callers pass a `title` (Select
+  Avatar, Select Cover Image, …); a locked picker without one derives a
+  type-aware heading. Search hides below ten files on a locked picker,
+  empty libraries get a type-aware empty state, a dry search offers
+  Clear search, and double-click confirms in single mode (#718).
+
+- **MediaBrowser upload drain is two-phase.** Pending stores queue through
+  `send_update_after` so a "Processing on server…" row paints before each
+  store, and the batch flash waits until the queue is empty (#718).
+
+### Fixed
+
+- **Media picker grid sat flush against the search bar.** The browse
+  wrapper's `display:contents` swallowed the parent's `space-y-4`
+  (#718).
+
+- **V173 rollback uses plain `DROP TABLE`s** in dependency order. CASCADE
+  could have taken out FKs or views a parent app hung off these tables
+  (#718).
+
+- **`tree_name_cell` is imported** with the other list-UI primitives, so
+  a `use PhoenixKitWeb, :html` caller does not need a manual import
+  (post-merge review of #718).
+
+- **Uncontrolled tables first-paint comfortable**, matching the JS hook's
+  default, instead of flashing compact until `localStorage` is read
+  (post-merge review of #718).
+
+- **Long tree-cell names truncate** inside the flex row instead of
+  overflowing the cell (post-merge review of #718).
+
+## 2.6.0 - 2026-08-14
+
+The built-in SEO module becomes **Crawlers** and grows into the one page where an
+operator decides who may read the site; the theme system becomes one generated
+controller plus a pre-paint bootstrap that hosts can brand from config; shop
+slugs get a uniqueness bucket that matches the URL the resolver actually serves;
+scheduled jobs stop double-firing; and every vendored CDN pin is now held to its
+lock. Chain moves V170 → **V172** (#714, #715, #716).
+
+### Added
+
+- **Crawlers module** (`PhoenixKit.Modules.Crawlers`, settings at
+  `/admin/settings/crawlers`, permission key `crawlers`). Per-bot-group access
+  toggles over a curated registry — search engines, AI training scrapers, AI
+  assistants, SEO tool crawlers, web archives — all default-allowed, so enabling
+  the module changes nothing until the operator decides otherwise (#714).
+
+- **Generated `robots.txt`.** The settings page renders the complete file the
+  toggles describe, for copy-paste. Core still deliberately does not serve it:
+  `robots.txt` is host policy and `Plug.Static` answers before the router (#714).
+
+- **`llms.txt`**, served at the site root and under the kit prefix (same reasoning
+  as `/sitemap.xml`), 404ing while the module is disabled. Heading from the project
+  title, body from an operator-edited setting (#714).
+
+- **Search-engine verification metas** (`google-site-verification`,
+  `msvalidate.01`). Pasting a whole `<meta>` tag extracts the content value (#714).
+
+- **`PhoenixKitWeb.Components.Core.CrawlerMetas`** — a head component that reads its
+  own settings, so it renders in ANY root layout. Most installs render the head in
+  the host app's root layout, where core's assigns never arrive, and the previous
+  assign-based noindex meta silently reached no page on those installs. Core's two
+  shells use it; hosts embed one line (#714).
+
+- **`PhoenixKitWeb.Plugs.CrawlerBlocker`** — default-off, honestly advisory 403 for
+  user-agents of blocked groups, wired into the kit page pipeline. Policy-file
+  scopes skip it on purpose: `robots.txt` and `llms.txt` must stay fetchable by the
+  bots they are about (#714).
+
+- **Doctor check "Crawler Visibility"** — warns on noindex left ON for a
+  production-looking host, and on a staging-looking host left indexable (#714).
+
+- **`PhoenixKit.Conformance.ComponentAssigns`** — a static check that a HEEx function
+  component never reads an assign it neither declares nor assigns itself. The
+  compiler validates call sites, never callee bodies, which let a `KeyError` behind
+  an `:if={...}` guard ship for four releases (#714).
+
+- **Host-branded themes from config** (`:theme_definitions`). Override a built-in
+  palette or define a named theme (`:label`, `:base`, optional `:extends` /
+  `:variables`); one validation pass feeds both the CSS and the JS embeds.
+  Injection-hardened at both sinks (#716).
+
+- **One theme controller script** (`ThemeControllerScript`) replaces the three
+  drifted copies (dashboard inline, admin inline, static `phoenix_kit_themes.js`).
+  Pre-paint `ThemeBootstrap` stamps the saved choice — and now ships the palettes
+  next to the stamp — so a dark-OS visitor is not painted `color-scheme: dark`
+  over light variables. Picker modes `:auto | :dropdown | :toggle`; a light/dark
+  pair renders one persistent `aria-pressed` toggle (#716).
+
+- **`PhoenixKit.Utils.Pagination`** — `parse_page/1` and `total_pages/2` (floored
+  at 1). The unfloored `ceil` copies fed `1..0` decreasing ranges on empty lists
+  (#716).
+
+- **`<button variant="error">` (and info/success/warning).** Status colours are
+  first-class variants; appending `btn-error` through `class` collided with the
+  variant's own colour and stylesheet order decided who won (#716).
+
+### Changed
+
+- **V172 renames the SEO module to Crawlers.** Settings rows
+  (`seo_module_enabled`/`seo_no_index` → `crawlers_*`) are renamed with a dedupe
+  guard where the old row's value wins — it is what the running site was honouring —
+  and roles granted `seo` gain `crawlers`. The old `seo` permission rows are kept
+  deliberately: the repair manifest still lists the V135 `seo` seed, so deleting
+  them would set `mix phoenix_kit.repair` and this migration fighting over the same
+  row. A deprecated `PhoenixKit.Modules.SEO` shim keeps host callers compiling, and
+  frees the `seo` module key for the external `phoenix_kit_seo` package (#714).
+
+- **V171 gives shop slugs a uniqueness bucket of (base language, value).** The
+  V52-era expression index on the alphabetically-first key's value under- and
+  over-enforced at once: other languages were unconstrained, so collisions surfaced
+  far from the save that caused them, while `{"en":"hat"}` and `{"de":"hat"}`
+  collided though they can never shadow each other in a URL. Trigger-maintained
+  projection tables now enforce the bucket the resolver reads, and their pkeys give
+  `phoenix_kit_ecommerce` a real `unique_constraint` to name — a collision comes back
+  as a changeset error on `:slug` instead of a raw `Postgrex.Error` (#714).
+
+- **Scheduled jobs are claimed before they run.** The plain `SELECT` let two
+  overlapping sweeps — core's cron worker and a host calling the public function, or
+  two nodes — both see the same rows and both fire the handler, which host handlers
+  are not required to survive. A row is now claimed with a CAS into a new
+  `processing` status and only the winner executes; a sweep that dies holds its claim
+  until a reclaim window returns the row to `pending` (or to `failed` once attempts
+  are spent). Both terminal marks are CAS'd, so a late mark from a slow sweep cannot
+  stomp a row that has already been requeued (#714).
+
+- **Every vendored CDN pin is held to the version the lock resolves.** #709 fixed
+  leaf's pin and pinned it with a leaf-only test; the three sibling pins in the same
+  file had all drifted — etcher by three minors, so none of the 0.12.0 tldraw-parity
+  work reached any host. The test is generalized to every `gh/` pin, resolves the
+  expected version from `Application.spec/2`, and fails when a pin appears for a
+  repo it does not cover (#715).
+
+- **Admin theme picker honours `:dashboard_themes`.** Hardcoding `:all` meant a
+  host's narrowed list governed only the user dashboard (#716).
+
+- **Removed unused `ThemeConfig` helpers** (`get_theme/0`,
+  `theme_data_attributes/0`, `modern_css_variables/0`, the slider maps). They
+  had no remaining in-repo callers; a host still calling them will not compile
+  (#716).
+
+- **Route-pattern tabs hide themselves from navigation.** `admin_dashboard_tabs`
+  entries whose path carries `:param` or `*splat` segments are routes, not nav —
+  they rendered a literal `:uuid` in the sidebar unless every host remembered
+  `visible: false`. Detection is per-segment, so `https://`, ports, and `mailto:`
+  are unaffected; `visible: true` is the opt-out. Nil-scope callers no longer
+  receive `visible: false` tabs unfiltered (#716).
+
+### Fixed
+
+- **A maintenance broadcast killed admins' LiveViews.** The on_mount hook returned
+  `{:cont, ...}` for an admin — maintenance never blocks them, so there was nothing
+  left to do — which handed `{:maintenance_status_changed, _}` to the LiveView's own
+  `handle_info`. Any view without a clause for it (most of them) died in
+  `FunctionClauseError` the moment a toggle broadcast, or the hook's own
+  end-of-window timer, fired while an admin had the page open (#714).
+
+- **V171's dedup counted slug entries instead of owner rows.** A single row carrying
+  two spellings of one language at the same value (`{"en":"hat","en-GB":"hat"}`)
+  projects — via the trigger's `SELECT DISTINCT` — to one projection row, so it is
+  not a collision. Counting entries made it one: an `active` row in that shape
+  aborted the upgrade with `shared by 2 live rows`, naming a second row the operator
+  would never find, and a non-live one had a spelling silently rewritten to `hat-2`,
+  giving the row two public URLs where it had one. Both loops now count
+  `DISTINCT uuid`, and a row that does lose a bucket moves all its spellings to the
+  one candidate (post-merge review of #714).
+
+- **`V172.down/1` deleted every `crawlers` permission grant**, though its comment
+  promised only the copies `up/1` made. After the upgrade `crawlers` is a first-class
+  key in the admin matrix, so a rollback discarded grants an operator had added to
+  roles that never held `seo` — and re-running `up/1` could not restore them. The
+  delete is now qualified by a surviving `seo` grant for the same role (post-merge
+  review of #714).
+
+- **Empty Crawlers string settings failed their first write.** The three optional
+  slots (Google/Bing verification, llms.txt extra) were not in `@optional_settings`,
+  so the first write of an empty value — with no row yet — failed validation and a
+  form saving both slots half-applied: the non-empty one landed, the empty one
+  errored, and the flash reported failure (#714).
+
+- **Three doc sites named V170 as the rename migration; it is V172.** V170 is a real,
+  unrelated migration, so the stale numbers from an in-flight renumber pointed anyone
+  debugging a half-renamed settings table at the wrong file (post-merge review
+  of #714).
+
+- **`:crawlers_verifications` was assigned on every LiveView navigation and read by
+  nothing.** `CrawlerMetas` reads its own settings, which is the whole point of it;
+  the assign-based path it replaced was kept and extended, costing two unguarded
+  settings reads per navigation for a value with no reader. Removed;
+  `:crawlers_no_index` stays as the published signal for host templates (post-merge
+  review of #714).
+
+- **`crawlers_no_index?/0` in the sitemap generator guarded `rescue` but not
+  `catch :exit`.** An unreachable database raises on an unowned checkout but *exits*
+  on a dead pool (post-merge review of #714).
+
+- **Host `:theme_definitions` never appeared in the default picker.**
+  `dropdown_themes(:all)` was the compile-time catalogue only, so a branded
+  theme landed in CSS / labels / `system_pair` and not in the picker until the
+  host also listed it in `:dashboard_themes` (post-merge review of #716).
+
+- **ThemeBootstrap stamped `phoenix-dark` without shipping the palettes.**
+  Standalone admin and every host layout the installer injects into painted
+  `color-scheme: dark` over daisyUI's light variables until a later body
+  `<style>` arrived. The custom-theme CSS now travels with the stamp
+  (post-merge review of #716).
+
+- **Dropdown options had no `data-phx-theme`.** The toggle used the stock
+  Phoenix contract; the options put the name only in `JS.dispatch` detail.
+  phx.new 1.8's script reads `dataset.phxTheme` and falls back to `"system"`,
+  so every dropdown click reset the theme on a host that kept that script
+  (post-merge review of #716).
+
+- **`mix phoenix_kit.update` skipped the bootstrap on every phx.new 1.8 host.**
+  Any `phx:theme` substring was treated as "already done"; that script's
+  `"system"` path *removes* `data-theme`. Those layouts now get the bootstrap
+  just before `</head>`, after the stock script (post-merge review of #716).
+
+- **Pagination extract missed `media_selector.ex` and
+  `Auth.list_users_paginated/1`.** Same unfloored empty-list `1..0` range the
+  helper exists to stop (post-merge review of #716).
+
+- **Referral 0.4 backfill used `function_exported?/3` without
+  `Code.ensure_loaded?/1`.** Under a release the new `signup_use_exists?`
+  looked missing and the users the feature exists to admit stayed parked
+  (post-merge review of #716).
+
+- **Accounts that redeemed a code before the satisfied-stamp existed were
+  parked at the referral wall.** The gate now asks the installed module and
+  stamps on a hit, so each account pays the query at most once (#716).
+
+## 2.5.0 - 2026-08-14
+
+Ten findings from a high-effort review of the recently merged notifications,
+fingerprint-logging and JS-compiler work, two of which needed schema support.
+Chain moves V169 → **V170**.
+
+### Fixed
+
+- **Two concurrent upserts for the same dedupe key both inserted.** Parallel
+  Oban workers or two nodes both read `nil` from `find_collapsible/2` and both
+  created a row, so the user got two unseen notifications for one logical key —
+  pinned to the top by the unseen-first ordering — and later refreshes folded
+  into only one of them, leaving the stale twin until it was dismissed by hand.
+  V170's partial UNIQUE index turns the second insert into a constraint
+  violation that `insert_collapsible/3` retries as a collapse (#713).
+
+- **`upsert_inapp/3` ignored the `notifications_enabled` kill switch.** It is a
+  host-facing entry point, and "off" that quietly did not apply to the newest
+  creation path was not off. Returns `{:ok, :skipped}` like `create/1` (#713).
+
+- **Caller metadata could clobber reserved keys.** Metadata now merges *first*
+  and reserved keys stamp on top, so a passed-through map can no longer
+  overwrite `dedupe_key` — which silently disabled collapsing — or the display
+  keys. Caller keys are normalised to strings, so `%{notification_text: …}`
+  cannot coexist with the string key and win by adapter ordering (#713).
+
+- **`find_collapsible/2` lacked `catch :exit`.** A dead pool *exits* rather than
+  raising, bypassing `rescue` and crashing the caller its comment promised it
+  would not — the soft-failure rule this project applies everywhere else. Both
+  clauses log now, so a permanent query bug degrading upsert into
+  insert-always is diagnosable rather than silent (#713).
+
+- **The inbox ignored `:notification_updated`.** The bell handled it, the inbox
+  did not, so an open inbox showed stale rows at exactly the moment an upsert
+  refreshed one. A scrape test now holds the whitelist to *every* event the
+  library broadcasts, so the next event added fails the test until the inbox
+  handles it (#713).
+
+- **One fingerprint mismatch logged three lines, two of them wrong.** The #705
+  dedup had only landed in `fetch_phoenix_kit_current_user`; the scope plug still
+  carried the old `"(scope)"` warning and an `:error`-level "possible hijacking"
+  line for requests that were then served normally — and the shipped
+  `:phoenix_kit_admin_only` pipeline runs both plugs. Verification now runs at
+  most once per request, with the verdict cached in `conn.private` and shared
+  (#713).
+
+- **`session_label` could never match the sessions UI.** The log used a
+  truncated sha256 while the UI shows hex of the raw token's first 4 bytes, so
+  the promised log↔UI correlation failed every time. Both derivations are now
+  the same one, held together by a test (#713).
+
+### Migrations
+
+- **V170** adds two indexes to `phoenix_kit_notifications`:
+
+  - `phoenix_kit_notifications_dedupe_unseen_idx` — **partial UNIQUE** on
+    `(recipient_uuid, metadata->>'dedupe_key')` over undismissed, unseen, keyed
+    rows. Serves `find_collapsible/2`'s exact predicate *and* is the uniqueness
+    backstop above. Rows without a dedupe key — everything the fan-out path
+    creates — are outside the predicate and unaffected.
+  - `phoenix_kit_notifications_recipient_unseen_first_idx` — matches
+    `order_unseen_first/1`'s ORDER BY term-for-term, so the bell's
+    `recent_for_user` and the inbox pages come off an index again instead of
+    walking a recipient's whole undismissed backlog on every mount.
+
+  Existing duplicates are **dismissed, not deleted** — all but the newest unseen
+  row per `(recipient, key)`, the same "newest wins" choice `find_collapsible/2`
+  makes. The fold and the index creation share one `SHARE ROW EXCLUSIVE` lock so
+  a concurrent insert cannot re-introduce a duplicate in the gap between them.
+
+## 2.4.0 - 2026-08-14
+
+Slug uniqueness gets both halves it was missing — a changeset helper and the
+indexes to back it — plus anonymous entity submissions, and an activity log that
+is no longer readable by every dashboard-holder. Chain moves V166 → **V169**.
+
+### Added
+
+- **`PhoenixKit.Utils.Slug.put_slug/3`** — the changeset glue between
+  `slugify/2` and `ensure_unique/2` that core never owned, so it was hand-rolled
+  **14 times across 8 packages** and each copy got a different subset right. It
+  distinguishes the three states `get_change(:slug)` conflates: an explicit slug
+  wins, an explicitly blanked one regenerates, and *no slug in the changeset*
+  means unchanged — which is what every edit form sends, and why saving one
+  used to move a live URL. Suffixes `-2`, `-3` … until free, excludes the row
+  itself on update, honours a schema prefix, and takes `:scope` for per-owner
+  uniqueness. The probe is an allocator, not an integrity boundary — callers
+  still declare `unique_constraint/3`, which is what makes it true (#711).
+
+  Adopters must pin **`{:phoenix_kit, "~> 2.4"}`**: `~> 2.0` resolves to a core
+  without this function, and the failure lands in the consumer's app.
+
+- **`PhoenixKit.Activity.full_log_access?/1` and `own_entry?/2`** — the shared
+  definition of "may read the whole audit log" and "is this entry mine",
+  deliberately in one place so the list and the detail page cannot drift (#712).
+
+### Fixed
+
+- **`/admin/activity` crashed on any entry whose metadata held a map.** A
+  field-change diff (`%{"qty" => %{"from" => 1, "to" => 2}}`) was interpolated
+  straight into the template, raising `Protocol.UndefinedError` for
+  `String.Chars` on a Map. Rendered as `1 → 2` now, via
+  `Activity.humanize_metadata_value/1`; legacy rows that stored an `inspect`-ed
+  Decimal are unwrapped to the number rather than leaking Elixir syntax (#712).
+
+- **The full activity log was visible to every holder of the `dashboard`
+  permission.** It is now administrators-only — Admin, Owner, or a `"*"`
+  superadmin role; everyone else sees only entries they authored. Enforced
+  server-side in the query (the pagination total is scoped too, so it cannot
+  leak the existence of hidden entries), and the detail page answers *not found*
+  rather than confirming another user's record exists. "Own" means **actor**,
+  not target (#712).
+
+- **Anonymous public entity submissions failed on a freshly migrated database.**
+  `phoenix_kit_entity_data.created_by_uuid` was NOT NULL while the public entity
+  form is deliberately unauthenticated, so every submission raised a
+  `not_null_violation` out of an unauthenticated controller. **V169** relaxes the
+  column, resolving a split where long-lived installs already measured
+  `is_nullable = YES` and fresh ones `NO`. Auto-filling the first Owner was
+  implemented first and rejected: it puts a named person in front of every
+  anonymous submission and files it in their audit trail (#711, #706).
+
+- **Eleven `foreign_key_constraint/2` declarations could never match.** Ecto
+  matches by name and this chain names most foreign keys `fk_<table>_<column>`,
+  not the `<table>_<column>_fkey` the bare declaration derives — so violations
+  escaped as raw `Ecto.ConstraintError` 500s across storage, admin notes, OAuth
+  providers, role assignments and role permissions. Names were taken from a
+  migrated database rather than read off the chain, because a renamed column can
+  leave a constraint carrying its old name. A new test pins the rule so the next
+  schema cannot repeat it (#711).
+
+- **`ensure_unique/2` overflowed a `:max_length` the caller had already
+  applied** — `slugify(title, max_length: 20)` plus `-2` is 22 characters, which
+  silently defeats an SEO cap and *raises* against `varchar(n)`. It now trims the
+  base per candidate, since `-10` needs one more character than `-9` (#711).
+
+- **`V169.down/1` locked a table it never checked existed.** `up/1` guards its
+  `phoenix_kit_entity_data` work on table existence; `down/1` reached straight
+  for `LOCK TABLE`, which has no `IF EXISTS` form — so rolling back on an install
+  without the entity tables aborted with `relation does not exist`, having had
+  nothing to undo. Found in post-merge review; `lock_table_guard_test.exs` now
+  pins the rule for every `LOCK TABLE` in the chain.
+
+### Migrations
+
+- **V167** — `phoenix_kit_posts_slug_index` becomes unique. It had been a plain
+  btree since V135 while its sibling `post_tags.slug` was unique, so `Post`'s
+  `unique_constraint(:slug)` had no index to translate and `get_post_by_slug/2`
+  (which fetches with `one()`) raised `Ecto.MultipleResultsError` on any shared
+  URL. Existing duplicates are suffixed by the same rule `ensure_unique/2`
+  applies at runtime, keeping a reachable post over a draft and then the oldest;
+  **two live posts on one slug raises instead**, because which one keeps the URL
+  is the operator's call.
+
+- **V168** — the remaining two. `phoenix_kit_tickets` had a plain btree;
+  `phoenix_kit_post_groups` had no slug index at all while `PostGroup` named a
+  composite `[:user_uuid, :slug]` index that existed nowhere. Post-group slugs
+  are unique **per user**, so that index is scoped to the owner.
+
+- **V169** — the nullable creator column and the duplicate `prompt_uuid` foreign
+  key described above. The **legacy** `phoenix_kit_ai_requests_prompt_uuid_fkey`
+  is the survivor, since it is what the installed base carries and what Ecto
+  derives by default, so no live database is renamed.
+
+  The `DROP` before each `CREATE UNIQUE INDEX` is load-bearing:
+  `CREATE UNIQUE INDEX IF NOT EXISTS` matches on **name**, so building a unique
+  index over a non-unique one of the same name skips with a notice and reports
+  success while uniqueness stays unenforced.
+
+## 2.3.0 - 2026-08-13
+
+Localized country selects with operator-chosen pinning, two new integration
+providers, and a scheduled-jobs sweep that no longer dies at `:debug`. No schema
+change — the chain stays at V166.
+
+### Added
+
+- **Country selects follow the active locale, and an operator can pin the
+  countries they actually serve.** `countries_for_select/1`,
+  `eu_countries_for_select/1` and `get_country_name/2` take `:locale` (defaulting
+  to the active Gettext locale, dialects reduced to their base — `ru-RU` → `ru`)
+  and `:priority` (alpha-2 codes pinned to the top, defaulting to the new
+  `country_select_priority` setting). Names come from
+  `BeamLabCountries.Translations` and a locale with no data falls back per
+  country, so a host only ever loses the translation, never the entry. Sorting
+  moves to the localized name with NFD accent folding — a deliberate
+  approximation, not collation; locales that give diacritics their own alphabet
+  position (Estonian's Ü, Swedish's Å/Ä/Ö) are sorted into the base letter's
+  block instead. Both functions still work with no arguments (#708).
+
+- **A "Main countries" card on Admin → Settings → Organization** to choose that
+  pinned list: drag to reorder, keyboard move buttons alongside (SortableJS is a
+  CDN fetch a strict CSP can block, and dragging has no keyboard path), a
+  searchable picker, and a suggestion derived from the organization's own
+  country by great-circle distance rather than from a constant baked into the
+  library. Nothing is pinned until an operator stores a list (#708).
+
+- **GitHub and Amazon Bedrock integration providers.** GitHub takes a
+  fine-grained read-only PAT, validated against `/rate_limit`. Bedrock takes a
+  long-term API key (plain Bearer, no SigV4) plus a region, validated with a new
+  `:amazon_bedrock` strategy that lists foundation models in that region — the
+  cheapest call proving the key, the region and `bedrock:CallWithBearerToken` at
+  once. Bedrock declares `:ai_completions`; both carry step-by-step setup
+  instructions (#707).
+
+- **`mix phoenix_kit.doctor` gained "Oban Cron Queues"** — reports crontab
+  entries whose queue this node does not run, resolving queues the way
+  `Oban.Plugins.Cron` does and staying quiet where a warning would be wrong
+  (`queues: false`, `queues: []`, `testing: :inline | :manual`). Its warning says
+  what taking the advice will do: configuring the queue releases the whole
+  backlog at once (#710).
+
+- `aws_ses` "Test connection" now reports the account id and which management
+  APIs the key may use (SES/SQS/SNS), via the same `CredentialsVerifier` sweep
+  the Emails settings page runs. Strictly additive — the send-quota probe remains
+  the verdict, and enrichment failing can never downgrade it (#707).
+
+### Fixed
+
+- **The scheduled-jobs sweep died before doing any work, at `:debug`.**
+  `ProcessScheduledJobsWorker.perform/1` logged `job.id`, but `ScheduledJob`'s
+  key is `:uuid`. `Logger.debug` defers evaluation, so at `:info` the
+  interpolation never ran and the mistake stayed invisible; at `:debug` it raised
+  `KeyError` before reaching `process_pending_jobs/0`, and with `max_attempts: 1`
+  Oban discarded the sweep rather than retrying. A host running debug logging
+  published nothing at all, silently, for as long as it ran (#710).
+
+- **Upgrading never added the `scheduled_jobs` queue.** The crontab entry entered
+  the generated config on 2025-12-28 without it; the fresh-install block was
+  fixed in 1.7.63 but the upgrade path had no helper for that queue, so hosts
+  installed in between were never repaired — one was found 15 days in with 21,337
+  jobs stuck in `available`, growing ~1,440/day, because Pruner deletes terminal
+  states only. `ensure_scheduled_jobs_queue/2` fills the gap (#710).
+
+- **Every `ensure_*_queue` helper now shares one hardened implementation.** The
+  six that predated `scheduled_jobs` each hand-rolled the same string surgery on
+  the host's `queues:` list and reproduced the same defects — worse than the
+  missing queue, because a bad insert *corrupts* `config.exs`: `queues: [\n]`
+  wrote `queues: [,`, a nested `default: [limit: 10]` swallowed the insert into
+  an option Oban rejects at boot, and an Oban block with no `queues:` of its own
+  let the scan walk into a neighbouring application's config. Their unanchored
+  guards were also satisfied by a key merely *ending* in the queue's name, so a
+  host's own `push_notifications: 5` silently suppressed the real
+  `notifications` queue.
+
+- **The cron migration claimed to replace the old posts worker and did not.** The
+  replacement literal named `PhoenixKit.Posts.Workers.PublishScheduledPostsJob`,
+  a module in no repo — the real one is `PhoenixKitPosts.Workers.…`. The guard
+  matched, the replace found nothing, and being `cond`'s first clause it shadowed
+  every later case, so the core worker was never added either: an upgrading host
+  kept the old entry, gained nothing, and was told the opposite. Hosts running
+  both entries are now told to remove one rather than silently given a duplicate
+  (#710).
+
+- **The editor bundle is pinned to the leaf release we actually resolve.** The
+  CDN tag still served v0.3.2 while hex resolved 0.5.1 — almost everything leaf
+  adds is a server↔client contract, so the stale bundle rendered an identical
+  editor and quietly stopped implementing what the server expected. A test now
+  compares the pin against `Application.spec(:leaf, :vsn)` so the two cannot
+  drift again (#709).
+
+- The Organization settings page no longer builds country labels by
+  concatenating a nilable flag, which would have raised `ArgumentError` in
+  `load_settings/1` and taken the whole page down. Every current
+  `beamlab_countries` row carries a flag; this stops depending on that.
+
+- **Role rows are no longer a deadlock hotspot.** Every insert into
+  `phoenix_kit_user_role_assignments` makes PostgreSQL take a `FOR KEY SHARE`
+  lock on the referenced `phoenix_kit_user_roles` row to validate the foreign
+  key — and two paths were taking a conflicting plain `FOR UPDATE` on those
+  same rows: `Roles.ensure_first_user_is_owner/1` (the Owner row, on *every*
+  registration) and `Permissions.lock_role_for_update/2` (the target role row,
+  on every grant/revoke/`set_permissions`). Assigning a role therefore blocked
+  on unrelated permission edits, and two transactions each holding one role row
+  and then referencing the other's deadlocked outright (`40P01`). Both sites now
+  use `FOR NO KEY UPDATE`: neither mutates the role's key, so the guard still
+  excludes the writers it exists to exclude while leaving FK checks free.
+
+- **Registration no longer serializes app-wide.** `ensure_first_user_is_owner/1`
+  held that Owner-row lock on every single registration, so all registrations
+  queued behind one row for the life of the install. Once an active Owner
+  exists the answer can never flip back to "you are the first user", so the
+  count is now read unlocked and the lock is taken only while no Owner exists.
+  A missing Owner role row also rolls back cleanly instead of raising.
+
+- Silenced `DBConnection.OwnershipError` in `PhoenixKit.Settings` reads. It is
+  the Ecto-sandbox spelling of `repo_available?() == false`, which this module
+  already answers with a silent `nil`; it cannot occur outside a sandboxed
+  repo, so no production logging changes. It was emitting ~960 lines per
+  `mix test` run and burying real failures.
+
+- Fixed a call to the nonexistent `PhoenixKit.repo/0` in the notifications
+  inbox-grouping test (`RepoHelper.repo/0`), which had never run.
+
+### i18n
+
+- New msgids for the Main countries card (`et`, `ru`, `en`) (#708).
+
+## 2.2.0 - 2026-08-11
+
+Notification collapsing, an honest fingerprint log, and a compile-time warning
+for a silent JS-hook misconfiguration. No schema change — the chain stays at
+V166.
+
+### Added
+
+- **`Notifications.upsert_inapp/3`** (#704) — the GitHub-style collapsing
+  entry. A repeat event refreshes the row already standing for the same key
+  ("3 new comments on earlier chapters") instead of posting another beside it.
+  Only **unseen** rows collapse: once someone has read a notification the next
+  event is news again and gets its own row, so nothing new can be hidden inside
+  something already dealt with. Broadcasts `{:notification_updated, n}` for a
+  refresh and `{:notification_created, n}` for a new row, so an open bell keeps
+  up without the caller broadcasting anything. Doing this before meant querying
+  the schema directly and re-broadcasting by hand — one host that tried it
+  schemalessly stringified `metadata` into the jsonb column and 500'd that
+  user's bell.
+
+  `create_inapp/2` now also carries `:dedupe_key` and merges a caller's
+  `:metadata`; both were dropped silently before.
+
+- **A compile-time warning when installed modules ship JS hooks the host will
+  never load** (#703). `js_sources/0` is consumed only by the
+  `:phoenix_kit_js_sources` compiler; a host without it in `:compilers` got no
+  bundle, no error and no warning, while the module's templates went on
+  rendering `phx-hook` names the LiveSocket had never heard of.
+  `phoenix_kit_boards` shipped that state twice before anyone traced it. Silent
+  when the compiler is present and when nothing declares a bundle.
+
+### Changed
+
+- **The session-fingerprint log says something worth reading** (#705). A
+  user-agent change with an unchanged IP is `:info`, not `:warning` — browsers
+  rewrite their UA roughly monthly, for every user, and one reporting app
+  carried 765 of these in a single log. Every line now names its session (a
+  truncated SHA-256 of the token; the raw token is a bearer credential and
+  never reaches the log), and the duplicate line in `PhoenixKitWeb.Users.Auth`
+  that said only `"for token"`, naming no token, is gone.
+
+- **A mismatch is logged at the level its consequence earns.** Strict mode
+  refuses *every* fingerprint mismatch, so under strict mode all of them log at
+  `:error` and say `access denied`; otherwise the request is served and the
+  line takes its own severity. Logging "possible hijacking attempt" at `:error`
+  and then serving the request is what taught people the log was noise — and
+  the inverse was just as bad: a strict-mode host logging someone out over a
+  browser update recorded it at `:info`, below the default threshold, so there
+  was no record at all.
+
+### Fixed
+
+- **`upsert_inapp/3` could silently stop collapsing forever.** When the row
+  vanished between the read and the write, the replacement was posted without
+  its dedupe key, so it could never be found again and every later event for
+  that key opened a new row.
+
+- **`upsert_inapp/3` could lose an event to a row the user had just dealt
+  with.** The `update_all` filtered on `uuid` alone, so a comment dismissed or
+  read between the read and the write was refreshed anyway: the update reported
+  success and the event ended up recorded only on a row that would never be
+  shown again. The unseen/undismissed guard now appears in the write as well as
+  the read.
+
+- **The JS-hook warning no longer breaks the build.** It was emitted with
+  `IO.warn/1`, which registers a compiler diagnostic — so on any host building
+  with `--warnings-as-errors` it failed the compile on upgrade, over a mix.exs
+  condition that was not a regression in the host's own code.
+
 ## 2.1.0 - 2026-08-11
 
 Notification reads sort unseen first. No schema change — the chain stays at V166.

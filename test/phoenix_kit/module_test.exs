@@ -6,7 +6,7 @@ defmodule PhoenixKit.ModuleTest do
   @all_internal_modules [
     PhoenixKit.Modules.Languages,
     PhoenixKit.Modules.Maintenance,
-    PhoenixKit.Modules.SEO,
+    PhoenixKit.Modules.Crawlers,
     PhoenixKit.Modules.Sitemap,
     PhoenixKit.Modules.Storage,
     PhoenixKit.Jobs,

@@ -84,6 +84,75 @@ defmodule PhoenixKitWeb.Live.Settings.Organization do
     |> assign(:countries, CountryData.countries_for_select())
     |> assign(:subdivision_label, get_subdivision_label(country))
     |> assign(:eu_country, eu_country?(country))
+    |> assign_main_countries(stored_main_countries(), country)
+  end
+
+  defp stored_main_countries do
+    "country_select_priority"
+    |> Settings.get_setting_cached("")
+    |> CountryData.parse_priority()
+    |> CountryData.known_country_codes()
+  end
+
+  # Everything the card renders is precomputed here rather than called from
+  # the template: a `defp` invoked from HEEX cannot be verified by the
+  # compiler. `:main_country_suggestion` is what the host's own country
+  # proposes and is deliberately empty once every suggested code is already
+  # in the list — there is nothing left to offer.
+  defp assign_main_countries(socket, codes, country) do
+    chosen = MapSet.new(codes)
+
+    socket
+    |> assign(:main_countries, codes)
+    |> assign(:main_country_rows, main_country_rows(codes))
+    |> assign(
+      :main_country_options,
+      # `priority: []` on purpose: the picker is where you go to CHANGE the
+      # pinned set, so it must not itself be reordered by it — otherwise the
+      # first thing the dropdown offers is whatever is already pinned.
+      Enum.reject(CountryData.countries_for_select(priority: []), fn {_label, code} ->
+        MapSet.member?(chosen, code)
+      end)
+    )
+    |> assign(:main_country_suggestion, main_country_suggestion(country, chosen))
+  end
+
+  defp main_country_rows(codes) do
+    last = length(codes) - 1
+
+    codes
+    |> Enum.with_index()
+    |> Enum.map(fn {code, index} ->
+      %{
+        code: code,
+        label: country_label(code),
+        first?: index == 0,
+        last?: index == last
+      }
+    end)
+  end
+
+  defp main_country_suggestion(country, chosen) do
+    country
+    |> CountryData.suggested_priority()
+    |> Enum.reject(&MapSet.member?(chosen, &1))
+    |> Enum.map(fn code -> %{code: code, label: country_label(code)} end)
+  end
+
+  # Same shape as CountryData's own select entries — flag, space, localized
+  # name — and defensive about the flag for the same reason its `select_entry/2`
+  # is: the struct field is nilable and blank on some rows in other datasets,
+  # and `nil <> " "` is an ArgumentError that would take the whole settings
+  # page down. Every one of beamlab_countries 1.1.0's 250 rows carries a flag,
+  # so this is about not depending on that.
+  defp country_label(code) do
+    name = CountryData.get_country_name(code) || code
+
+    case CountryData.get_flag(code) do
+      nil -> name
+      "" -> name
+      flag -> flag <> " " <> name
+    end
   end
 
   defp assign_tax_settings(socket, _company_info) do
@@ -124,12 +193,20 @@ defmodule PhoenixKitWeb.Live.Settings.Organization do
         if rate != 0 and rate != current_rate, do: rate
       end
 
+    # The main-countries suggestion is derived from the company country too,
+    # so it goes stale the same way the tax rate would if left alone: an
+    # unsaved country pick must not leave the previous country's neighbours
+    # on screen.
+    suggestion =
+      main_country_suggestion(country_code, MapSet.new(socket.assigns.main_countries))
+
     {:noreply,
      socket
      |> assign(:company_country, country_code)
      |> assign(:subdivision_label, get_subdivision_label(country_code))
      |> assign(:eu_country, eu_country?(country_code))
-     |> assign(:suggested_tax_rate, suggested_rate)}
+     |> assign(:suggested_tax_rate, suggested_rate)
+     |> assign(:main_country_suggestion, suggestion)}
   end
 
   def handle_event("save_company", params, socket) do
@@ -150,6 +227,53 @@ defmodule PhoenixKitWeb.Live.Settings.Organization do
       errors ->
         {:noreply, put_flash(socket, :error, Enum.join(errors, ". "))}
     end
+  end
+
+  # The main-countries card writes on every action rather than behind a save
+  # button: each click is already a deliberate edit, and there is no second
+  # field whose validation could hold the list hostage.
+  def handle_event("add_main_country", %{"code" => code}, socket) when is_binary(code) do
+    {:noreply, put_main_countries(socket, socket.assigns.main_countries ++ [code])}
+  end
+
+  def handle_event("add_main_country", _params, socket), do: {:noreply, socket}
+
+  def handle_event("remove_main_country", %{"code" => code}, socket) do
+    {:noreply,
+     put_main_countries(socket, Enum.reject(socket.assigns.main_countries, &(&1 == code)))}
+  end
+
+  def handle_event("remove_main_country", _params, socket), do: {:noreply, socket}
+
+  # SortableGrid pushes the full order on drop, so the list is taken as given
+  # rather than diffed — but only codes that were already pinned are honoured,
+  # so a forged payload can neither add a country nor drop one silently.
+  def handle_event("reorder_main_countries", %{"ordered_ids" => ordered}, socket)
+      when is_list(ordered) do
+    current = socket.assigns.main_countries
+    reordered = Enum.filter(ordered, &(&1 in current))
+    codes = reordered ++ (current -- reordered)
+
+    {:noreply, put_main_countries(socket, codes)}
+  end
+
+  def handle_event("reorder_main_countries", _params, socket), do: {:noreply, socket}
+
+  # Restored alongside drag: SortableJS is a CDN fetch that a strict CSP or
+  # an offline deploy can block, and dragging itself has no keyboard path —
+  # without these buttons a keyboard/screen-reader operator could not
+  # reorder at all.
+  def handle_event("move_main_country", %{"code" => code, "direction" => direction}, socket)
+      when is_binary(code) and direction in ["up", "down"] do
+    {:noreply, put_main_countries(socket, move(socket.assigns.main_countries, code, direction))}
+  end
+
+  def handle_event("move_main_country", _params, socket), do: {:noreply, socket}
+
+  def handle_event("apply_main_country_suggestion", _params, socket) do
+    suggested = Enum.map(socket.assigns.main_country_suggestion, & &1.code)
+
+    {:noreply, put_main_countries(socket, socket.assigns.main_countries ++ suggested)}
   end
 
   def handle_event("save_tax", params, socket) do
@@ -344,6 +468,67 @@ defmodule PhoenixKitWeb.Live.Settings.Organization do
       })
 
     Settings.update_json_setting("company_info", company_info)
+  end
+
+  # Only real, deduplicated country codes ever reach the setting: the card
+  # offers a picker over the country list, so there is no free text to
+  # sanitize, and `known_country_codes/1` is the belt-and-braces guard on a
+  # forged phx-value. An empty list means nothing is pinned and every country
+  # list is plain alphabetical — the setting is the only source, there is no
+  # config underneath it.
+  defp put_main_countries(socket, codes) do
+    codes =
+      codes
+      |> Enum.map(&String.upcase/1)
+      |> Enum.uniq()
+      |> CountryData.known_country_codes()
+
+    if codes == socket.assigns.main_countries do
+      # Nothing actually changed (e.g. "Add" with an empty selection, or
+      # removing/reordering into the same set) — don't write an identical
+      # value and don't broadcast a no-op.
+      socket
+    else
+      case Settings.update_setting("country_select_priority", Enum.join(codes, ", ")) do
+        {:ok, _setting} ->
+          # Broadcast to all admin sessions, same mechanism the other cards
+          # use. `handle_info` only calls `load_settings/1` — it never
+          # broadcasts itself — so the acting session's own bounce-back
+          # cannot loop; it just reloads with the value already written.
+          broadcast_settings_change(:main_countries_updated)
+
+          socket
+          # The Company card's country <.select> is computed once in
+          # `load_settings/1`; without recomputing it here it keeps
+          # offering the pre-pin alphabetical order until the next reload.
+          |> assign(:countries, CountryData.countries_for_select())
+          |> assign_main_countries(codes, socket.assigns.company_country)
+
+        {:error, _changeset} ->
+          put_flash(socket, :error, gettext("Main countries could not be saved"))
+      end
+    end
+  end
+
+  defp move(codes, code, direction) do
+    case Enum.find_index(codes, &(&1 == code)) do
+      nil -> codes
+      index -> swap(codes, index, target_index(index, direction, length(codes)))
+    end
+  end
+
+  defp target_index(index, "up", _length), do: max(index - 1, 0)
+  defp target_index(index, "down", length), do: min(index + 1, length - 1)
+  defp target_index(index, _direction, _length), do: index
+
+  defp swap(codes, index, index), do: codes
+
+  defp swap(codes, from, to) do
+    moved = Enum.at(codes, from)
+
+    codes
+    |> List.delete_at(from)
+    |> List.insert_at(to, moved)
   end
 
   defp save_bank_details(params, iban, swift) do

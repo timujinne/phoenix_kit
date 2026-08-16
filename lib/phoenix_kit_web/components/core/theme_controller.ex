@@ -37,6 +37,20 @@ defmodule PhoenixKitWeb.Components.Core.ThemeController do
   attr :themes, :any, default: :all
   attr :id, :string, default: "theme-dropdown"
   attr :class, :string, default: nil
+
+  attr :mode, :atom,
+    default: :auto,
+    values: [:auto, :dropdown, :toggle],
+    doc: """
+    :auto renders a toggle when the theme list is exactly two concrete
+    themes of DIFFERING base (one light, one dark) and a dropdown otherwise;
+    :dropdown and :toggle force the shape. :toggle raises unless the list is
+    such a pair — a toggle over three states would have hidden state, and
+    sun/moon semantics over two themes of the same base are false. (A :cycle
+    mode was considered and rejected: hidden state, no accessibility story,
+    and it makes configuration ORDER behavioural.)
+    """
+
   attr :rest, :global
 
   def theme_controller(assigns) do
@@ -44,6 +58,96 @@ defmodule PhoenixKitWeb.Components.Core.ThemeController do
 
     assigns = assign(assigns, :dropdown_themes, dropdown_themes)
 
+    # A toggle needs a pair AND both bases: sun/moon icons and aria-pressed
+    # "dark on" semantics are simply false over two themes of the same base.
+    pair? =
+      match?([%{type: :theme}, %{type: :theme}], dropdown_themes) and
+        dropdown_themes |> Enum.map(&toggle_base(&1.value)) |> Enum.uniq() |> length() == 2
+
+    case {assigns.mode, pair?} do
+      {:toggle, false} ->
+        raise ArgumentError,
+              "theme_controller mode: :toggle needs exactly two concrete themes, " <>
+                "one light and one dark, got: #{inspect(Enum.map(dropdown_themes, & &1.value))}"
+
+      {:dropdown, _} ->
+        theme_dropdown(assigns)
+
+      {_, true} ->
+        theme_toggle_pair(assigns)
+
+      _ ->
+        theme_dropdown(assigns)
+    end
+  end
+
+  # ONE persistent button, not one-per-theme. The first version rendered a
+  # button per theme and hid the active one — which removed the element the
+  # keyboard user had just focused, dropping focus to <body> on every
+  # activation. This button never disappears: aria-pressed says whether the
+  # dark half of the pair is on, CSS keyed off html[data-theme] shows the
+  # right sun/moon icon from the first paint, and the theme script keeps
+  # data-phx-theme pointing at the OTHER theme.
+  #
+  # The click is a real JS.dispatch, same contract as the dropdown options:
+  # phx:set-theme bubbles to window, where BOTH the kit's ThemeControllerScript
+  # and the stock Phoenix root-layout script read e.target.dataset.phxTheme.
+  # An earlier version relied solely on a click listener inside the kit
+  # script, which made the button silently dead in host layouts that render
+  # this component without the kit's layouts.
+  defp theme_toggle_pair(assigns) do
+    [a, b] = assigns.dropdown_themes
+    {light, dark} = if toggle_base(a.value) == "dark", do: {b, a}, else: {a, b}
+
+    assigns = assign(assigns, light: light, dark: dark)
+
+    ~H"""
+    <div class={["flex items-center", @class]} {@rest} id={@id}>
+      <%!-- Icon visibility is CSS, keyed off html[data-theme] — which the
+           pre-paint bootstrap stamps — so the correct icon shows from the
+           first paint. The JS-swapped version flashed the sun at dark-mode
+           users until the end-of-body script initialized. --%>
+      {Phoenix.HTML.raw(toggle_icon_css(@dark.value))}
+      <button
+        type="button"
+        data-theme-role="toggle"
+        data-theme-target={@dark.value}
+        data-phx-theme={@dark.value}
+        data-theme-light={@light.value}
+        data-theme-dark={@dark.value}
+        phx-click={JS.dispatch("phx:set-theme")}
+        title={"#{@light.label} / #{@dark.label}"}
+        aria-label={"#{@light.label} / #{@dark.label}"}
+        aria-pressed="false"
+        class="btn btn-sm btn-ghost btn-circle"
+      >
+        <span data-toggle-icon="light"><.icon name="hero-sun" class="w-5 h-5" /></span>
+        <span data-toggle-icon="dark"><.icon name="hero-moon" class="w-5 h-5" /></span>
+      </button>
+    </div>
+    """
+  end
+
+  # Scoped by [data-theme-dark=...] rather than by id, so multiple toggles —
+  # even over different pairs — coexist without any id requirement. The name
+  # is safe to interpolate: dropdown_themes/1 filters to KNOWN theme names,
+  # and the regex is the belt to that suspender.
+  defp toggle_icon_css(dark_value) do
+    if dark_value =~ ~r/\A[a-z0-9_-]+\z/ do
+      """
+      <style>
+        html[data-theme="#{dark_value}"] [data-theme-dark="#{dark_value}"] [data-toggle-icon="light"] { display: none; }
+        html:not([data-theme="#{dark_value}"]) [data-theme-dark="#{dark_value}"] [data-toggle-icon="dark"] { display: none; }
+      </style>
+      """
+    else
+      ""
+    end
+  end
+
+  defp toggle_base(theme), do: Map.get(ThemeConfig.base_map(), theme, "light")
+
+  defp theme_dropdown(assigns) do
     ~H"""
     <div class={["flex flex-col gap-3 w-full", @class]} {@rest}>
       <div class="relative w-full" data-theme-dropdown>
@@ -61,6 +165,7 @@ defmodule PhoenixKitWeb.Components.Core.ThemeController do
                 <button
                   type="button"
                   phx-click={JS.dispatch("phx:set-theme", detail: %{theme: theme.value})}
+                  data-phx-theme={theme.value}
                   data-tip={theme.value}
                   data-theme-target={theme.value}
                   data-theme-role="dropdown-option"

@@ -1,7 +1,14 @@
 defmodule PhoenixKit.Integration.Users.RolesTest do
   use PhoenixKit.DataCase, async: true
 
+  # These tests assert BOOTSTRAP semantics (first-user-becomes-Owner, last-
+  # Owner guards, owner counts), so the suite's committed seed Owner is
+  # demoted inside this test's own sandbox transaction — see DataCase.
+  setup :demote_seed_owner
+
+  alias PhoenixKit.RepoHelper
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Role
   alias PhoenixKit.Users.Roles
 
   defp unique_email, do: "roles_#{System.unique_integer([:positive])}@example.com"
@@ -295,6 +302,25 @@ defmodule PhoenixKit.Integration.Users.RolesTest do
       refute "Owner" in custom_names
       refute "Admin" in custom_names
       refute "User" in custom_names
+    end
+  end
+
+  describe "ensure_first_user_is_owner/1" do
+    test "rolls back cleanly when the Owner role row is missing" do
+      user = create_user()
+
+      # Rename rather than delete — the row is referenced by every existing
+      # assignment. The bootstrap path looks the role up by name, so a renamed
+      # row is a missing row: the owner count reads 0 and the Owner assignment
+      # then finds nothing to assign. The earlier implementation dereferenced
+      # the locked role row directly and raised on the nil instead.
+      {1, _} =
+        RepoHelper.repo().update_all(
+          from(r in Role, where: r.name == ^"Owner"),
+          set: [name: "OwnerRenamed"]
+        )
+
+      assert {:error, :role_not_found} = Roles.ensure_first_user_is_owner(user)
     end
   end
 end

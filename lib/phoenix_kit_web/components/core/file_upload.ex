@@ -21,8 +21,11 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
   - `max_size_description` (optional) - Text describing max file size
   """
   use Phoenix.Component
+  use Gettext, backend: PhoenixKitWeb.Gettext
 
   import PhoenixKitWeb.Components.Core.Icon
+
+  alias PhoenixKit.Utils.Format
 
   attr :upload, :any, required: true
   attr :label, :string, default: "Upload Files"
@@ -50,6 +53,36 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
       "button" -> button_upload(assigns)
       _ -> full_upload(assigns)
     end
+  end
+
+  @doc """
+  Live transfer stats for one upload entry, rendered under its progress bar.
+
+  The server only patches `data-progress`; the `UploadStats` JS hook computes
+  transferred bytes, speed, and ETA in the browser ("3.2 MB / 12.4 MB ·
+  2.8 MB/s · 4s left") and flips to a ticking "Processing on server…" once
+  the transfer reaches 100% — the phase where the bar used to sit frozen with
+  no hint whether the network, the file size, or the server was to blame.
+  The hook owns the element's text; the server-rendered size is only the
+  pre-mount fallback.
+  """
+  attr :entry, :any, required: true, doc: "a Phoenix.LiveView.UploadEntry"
+  attr :class, :string, default: "block text-xs text-base-content/60 tabular-nums mt-1"
+
+  def upload_entry_stats(assigns) do
+    ~H"""
+    <span
+      id={"pk-upload-stats-#{@entry.upload_ref}-#{@entry.ref}"}
+      phx-hook="UploadStats"
+      data-progress={@entry.progress}
+      data-size={@entry.client_size}
+      data-label-processing={gettext("Processing on server…")}
+      data-label-left={gettext("left")}
+      class={@class}
+    >
+      {Format.bytes(@entry.client_size, base: 1000, decimals: 2)}
+    </span>
+    """
   end
 
   defp full_upload(assigns) do
@@ -85,9 +118,10 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
                     {entry.progress}%
                   </progress>
                   <span class="text-xs text-base-content/60 min-w-max">
-                    Uploading… {entry.progress}%
+                    {entry.progress}%
                   </span>
                 </div>
+                <.upload_entry_stats entry={entry} />
               </div>
 
               <%!-- Cancel Button --%>
@@ -173,6 +207,7 @@ defmodule PhoenixKitWeb.Components.Core.FileUpload do
                 >
                   {entry.progress}%
                 </progress>
+                <.upload_entry_stats entry={entry} />
               </div>
 
               <%!-- Cancel Button --%>

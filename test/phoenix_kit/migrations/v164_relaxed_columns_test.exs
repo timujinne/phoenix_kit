@@ -53,9 +53,14 @@ defmodule PhoenixKit.Migrations.V164RelaxedColumnsTest do
   # "later" relaxation of it.
   @first_version_in_scope 58
 
+  # Identifiers may be double-quoted on either side — the chain writes both
+  # (`ALTER COLUMN "created_by_uuid"` in V169, bare elsewhere), and Postgres
+  # treats them identically. Without the optional quotes this scan silently
+  # skipped a real relaxation, which is precisely the false NEGATIVE the
+  # moduledoc calls the failure mode that matters.
   @inline_pattern ~r/
-    ALTER\s+TABLE\s+\S*?(phoenix_kit_[a-zA-Z0-9_]+)
-    \s+ALTER\s+COLUMN\s+([a-zA-Z_][a-zA-Z0-9_]*)
+    ALTER\s+TABLE\s+\S*?"?(phoenix_kit_[a-zA-Z0-9_]+)"?
+    \s+ALTER\s+COLUMN\s+"?([a-zA-Z_][a-zA-Z0-9_]*)"?
     \s+DROP\s+NOT\s+NULL
   /xi
 

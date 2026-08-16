@@ -317,16 +317,36 @@ defmodule PhoenixKit.Users.Referrals do
 
   defp satisfied_by_account?(%Scope{user: %User{} = user} = scope) do
     marked_satisfied?(user) or grandfathered?(user) or
-      Scope.holds_all_enabled_permissions?(scope) or invited?(user)
+      Scope.holds_all_enabled_permissions?(scope) or invited?(user) or
+      historically_redeemed?(user)
   end
 
   defp satisfied_by_account?(%User{} = user) do
     # Permission check goes last here: unlike the scope form it costs a DB read.
     marked_satisfied?(user) or grandfathered?(user) or invited?(user) or
-      Scope.holds_all_enabled_permissions?(Scope.for_user(user))
+      Scope.holds_all_enabled_permissions?(Scope.for_user(user)) or
+      historically_redeemed?(user)
   end
 
   defp satisfied_by_account?(_), do: true
+
+  # An account that redeemed a code under referrals 0.4 has a usage row but no
+  # satisfied-stamp — the stamp arrived with 0.6's flows, and the upgrade path
+  # never backfilled it, so the gate parked exactly the users who did what
+  # invite-only asked of them. The installed module answers from its usage
+  # table, and a hit is stamped on the spot, so for any given account this
+  # dispatch-plus-query runs at most once. Last in the chain: every earlier
+  # check is cheaper, and post-0.6 accounts never reach it.
+  defp historically_redeemed?(%User{} = user) do
+    case dispatch(:signup_use_exists?, [user.uuid]) do
+      {:ok, true} ->
+        mark_satisfied(user, "pre-0.6 code redemption (lazy backfill)")
+        true
+
+      _ ->
+        false
+    end
+  end
 
   @doc """
   Records a signup's use of a referral code and marks the account admitted.
@@ -716,6 +736,7 @@ defmodule PhoenixKit.Users.Referrals do
   # target out of compile-time xref, so core needs no dependency on the package.
   defp dispatch(fun, args) do
     with mod when not is_nil(mod) <- ModuleRegistry.get_by_key(@key),
+         true <- Code.ensure_loaded?(mod),
          true <- function_exported?(mod, fun, length(args)) do
       {:ok, apply(mod, fun, args)}
     else

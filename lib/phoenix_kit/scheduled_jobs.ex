@@ -111,6 +111,10 @@ defmodule PhoenixKit.ScheduledJobs do
     |> repo().update()
   end
 
+  # In-flight work is not cancellable: the handler is already running and a
+  # status flip here would race the terminal mark. Callers wait or let the
+  # run finish; a retry can be cancelled once the row is "pending" again.
+  def cancel_job(%ScheduledJob{status: "processing"}), do: {:error, :in_progress}
   def cancel_job(%ScheduledJob{status: "executed"}), do: {:error, :already_executed}
   def cancel_job(%ScheduledJob{status: "cancelled"}), do: {:error, :already_cancelled}
   def cancel_job(%ScheduledJob{status: "failed"}), do: {:error, :already_failed}
@@ -168,12 +172,18 @@ defmodule PhoenixKit.ScheduledJobs do
   def process_pending_jobs do
     now = UtilsDate.utc_now()
 
-    pending_jobs = get_pending_jobs(now)
+    reap_stale_processing(now)
 
-    results =
-      Enum.map(pending_jobs, fn job ->
-        execute_job(job)
-      end)
+    # Claim-then-execute, not select-then-execute. The plain SELECT let two
+    # overlapping sweeps — core's cron worker and a host calling this public
+    # function, or two nodes — both see the same rows and both fire the
+    # handler. Handlers are host-provided and not required to be idempotent,
+    # so a row is claimed with a CAS first and only the winner executes.
+    #
+    # What remains is at-least-once: a crash between a handler's side effect
+    # and the guarded mark, or a handler outliving the reclaim window,
+    # re-runs the job. Exactly-once is impossible without handler idempotency.
+    results = Enum.map(get_pending_jobs(now), &claim_and_execute(&1, now))
 
     executed = Enum.count(results, &match?(:ok, &1))
     failed = Enum.count(results, &match?({:error, _}, &1))
@@ -325,15 +335,115 @@ defmodule PhoenixKit.ScheduledJobs do
       {:error, e}
   end
 
+  # One winner per row: flips pending -> processing, and only the flipper
+  # executes. `update_all` re-evaluates the WHERE under the row lock, so a
+  # loser deterministically gets {0, _} rather than a second execution.
+  defp claim_and_execute(%ScheduledJob{} = job, now) do
+    {count, claimed} =
+      from(j in ScheduledJob,
+        where: j.uuid == ^job.uuid,
+        where: j.status == "pending",
+        select: j
+      )
+      |> repo().update_all(set: [status: "processing", updated_at: now])
+
+    case {count, claimed} do
+      {1, [claimed_job]} -> execute_job(claimed_job)
+      {0, _} -> :skipped
+    end
+  end
+
+  # A "processing" row whose sweep died holds its claim forever — nothing else
+  # may touch it, so nothing would ever run it again. Rows older than the
+  # reclaim window go back to "pending" (or to "failed" once attempts are
+  # spent, so a crashing handler cannot retry forever). The window must stay
+  # above the longest handler a host runs: reclaim is purely by elapsed time,
+  # and a legitimately slow handler reclaimed mid-flight executes twice.
+  defp reap_stale_processing(now) do
+    stale = DateTime.add(now, -stale_processing_seconds(), :second)
+
+    base =
+      from(j in ScheduledJob,
+        where: j.status == "processing",
+        where: j.updated_at < ^stale
+      )
+
+    {failed, _} =
+      base
+      |> where([j], j.attempts + 1 >= j.max_attempts)
+      |> repo().update_all(
+        set: [status: "failed", last_error: "stale processing reclaim", updated_at: now],
+        inc: [attempts: 1]
+      )
+
+    {requeued, _} =
+      base
+      |> where([j], j.attempts + 1 < j.max_attempts)
+      |> repo().update_all(set: [status: "pending", updated_at: now], inc: [attempts: 1])
+
+    if failed > 0 or requeued > 0 do
+      Logger.warning(
+        "ScheduledJobs: Reclaimed #{failed + requeued} stale processing job(s) " <>
+          "(#{requeued} requeued, #{failed} failed permanently)"
+      )
+    end
+
+    :ok
+  end
+
+  defp stale_processing_seconds do
+    Application.get_env(:phoenix_kit, :scheduled_jobs_stale_processing_seconds, 3600)
+  end
+
+  # Both terminal marks are CAS'd on "processing": after a reclaim has flipped
+  # the row back to "pending" (and possibly a second sweep has re-run it), a
+  # LATE mark from the original, slower sweep must be a no-op — a plain
+  # update here would stomp the re-queued row's state.
   defp mark_executed(%ScheduledJob{} = job) do
-    job
-    |> ScheduledJob.execute_changeset()
-    |> repo().update()
+    now = UtilsDate.utc_now()
+
+    from(j in ScheduledJob, where: j.uuid == ^job.uuid, where: j.status == "processing")
+    |> repo().update_all(set: [status: "executed", executed_at: now, updated_at: now])
+
+    :ok
   end
 
   defp mark_failed(%ScheduledJob{} = job, error) do
-    job
-    |> ScheduledJob.fail_changeset(error)
-    |> repo().update()
+    error_message =
+      case error do
+        msg when is_binary(msg) -> msg
+        {:error, reason} -> inspect(reason)
+        other -> inspect(other)
+      end
+
+    now = UtilsDate.utc_now()
+
+    # The claim itself does not touch `attempts` — this is where a claimed run
+    # that failed spends its one attempt, so the +1 lives in both branches and
+    # the threshold is read as `attempts + 1`. The row returns to "pending"
+    # while attempts remain, mirroring fail_changeset/2's retry semantics.
+    {_, _} =
+      from(j in ScheduledJob,
+        where: j.uuid == ^job.uuid,
+        where: j.status == "processing",
+        where: j.attempts + 1 >= j.max_attempts
+      )
+      |> repo().update_all(
+        set: [status: "failed", last_error: error_message, updated_at: now],
+        inc: [attempts: 1]
+      )
+
+    {_, _} =
+      from(j in ScheduledJob,
+        where: j.uuid == ^job.uuid,
+        where: j.status == "processing",
+        where: j.attempts + 1 < j.max_attempts
+      )
+      |> repo().update_all(
+        set: [status: "pending", last_error: error_message, updated_at: now],
+        inc: [attempts: 1]
+      )
+
+    :ok
   end
 end

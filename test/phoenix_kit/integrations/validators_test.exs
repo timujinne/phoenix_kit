@@ -324,6 +324,85 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
   # Answers the given results in order. A plain closure beats a mocking library here:
   # the thing under test is "how many times is AWS asked, and what is done with each
   # answer", which is exactly what a queue makes visible.
+
+  describe "amazon_bedrock/1 refuses to guess" do
+    test "missing key and missing region are reported without a network round trip" do
+      assert {:error, _} = Validators.amazon_bedrock(%{"aws_region" => "eu-central-1"})
+      assert {:error, message} = Validators.amazon_bedrock(%{"api_key" => "ABSK_T"})
+      assert message =~ "Region"
+    end
+
+    test "a malformed region is rejected before it becomes a hostname" do
+      for bad <- ["eu central", "EU-CENTRAL-1", "bedrock.evil.example/", "eu-central-"] do
+        creds = %{"api_key" => "ABSK_T", "aws_region" => bad}
+        assert {:error, message} = Validators.amazon_bedrock(creds)
+        assert message =~ "region format"
+      end
+    end
+
+    test "real region shapes pass the format guard, including 4-letter sovereign prefixes" do
+      for good <- [
+            "us-east-1",
+            "ap-southeast-3",
+            "il-central-1",
+            "us-gov-west-1",
+            "eusc-de-east-1"
+          ] do
+        assert Validators.valid_aws_region?(good), good
+      end
+
+      for bad <- ["", "eu central", "EU-CENTRAL-1", "bedrock.evil.example/", "eu-central-", nil] do
+        refute Validators.valid_aws_region?(bad), inspect(bad)
+      end
+    end
+  end
+
+  describe "aws_note/3 assembles the enrichment note additively" do
+    test "lists only GRANTED management APIs — a send-only key shows no denied dashes" do
+      perms = %{
+        ses: %{"ListConfigurationSets" => :denied},
+        sqs: %{"ListQueues" => :denied},
+        sns: %{"ListTopics" => :denied}
+      }
+
+      assert Validators.aws_note("Account 1", perms, nil) == "Account 1"
+    end
+
+    test "grants surface by service name" do
+      perms = %{
+        ses: %{"ListConfigurationSets" => :granted},
+        sqs: %{"ListQueues" => :granted},
+        sns: %{"ListTopics" => :denied}
+      }
+
+      note = Validators.aws_note("Account 1", perms, "Quota: 1/200")
+      assert note =~ "SES, SQS"
+      refute note =~ "SNS"
+      assert note =~ "Quota: 1/200"
+    end
+
+    test "nothing to say means nil, so the verdict stays a bare :ok" do
+      assert Validators.aws_note(nil, nil, nil) == nil
+    end
+
+    test "a missing permissions sweep keeps identity and quota" do
+      assert Validators.aws_note("Account 1", nil, "Q") == "Account 1 · Q"
+    end
+
+    test "a partial permissions map is read, not crashed on" do
+      assert Validators.aws_note(nil, %{ses: %{"ListConfigurationSets" => :granted}}, nil) =~
+               "SES"
+    end
+  end
+
+  describe "bedrock_host/1 follows the partition" do
+    test "the China partition gets its own suffix" do
+      assert Validators.bedrock_host("cn-north-1") =~ ".amazonaws.com.cn"
+      assert Validators.bedrock_host("eu-central-1") =~ ".amazonaws.com"
+      refute Validators.bedrock_host("eu-central-1") =~ ".cn"
+    end
+  end
+
   defp stub(results) do
     {:ok, agent} = Agent.start_link(fn -> results end)
     on_exit(fn -> if Process.alive?(agent), do: Agent.stop(agent) end)

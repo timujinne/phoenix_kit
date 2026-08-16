@@ -522,7 +522,7 @@
                 phx-submit={if @editing_note_uuid, do: "update_note", else: "add_note"}
                 class="space-y-4"
               >
-                <div class="form-control">
+                <div class="fieldset">
                   <.textarea
                     field={@note_form[:content]}
                     placeholder={gettext("Write a note about this user...")}
@@ -789,7 +789,7 @@
             <% user_role_names = Enum.map(@user.roles || [], & &1.name) %>
             <%= for role <- @all_roles do %>
               <% owner_role? = role.name == PhoenixKit.Users.Role.system_roles().owner %>
-              <div class="form-control">
+              <div class="fieldset">
                 <%!-- DO NOT convert to <.checkbox>: the submitted VALUE is the payload.
                      `sync_user_roles` reads Map.values(params["roles"]) and diffs that
                      list against the user's current roles, so a component hardcoding

@@ -213,7 +213,14 @@ defmodule PhoenixKit.Migrations.Postgres.V164 do
     # deletion works today; enforcing NOT NULL would newly break it. Left
     # nullable until the chain resolves which of the two declarations is
     # wrong (`uuid_fk_columns_test.exs` asserts no OTHER pair contradicts).
-    {:phoenix_kit_ticket_status_history, "changed_by_uuid"}
+    {:phoenix_kit_ticket_status_history, "changed_by_uuid"},
+    # V169 (v169.ex): the public entity form is deliberately unauthenticated
+    # and has no creator to record, so anonymous submissions store NULL here.
+    # Re-imposing NOT NULL would make every one of them fail again with the
+    # `not_null_violation` V169 exists to end (BeamLabEU/phoenix_kit#706). The
+    # column carries no FK to `phoenix_kit_users` on any install, so nothing
+    # downstream assumed a real user either.
+    {:phoenix_kit_entity_data, "created_by_uuid"}
   ]
 
   @doc false

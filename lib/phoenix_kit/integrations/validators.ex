@@ -28,6 +28,7 @@ defmodule PhoenixKit.Integrations.Validators do
 
   require Logger
 
+  alias PhoenixKit.AWS.CredentialsVerifier
   alias PhoenixKit.Integrations.Probe
   alias PhoenixKit.Mailer.SmtpTransport
   alias PhoenixKit.Utils.Number
@@ -62,8 +63,184 @@ defmodule PhoenixKit.Integrations.Validators do
         {:error, gettext("Region is required")}
 
       true ->
-        Probe.run(fn -> request_send_quota(region, data) end)
+        # The send-quota probe stays the AUTH VERDICT — its transient-
+        # signature retry logic is what keeps good keys from being called
+        # invalid. The CredentialsVerifier sweep (the same one the Emails
+        # settings page runs) runs AFTERWARDS in its own probe and is
+        # strictly additive: a passing verdict may gain account identity
+        # and permission context, but enrichment failing, exiting, or
+        # timing out can never downgrade the verdict itself.
+        case Probe.run(fn -> request_send_quota(region, data) end) do
+          :ok -> ok_with_note(region, data, nil)
+          {:ok, quota_note} -> ok_with_note(region, data, quota_note)
+          error -> error
+        end
     end
+  end
+
+  defp ok_with_note(region, data, quota_note) do
+    case enrich_note(region, data, quota_note) do
+      nil -> :ok
+      note -> {:ok, note}
+    end
+  end
+
+  defp enrich_note(region, data, quota_note) do
+    # The probe contract carries strings, so the note is assembled inside the
+    # closure; :ok = "nothing to add", any probe failure = keep the quota note.
+    result =
+      Probe.run(fn ->
+        identity =
+          case CredentialsVerifier.verify_credentials(
+                 data["access_key"],
+                 data["secret_key"],
+                 region
+               ) do
+            {:ok, %{account_id: id}} -> gettext("Account %{id}", id: id)
+            _ -> nil
+          end
+
+        perms =
+          case CredentialsVerifier.check_permissions(
+                 data["access_key"],
+                 data["secret_key"],
+                 region
+               ) do
+            {:ok, perms} -> perms
+            _ -> nil
+          end
+
+        case aws_note(identity, perms, quota_note) do
+          nil -> :ok
+          note -> {:ok, note}
+        end
+      end)
+
+    case result do
+      {:ok, note} -> note
+      :ok -> nil
+      _ -> quota_note
+    end
+  end
+
+  @doc false
+  # Pure note assembly, public for tests. Only GRANTED management APIs are
+  # listed — a least-privilege ses:SendEmail-only key (which the verdict
+  # deliberately passes) must not read as "SES denied" here, so denied
+  # services are omitted rather than dashed out.
+  def aws_note(identity, perms, quota_note) do
+    granted =
+      for {key, label} <- [ses: "SES", sqs: "SQS", sns: "SNS"],
+          is_map(perms),
+          perms |> Map.get(key, %{}) |> Map.values() |> Enum.any?(&(&1 == :granted)),
+          do: label
+
+    services =
+      case granted do
+        [] -> nil
+        list -> gettext("management API: %{services}", services: Enum.join(list, ", "))
+      end
+
+    [identity, services, quota_note]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> nil
+      note -> note
+    end
+  end
+
+  @doc """
+  Validates an Amazon Bedrock API key against the Bedrock control plane.
+
+  Lists foundation models in the configured region — the cheapest call that
+  proves both the key and the region at once. Bedrock long-term API keys
+  authenticate with a plain Bearer header (no SigV4), the same header the
+  OpenAI-compatible runtime endpoint accepts — a green check proves the
+  completions path can authenticate IN THIS REGION; an AI endpoint must
+  point its base URL at the same region for that guarantee to carry over.
+  """
+  @spec amazon_bedrock(map()) :: :ok | {:ok, String.t()} | {:error, String.t()}
+  def amazon_bedrock(data) do
+    region = String.trim(data["aws_region"] || "")
+    api_key = String.trim(data["api_key"] || "")
+
+    cond do
+      blank?(api_key) ->
+        {:error, gettext("No credentials configured")}
+
+      blank?(region) ->
+        {:error, gettext("Region is required")}
+
+      # A malformed region would send the probe to a non-AWS hostname.
+      not valid_aws_region?(region) ->
+        {:error, gettext("Invalid region format (expected e.g. eu-central-1)")}
+
+      true ->
+        Probe.run(fn -> request_bedrock_models(region, api_key) end)
+    end
+  end
+
+  @doc false
+  # Pure, public for tests. The prefix is 2-4 letters (us-east-1 …
+  # eusc-de-east-1), the suffix a small number.
+  def valid_aws_region?(region) when is_binary(region) do
+    Regex.match?(~r/^[a-z]{2,4}(-[a-z]+)+-\d{1,2}$/, region)
+  end
+
+  def valid_aws_region?(_), do: false
+
+  defp request_bedrock_models(region, api_key) do
+    # retry: false — the outer Probe deadline is the only clock here; Req's
+    # default transient retries would sleep through most of it.
+    case Req.get("#{bedrock_host(region)}/foundation-models",
+           headers: [{"authorization", "Bearer " <> api_key}],
+           receive_timeout: @http_timeout,
+           retry: false
+         ) do
+      {:ok, %{status: 200, body: %{"modelSummaries" => models}}} when is_list(models) ->
+        {:ok, bedrock_models_note(length(models), region)}
+
+      {:ok, %{status: 200}} ->
+        :ok
+
+      {:ok, %{status: 401}} ->
+        {:error, gettext("Invalid credentials")}
+
+      # The most likely 403 is a key whose IAM identity lacks
+      # bedrock:CallWithBearerToken (or ListFoundationModels) — the key
+      # itself authenticated, so "invalid credentials" would send the
+      # operator off to reissue a perfectly good key.
+      {:ok, %{status: 403}} ->
+        {:error,
+         gettext(
+           "Key authenticated but not authorised in %{region} — allow bedrock:CallWithBearerToken (and ListFoundationModels) on its IAM identity, or check the key was issued for this region",
+           region: region
+         )}
+
+      {:ok, %{status: status}} ->
+        {:error, gettext("Bedrock error %{status}", status: status)}
+
+      {:error, reason} ->
+        Logger.warning("Bedrock connection check failed: #{inspect(reason)}")
+        {:error, gettext("Could not reach Bedrock in %{region}", region: region)}
+    end
+  end
+
+  @doc false
+  # The China partition answers on .amazonaws.com.cn — the global host does not
+  # resolve there at all, which would surface as "could not reach Bedrock".
+  def bedrock_host("cn-" <> _ = region), do: "https://bedrock.#{region}.amazonaws.com.cn"
+  def bedrock_host(region), do: "https://bedrock.#{region}.amazonaws.com"
+
+  @doc false
+  # Pure, public for tests. Sidesteps plural forms; the count is the region's
+  # whole catalog, not the models this account may invoke — say so.
+  def bedrock_models_note(count, region) do
+    gettext("Model catalog in %{region}: %{count} (grants are configured separately)",
+      count: count,
+      region: region
+    )
   end
 
   @doc """

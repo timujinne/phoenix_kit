@@ -229,7 +229,7 @@ The `permission` field on a tab can use any of the 25 built-in keys:
 
 **Core (always enabled):** `dashboard`, `users`, `media`, `settings`, `modules`
 
-**Feature modules (enabled/disabled):** `billing`, `shop`, `emails`, `entities`, `tickets`, `posts`, `comments`, `ai`, `sync`, `publishing`, `referrals`, `sitemap`, `seo`, `maintenance`, `storage`, `languages`, `connections`, `legal`, `db`, `jobs`
+**Feature modules (enabled/disabled):** `billing`, `shop`, `emails`, `entities`, `tickets`, `posts`, `comments`, `ai`, `sync`, `publishing`, `referrals`, `sitemap`, `crawlers`, `maintenance`, `storage`, `languages`, `connections`, `legal`, `db`, `jobs`
 
 When a tab's `permission` points to a feature module:
 - If the module is **disabled**, the tab is hidden for everyone

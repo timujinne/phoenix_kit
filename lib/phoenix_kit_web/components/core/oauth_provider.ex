@@ -37,16 +37,16 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           </h3>
 
           <%= for field <- @provider_config.fields do %>
-            <div class="form-control">
+            <div class="fieldset">
               <label class="label">
-                <span class="label-text">{field.label}</span>
+                <span class="fieldset-legend">{field.label}</span>
               </label>
               <%= if field.type == :textarea do %>
                 <textarea
                   name={field.name}
                   rows={field.rows || 3}
                   placeholder={field.placeholder}
-                  class="textarea textarea-bordered font-mono text-xs"
+                  class="textarea font-mono text-xs"
                 >{@settings[field.setting_key] || ""}</textarea>
               <% else %>
                 <input
@@ -76,16 +76,16 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
         </h3>
 
         <%= for field <- @provider_config.fields do %>
-          <div class="form-control">
+          <div class="fieldset">
             <label class="label">
-              <span class="label-text">{field.label}</span>
+              <span class="fieldset-legend">{field.label}</span>
             </label>
             <input
               type={field.type}
               name={field.name}
               value={@settings[field.setting_key] || ""}
               placeholder={field.placeholder}
-              class="input input-bordered"
+              class="input"
             />
           </div>
         <% end %>
@@ -115,7 +115,7 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           name: "settings[oauth_google_client_id]",
           setting_key: "oauth_google_client_id",
           placeholder: "Your Google OAuth Client ID",
-          class: "input input-bordered"
+          class: "input"
         },
         %{
           label: "Client Secret",
@@ -123,7 +123,7 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           name: "settings[oauth_google_client_secret]",
           setting_key: "oauth_google_client_secret",
           placeholder: "Your Google OAuth Client Secret",
-          class: "input input-bordered"
+          class: "input"
         }
       ]
     }
@@ -140,7 +140,7 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           name: "settings[oauth_github_client_id]",
           setting_key: "oauth_github_client_id",
           placeholder: "Your GitHub OAuth Client ID",
-          class: "input input-bordered"
+          class: "input"
         },
         %{
           label: "Client Secret",
@@ -148,7 +148,7 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           name: "settings[oauth_github_client_secret]",
           setting_key: "oauth_github_client_secret",
           placeholder: "Your GitHub OAuth Client Secret",
-          class: "input input-bordered"
+          class: "input"
         }
       ]
     }
@@ -165,7 +165,7 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           name: "settings[oauth_facebook_app_id]",
           setting_key: "oauth_facebook_app_id",
           placeholder: "Your Facebook App ID",
-          class: "input input-bordered"
+          class: "input"
         },
         %{
           label: "App Secret",
@@ -173,7 +173,7 @@ defmodule PhoenixKitWeb.Components.Core.OAuthProvider do
           name: "settings[oauth_facebook_app_secret]",
           setting_key: "oauth_facebook_app_secret",
           placeholder: "Your Facebook App Secret",
-          class: "input input-bordered"
+          class: "input"
         }
       ]
     }

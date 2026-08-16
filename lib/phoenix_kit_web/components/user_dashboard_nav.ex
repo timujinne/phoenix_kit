@@ -264,22 +264,22 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
               class="space-y-4"
             >
               <input type="hidden" name="return_to" value={@current_path} />
-              <div class="form-control">
-                <label class="label"><span class="label-text">{gettext("Email or username")}</span></label>
+              <div class="fieldset">
+                <label class="label"><span class="fieldset-legend">{gettext("Email or username")}</span></label>
                 <input
                   name="user[email_or_username]"
                   type="text"
                   required
-                  class="input input-bordered w-full"
+                  class="input w-full"
                 />
               </div>
-              <div class="form-control">
-                <label class="label"><span class="label-text">{gettext("Password")}</span></label>
+              <div class="fieldset">
+                <label class="label"><span class="fieldset-legend">{gettext("Password")}</span></label>
                 <input
                   name="user[password]"
                   type="password"
                   required
-                  class="input input-bordered w-full"
+                  class="input w-full"
                 />
               </div>
               <div class="modal-action">

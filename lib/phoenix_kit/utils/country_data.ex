@@ -287,26 +287,71 @@ defmodule PhoenixKit.Utils.CountryData do
   Get list of countries for select dropdown.
 
   Returns list of tuples {display_name, alpha2_code} for use
-  in Phoenix form selects.
+  in Phoenix form selects, sorted by the country name in the active locale.
+
+  Names come from `BeamLabCountries.Translations`, not the country struct's
+  `:name` field — the two differ even in English, for 20 of the 250
+  countries (as of beamlab_countries 1.1.0). For example: GB "United
+  Kingdom of Great Britain and Northern Ireland" -> "United Kingdom", US
+  "United States of America" -> "United States", CZ "Czech Republic" ->
+  "Czechia", TR "Turkey" -> "Türkiye", KP "Korea (Democratic People's
+  Republic of)" -> "North Korea" (which also moves its place in the sorted
+  list, from the K's to the N's). A host that never passes `:locale` still
+  gets different strings, and a different order, than a version of this
+  function that read `.name` directly.
+
+  Sorting folds accented letters to their base form before comparing (e.g.
+  "ü" sorts with "u"), which is a deliberate approximation, not proper
+  collation — the BEAM has no ICU. It is correct for most Latin-script
+  locales, but wrong for locales that give diacritics their own place in
+  the alphabet: in Estonian, Ü belongs at the very end (after W, Õ, Ä, Ö),
+  and in Swedish, Å, Ä, Ö belong after Z; folding moves those names out of
+  that position instead of leaving them there. A host that needs strict
+  local collation should sort the returned list itself.
+
+  ## Options
+
+    * `:locale` — locale for the country names. Defaults to the active
+      `PhoenixKitWeb.Gettext` locale, reduced to its base code (`"ru-RU"`
+      normalizes to `"ru"`). `BeamLabCountries` 1.1.0 ships translations for
+      `ar`, `de`, `en`, `es`, `fr`, `it`, `ja`, `ko`, `nl`, `pl`, `pt`, `ru`,
+      `sv`, `uk`, `zh` (`BeamLabCountries.Translations.supported_locales/0`);
+      any other locale falls back to the country's English name, and so
+      does an unsupported *value* such as an atom (`locale: :ru`) — a host
+      only ever loses the translation, never the entry.
+
+    * `:priority` — alpha-2 codes pinned to the top of the list, in the order
+      given; everything else follows alphabetically. A non-list value is
+      treated as `[]`. The default is the `country_select_priority` setting
+      (Admin → Settings → Organization), and nothing else: **there is no
+      compile-time config**, deliberately. A default baked into the library
+      would pin whatever countries its author serves, so every other host
+      would install it and find the dropdown already reordered before anyone
+      chose anything. Until an operator stores a list, nothing is pinned and
+      the order is plain alphabetical; `suggested_priority/2` is what the
+      settings UI offers them as a starting point, derived from their own
+      country rather than from a constant.
+
+  `opts` itself must be a keyword list — a map or a bare string raises
+  `FunctionClauseError` naming this function rather than `Keyword`.
 
   ## Examples
 
-      iex> countries = CountryData.countries_for_select()
+      iex> countries = CountryData.countries_for_select(locale: "en")
       iex> {"🇦🇫 Afghanistan", "AF"} in countries
       true
-  """
-  def countries_for_select do
-    list_countries()
-    |> Enum.map(fn c ->
-      display_name =
-        case c.flag do
-          nil -> c.name
-          "" -> c.name
-          flag -> flag <> " " <> c.name
-        end
 
-      {display_name, c.alpha2}
-    end)
+      iex> CountryData.countries_for_select(locale: "ru", priority: ["EE", "FI"])
+      ...> |> Enum.take(2)
+      [{"🇪🇪 Эстония", "EE"}, {"🇫🇮 Финляндия", "FI"}]
+  """
+  def countries_for_select(opts \\ []) when is_list(opts) do
+    locale = opts |> fetch_opt(:locale, &active_locale/0) |> normalize_locale()
+    priority = opts |> fetch_opt(:priority, &configured_priority/0) |> normalize_priority()
+
+    {pinned, rest} = locale |> sorted_entries(:all) |> split_priority(priority)
+
+    Enum.map(pinned ++ rest, fn {_name, display_name, code} -> {display_name, code} end)
   end
 
   @doc """
@@ -338,21 +383,312 @@ defmodule PhoenixKit.Utils.CountryData do
 
   @doc """
   Get list of EU countries for select dropdown.
-  """
-  def eu_countries_for_select do
-    eu_countries()
-    |> Enum.sort_by(& &1.name)
-    |> Enum.map(fn c ->
-      display_name =
-        case c.flag do
-          nil -> c.name
-          "" -> c.name
-          flag -> flag <> " " <> c.name
-        end
 
-      {display_name, c.alpha2}
+  Takes the same `:locale` and `:priority` options as
+  `countries_for_select/1`, including its fallback, leniency, and sorting
+  caveats.
+  """
+  def eu_countries_for_select(opts \\ []) when is_list(opts) do
+    locale = opts |> fetch_opt(:locale, &active_locale/0) |> normalize_locale()
+    priority = opts |> fetch_opt(:priority, &configured_priority/0) |> normalize_priority()
+
+    {pinned, rest} = locale |> sorted_entries(:eu) |> split_priority(priority)
+
+    Enum.map(pinned ++ rest, fn {_name, display_name, code} -> {display_name, code} end)
+  end
+
+  # {sortable_name, display_name, alpha2} for one country in `locale`.
+  defp select_entry(country, locale) do
+    name = translated_name(country, locale)
+
+    display_name =
+      case country.flag do
+        nil -> name
+        "" -> name
+        flag -> flag <> " " <> name
+      end
+
+    {name, display_name, country.alpha2}
+  end
+
+  defp translated_name(country, locale) do
+    with true <- is_binary(locale),
+         true <- BeamLabCountries.Translations.locale_supported?(locale),
+         name when is_binary(name) <-
+           BeamLabCountries.Translations.get_name(country.alpha2, locale) do
+      name
+    else
+      _ -> country.name
+    end
+  end
+
+  # Localized, alphabetically-sorted {sortable_name, display_name, alpha2}
+  # entries for `source` (:all or :eu), memoized in :persistent_term per
+  # locale — countries_for_select/1 runs in LiveView mount twice per
+  # connection, and rebuilding + sort-keying ~250 translated names on every
+  # call was measured as the expensive part (the translation lookup itself
+  # is cheap). Keyed by locale *and* source so the EU subset can never
+  # collide with the full list. A cache miss computes once and stores;
+  # realistic callers only ever use the handful of locales this host's
+  # Gettext config and BeamLabCountries between them support, so the number
+  # of distinct writes is bounded. Priority pinning is deliberately *not*
+  # part of the cache key — split_priority/2 below is cheap (one pass over
+  # already-sorted input) and runs on every call, so
+  # `:country_select_priority` changes take effect immediately without
+  # invalidating anything.
+  defp sorted_entries(locale, source) do
+    key = {__MODULE__, :sorted_entries, source, locale}
+
+    case :persistent_term.get(key, :not_cached) do
+      :not_cached ->
+        entries =
+          source
+          |> countries_for_source()
+          |> Enum.map(&select_entry(&1, locale))
+          |> sort_by_name()
+
+        :persistent_term.put(key, entries)
+        entries
+
+      entries ->
+        entries
+    end
+  end
+
+  defp countries_for_source(:all), do: BeamLabCountries.all()
+  defp countries_for_source(:eu), do: eu_countries()
+
+  # Pull the priority codes out in the order they were given; the remainder
+  # keeps its incoming order. Callers now pass the already-sorted output of
+  # sorted_entries/2, so that incoming order is alphabetical — no further
+  # sort needed.
+  defp split_priority(entries, []), do: {[], entries}
+
+  defp split_priority(entries, priority) do
+    index = Map.new(entries, fn {_name, _display, code} = entry -> {code, entry} end)
+
+    pinned_codes = Enum.filter(priority, &Map.has_key?(index, &1))
+    pinned = Enum.map(pinned_codes, &Map.fetch!(index, &1))
+    rest = Enum.reject(entries, fn {_name, _display, code} -> code in pinned_codes end)
+
+    {pinned, rest}
+  end
+
+  # Deliberate approximation, not proper collation: folding diacritics to
+  # their base letter before comparing is correct for locales that treat
+  # accented letters as variants of the base letter — most Latin-script
+  # locales (French, German, Spanish, Italian, Dutch, Polish, Portuguese,
+  # ...) — but wrong for locales that give diacritics their own position in
+  # the alphabet. Estonian sorts Ü at the very end, after W, Õ, Ä, Ö;
+  # Swedish sorts Å, Ä, Ö after Z. Folding pulls "Ühendkuningriik" into the U
+  # block and "Åland" between "Azerbajdzjan" and "Bahamas" instead of
+  # leaving them at the end, which is where correct collation puts them in
+  # those locales. Proper per-locale collation would need ICU, which the
+  # BEAM does not ship.
+  defp sort_by_name(entries) do
+    Enum.sort_by(entries, fn {name, _display, _code} ->
+      name |> String.downcase() |> :unicode.characters_to_nfd_binary()
     end)
   end
+
+  defp active_locale do
+    Gettext.get_locale(PhoenixKitWeb.Gettext)
+  end
+
+  defp normalize_locale(nil), do: nil
+
+  defp normalize_locale(locale) when is_binary(locale) do
+    locale |> String.split(["-", "_"]) |> hd() |> String.downcase()
+  end
+
+  defp normalize_locale(_), do: nil
+
+  # Keyword.get(opts, key, default) evaluates `default` eagerly even when
+  # `opts` already has `key` — cheap when the default is a literal, but here
+  # the defaults are a Gettext lookup and a settings-cache read (which can
+  # fall through to a database query on a cold key), and the result would be
+  # thrown away whenever the caller passed an explicit value. Only compute
+  # the default in the :error branch.
+  defp fetch_opt(opts, key, default_fun) do
+    case Keyword.fetch(opts, key) do
+      {:ok, value} -> value
+      :error -> default_fun.()
+    end
+  end
+
+  # The stored setting is the ONLY source. There is deliberately no
+  # compile-time config fallback: a default baked into the library would
+  # pin whatever countries its author happens to serve, and every other
+  # host installs it to find a list already filtered before anyone chose
+  # anything. Nothing is pinned until an operator says so — see
+  # `suggested_priority/2` for how the settings UI proposes a starting
+  # list from the organization's own country instead of from a constant.
+  #
+  # Read through the cache: this runs on the hot path, and
+  # `get_setting_cached/2` is consulted before the update-mode
+  # short-circuit, so a primed key resolves without a database at all.
+  # `Settings.get_setting_cached/2` — and the `get_setting/2` it falls back
+  # to on a cache error — already rescue AND catch `:exit` internally, so
+  # an unreachable database degrades to "nothing pinned" rather than
+  # raising, without this function handling anything itself.
+  defp configured_priority do
+    "country_select_priority"
+    |> Settings.get_setting_cached("")
+    |> parse_priority()
+  end
+
+  @doc """
+  Split an operator-entered priority string into alpha-2 codes.
+
+  Accepts the separators a human actually types — commas, spaces, semicolons,
+  newlines — so `"EE, FI"`, `"ee fi"` and `"EE;FI"` all parse. Unknown codes
+  are kept here, not dropped — `normalize_priority/1` only filters
+  non-binaries, upcases, and dedupes. They are dropped later, when
+  `split_priority/2` looks each one up against the real country list and
+  finds no match; use `known_country_codes/1` to report them to the
+  operator before that happens.
+
+  ## Examples
+
+      iex> CountryData.parse_priority("EE, FI ; lv")
+      ["EE", "FI", "LV"]
+
+      iex> CountryData.parse_priority("")
+      []
+  """
+  def parse_priority(value) when is_binary(value) do
+    value
+    |> String.split([",", ";", " ", "\n", "\t"], trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> String.upcase()))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  def parse_priority(_), do: []
+
+  @doc """
+  Keep only the codes that name a real country, in the order given.
+
+  The counterpart of `parse_priority/1` for a settings form: it tells the
+  operator which of the codes they typed will actually pin something.
+
+  ## Examples
+
+      iex> CountryData.known_country_codes(["EE", "ZZ", "FI"])
+      ["EE", "FI"]
+  """
+  def known_country_codes(codes) when is_list(codes) do
+    Enum.filter(codes, fn code -> is_binary(code) and get_country(code) != nil end)
+  end
+
+  def known_country_codes(_), do: []
+
+  @doc """
+  Suggest a starting priority list for a host based in `country_code`.
+
+  Returns that country first, then its nearest neighbours by great-circle
+  distance between country centroids — so a host in Estonia is offered
+  Latvia, Åland, Finland and Lithuania, one in Germany gets Luxembourg,
+  the Netherlands, Czechia and Belgium, and one in Singapore gets Malaysia,
+  Indonesia, Cambodia and Brunei. The point is that it is derived from the
+  host's own data rather than from a constant baked in by whoever wrote
+  the library.
+
+  This is a *suggestion* for the settings UI to offer, never applied on its
+  own: nothing is pinned until an operator stores a list. The result can
+  include dependent territories (Åland is the second-nearest thing to
+  Estonia) — the data has no "sovereign state" flag — so the operator is
+  expected to prune it.
+
+  Dissolved countries are excluded. Countries with no coordinates cannot be
+  ranked and are skipped.
+
+  ## Options
+
+    * `:limit` — how many neighbours to add after the country itself.
+      Defaults to 4.
+
+  ## Examples
+
+      iex> CountryData.suggested_priority("EE", limit: 2)
+      ["EE", "LV", "AX"]
+
+      iex> CountryData.suggested_priority("XX")
+      []
+  """
+  def suggested_priority(country_code, opts \\ [])
+
+  def suggested_priority(country_code, opts) when is_binary(country_code) and is_list(opts) do
+    limit = opts |> Keyword.get(:limit, 4) |> normalize_limit()
+
+    case get_country(country_code) do
+      %{geo: %{latitude: lat, longitude: lon}} = origin when is_number(lat) and is_number(lon) ->
+        [origin.alpha2 | nearest_codes(origin, limit)]
+
+      %{} = origin ->
+        [origin.alpha2]
+
+      _ ->
+        []
+    end
+  end
+
+  def suggested_priority(_, _), do: []
+
+  # A non-integer `:limit` (nil, a string, a float — Erlang term ordering
+  # makes all of those `> 0`, so a guard alone won't stop them) falls back
+  # to the same default `suggested_priority/2` uses when `:limit` is
+  # omitted, rather than reaching `Enum.take/2` and raising.
+  defp normalize_limit(limit) when is_integer(limit), do: limit
+  defp normalize_limit(_), do: 4
+
+  defp nearest_codes(origin, limit) when limit > 0 do
+    BeamLabCountries.all()
+    |> Enum.filter(&rankable_neighbour?(&1, origin))
+    |> Enum.sort_by(&distance_km(origin, &1))
+    |> Enum.take(limit)
+    |> Enum.map(& &1.alpha2)
+  end
+
+  defp nearest_codes(_origin, _limit), do: []
+
+  defp rankable_neighbour?(
+         %{alpha2: code, dissolved_on: nil, geo: %{latitude: lat, longitude: lon}},
+         origin
+       )
+       when is_number(lat) and is_number(lon),
+       do: code != origin.alpha2
+
+  defp rankable_neighbour?(_, _), do: false
+
+  # Haversine over the country centroids the dataset carries. Centroids are a
+  # coarse proxy for "neighbouring" — a large country's centroid can sit far
+  # from the border it shares with the origin — but the dataset has no border
+  # list, and the result only has to be a plausible starting point an operator
+  # then edits.
+  defp distance_km(a, b) do
+    lat1 = deg_to_rad(a.geo.latitude)
+    lat2 = deg_to_rad(b.geo.latitude)
+    dlat = lat2 - lat1
+    dlon = deg_to_rad(b.geo.longitude - a.geo.longitude)
+
+    h =
+      :math.pow(:math.sin(dlat / 2), 2) +
+        :math.cos(lat1) * :math.cos(lat2) * :math.pow(:math.sin(dlon / 2), 2)
+
+    6371 * 2 * :math.asin(min(1.0, :math.sqrt(h)))
+  end
+
+  defp deg_to_rad(degrees), do: degrees * :math.pi() / 180
+
+  defp normalize_priority(codes) when is_list(codes) do
+    codes
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.upcase/1)
+    |> Enum.uniq()
+  end
+
+  defp normalize_priority(_), do: []
 
   @doc """
   Get country currency code.
@@ -378,24 +714,39 @@ defmodule PhoenixKit.Utils.CountryData do
   def get_currency_code(_), do: nil
 
   @doc """
-  Get country name.
+  Get country name in the active locale.
+
+  Takes the same `:locale` option as `countries_for_select/1` — including
+  its supported-locale set and its fallback/leniency rules — and falls back
+  to the English name when that locale has no translation for the country.
+
+  `opts` must be a keyword list. `get_country_name("EE", "ru")` is a
+  realistic slip (the option is `:locale`), and raises
+  `FunctionClauseError` naming this function rather than `Keyword`.
 
   ## Examples
 
-      iex> CountryData.get_country_name("EE")
+      iex> CountryData.get_country_name("EE", locale: "en")
       "Estonia"
+
+      iex> CountryData.get_country_name("EE", locale: "ru")
+      "Эстония"
 
       iex> CountryData.get_country_name("XX")
       nil
   """
-  def get_country_name(country_code) when is_binary(country_code) do
+  def get_country_name(country_code, opts \\ [])
+
+  def get_country_name(country_code, opts) when is_binary(country_code) and is_list(opts) do
+    locale = opts |> fetch_opt(:locale, &active_locale/0) |> normalize_locale()
+
     case get_country(country_code) do
-      %{name: name} -> name
+      %{} = country -> translated_name(country, locale)
       _ -> nil
     end
   end
 
-  def get_country_name(_), do: nil
+  def get_country_name(country_code, _opts) when not is_binary(country_code), do: nil
 
   @doc """
   Get country flag (emoji).

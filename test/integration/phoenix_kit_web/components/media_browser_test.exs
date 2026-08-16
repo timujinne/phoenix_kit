@@ -514,6 +514,24 @@ defmodule PhoenixKitWeb.Components.MediaBrowserTest do
       html = view |> element("#media-browser") |> render_keydown(%{"key" => "Escape"})
       refute html =~ ~s(phx-click="select_all")
     end
+
+    test "a maintenance broadcast does not crash an admin's LiveView", %{conn: conn} do
+      # Regression: the maintenance on_mount hook returned {:cont, _} for an
+      # admin scope, handing {:maintenance_status_changed, _} to the LV's own
+      # handle_info — which has no clause for it, so any admin with the page
+      # open died in FunctionClauseError whenever a maintenance toggle
+      # broadcast (or the hook's own end-of-window timer) fired. The hook now
+      # halts: for an admin the message is fully handled.
+      {user, _token} = create_admin_user()
+      folder = create_folder!()
+      conn = log_in_user(conn, user)
+
+      {:ok, view, _html} = live(conn, @media_path <> "?folder=#{folder.uuid}")
+
+      send(view.pid, {:maintenance_status_changed, %{active: false}})
+
+      assert render(view) =~ "media-browser"
+    end
   end
 
   # ---------------------------------------------------------------------------

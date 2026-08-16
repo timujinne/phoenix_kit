@@ -308,7 +308,7 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
 
             <form phx-submit="save_schedule" class="space-y-4">
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     type="datetime-local"
                     name="start"
@@ -317,7 +317,7 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
                     label={"#{gettext("Start Time")} (#{@tz_label})"}
                   />
                 </div>
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     type="datetime-local"
                     name="end"
@@ -363,7 +363,7 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
                 phx-submit="save"
                 class="space-y-4"
               >
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     type="text"
                     name="header"
@@ -374,13 +374,13 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
                     required
                   />
                   <label class="label">
-                    <span class="label-text-alt">
+                    <span class="fieldset-label">
                       {gettext("Main heading shown on maintenance page")}
                     </span>
                   </label>
                 </div>
 
-                <div class="form-control">
+                <div class="fieldset">
                   <.textarea
                     name="subtext"
                     value={@subtext}
@@ -391,7 +391,7 @@ defmodule PhoenixKitWeb.Live.Modules.Maintenance.Settings do
                     required
                   />
                   <label class="label">
-                    <span class="label-text-alt">
+                    <span class="fieldset-label">
                       {gettext("Detailed message shown below the header")}
                     </span>
                   </label>

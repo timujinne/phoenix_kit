@@ -52,10 +52,10 @@ defmodule PhoenixKitWeb.Components.Core.AWSCredentialsVerify do
 
   def aws_credentials_verify(assigns) do
     ~H"""
-    <div class="form-control">
+    <div class="fieldset">
       <div class="flex items-center justify-between">
         <label class="label">
-          <span class="label-text font-medium">
+          <span class="fieldset-legend font-medium">
             AWS Credentials Verification
           </span>
         </label>

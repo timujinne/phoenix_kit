@@ -104,7 +104,7 @@ defmodule PhoenixKit.Dashboard.Tab do
 
   @type match_type :: :exact | :prefix | :regex | (String.t() -> boolean())
 
-  @type visibility :: boolean() | (map() -> boolean())
+  @type visibility :: boolean() | nil | (map() -> boolean())
 
   @type subtab_display :: :when_active | :always
 
@@ -193,7 +193,11 @@ defmodule PhoenixKit.Dashboard.Tab do
     redirect_to_first_subtab: false,
     highlight_with_subtabs: false,
     match: :prefix,
-    visible: true,
+    # nil = "auto": visible unless the path is parameterized (see visible?/2).
+    # A struct literal or constructor call that says nothing about visibility
+    # gets the sensible answer for its path; an explicit true/false/function
+    # is always honored.
+    visible: nil,
     external: false,
     new_tab: false,
     metadata: %{},
@@ -220,7 +224,7 @@ defmodule PhoenixKit.Dashboard.Tab do
   - `:redirect_to_first_subtab` - Navigate to first subtab when clicking parent (default: false)
   - `:highlight_with_subtabs` - Highlight parent when subtab is active (default: false)
   - `:match` - Path matching strategy: :exact, :prefix, :regex, or function (default: :prefix)
-  - `:visible` - Boolean or function(scope) -> boolean for non-permission conditional visibility, e.g. feature flags (default: true). For access control, use `:permission` instead.
+  - `:visible` - Boolean or function(scope) -> boolean for non-permission conditional visibility, e.g. feature flags. For access control, use `:permission` instead. When omitted, the tab is visible unless its path carries router parameters (`:uuid`, `*splat`) — those entries are routes, not navigation, and would render their placeholder segments literally in the sidebar. Pass `visible: true` explicitly to force one into the nav anyway.
   - `:personal` - Set true for a tab whose page shows the viewer their OWN data
     (their inbox, their preferences) rather than granting an administrative
     capability. Such a tab needs no `:permission`, and marking it says so
@@ -280,7 +284,7 @@ defmodule PhoenixKit.Dashboard.Tab do
       redirect_to_first_subtab: get_attr(attrs, :redirect_to_first_subtab) || false,
       highlight_with_subtabs: get_attr(attrs, :highlight_with_subtabs) || false,
       match: parse_match(get_attr(attrs, :match) || :prefix),
-      visible: if(is_nil(get_attr(attrs, :visible)), do: true, else: get_attr(attrs, :visible)),
+      visible: get_attr(attrs, :visible),
       badge: badge,
       tooltip: get_attr(attrs, :tooltip),
       external: get_attr(attrs, :external) || false,
@@ -390,7 +394,7 @@ defmodule PhoenixKit.Dashboard.Tab do
       group: opts[:group],
       match: :exact,
       personal: opts[:personal] || false,
-      visible: if(is_nil(opts[:visible]), do: true, else: opts[:visible]),
+      visible: opts[:visible],
       metadata: %{type: :divider},
       gettext_backend: opts[:gettext_backend],
       gettext_domain: opts[:gettext_domain] || "default"
@@ -426,7 +430,7 @@ defmodule PhoenixKit.Dashboard.Tab do
       priority: opts[:priority] || 500,
       group: opts[:group],
       match: :exact,
-      visible: opts[:visible] || true,
+      visible: opts[:visible],
       metadata: %{
         type: :group_header,
         collapsible: opts[:collapsible] || false,
@@ -554,9 +558,15 @@ defmodule PhoenixKit.Dashboard.Tab do
       iex> Tab.visible?(tab, %{user: %{beta_enabled: true}})
       true
   """
-  @spec visible?(t(), map()) :: boolean()
+  @spec visible?(t(), map() | nil) :: boolean()
   def visible?(%__MODULE__{visible: true}, _scope), do: true
   def visible?(%__MODULE__{visible: false}, _scope), do: false
+
+  # Unset: visible unless the path is a route pattern. A ":uuid" segment in
+  # the sidebar is never what anyone wanted, and every host was hand-marking
+  # such entries visible: false (or worse, forgetting to).
+  def visible?(%__MODULE__{visible: nil, path: path}, _scope),
+    do: not parameterized_path?(path)
 
   def visible?(%__MODULE__{visible: visible_fn}, scope) when is_function(visible_fn, 1) do
     visible_fn.(scope)
@@ -565,6 +575,34 @@ defmodule PhoenixKit.Dashboard.Tab do
   end
 
   def visible?(_, _), do: true
+
+  @doc """
+  Whether `path` contains router parameter segments (`:uuid`, `*splat`).
+
+  Matched per segment, not by searching for a colon — `https://…` external
+  tabs, ports, and `mailto:` links all contain colons in positions that are
+  not parameters.
+  """
+  @spec parameterized_path?(String.t() | nil) :: boolean()
+  def parameterized_path?(path) when is_binary(path) do
+    path
+    |> String.split("/")
+    |> Enum.any?(&Regex.match?(~r/^:[A-Za-z_]\w*$|^\*/, &1))
+  end
+
+  def parameterized_path?(_), do: false
+
+  @doc """
+  Whether the tab is hidden regardless of scope: an explicit
+  `visible: false`, or an unset `visible` on a parameterized path.
+
+  For callers that have no scope to evaluate visibility functions against —
+  function-visibility tabs are NOT hard-hidden.
+  """
+  @spec hard_hidden?(t()) :: boolean()
+  def hard_hidden?(%__MODULE__{visible: false}), do: true
+  def hard_hidden?(%__MODULE__{visible: nil, path: path}), do: parameterized_path?(path)
+  def hard_hidden?(_), do: false
 
   @doc """
   Checks if this is an admin-level tab.

@@ -21,6 +21,21 @@ defmodule PhoenixKitWeb.Components.Core.ButtonTest do
     render_component(&Button.button/1, assigns)
   end
 
+  describe "status variants" do
+    test "the status half of the palette renders its own colour class" do
+      # Hosts previously fell back to raw <button> for delete buttons —
+      # appending btn-error via class collided with the variant's colour.
+      for {variant, class} <- [
+            {"info", "btn-info"},
+            {"success", "btn-success"},
+            {"warning", "btn-warning"},
+            {"error", "btn-error"}
+          ] do
+        assert render_button(%{variant: variant}) =~ class
+      end
+    end
+  end
+
   describe "variant" do
     test "replaces the base colour rather than adding to it" do
       html = render_button(%{variant: "ghost"})

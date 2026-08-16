@@ -106,10 +106,14 @@ defmodule PhoenixKitWeb.Live.Notifications.Inbox do
 
   # Live updates: any change to this user's notifications (own action, another
   # tab, the bell, or a new one arriving) reloads the current page.
+  # `:notification_updated` is what `upsert_inapp/3` broadcasts when it
+  # collapses a repeat event onto an existing row — without it here, an open
+  # inbox kept the stale text and position while the bell refreshed.
   @impl true
   def handle_info({event, _payload}, socket)
       when event in [
              :notification_created,
+             :notification_updated,
              :notification_seen,
              :notification_dismissed,
              :notifications_bulk_updated

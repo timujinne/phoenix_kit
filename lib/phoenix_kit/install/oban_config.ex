@@ -19,12 +19,9 @@ if Code.ensure_loaded?(Igniter) do
 
     # Mix functions only available at compile-time during installation
     @dialyzer {:nowarn_function, update_existing_oban_config: 3}
-    @dialyzer {:nowarn_function, ensure_posts_queue: 2}
-    @dialyzer {:nowarn_function, ensure_sitemap_queue: 2}
-    @dialyzer {:nowarn_function, ensure_shop_imports_queue: 2}
-    @dialyzer {:nowarn_function, ensure_newsletters_delivery_queue: 2}
-    @dialyzer {:nowarn_function, ensure_catalogue_pdf_queue: 2}
-    @dialyzer {:nowarn_function, ensure_notifications_queue: 2}
+    @dialyzer {:nowarn_function, ensure_queue: 4}
+    @dialyzer {:nowarn_function, insert_queue: 4}
+    @dialyzer {:nowarn_function, ensure_scheduled_jobs_queue: 2}
     @dialyzer {:nowarn_function, ensure_cron_plugin: 2}
     @dialyzer {:nowarn_function, ensure_digest_cron_entries: 2}
     @dialyzer {:nowarn_function, add_digest_entries_to_crontab: 3}
@@ -297,14 +294,30 @@ if Code.ensure_loaded?(Igniter) do
     defp update_existing_oban_config(source, content, app_name) do
       Mix.shell().info("🔍 Updating existing Oban configuration for :#{app_name}...")
 
+      # Every queue PhoenixKit or one of its modules enqueues into. All are
+      # added unconditionally — an idle queue costs nothing, and a host that
+      # adds the module later is then already wired. The reverse is the failure
+      # this list exists to prevent: Oban only fetches for queues the node
+      # lists, so a job enqueued into a missing queue sits `available` forever
+      # (Pruner deletes terminal states only) while the feature looks fine.
+      #
+      #   catalogue_pdf         phoenix_kit_catalogue's per-upload pdfinfo /
+      #                         pdftotext extraction — without it uploads
+      #                         succeed but text search never works
+      #   notifications         Notifications.DeliveryWorker's external sends
+      #                         (Telegram, …), off the request path — without
+      #                         it external notifications silently never arrive
+      #   scheduled_jobs        ProcessScheduledJobsWorker's per-minute sweep,
+      #                         see ensure_scheduled_jobs_queue/2 below
       updated_content =
         content
-        |> ensure_posts_queue(app_name)
-        |> ensure_sitemap_queue(app_name)
-        |> ensure_shop_imports_queue(app_name)
-        |> ensure_newsletters_delivery_queue(app_name)
-        |> ensure_catalogue_pdf_queue(app_name)
-        |> ensure_notifications_queue(app_name)
+        |> ensure_queue(app_name, "posts", 10)
+        |> ensure_queue(app_name, "sitemap", 5)
+        |> ensure_queue(app_name, "shop_imports", 2)
+        |> ensure_queue(app_name, "newsletters_delivery", 10)
+        |> ensure_queue(app_name, "catalogue_pdf", 2)
+        |> ensure_queue(app_name, "notifications", 10)
+        |> ensure_scheduled_jobs_queue(app_name)
         |> ensure_cron_plugin(app_name)
         |> ensure_digest_cron_entries(app_name)
         |> ensure_worker_cron_entries(app_name)
@@ -324,277 +337,155 @@ if Code.ensure_loaded?(Igniter) do
       Rewrite.Source.update(source, :content, updated_content)
     end
 
-    # Ensure posts queue exists in the queues list
-    defp ensure_posts_queue(content, app_name) do
-      # Check if posts queue already exists
-      if Regex.match?(~r/posts:\s*\d+/, content) do
-        Mix.shell().info("  ℹ️  Posts queue already configured")
-        content
-      else
-        Mix.shell().info("  ➕ Adding posts queue to Oban configuration...")
-
-        # Find the ACTIVE queues configuration (not commented out)
-        # Pattern: line starts with 'config' (not #), then matches queues block
-        case Regex.run(
-               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-               content,
-               capture: :all
-             ) do
-          [full_match, before_queues, queues_content, after_queues] ->
-            Mix.shell().info("  ✓ Found queues block, adding posts queue")
-
-            # Remove trailing whitespace and check for comma
-            trimmed_content = String.trim_trailing(queues_content)
-            has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-            # Add posts queue with proper formatting (no comments to avoid syntax issues)
-            new_queue_entry =
-              if has_trailing_comma do
-                "\n    posts: 10"
-              else
-                ",\n    posts: 10"
-              end
-
-            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-            String.replace(content, full_match, updated_queues, global: false)
-
-          nil ->
-            Mix.shell().error(
-              "  ⚠️  Could not parse queues block for :#{app_name} - skipping posts queue update"
-            )
-
-            Mix.shell().error("     Please manually add: posts: 10")
-            content
-        end
-      end
-    end
-
-    # Ensure sitemap queue exists in the queues list
-    defp ensure_sitemap_queue(content, app_name) do
-      # Check if sitemap queue already exists
-      if Regex.match?(~r/sitemap:\s*\d+/, content) do
-        Mix.shell().info("  ℹ️  Sitemap queue already configured")
-        content
-      else
-        Mix.shell().info("  ➕ Adding sitemap queue to Oban configuration...")
-
-        # Find the ACTIVE queues configuration (not commented out)
-        case Regex.run(
-               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-               content,
-               capture: :all
-             ) do
-          [full_match, before_queues, queues_content, after_queues] ->
-            Mix.shell().info("  ✓ Found queues block, adding sitemap queue")
-
-            # Remove trailing whitespace and check for comma
-            trimmed_content = String.trim_trailing(queues_content)
-            has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-            # Add sitemap queue with proper formatting (no comments to avoid syntax issues)
-            new_queue_entry =
-              if has_trailing_comma do
-                "\n    sitemap: 5"
-              else
-                ",\n    sitemap: 5"
-              end
-
-            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-            String.replace(content, full_match, updated_queues, global: false)
-
-          nil ->
-            Mix.shell().error(
-              "  ⚠️  Could not parse queues block for :#{app_name} - skipping sitemap queue update"
-            )
-
-            Mix.shell().error("     Please manually add: sitemap: 5")
-            content
-        end
-      end
-    end
-
-    # Ensure shop_imports queue exists in the queues list
-    defp ensure_shop_imports_queue(content, app_name) do
-      # Check if shop_imports queue already exists
-      if Regex.match?(~r/shop_imports:\s*\d+/, content) do
-        Mix.shell().info("  ℹ️  shop_imports queue already configured")
-        content
-      else
-        Mix.shell().info("  ➕ Adding shop_imports queue to Oban configuration...")
-
-        # Find the ACTIVE queues configuration (not commented out)
-        case Regex.run(
-               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-               content,
-               capture: :all
-             ) do
-          [full_match, before_queues, queues_content, after_queues] ->
-            Mix.shell().info("  ✓ Found queues block, adding shop_imports queue")
-
-            # Remove trailing whitespace and check for comma
-            trimmed_content = String.trim_trailing(queues_content)
-            has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-            # Add shop_imports queue with proper formatting
-            new_queue_entry =
-              if has_trailing_comma do
-                "\n    shop_imports: 2"
-              else
-                ",\n    shop_imports: 2"
-              end
-
-            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-            String.replace(content, full_match, updated_queues, global: false)
-
-          nil ->
-            Mix.shell().error(
-              "  ⚠️  Could not parse queues block for :#{app_name} - skipping shop_imports queue update"
-            )
-
-            Mix.shell().error("     Please manually add: shop_imports: 2")
-            content
-        end
-      end
-    end
-
-    # Ensure newsletters_delivery queue exists in the queues list
-    defp ensure_newsletters_delivery_queue(content, app_name) do
-      if Regex.match?(~r/newsletters_delivery:\s*\d+/, content) do
-        Mix.shell().info("  ℹ️  newsletters_delivery queue already configured")
-        content
-      else
-        Mix.shell().info("  ➕ Adding newsletters_delivery queue to Oban configuration...")
-
-        case Regex.run(
-               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-               content,
-               capture: :all
-             ) do
-          [full_match, before_queues, queues_content, after_queues] ->
-            Mix.shell().info("  ✓ Found queues block, adding newsletters_delivery queue")
-
-            trimmed_content = String.trim_trailing(queues_content)
-            has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-            new_queue_entry =
-              if has_trailing_comma do
-                "\n    newsletters_delivery: 10"
-              else
-                ",\n    newsletters_delivery: 10"
-              end
-
-            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-            String.replace(content, full_match, updated_queues, global: false)
-
-          nil ->
-            Mix.shell().error(
-              "  ⚠️  Could not parse queues block for :#{app_name} - skipping newsletters_delivery queue update"
-            )
-
-            Mix.shell().error("     Please manually add: newsletters_delivery: 10")
-            content
-        end
-      end
-    end
-
-    # Ensure catalogue_pdf queue exists in the queues list.
+    # The one queue a host can be missing through no fault of its own.
     #
-    # phoenix_kit_catalogue's PDF library enqueues a `:catalogue_pdf` job
-    # per uploaded PDF (pdfinfo + pdftotext text extraction). Oban only
-    # processes queues listed here, so without this entry every upload's
-    # job sits `available` forever — uploads look fine but text search
-    # never works. Added unconditionally (an idle queue costs nothing) so
-    # a host that later adds the catalogue module is already wired.
-    defp ensure_catalogue_pdf_queue(content, app_name) do
-      if Regex.match?(~r/catalogue_pdf:\s*\d+/, content) do
-        Mix.shell().info("  ℹ️  catalogue_pdf queue already configured")
+    # The ProcessScheduledJobsWorker crontab entry entered the generated config
+    # on 2025-12-28 without the queue it runs in; the fresh-install block gained
+    # `scheduled_jobs: 1` on 2026-03-05, released in 1.7.63. Every host that
+    # installed in between got a per-minute cron entry firing into a queue
+    # nothing runs, and no upgrade repaired it, because this is the upgrade path
+    # and it had no helper for that queue — the other six queues did. One such
+    # host was found 15 days in with 21,337 jobs stuck in :available, growing at
+    # ~1,440/day, because Pruner only deletes terminal states.
+    #
+    @doc """
+    Ensures the `scheduled_jobs` queue exists in a host's existing Oban config.
+
+    Public for the same reason as `ensure_worker_cron_entries/2`: so it can be
+    unit-tested directly against content strings.
+    """
+    @spec ensure_scheduled_jobs_queue(String.t(), atom() | String.t()) :: String.t()
+    def ensure_scheduled_jobs_queue(content, app_name) do
+      ensure_queue(content, app_name, "scheduled_jobs", 1)
+    end
+
+    @doc """
+    Ensures `queue: limit` exists in a host's existing Oban `queues:` list.
+
+    The shared implementation behind every `ensure_*_queue/2`. It was written
+    for `scheduled_jobs` and generalised afterwards, because the six sibling
+    helpers that predated it had each hand-rolled the same string surgery and
+    reproduced the same six defects — and theirs are worse than the missing
+    queue this repairs: a bad insert *corrupts* the host's `config.exs`.
+
+    Public so it can be unit-tested directly against content strings.
+    """
+    @spec ensure_queue(String.t(), atom() | String.t(), String.t(), pos_integer()) :: String.t()
+    def ensure_queue(content, app_name, queue, limit) do
+      if queue_configured?(content, queue) do
+        Mix.shell().info("  ℹ️  #{queue} queue already configured")
         content
       else
-        Mix.shell().info("  ➕ Adding catalogue_pdf queue to Oban configuration...")
-
-        case Regex.run(
-               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-               content,
-               capture: :all
-             ) do
-          [full_match, before_queues, queues_content, after_queues] ->
-            Mix.shell().info("  ✓ Found queues block, adding catalogue_pdf queue")
-
-            trimmed_content = String.trim_trailing(queues_content)
-            has_trailing_comma = String.ends_with?(trimmed_content, ",")
-
-            new_queue_entry =
-              if has_trailing_comma do
-                "\n    catalogue_pdf: 2"
-              else
-                ",\n    catalogue_pdf: 2"
-              end
-
-            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
-
-            String.replace(content, full_match, updated_queues, global: false)
-
-          nil ->
-            Mix.shell().error(
-              "  ⚠️  Could not parse queues block for :#{app_name} - skipping catalogue_pdf queue update"
-            )
-
-            Mix.shell().error("     Please manually add: catalogue_pdf: 2")
-            content
-        end
+        Mix.shell().info("  ➕ Adding #{queue} queue to Oban configuration...")
+        insert_queue(content, app_name, queue, limit)
       end
     end
 
-    # Ensure notifications queue exists in the queues list.
+    # Comment lines go before the check, for the same reason
+    # `oban_block_missing_prefix?/1` strips them and with a sharper edge here:
+    # the failure path below prints "Please manually add: <queue>: <limit>",
+    # so the exact line a host pastes in as a reminder-to-self is what would
+    # otherwise convince the next run the queue is already there — leaving it
+    # broken forever, quietly.
     #
-    # `PhoenixKit.Notifications.DeliveryWorker` enqueues a `:notifications` job
-    # per external delivery (Telegram, …) so a slow bot API call never blocks the
-    # request that logged the activity. Oban only processes queues listed here, so
-    # without this entry those jobs sit `available` forever and external
-    # notifications silently never arrive. Added unconditionally (an idle queue
-    # costs nothing) so a host that later enables a channel is already wired.
-    defp ensure_notifications_queue(content, app_name) do
-      if Regex.match?(~r/notifications:\s*\d+/, content) do
-        Mix.shell().info("  ℹ️  notifications queue already configured")
-        content
-      else
-        Mix.shell().info("  ➕ Adding notifications queue to Oban configuration...")
+    # `[` is accepted next to a bare integer because `scheduled_jobs: [limit: 1]`
+    # is the same queue in Oban's keyword form. Missing it would append a second
+    # entry, and a duplicate key is not a compile error: it survives into
+    # `Oban.Config.normalize_queues/1`, and `Oban.Midwife` asserts `{:ok, _}` on
+    # start_queue, so the second start returns `{:error, {:already_started, _}}`
+    # and the host does not boot.
+    #
+    # The `^\s*` anchor is what stops `notifications:` from being satisfied by a
+    # host's own `push_notifications: 5` — the siblings' unanchored patterns
+    # read any key *ending* in the queue's name as the queue itself and skipped
+    # the insert, which is the missing-queue failure all over again.
+    defp queue_configured?(content, queue) do
+      Regex.match?(
+        ~r/^\s*#{Regex.escape(queue)}:\s*(?:\d+|\[)/m,
+        strip_comment_lines(content)
+      )
+    end
 
-        case Regex.run(
-               ~r/(^config\s+:#{app_name},\s+Oban.*?queues:\s*\[)(.*?)(\n\s*\])/ms,
-               content,
-               capture: :all
-             ) do
-          [full_match, before_queues, queues_content, after_queues] ->
-            Mix.shell().info("  ✓ Found queues block, adding notifications queue")
+    # Two ways string surgery on a queues list goes wrong, both already paid for
+    # elsewhere in this file:
+    #
+    #   * stopping at a nested list's bracket rather than the queues list's own
+    #     — `default: [limit: 10]` is legal, and inserting there produces an
+    #     option Oban rejects at boot. `ensure_lifeline_plugin/2` documents the
+    #     fix: anchor the closing `]` to the keyword's own indentation with a
+    #     backreference, which nested entries are always indented past.
+    #
+    #   * running out of this app's Oban block entirely. An Oban block with no
+    #     `queues:` at all let a lazy `.*?` walk into the next `config` entry
+    #     and add the queue to an unrelated application. The block is bounded
+    #     here by the next top-level `config`/`import_config`, the same boundary
+    #     `oban_block_missing_prefix?/1` uses.
+    #
+    # An empty `queues: []` deliberately finds no match and takes the manual
+    # path: Oban documents an empty list as equivalent to `false` — "prevents
+    # any queues from starting on init" — so a node that says it runs no queues
+    # should not silently be given one.
+    defp insert_queue(content, app_name, queue, limit) do
+      case Regex.run(
+             ~r/(^config\s+:#{app_name},\s+Oban\b(?:(?!\n(?:config\s|import_config\s)).)*?\n([ \t]+)queues:\s*\[\n)(.*?)(\n\2\])/ms,
+             content,
+             capture: :all
+           ) do
+        [full_match, queues_open, indent, queues_content, queues_close] ->
+          Mix.shell().info("  ✓ Found queues block, adding #{queue} queue")
 
-            trimmed_content = String.trim_trailing(queues_content)
-            has_trailing_comma = String.ends_with?(trimmed_content, ",")
+          entry = "#{queue}: #{limit}"
 
-            new_queue_entry =
-              if has_trailing_comma do
-                "\n    notifications: 10"
-              else
-                ",\n    notifications: 10"
-              end
+          updated_queues =
+            queues_open <> add_queue_entry(queues_content, indent <> "  ", entry) <> queues_close
 
-            updated_queues = before_queues <> queues_content <> new_queue_entry <> after_queues
+          String.replace(content, full_match, updated_queues, global: false)
 
-            String.replace(content, full_match, updated_queues, global: false)
+        nil ->
+          Mix.shell().error(
+            "  ⚠️  Could not parse queues block for :#{app_name} - skipping #{queue} queue update"
+          )
 
-          nil ->
-            Mix.shell().error(
-              "  ⚠️  Could not parse queues block for :#{app_name} - skipping notifications queue update"
-            )
-
-            Mix.shell().error("     Please manually add: notifications: 10")
-            content
-        end
+          Mix.shell().error("     Please manually add: #{queue}: #{limit}")
+          content
       end
+    end
+
+    # The entry goes after the last line carrying code, not at the end of the
+    # block. A queues list can end in comment lines, and appending the
+    # separating comma there puts it inside the comment — which leaves the
+    # previous entry and the new one with nothing between them, and a
+    # config.exs that no longer parses.
+    defp add_queue_entry(queues_content, entry_indent, entry_text) do
+      entry = entry_indent <> entry_text
+      lines = String.split(queues_content, "\n")
+
+      case last_code_line_index(lines) do
+        nil when queues_content == "" ->
+          entry
+
+        nil ->
+          queues_content <> "\n" <> entry
+
+        index ->
+          lines
+          |> List.update_at(index, fn line ->
+            if String.ends_with?(String.trim(line), ","), do: line, else: line <> ","
+          end)
+          |> List.insert_at(index + 1, entry)
+          |> Enum.join("\n")
+      end
+    end
+
+    defp last_code_line_index(lines) do
+      lines
+      |> Enum.with_index()
+      |> Enum.reverse()
+      |> Enum.find_value(fn {line, index} ->
+        trimmed = String.trim(line)
+
+        if trimmed != "" and not String.starts_with?(trimmed, "#"), do: index
+      end)
     end
 
     # Ensure Pruner has max_age configured for 30-day retention
@@ -754,20 +645,59 @@ if Code.ensure_loaded?(Igniter) do
       end
     end
 
-    # Ensure cron plugin exists in the plugins list
-    defp ensure_cron_plugin(content, app_name) do
+    # Any module path ending in the old worker's name. The replacement used to
+    # be the literal "PhoenixKit.Posts.Workers.PublishScheduledPostsJob", a
+    # module that exists in no repo — the real one is
+    # `PhoenixKitPosts.Workers.PublishScheduledPostsJob`. So the Case 1 guard
+    # matched, `String.replace/3` found nothing, and the branch returned the
+    # content untouched while printing "🔄 Replacing…". Being `cond`'s first
+    # clause, it also shadowed Cases 2-4, so the core worker was never added
+    # either: an upgrading host kept the old posts worker, gained nothing, and
+    # was told the opposite. That is why hosts are found running both cron
+    # entries, which is what makes the posts sweep race itself on a single node.
+    @old_posts_worker ~r/[A-Za-z0-9_.]*\bPublishScheduledPostsJob\b/
+    @new_worker "PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker"
+
+    @doc """
+    Ensures the crontab schedules `ProcessScheduledJobsWorker`.
+
+    Public for the same reason as `ensure_worker_cron_entries/2`: so it can be
+    unit-tested directly against content strings.
+    """
+    @spec ensure_cron_plugin(String.t(), atom() | String.t()) :: String.t()
+    def ensure_cron_plugin(content, app_name) do
       cond do
-        # Case 1: Old worker exists - REPLACE it with new worker
-        String.contains?(content, "PublishScheduledPostsJob") ->
+        # Case 1: the old worker is scheduled and the core worker is not.
+        # Rename it in place — the core worker's catch-up already calls
+        # PhoenixKitPosts.process_scheduled_posts/0, so it subsumes the entry.
+        Regex.match?(@old_posts_worker, content) and
+            not String.contains?(content, "ProcessScheduledJobsWorker") ->
           Mix.shell().info(
             "  🔄 Replacing PublishScheduledPostsJob with ProcessScheduledJobsWorker..."
           )
 
-          String.replace(
-            content,
-            "PhoenixKit.Posts.Workers.PublishScheduledPostsJob",
-            "PhoenixKit.ScheduledJobs.Workers.ProcessScheduledJobsWorker"
+          Regex.replace(@old_posts_worker, content, @new_worker)
+
+        # Case 1b: both are scheduled. Rewriting the old entry would leave two
+        # identical crontab lines, so say what is there and change nothing —
+        # the two are independently cronned callers of the same sweep, and
+        # which one to drop is the host's decision, not ours.
+        Regex.match?(@old_posts_worker, content) ->
+          Mix.shell().error(
+            "  ⚠️  Both PublishScheduledPostsJob and ProcessScheduledJobsWorker are in the crontab"
           )
+
+          Mix.shell().error(
+            "     They run the same posts sweep from different queues, so scheduled posts can be"
+          )
+
+          Mix.shell().error(
+            "     published twice. Remove the PublishScheduledPostsJob entry — the core worker"
+          )
+
+          Mix.shell().error("     already covers it via catchup_scheduled_posts/0.")
+
+          content
 
         # Case 2: Cron plugin exists with new worker - already configured
         String.contains?(content, "Oban.Plugins.Cron") and

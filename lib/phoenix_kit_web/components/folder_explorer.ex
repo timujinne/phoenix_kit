@@ -83,6 +83,13 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
   attr :show_all_files, :boolean, default: true
   attr :show_trash, :boolean, default: true
 
+  attr :class, :any,
+    default: "hidden lg:block",
+    doc:
+      "Visibility/extra classes for the wrapper. The default reproduces the " <>
+        "MediaBrowser behavior (desktop-only sidebar); consumers embedding the " <>
+        "explorer elsewhere can lower the breakpoint (e.g. \"hidden md:block\")."
+
   def folder_explorer(assigns) do
     # UUIDs on the path from a root folder down to (and including) the
     # current folder. Each node's guide-line connector is darkened when its
@@ -97,7 +104,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
     ~H"""
     <div
       id={@id}
-      class="hidden lg:block shrink-0 h-full min-h-0"
+      class={[@class, "shrink-0 h-full min-h-0"]}
       style={if !@sidebar_collapsed, do: "width: 240px; max-width: 240px;"}
     >
       <%= if @sidebar_collapsed do %>

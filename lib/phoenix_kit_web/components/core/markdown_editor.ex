@@ -452,7 +452,7 @@ defmodule PhoenixKitWeb.Components.Core.MarkdownEditor do
         phx-target={@myself}
         phx-debounce={@debounce}
         placeholder={@placeholder}
-        class={"textarea textarea-bordered w-full font-mono text-sm leading-6 #{if @readonly, do: "bg-base-200 cursor-not-allowed opacity-70"}"}
+        class={"textarea w-full font-mono text-sm leading-6 #{if @readonly, do: "bg-base-200 cursor-not-allowed opacity-70"}"}
         style={"height: #{@height}"}
         readonly={@readonly}
       ><%= @content %></textarea>

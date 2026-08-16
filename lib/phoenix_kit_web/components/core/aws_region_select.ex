@@ -44,9 +44,9 @@ defmodule PhoenixKitWeb.Components.Core.AWSRegionSelect do
 
   def aws_region_select(assigns) do
     ~H"""
-    <div class="form-control">
+    <div class="fieldset">
       <label class="label" for={@id}>
-        <span class="label-text font-medium">
+        <span class="fieldset-legend font-medium">
           AWS Region
           <%= if @verified == :success do %>
             <span class="badge badge-success ml-2">Verified</span>
@@ -113,7 +113,7 @@ defmodule PhoenixKitWeb.Components.Core.AWSRegionSelect do
               phx-change={@phx_change}
               placeholder="eu-north-1"
               class={[
-                "input input-bordered w-full",
+                "input w-full",
                 "focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent",
                 "transition-colors duration-200",
                 if(@verified == :success, do: "border-success", else: ""),
@@ -142,7 +142,7 @@ defmodule PhoenixKitWeb.Components.Core.AWSRegionSelect do
 
       <%!-- Helper text below the input/select --%>
       <label class="label">
-        <span class="label-text-alt text-sm text-base-content/70">
+        <span class="fieldset-label text-sm text-base-content/70">
           <%= cond do %>
             <% @verified == :success -> %>
               ✅ Region verified successfully. Available for AWS services.

@@ -14,7 +14,7 @@ defmodule PhoenixKitWeb.Components.Core.FormFieldLabel do
   def label(assigns) do
     ~H"""
     <label for={@for} class={["label", @class]}>
-      <span class="label-text font-semibold">
+      <span class="fieldset-legend font-semibold">
         {render_slot(@inner_block)}
       </span>
     </label>

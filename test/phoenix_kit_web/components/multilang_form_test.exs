@@ -472,7 +472,7 @@ defmodule PhoenixKitWeb.Components.MultilangFormTest do
         />
         """)
 
-      assert result =~ "input input-bordered w-full"
+      assert result =~ "input w-full"
     end
   end
 

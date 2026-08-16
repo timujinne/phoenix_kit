@@ -9,10 +9,12 @@ defmodule PhoenixKit do
   @doc """
   Returns the current version of PhoenixKit.
 
-  ## Examples
+  Read from the loaded application spec, so it always reports the version the
+  host actually has rather than anything written down here — the example this
+  replaced still claimed `"1.3.3"` several majors later.
 
-      iex> PhoenixKit.version()
-      "1.3.3"
+      PhoenixKit.version()
+      #=> "2.5.0"
 
   """
   @spec version() :: String.t()

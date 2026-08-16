@@ -320,9 +320,9 @@
           class="grid grid-cols-1 md:grid-cols-2 gap-6"
         >
           <%!-- Redundancy Settings --%>
-          <div class="form-control">
+          <div class="fieldset">
             <div class="mb-2">
-              <span class="label-text font-semibold">{gettext("Redundancy Copies")}</span>
+              <span class="fieldset-legend font-semibold">{gettext("Redundancy Copies")}</span>
               <span class="block text-xs text-base-content/60">
                 {gettext("Number of copies to store")}
               </span>
@@ -372,7 +372,7 @@
           </div>
 
           <%!-- Auto-Variant Generation --%>
-          <div class="form-control">
+          <div class="fieldset">
             <.checkbox
               name="form_auto_generate_variants"
               checked={@form_auto_generate_variants}
@@ -387,7 +387,7 @@
           </div>
 
           <%!-- Deep Zoom Tile Generation --%>
-          <div class="form-control">
+          <div class="fieldset">
             <.checkbox
               name="form_tile_generation_enabled"
               checked={@form_tile_generation_enabled}
@@ -404,7 +404,7 @@
           </div>
 
           <%!-- Annotated Thumbnails --%>
-          <div class="form-control">
+          <div class="fieldset">
             <.checkbox
               name="form_annotated_thumbnails_enabled"
               checked={@form_annotated_thumbnails_enabled}
@@ -421,9 +421,9 @@
           </div>
 
           <%!-- Max Upload Size --%>
-          <div class="form-control">
+          <div class="fieldset">
             <div class="mb-2">
-              <span class="label-text font-semibold">{gettext("Max Upload Size (MB)")}</span>
+              <span class="fieldset-legend font-semibold">{gettext("Max Upload Size (MB)")}</span>
               <span class="block text-xs text-base-content/60">
                 {gettext("Maximum file size allowed per upload")}
               </span>
@@ -447,7 +447,7 @@
             @form_tile_generation_enabled == @tile_generation_enabled and
             @form_annotated_thumbnails_enabled == @annotated_thumbnails_enabled and
             @form_max_upload_size_mb == @max_upload_size_mb %>
-        <div class="form-control mt-4">
+        <div class="fieldset mt-4">
           <button
             type="button"
             phx-click="apply_storage_settings"
@@ -457,7 +457,7 @@
           >
             <.icon name="hero-check" class="w-4 h-4 mr-2" /> {gettext("Apply Changes")}
           </button>
-          <span class="label-text-alt text-xs ml-2">
+          <span class="fieldset-label text-xs ml-2">
             <%= if storage_form_clean do %>
               {gettext("No changes to apply")}
             <% else %>

@@ -14,6 +14,7 @@
     <div :if={@connections != []}>
       <.table_default
         id="integrations-table"
+        variant="zebra"
         toggleable
         items={@connections}
         card_title={fn conn -> conn.provider.name end}

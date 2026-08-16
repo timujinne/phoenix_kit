@@ -274,11 +274,12 @@ defmodule PhoenixKitWeb.Components.Core.TableDefaultTest do
         """)
 
       assert result =~ "<tr"
-      # `group/row` is what makes `<.drag_handle_cell>`'s opacity-0 +
-      # group-hover/row:opacity-100 reveal-on-hover work. Named (not bare
+      # `group/row` drives `group-hover/row:*` reveals keyed to row hover —
+      # the row-menu ⋮ icon still relies on it (the drag handle no longer
+      # does; it is always visible as of 2026-08-14). Named (not bare
       # `group`) so it doesn't clobber unnamed `group-hover:` utilities a
-      # consumer nests inside a cell. Removing it would silently kill the
-      # drag-handle UX.
+      # consumer nests inside a cell. Removing it would silently kill those
+      # hover reveals.
       assert result =~ "group/row"
     end
 
@@ -315,7 +316,7 @@ defmodule PhoenixKitWeb.Components.Core.TableDefaultTest do
   # ── drag_handle_cell/1 + drag_handle_header_cell/1 ─────────────────
 
   describe "drag_handle_cell/1" do
-    test "renders td with pk-drag-handle + group-hover hide-until-hover classes" do
+    test "renders td with pk-drag-handle classes, always visible" do
       assigns = %{}
 
       result =
@@ -327,10 +328,11 @@ defmodule PhoenixKitWeb.Components.Core.TableDefaultTest do
       # SortableJS hook reads this selector for the drag handle.
       assert result =~ "pk-drag-handle"
       assert result =~ "cursor-grab"
-      # Hide-until-hover: parent row has `group/row`, this cell has
-      # `opacity-0 group-hover/row:opacity-100`.
-      assert result =~ "opacity-0"
-      assert result =~ "group-hover/row:opacity-100"
+      # Always visible (deliberate product call, 2026-08-14): an affordance
+      # you cannot see is one nobody discovers. The old hide-until-hover
+      # classes must NOT come back.
+      refute result =~ "opacity-0"
+      refute result =~ "group-hover/row:opacity-100"
       # Default heroicon for the handle.
       assert result =~ "hero-bars-3"
     end
@@ -421,6 +423,46 @@ defmodule PhoenixKitWeb.Components.Core.TableDefaultTest do
       assert html =~ ~s(phx-submit="run_search")
       assert html =~ ~s(phx-change="filter")
       assert html =~ ~s(value="x")
+    end
+  end
+
+  # ── comfortable / compact / card toggle ───────────────────────────
+
+  defp render_toggleable(assigns) do
+    rendered_to_string(~H"""
+    <.table_default id="items-table" toggleable items={[%{uuid: "1"}]} view_mode={@view_mode}>
+      <tbody></tbody>
+    </.table_default>
+    """)
+  end
+
+  describe "view toggle (comfy)" do
+    test "uncontrolled mode paints comfy first and exposes all three actions" do
+      html = render_toggleable(%{view_mode: nil})
+
+      assert html =~ ~s(data-view-action="card")
+      assert html =~ ~s(data-view-action="comfy")
+      assert html =~ ~s(data-view-action="table")
+      # Marker class on the table wrapper (not the `[.pk-comfy_&]` utility).
+      assert html =~ "hidden md:block pk-comfy"
+      assert html =~ "Comfortable view"
+      assert html =~ "Compact view"
+    end
+
+    test "controlled comfy marks the table and hides the card grid" do
+      html = render_toggleable(%{view_mode: "comfy"})
+
+      assert html =~ "block pk-comfy"
+      assert html =~ ~s(phx-value-mode="comfy")
+      assert html =~ ~s(btn-active)
+    end
+
+    test "controlled compact table does not carry the comfy marker" do
+      html = render_toggleable(%{view_mode: "table"})
+
+      refute html =~ "block pk-comfy"
+      refute html =~ "hidden md:block pk-comfy"
+      assert html =~ ~s(phx-value-mode="table")
     end
   end
 end

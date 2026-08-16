@@ -8,7 +8,7 @@ defmodule PhoenixKitWeb.Test.PublicHostAppLive do
   own markup, never calling `LayoutWrapper.app_layout`.
 
   Routed only in `Mix.env() == :test` (see `PhoenixKitWeb.Router`); backs
-  `test/phoenix_kit_web/users/auth_seo_no_index_test.exs`.
+  `test/phoenix_kit_web/users/auth_crawlers_no_index_test.exs`.
   """
   use Phoenix.LiveView
 
@@ -17,7 +17,8 @@ defmodule PhoenixKitWeb.Test.PublicHostAppLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div id="seo-no-index-probe" data-seo-no-index={inspect(assigns[:seo_no_index])}></div>
+    <div id="crawlers-no-index-probe" data-crawlers-no-index={inspect(assigns[:crawlers_no_index])}>
+    </div>
     """
   end
 end

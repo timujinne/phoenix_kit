@@ -27,7 +27,7 @@
       <%!-- Username Field --%>
       <div phx-feedback-for="user[username]">
         <label class="label" for="user_username">
-          <span class="label-text">{gettext("Username")}</span>
+          <span class="fieldset-legend">{gettext("Username")}</span>
         </label>
         <.input field={@form[:username]} type="text" autocomplete="username">
           <:icon>
@@ -39,7 +39,7 @@
       <%!-- Password Field --%>
       <div phx-feedback-for="user[password]">
         <label class="label" for="user_password">
-          <span class="label-text">{gettext("Password")}</span>
+          <span class="fieldset-legend">{gettext("Password")}</span>
         </label>
         <.input field={@form[:password]} type="password" autocomplete="new-password" required>
           <:icon>
@@ -51,7 +51,7 @@
       <%!-- First Name Field (optional) --%>
       <div phx-feedback-for="user[first_name]">
         <label class="label" for="user_first_name">
-          <span class="label-text">
+          <span class="fieldset-legend">
             {gettext("First Name")}
             <span class="text-base-content/50 font-normal">({gettext("optional")})</span>
           </span>
@@ -67,7 +67,7 @@
       <%!-- Last Name Field (optional) --%>
       <div phx-feedback-for="user[last_name]">
         <label class="label" for="user_last_name">
-          <span class="label-text">
+          <span class="fieldset-legend">
             {gettext("Last Name")}
             <span class="text-base-content/50 font-normal">({gettext("optional")})</span>
           </span>
@@ -110,7 +110,7 @@
 
       <%!-- Checked by default so a new account stays signed in on this device
            (see the note on the password registration form). --%>
-      <div :if={@remember_me_available} class="form-control mt-4">
+      <div :if={@remember_me_available} class="fieldset mt-4">
         <.checkbox
           id="user_remember_me"
           name="user[remember_me]"

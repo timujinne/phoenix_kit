@@ -32,10 +32,10 @@ defmodule PhoenixKitWeb.Components.Core.Button do
   append: the class list hardcoded `btn-primary`, so `class="btn-ghost"` left
   both on the element and daisyUI's rule ordering decided the winner.
 
-  The vocabulary matches `pk_link_button/1`'s, which is the kit's own set —
-  not the scaffold's `values: ~w(primary)`, a knob that cannot vary. For a
-  colour outside it, pass `class="btn-error"`: that is the intended escape
-  hatch, not a workaround.
+  The kit's set — not the scaffold's `values: ~w(primary)`, a knob that
+  cannot vary. Status colours (`info` / `success` / `warning` / `error`)
+  are first-class variants: passing `class="btn-error"` next to the
+  default `btn-primary` is how stylesheet order used to pick the winner.
 
   Variant and size map to literal classes rather than interpolating
   `"btn-\#{@variant}"`, because Tailwind scans **source** for literal class
@@ -46,7 +46,7 @@ defmodule PhoenixKitWeb.Components.Core.Button do
 
   attr :variant, :string,
     default: "primary",
-    values: ~w(primary secondary accent neutral ghost link outline),
+    values: ~w(primary secondary accent neutral ghost link outline info success warning error),
     doc: "Base colour. Replaces the default; use `class` for anything outside this set."
 
   attr :size, :string,
@@ -105,6 +105,14 @@ defmodule PhoenixKitWeb.Components.Core.Button do
   defp variant_class("ghost"), do: "btn-ghost"
   defp variant_class("link"), do: "btn-link"
   defp variant_class("outline"), do: "btn-outline"
+  # The status half of daisyUI's palette — hosts previously had to fall back
+  # to raw <button> markup for a delete button, because appending btn-error
+  # via `class` collides with the variant's own colour class and stylesheet
+  # order decides who wins.
+  defp variant_class("info"), do: "btn-info"
+  defp variant_class("success"), do: "btn-success"
+  defp variant_class("warning"), do: "btn-warning"
+  defp variant_class("error"), do: "btn-error"
   defp variant_class(_), do: "btn-primary"
 
   defp size_class("xs"), do: "btn-xs"

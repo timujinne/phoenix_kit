@@ -189,9 +189,9 @@ defmodule PhoenixKit.Mentions.Live do
       end)
 
     ~H"""
-    <div class="form-control flex flex-col gap-1">
+    <div class="fieldset flex flex-col gap-1">
       <label :if={@label} for={@resolved_id} class="label">
-        <span class="label-text font-semibold">{@label}</span>
+        <span class="fieldset-legend font-semibold">{@label}</span>
       </label>
       <textarea
         id={@resolved_id}
@@ -199,7 +199,7 @@ defmodule PhoenixKit.Mentions.Live do
         rows={@rows}
         phx-hook="MentionInput"
         placeholder={@placeholder}
-        class={["textarea textarea-bordered w-full", @class]}
+        class={["textarea w-full", @class]}
         {@rest}
       >{@resolved_value}</textarea>
       <p class="text-xs opacity-50">
@@ -233,13 +233,13 @@ defmodule PhoenixKit.Mentions.Live do
         </p>
 
         <form phx-submit="pk_access_request_submit" class="mt-4 flex flex-col gap-3">
-          <label class="form-control">
-            <span class="label-text text-xs opacity-70 mb-1">{gettext("Note (optional)")}</span>
+          <label class="fieldset">
+            <span class="fieldset-legend text-xs opacity-70 mb-1">{gettext("Note (optional)")}</span>
             <textarea
               name="note"
               rows="3"
               maxlength="500"
-              class="textarea textarea-bordered"
+              class="textarea"
               placeholder={gettext("What do you need it for?")}
             ></textarea>
           </label>

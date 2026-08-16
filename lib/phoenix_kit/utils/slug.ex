@@ -112,25 +112,207 @@ defmodule PhoenixKit.Utils.Slug do
   `ılık` and `ilik` both romanize to `ilik`, and plain English `Café`/`Cafe` collide
   too — so slugs are not identifiers and the suffix here is the answer, not a better
   table.
-  """
-  @spec ensure_unique(String.t(), (String.t() -> boolean())) :: String.t()
-  def ensure_unique("", _exists_fun), do: ""
 
-  def ensure_unique(slug, exists_fun) when is_function(exists_fun, 1) do
+  ## Options
+
+    * `:max_length` — the ceiling the *final* slug must respect, suffix included.
+
+  Without it the suffix is simply appended, which overflows any cap the caller already
+  applied: `slugify(title, max_length: 20)` returns 20 characters and `-2` makes 22.
+  That silently defeats an SEO cap, and against a `varchar(n)` column Postgres raises
+  rather than truncating. Given the option, the base is trimmed to make room —
+  per candidate, since `-10` needs one more character than `-9` — and a trailing
+  separator left by the trim is stripped so the result is never `foo--2`.
+  """
+  @spec ensure_unique(String.t(), (String.t() -> boolean()), keyword()) :: String.t()
+  def ensure_unique(slug, exists_fun, opts \\ [])
+
+  def ensure_unique("", _exists_fun, _opts), do: ""
+
+  def ensure_unique(slug, exists_fun, opts) when is_function(exists_fun, 1) do
     if exists_fun.(slug) do
-      increment_slug(slug, 2, exists_fun)
+      increment_slug(slug, 2, exists_fun, Keyword.get(opts, :max_length))
     else
       slug
     end
   end
 
-  defp increment_slug(base_slug, counter, exists_fun) do
-    candidate = "#{base_slug}-#{counter}"
+  defp increment_slug(base_slug, counter, exists_fun, limit) do
+    suffix = "-#{counter}"
+    candidate = trim_for(base_slug, suffix, limit) <> suffix
 
     if exists_fun.(candidate) do
-      increment_slug(base_slug, counter + 1, exists_fun)
+      increment_slug(base_slug, counter + 1, exists_fun, limit)
     else
       candidate
     end
+  end
+
+  defp trim_for(base, _suffix, nil), do: base
+
+  defp trim_for(base, suffix, limit) do
+    keep = limit - String.length(suffix)
+
+    if String.length(base) <= keep do
+      base
+    else
+      base
+      |> String.slice(0, Kernel.max(keep, 0))
+      |> String.trim_trailing("-")
+    end
+  end
+
+  @doc """
+  Puts a generated, collision-free slug on `changeset`, derived from `source_field`.
+
+  This is the changeset glue that was missing from core, and which 14 hand-rolled
+  `maybe_generate_slug/1` copies across eight sibling packages each got a different
+  subset of right.
+
+  ## The four cases, and why "absent" is not "empty"
+
+  The bug this exists to delete is reading `get_change(:slug)` and treating `nil` as
+  "this record has no slug". It does not mean that — it means *this save did not carry
+  one*, which is true of almost every save. `cast/3` drops a value equal to the data,
+  so an edit form that faithfully re-sends the current slug produces no change at all.
+  Under `get_change/2` that reads as "regenerate from the title", so renaming anything
+  moved its live URL and nothing recorded the old one.
+
+    * an explicit, non-blank slug always wins;
+    * an explicitly blanked slug regenerates (the column is typically `NOT NULL`, so
+      storing the blank is not an option);
+    * **no slug in the changeset means unchanged** — generate only if the stored
+      record has none;
+    * a source that slugifies to `""` leaves the changeset alone rather than writing
+      a blank that the next save would read as "no slug yet" and regenerate forever.
+
+  ## Options
+
+    * `:to` — the slug field. Defaults to `:slug`.
+    * `:scope` — fields the uniqueness is *scoped by*, e.g. `[:user_uuid]` for a
+      per-user slug backed by a composite index. Defaults to `[]` (global).
+    * `:unique` — set `false` to skip the probe entirely. Defaults to `true`.
+    * `:repo` — the repo to probe. Defaults to the configured PhoenixKit repo.
+    * `:queryable` — override the probed source, e.g. to exclude soft-deleted rows:
+      `queryable: from(p in Post, where: is_nil(p.deleted_at))`. Defaults to the
+      changeset's own schema.
+    * `:locale`, `:separator`, `:max_length` — forwarded to `slugify/2`.
+
+  ## Uniqueness here is an allocator, not a guarantee
+
+  The probe runs from inside the changeset, which is unusual but deliberate: it is
+  what `Ecto.Changeset.unsafe_validate_unique/4` does, and the alternative — generate
+  in the schema, uniquify in the context — splits one decision across two modules and
+  is how the copies drifted in the first place.
+
+  It stays advisory. A concurrent insert between the probe and the write still
+  collides, so **every caller must also declare `unique_constraint/3` against an index
+  that actually exists**. This function picks a free-looking suffix; the index is what
+  makes it true.
+
+  ## No repo configured is tolerated; a broken repo is not
+
+  If no repo is configured at all, the uniqueness probe is skipped — the library is
+  usable for pure changeset construction without a database. If a repo *is* configured
+  and the query then fails, the error is allowed to raise. The predecessor in
+  `phoenix_kit_posts` wrapped the whole probe in a bare `rescue _ -> slug`, which
+  cannot tell those apart and answers a transient database fault by writing the
+  unsuffixed slug — reintroducing exactly the duplicate the probe exists to prevent.
+
+  ## Examples
+
+      changeset |> Slug.put_slug(:title)
+      changeset |> Slug.put_slug(:name, scope: [:user_uuid])
+      changeset |> Slug.put_slug(:title, locale: "de", max_length: 60)
+  """
+  @spec put_slug(Ecto.Changeset.t(), atom(), keyword()) :: Ecto.Changeset.t()
+  def put_slug(%Ecto.Changeset{} = changeset, source_field, opts \\ []) do
+    to = Keyword.get(opts, :to, :slug)
+
+    case Ecto.Changeset.fetch_change(changeset, to) do
+      {:ok, slug} when is_binary(slug) and slug != "" ->
+        changeset
+
+      {:ok, _blank} ->
+        changeset
+        |> Ecto.Changeset.delete_change(to)
+        |> generate(source_field, to, opts)
+
+      :error ->
+        if Map.get(changeset.data, to) in [nil, ""] do
+          generate(changeset, source_field, to, opts)
+        else
+          changeset
+        end
+    end
+  end
+
+  defp generate(changeset, source_field, to, opts) do
+    with value when is_binary(value) and value != "" <-
+           Ecto.Changeset.get_field(changeset, source_field),
+         slug when slug != "" <-
+           slugify(value, Keyword.take(opts, [:separator, :locale, :max_length])) do
+      Ecto.Changeset.put_change(changeset, to, unique(changeset, slug, to, opts))
+    else
+      _ -> changeset
+    end
+  end
+
+  defp unique(changeset, slug, to, opts) do
+    repo = Keyword.get_lazy(opts, :repo, fn -> PhoenixKit.Config.get(:repo, nil) end)
+
+    if Keyword.get(opts, :unique, true) and repo do
+      # `:max_length` is forwarded so the suffix respects the same ceiling the base
+      # was cut to, rather than overflowing it by two characters.
+      ensure_unique(slug, taken_fun(changeset, to, repo, opts),
+        max_length: Keyword.get(opts, :max_length)
+      )
+    else
+      slug
+    end
+  end
+
+  defp taken_fun(changeset, to, repo, opts) do
+    import Ecto.Query, only: [where: 3]
+
+    schema = changeset.data.__struct__
+    queryable = Keyword.get(opts, :queryable, schema)
+
+    # Reflection, not an option: every PhoenixKit schema declares
+    # `@primary_key {:uuid, UUIDv7, autogenerate: true}` today, but asking the caller
+    # to restate it is one more thing 14 call sites can each get wrong.
+    base =
+      schema.__schema__(:primary_key)
+      |> Enum.reduce(Ecto.Queryable.to_query(queryable), fn pk, query ->
+        case Map.get(changeset.data, pk) do
+          # An insert has nothing to exclude.
+          nil -> query
+          value -> where(query, [r], field(r, ^pk) != ^value)
+        end
+      end)
+      |> scope_query(changeset, Keyword.get(opts, :scope, []))
+
+    # Honours a schema prefix so a multi-tenant install probes its own rows rather
+    # than "public"'s.
+    prefix = changeset.data.__meta__.prefix
+
+    fn candidate ->
+      base
+      |> where([r], field(r, ^to) == ^candidate)
+      |> repo.exists?(prefix: prefix)
+    end
+  end
+
+  defp scope_query(query, changeset, scope) do
+    import Ecto.Query, only: [where: 3]
+
+    Enum.reduce(scope, query, fn field_name, acc ->
+      # NULL never equals NULL, so an unset scope has to be matched with IS NULL or
+      # the probe silently reports every candidate free.
+      case Ecto.Changeset.get_field(changeset, field_name) do
+        nil -> where(acc, [r], is_nil(field(r, ^field_name)))
+        value -> where(acc, [r], field(r, ^field_name) == ^value)
+      end
+    end)
   end
 end

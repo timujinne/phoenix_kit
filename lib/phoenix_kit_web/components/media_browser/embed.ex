@@ -1,4 +1,6 @@
 defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
+  alias PhoenixKit.Utils.Pagination
+
   @moduledoc """
   One-line embedder for `PhoenixKitWeb.Components.MediaBrowser`.
 
@@ -202,7 +204,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
     %{
       folder: params["folder"],
       q: params["q"] || "",
-      page: parse_page(params["page"]),
+      page: Pagination.parse_page(params["page"]),
       filter_orphaned: params["orphaned"] == "1",
       view: params["view"]
     }
@@ -226,13 +228,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
     |> then(&if(page > 1, do: Map.put(&1, "page", page), else: &1))
     |> then(&if(filter_orphaned, do: Map.put(&1, "orphaned", "1"), else: &1))
     |> then(&if(view == "all", do: Map.put(&1, "view", "all"), else: &1))
-  end
-
-  defp parse_page(p) do
-    case Integer.parse(p || "1") do
-      {n, _} when n > 0 -> n
-      _ -> 1
-    end
   end
 
   defmacro __using__(opts) do

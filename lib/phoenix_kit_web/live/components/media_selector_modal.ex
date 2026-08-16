@@ -1,4 +1,6 @@
 defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
+  alias PhoenixKit.Utils.Pagination
+
   @moduledoc """
   Media selector modal component.
 
@@ -71,6 +73,15 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       whenever the selection fills a typed field — an audio slot, an image
       slot — so the user can't pick something the consumer will only reject
       afterwards.
+    * `title` — heading for the modal. Pass the picker's purpose ("Select
+      Featured Image", "Select Avatar") so the user knows what they are
+      choosing FOR. nil (default) derives a type-aware fallback: a locked
+      image picker titles itself "Select Image" (or "Select Images" in
+      `:multiple` mode); everything else stays "Select Media".
+    * `always_show_search` — `false` (default) lets the search/filter row
+      hide itself when it could do nothing: a locked picker browsing without
+      a query shows it only once the library holds 10+ files (below that
+      everything fits on one screen). `true` forces the row to always render.
     * `browse` — `true` (default) shows the library grid + search + type filter;
       `false` is upload-only (dropzone + Confirm; uploaded files auto-select)
     * `user_uuid` — when set, restricts the library to files owned by
@@ -141,6 +152,13 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       # Default false, so existing callers that pass a filter as a starting
       # point keep their switcher.
       |> assign_new(:lock_file_type, fn -> false end)
+      # Purpose-specific heading ("Select Featured Image", "Select Avatar", …).
+      # nil falls back to a type-aware default — a locked image picker titles
+      # itself "Select Image", not the generic "Select Media".
+      |> assign_new(:title, fn -> nil end)
+      # Force the search/filter row even over a tiny library — see
+      # show_search_bar?/1 for when it hides on its own.
+      |> assign_new(:always_show_search, fn -> false end)
       |> assign_new(:search_query, fn -> "" end)
       |> assign_new(:current_page, fn -> 1 end)
       |> assign_new(:per_page, fn -> @per_page end)
@@ -184,7 +202,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     socket =
       if assigns[:show] do
         {files, total_count} = load_files(socket, socket.assigns.current_page)
-        total_pages = ceil(total_count / socket.assigns.per_page)
+        total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
 
         socket
         |> assign(:uploaded_files, files)
@@ -251,6 +269,55 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   defp accept_for(:video), do: ~w(.mp4 .mov .webm .mkv .avi .m4v .ogv)
   defp accept_for(:audio), do: ~w(.mp3 .m4a .aac .wav .flac .oga .ogg .opus .weba)
   defp accept_for(_), do: :any
+
+  # Heading fallback when the caller passes no `title`. Only a LOCKED filter
+  # speaks in the title — an unlocked filter is a starting point the user can
+  # change, so promising "Select Image" there would lie the moment they switch
+  # the type dropdown.
+  defp default_title(%{lock_file_type: true} = assigns) do
+    case {assigns.mode, assigns.file_type_filter} do
+      {:single, :image} -> gettext("Select Image")
+      {:single, :video} -> gettext("Select Video")
+      {:single, :audio} -> gettext("Select Audio")
+      {:multiple, :image} -> gettext("Select Images")
+      {:multiple, :video} -> gettext("Select Videos")
+      {:multiple, :audio} -> gettext("Select Audio")
+      _ -> gettext("Select Media")
+    end
+  end
+
+  defp default_title(_assigns), do: gettext("Select Media")
+
+  # Below this many files everything fits on one screen and search is noise.
+  # Well under @per_page (30), so the threshold can never hide search from a
+  # library that actually paginates.
+  @search_bar_threshold 10
+
+  # The search/filter row earns its place only when it can do something.
+  # An active query always keeps it (the user must be able to refine or
+  # clear), `always_show_search` forces it, and unlocked pickers keep it
+  # because the type dropdown is the only way to widen the scope back out.
+  # What remains is a locked picker browsing without a query — there the row
+  # shows only once the library is big enough for search to beat scrolling.
+  defp show_search_bar?(assigns) do
+    cond do
+      assigns.always_show_search -> true
+      assigns.search_query != "" -> true
+      not assigns.lock_file_type -> true
+      true -> assigns.total_count >= @search_bar_threshold
+    end
+  end
+
+  # Empty-state copy per type, split by whether a search came up dry or the
+  # library is simply empty.
+  defp empty_title(:image), do: gettext("No images yet")
+  defp empty_title(:video), do: gettext("No videos yet")
+  defp empty_title(:audio), do: gettext("No audio files yet")
+  defp empty_title(_), do: gettext("No media files yet")
+
+  defp empty_icon(:video), do: "hero-video-camera"
+  defp empty_icon(:audio), do: "hero-musical-note"
+  defp empty_icon(_), do: "hero-photo"
 
   # Modal copy that reflects the active type filter, so an all/video picker
   # doesn't always say "images". Referenced from the template.
@@ -330,18 +397,23 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   end
 
   def handle_event("confirm_selection", _params, socket) do
-    selected_uuids = socket.assigns.selected_uuids
+    {:noreply, confirm_selection(socket)}
+  end
 
-    case socket.assigns[:notify] do
-      {module, id} ->
-        send_update(module, id: id, media_selected: selected_uuids)
+  # Double-click on a tile in single mode: pick that file and confirm in one
+  # gesture, file-dialog style. Multiple mode ignores it — a double-click
+  # there is just an emphatic toggle, not "I'm done".
+  def handle_event("quick_confirm", %{"file-uuid" => file_uuid}, socket) do
+    case socket.assigns.mode do
+      :single ->
+        {:noreply,
+         socket
+         |> assign(:selected_uuids, [file_uuid])
+         |> confirm_selection()}
 
       _ ->
-        # Default: send to parent LiveView process
-        send(self(), {:media_selected, selected_uuids})
+        {:noreply, socket}
     end
-
-    {:noreply, assign(socket, :show, false)}
   end
 
   def handle_event("close_modal", _params, socket) do
@@ -357,21 +429,11 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   end
 
   def handle_event("search", %{"search" => %{"query" => query}}, socket) do
-    socket =
-      socket
-      |> assign(:search_query, query)
-      |> assign(:current_page, 1)
+    {:noreply, apply_search(socket, query)}
+  end
 
-    {files, total_count} = load_files(socket, 1)
-    total_pages = ceil(total_count / socket.assigns.per_page)
-
-    socket =
-      socket
-      |> assign(:uploaded_files, files)
-      |> assign(:total_count, total_count)
-      |> assign(:total_pages, total_pages)
-
-    {:noreply, socket}
+  def handle_event("clear_search", _params, socket) do
+    {:noreply, apply_search(socket, "")}
   end
 
   def handle_event("filter_type", _params, %{assigns: %{lock_file_type: true}} = socket) do
@@ -391,7 +453,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       |> refresh_upload_accept(parsed_filter)
 
     {files, total_count} = load_files(socket, 1)
-    total_pages = ceil(total_count / socket.assigns.per_page)
+    total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
 
     socket =
       socket
@@ -412,7 +474,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       end
 
     {files, total_count} = load_files(socket, page)
-    total_pages = ceil(total_count / socket.assigns.per_page)
+    total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
 
     socket =
       socket
@@ -434,7 +496,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
 
   def handle_event("save", _params, socket) do
     {files, total_count} = load_files(socket, 1)
-    total_pages = ceil(total_count / socket.assigns.per_page)
+    total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
 
     socket =
       socket
@@ -444,6 +506,36 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       |> assign(:total_pages, total_pages)
 
     {:noreply, socket}
+  end
+
+  defp confirm_selection(socket) do
+    selected_uuids = socket.assigns.selected_uuids
+
+    case socket.assigns[:notify] do
+      {module, id} ->
+        send_update(module, id: id, media_selected: selected_uuids)
+
+      _ ->
+        # Default: send to parent LiveView process
+        send(self(), {:media_selected, selected_uuids})
+    end
+
+    assign(socket, :show, false)
+  end
+
+  defp apply_search(socket, query) do
+    socket =
+      socket
+      |> assign(:search_query, query)
+      |> assign(:current_page, 1)
+
+    {files, total_count} = load_files(socket, 1)
+    total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
+
+    socket
+    |> assign(:uploaded_files, files)
+    |> assign(:total_count, total_count)
+    |> assign(:total_pages, total_pages)
   end
 
   defp handle_progress(:media_files, entry, socket) do
@@ -470,7 +562,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
             file_uuid when is_binary(file_uuid) ->
               # Success - reload files and auto-select
               {files, total_count} = load_files(socket, socket.assigns.current_page)
-              total_pages = ceil(total_count / socket.assigns.per_page)
+              total_pages = Pagination.total_pages(total_count, socket.assigns.per_page)
 
               selected_uuids =
                 case socket.assigns.mode do

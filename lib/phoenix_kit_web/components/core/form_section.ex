@@ -111,7 +111,7 @@ defmodule PhoenixKitWeb.Components.Core.FormSection do
   def unsaved_hint(assigns) do
     ~H"""
     <div :if={@dirty} class="label pt-1">
-      <span class="label-text-alt text-xs text-warning flex items-center gap-1.5">
+      <span class="fieldset-label text-xs text-warning flex items-center gap-1.5">
         <.icon name="hero-pencil-square" class="w-3.5 h-3.5" />
         {gettext("Unsaved change")}
         <span :if={(@saved || "") != ""} class="text-base-content/40">

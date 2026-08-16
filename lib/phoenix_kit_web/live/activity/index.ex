@@ -38,10 +38,19 @@ defmodule PhoenixKitWeb.Live.Activity.Index do
 
       project_title = Settings.get_project_title()
 
+      # The shared audit log is administrators-only: a full-access operator
+      # (Admin/Owner, or any role holding every grantable permission) sees the
+      # whole platform's activity; every other dashboard-holder is scoped to
+      # their OWN actions — enforced here (not just in the UI) so it also holds
+      # for the direct `?actor`-style URL and the per-resource deep link.
+      full_access? = Activity.full_log_access?(scope)
+
       socket =
         socket
         |> assign(:page_title, gettext("Activity"))
         |> assign(:project_title, project_title)
+        |> assign(:full_log_access?, full_access?)
+        |> assign(:scoped_actor_uuid, scoped_actor_uuid(full_access?, scope))
         |> assign(:modules, Activity.list_modules())
         |> assign(:modes, Activity.list_modes())
         |> assign(:action_types, Activity.list_action_types())
@@ -143,6 +152,9 @@ defmodule PhoenixKitWeb.Live.Activity.Index do
         action: socket.assigns.filter_action,
         resource_type: socket.assigns.filter_resource_type,
         resource_uuid: socket.assigns.filter_resource_uuid,
+        # nil for a full-access operator (all actors); the current user's uuid
+        # otherwise — a hard server-side scope to own actions.
+        actor_uuid: socket.assigns.scoped_actor_uuid,
         preload: [:actor, :target]
       )
 
@@ -238,6 +250,16 @@ defmodule PhoenixKitWeb.Live.Activity.Index do
   defp action_badge_color(action), do: Activity.action_badge_color(action)
   defp mode_badge_color(mode), do: Activity.mode_badge_color(mode)
 
+  # Which actor the list is pinned to: nil (unrestricted) for a full-access
+  # operator, else the current user's own uuid. Pinning `actor_uuid` is what
+  # makes "own" mean AUTHORED-BY — the same definition as Activity.own_entry?/2
+  # that the single-entry page enforces; a record merely targeting the user is
+  # deliberately not shown. Fail closed — a non-full scope with no resolvable
+  # user sees nothing, never everything.
+  defp scoped_actor_uuid(true, _scope), do: nil
+  defp scoped_actor_uuid(false, %Scope{user: %User{uuid: uuid}}) when is_binary(uuid), do: uuid
+  defp scoped_actor_uuid(false, _scope), do: Ecto.UUID.generate()
+
   # True when any of the four Activity filters is set. Drives both the
   # toolbar Clear-filters button and the filtered empty-state message.
   defp any_filter_active?(assigns) do
@@ -256,8 +278,17 @@ defmodule PhoenixKitWeb.Live.Activity.Index do
     if meta["added"] || meta["removed"] do
       # For role updates, show added/removed summary
       parts = []
-      parts = if meta["added"], do: parts ++ ["added: #{meta["added"]}"], else: parts
-      parts = if meta["removed"], do: parts ++ ["removed: #{meta["removed"]}"], else: parts
+
+      parts =
+        if meta["added"],
+          do: parts ++ ["added: #{Activity.humanize_metadata_value(meta["added"])}"],
+          else: parts
+
+      parts =
+        if meta["removed"],
+          do: parts ++ ["removed: #{Activity.humanize_metadata_value(meta["removed"])}"],
+          else: parts
+
       Enum.join(parts, ", ")
     else
       # For profile updates, extract field names from _from/_to pairs
@@ -282,8 +313,16 @@ defmodule PhoenixKitWeb.Live.Activity.Index do
     |> Map.drop(["method", "actor_role"])
     |> Enum.reject(fn {_k, v} -> v == nil or v == "" end)
     |> case do
-      [] -> nil
-      entries -> Enum.map_join(entries, ", ", fn {k, v} -> "#{k}: #{v}" end)
+      [] ->
+        nil
+
+      entries ->
+        # Values may be nested maps (e.g. a `%{"from" => _, "to" => _}` field
+        # diff) — Activity.humanize_metadata_value/1 renders those as "1 → 2"
+        # rather than raising String.Chars on a Map (the crash this fixes).
+        Enum.map_join(entries, ", ", fn {k, v} ->
+          "#{k}: #{Activity.humanize_metadata_value(v)}"
+        end)
     end
   end
 end

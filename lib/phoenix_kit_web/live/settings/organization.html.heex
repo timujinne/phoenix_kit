@@ -10,149 +10,263 @@
 >
   <div class="px-4 py-6">
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <%!-- Company Information --%>
-      <div class="card bg-base-100 shadow-xl">
-        <div class="card-body gap-0.5">
-          <h2 class="card-title">
-            <.icon name="hero-building-office-2" class="w-5 h-5" />
-            {gettext("Company Information")}
-          </h2>
-          <p class="text-sm text-base-content/60 flex-none">
-            {gettext("Used in legal documents and invoices")}
-          </p>
+      <%!-- Left column: Company + Main countries stacked --%>
+      <div class="space-y-6">
+        <%!-- Company Information --%>
+        <div class="card bg-base-100 shadow-xl">
+          <div class="card-body gap-0.5">
+            <h2 class="card-title">
+              <.icon name="hero-building-office-2" class="w-5 h-5" />
+              {gettext("Company Information")}
+            </h2>
+            <p class="text-sm text-base-content/60 flex-none">
+              {gettext("Used in legal documents and invoices")}
+            </p>
 
-          <form phx-submit="save_company" class="space-y-4">
-            <%!-- Row: Company Name + Country --%>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="form-control">
+            <form phx-submit="save_company" class="space-y-4">
+              <%!-- Row: Company Name + Country --%>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="fieldset">
+                  <.input
+                    type="text"
+                    name="company_name"
+                    value={@company_name}
+                    label={gettext("Company Name")}
+                    placeholder={gettext("Your Company Name")}
+                    required
+                  />
+                </div>
+
+                <div class="fieldset">
+                  <.select
+                    name="company_country"
+                    value={@company_country}
+                    phx-change="country_changed"
+                    required
+                    label={gettext("Country")}
+                    prompt={gettext("Select country...")}
+                    options={@countries}
+                  />
+                </div>
+              </div>
+
+              <div class="divider text-xs">{gettext("Address")}</div>
+
+              <%!-- Row: Street Address --%>
+              <div class="fieldset">
                 <.input
                   type="text"
-                  name="company_name"
-                  value={@company_name}
-                  label={gettext("Company Name")}
-                  placeholder={gettext("Your Company Name")}
+                  name="company_address_line1"
+                  value={@company_address_line1}
+                  label={gettext("Street Address")}
+                  placeholder={gettext("123 Business Street")}
                   required
                 />
               </div>
 
-              <div class="form-control">
-                <.select
-                  name="company_country"
-                  value={@company_country}
-                  phx-change="country_changed"
-                  required
-                  label={gettext("Country")}
-                  prompt={gettext("Select country...")}
-                  options={@countries}
-                />
-              </div>
-            </div>
-
-            <div class="divider text-xs">{gettext("Address")}</div>
-
-            <%!-- Row: Street Address --%>
-            <div class="form-control">
-              <.input
-                type="text"
-                name="company_address_line1"
-                value={@company_address_line1}
-                label={gettext("Street Address")}
-                placeholder={gettext("123 Business Street")}
-                required
-              />
-            </div>
-
-            <%!-- Row: Address Line 2 --%>
-            <div class="form-control">
-              <.input
-                type="text"
-                name="company_address_line2"
-                value={@company_address_line2}
-                label={gettext("Address Line 2")}
-                placeholder={gettext("Suite, Floor, Building (optional)")}
-              />
-            </div>
-
-            <%!-- Row: City + State/Province + Postal Code --%>
-            <div class="grid grid-cols-3 gap-4">
-              <div class="form-control">
+              <%!-- Row: Address Line 2 --%>
+              <div class="fieldset">
                 <.input
                   type="text"
-                  name="company_city"
-                  value={@company_city}
-                  label={gettext("City")}
-                  placeholder={gettext("City")}
-                  required
+                  name="company_address_line2"
+                  value={@company_address_line2}
+                  label={gettext("Address Line 2")}
+                  placeholder={gettext("Suite, Floor, Building (optional)")}
                 />
               </div>
 
-              <div class="form-control">
-                <.input
-                  type="text"
-                  name="company_state"
-                  value={@company_state}
-                  label={@subdivision_label}
-                  placeholder={gettext("(optional)")}
-                />
+              <%!-- Row: City + State/Province + Postal Code --%>
+              <div class="grid grid-cols-3 gap-4">
+                <div class="fieldset">
+                  <.input
+                    type="text"
+                    name="company_city"
+                    value={@company_city}
+                    label={gettext("City")}
+                    placeholder={gettext("City")}
+                    required
+                  />
+                </div>
+
+                <div class="fieldset">
+                  <.input
+                    type="text"
+                    name="company_state"
+                    value={@company_state}
+                    label={@subdivision_label}
+                    placeholder={gettext("(optional)")}
+                  />
+                </div>
+
+                <div class="fieldset">
+                  <.input
+                    type="text"
+                    name="company_postal_code"
+                    value={@company_postal_code}
+                    label={gettext("Postal Code")}
+                    placeholder="10115"
+                    class="font-mono"
+                  />
+                </div>
               </div>
 
-              <div class="form-control">
-                <.input
-                  type="text"
-                  name="company_postal_code"
-                  value={@company_postal_code}
-                  label={gettext("Postal Code")}
-                  placeholder="10115"
-                  class="font-mono"
+              <div class="divider text-xs">{gettext("Tax & Registration")}</div>
+
+              <%!-- Row: VAT Number + Registration Number --%>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="fieldset">
+                  <.input
+                    type="text"
+                    name="company_vat"
+                    value={@company_vat}
+                    label={gettext("VAT Number")}
+                    placeholder={
+                      if @eu_country, do: "#{@company_country}123456789", else: gettext("Tax ID")
+                    }
+                    required
+                    class="font-mono"
+                  />
+                  <%= if @eu_country do %>
+                    <label class="label">
+                      <span class="fieldset-label text-info">
+                        <.icon name="hero-information-circle" class="w-4 h-4 inline" />
+                        {gettext("EU format: %{country}123456789", country: @company_country)}
+                      </span>
+                    </label>
+                  <% end %>
+                </div>
+
+                <div class="fieldset">
+                  <.input
+                    type="text"
+                    name="company_registration"
+                    value={@company_registration}
+                    label={gettext("Registration Number")}
+                    placeholder={gettext("Business reg. number (optional)")}
+                    class="font-mono"
+                  />
+                </div>
+              </div>
+
+              <div class="card-actions justify-end mt-4">
+                <button type="submit" class="btn btn-primary">
+                  <.icon name="hero-check" class="w-4 h-4" />
+                  {gettext("Save Company Info")}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <%!-- Main countries --%>
+        <div class="card bg-base-100 shadow-xl">
+          <div class="card-body">
+            <h2 class="card-title">
+              <.icon name="hero-map-pin" class="w-5 h-5" />
+              {gettext("Main countries")}
+            </h2>
+            <p class="text-sm text-base-content/60">
+              {gettext("Shown at the top of every country list. Drag to reorder.")}
+            </p>
+
+            <%= if @main_country_rows == [] do %>
+              <p class="text-sm text-base-content/50 mt-4">
+                {gettext("Nothing chosen yet — country lists are plain alphabetical.")}
+              </p>
+            <% else %>
+              <.draggable_list
+                id="main-countries"
+                items={@main_country_rows}
+                item_id={& &1.code}
+                on_reorder="reorder_main_countries"
+                layout={:list}
+                gap="gap-1"
+                class="mt-4"
+                sortable_handle=".pk-drag-handle"
+                item_class="flex items-center gap-2 py-2 px-1 rounded-lg hover:bg-base-200"
+              >
+                <:item :let={row}>
+                  <.icon
+                    name="hero-bars-3"
+                    class="pk-drag-handle w-4 h-4 shrink-0 text-base-content/40 cursor-grab active:cursor-grabbing"
+                  />
+                  <span class="grow truncate">{row.label}</span>
+                  <button
+                    type="button"
+                    phx-click="move_main_country"
+                    phx-value-code={row.code}
+                    phx-value-direction="up"
+                    class="btn btn-ghost btn-xs"
+                    disabled={row.first?}
+                    aria-label={gettext("Move up")}
+                  >
+                    <.icon name="hero-chevron-up" class="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="move_main_country"
+                    phx-value-code={row.code}
+                    phx-value-direction="down"
+                    class="btn btn-ghost btn-xs"
+                    disabled={row.last?}
+                    aria-label={gettext("Move down")}
+                  >
+                    <.icon name="hero-chevron-down" class="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    phx-click="remove_main_country"
+                    phx-value-code={row.code}
+                    class="btn btn-ghost btn-xs text-error"
+                    aria-label={gettext("Remove")}
+                  >
+                    <.icon name="hero-x-mark" class="w-4 h-4" />
+                  </button>
+                </:item>
+              </.draggable_list>
+            <% end %>
+
+            <%= if @main_country_suggestion != [] do %>
+              <div class="alert alert-info mt-4 flex-col items-start gap-2">
+                <span class="text-sm">
+                  {gettext("Based on your country: %{countries}",
+                    countries:
+                      Enum.map_join(@main_country_suggestion, ", ", fn suggested ->
+                        suggested.label
+                      end)
+                  )}
+                </span>
+                <button type="button" phx-click="apply_main_country_suggestion" class="btn btn-sm">
+                  <.icon name="hero-plus" class="w-4 h-4" />
+                  {gettext("Add these")}
+                </button>
+              </div>
+            <% end %>
+
+            <form
+              id="main-countries-add"
+              phx-submit="add_main_country"
+              class="flex items-end gap-2 mt-4"
+            >
+              <div class="grow">
+                <%!-- The id carries the current count so the picker remounts
+                     (and clears its own selection) after every add. --%>
+                <.live_component
+                  module={PhoenixKitWeb.Live.Components.SearchableSelect}
+                  id={"main-country-picker-#{length(@main_country_rows)}"}
+                  name="code"
+                  value=""
+                  options={@main_country_options}
+                  label={gettext("Add a country")}
+                  placeholder={gettext("Search countries...")}
                 />
               </div>
-            </div>
-
-            <div class="divider text-xs">{gettext("Tax & Registration")}</div>
-
-            <%!-- Row: VAT Number + Registration Number --%>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div class="form-control">
-                <.input
-                  type="text"
-                  name="company_vat"
-                  value={@company_vat}
-                  label={gettext("VAT Number")}
-                  placeholder={
-                    if @eu_country, do: "#{@company_country}123456789", else: gettext("Tax ID")
-                  }
-                  required
-                  class="font-mono"
-                />
-                <%= if @eu_country do %>
-                  <label class="label">
-                    <span class="label-text-alt text-info">
-                      <.icon name="hero-information-circle" class="w-4 h-4 inline" />
-                      {gettext("EU format: %{country}123456789", country: @company_country)}
-                    </span>
-                  </label>
-                <% end %>
-              </div>
-
-              <div class="form-control">
-                <.input
-                  type="text"
-                  name="company_registration"
-                  value={@company_registration}
-                  label={gettext("Registration Number")}
-                  placeholder={gettext("Business reg. number (optional)")}
-                  class="font-mono"
-                />
-              </div>
-            </div>
-
-            <div class="card-actions justify-end mt-4">
               <button type="submit" class="btn btn-primary">
-                <.icon name="hero-check" class="w-4 h-4" />
-                {gettext("Save Company Info")}
+                <.icon name="hero-plus" class="w-4 h-4" />
+                {gettext("Add")}
               </button>
-            </div>
-          </form>
+            </form>
+          </div>
         </div>
       </div>
 
@@ -170,7 +284,7 @@
             </p>
 
             <form phx-submit="save_bank" class="space-y-4 mt-4">
-              <div class="form-control">
+              <div class="fieldset">
                 <.input
                   type="text"
                   name="bank_name"
@@ -182,7 +296,7 @@
 
               <%!-- Row: IBAN + SWIFT --%>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div class="form-control sm:col-span-2">
+                <div class="fieldset sm:col-span-2">
                   <.input
                     type="text"
                     name="bank_iban"
@@ -193,7 +307,7 @@
                   />
                 </div>
 
-                <div class="form-control">
+                <div class="fieldset">
                   <.input
                     type="text"
                     name="bank_swift"
@@ -229,15 +343,15 @@
             <form phx-submit="save_tax" class="space-y-4 mt-4">
               <%!-- Row: Enable Tax + Tax Rate --%>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-                <div class="form-control">
+                <div class="fieldset">
                   <.checkbox name="tax_enabled" checked={@tax_enabled}>
                     <span class="font-medium">{gettext("Enable Tax")}</span>
                   </.checkbox>
                 </div>
 
-                <div class="form-control">
+                <div class="fieldset">
                   <label class="label">
-                    <span class="label-text">{gettext("Default Tax Rate")}</span>
+                    <span class="fieldset-legend">{gettext("Default Tax Rate")}</span>
                   </label>
                   <div class="join">
                     <.input

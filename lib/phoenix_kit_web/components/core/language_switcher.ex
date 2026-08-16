@@ -254,7 +254,7 @@ defmodule PhoenixKitWeb.Components.Core.LanguageSwitcher do
                     <input
                       type="text"
                       placeholder="Search languages..."
-                      class="input input-sm input-bordered w-full"
+                      class="input input-sm w-full"
                       id={"ls-search-" <> slug(continent)}
                       autocomplete="off"
                       oninput="
@@ -325,7 +325,7 @@ defmodule PhoenixKitWeb.Components.Core.LanguageSwitcher do
                   <input
                     type="text"
                     placeholder="Search languages..."
-                    class="input input-sm input-bordered w-full"
+                    class="input input-sm w-full"
                     id="language-search-input"
                     autocomplete="off"
                     oninput="

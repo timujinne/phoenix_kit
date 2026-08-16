@@ -130,8 +130,10 @@ defmodule PhoenixKit.Modules.Storage.FileLocation do
     |> validate_required([:path, :file_instance_uuid, :bucket_uuid])
     |> validate_inclusion(:status, ["active", "syncing", "failed", "deleted"])
     |> validate_number(:priority, greater_than_or_equal_to: 0)
-    |> foreign_key_constraint(:file_instance_uuid)
-    |> foreign_key_constraint(:bucket_uuid)
+    |> foreign_key_constraint(:file_instance_uuid,
+      name: :phoenix_kit_file_locations_file_instance_id_fkey
+    )
+    |> foreign_key_constraint(:bucket_uuid, name: :phoenix_kit_file_locations_bucket_id_fkey)
   end
 
   @doc """

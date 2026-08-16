@@ -48,7 +48,7 @@ defmodule PhoenixKit.Users.OAuthProvider do
     |> validate_required([:user_uuid, :provider, :provider_uid])
     |> validate_provider()
     |> validate_length(:provider_uid, min: 1, max: 255)
-    |> foreign_key_constraint(:user_uuid)
+    |> foreign_key_constraint(:user_uuid, name: :fk_user_oauth_providers_user_uuid)
     |> unique_constraint([:user_uuid, :provider],
       name: :phoenix_kit_oauth_providers_user_uuid_provider_idx
     )

@@ -1,9 +1,9 @@
 defmodule PhoenixKit.Integration.Sitemap.NoIndexTest do
   @moduledoc """
-  Pins the contract that the sitemap generator honors the SEO module's global
+  Pins the contract that the sitemap generator honors the Crawlers module's global
   `noindex` directive.
 
-  When `seo_no_index` is active the site is asking search engines not to index
+  When `crawlers_no_index` is active the site is asking search engines not to index
   it, so `Generator.generate_all/1` must publish an empty (but valid) `<urlset>`
   instead of advertising crawlable URLs — regardless of what the individual
   sources would otherwise emit.
@@ -22,9 +22,9 @@ defmodule PhoenixKit.Integration.Sitemap.NoIndexTest do
     :ok
   end
 
-  describe "generate_all/1 with seo_no_index active" do
+  describe "generate_all/1 with crawlers_no_index active" do
     test "publishes an empty urlset with zero URLs" do
-      {:ok, _} = Settings.update_boolean_setting("seo_no_index", true)
+      {:ok, _} = Settings.update_boolean_setting("crawlers_no_index", true)
 
       assert {:ok, %{index_xml: xml, total_urls: 0, modules: []}} =
                Generator.generate_all(base_url: @base_url)
@@ -37,9 +37,9 @@ defmodule PhoenixKit.Integration.Sitemap.NoIndexTest do
     end
   end
 
-  describe "generate_all/1 with seo_no_index disabled" do
+  describe "generate_all/1 with crawlers_no_index disabled" do
     test "does not force an empty sitemap" do
-      {:ok, _} = Settings.update_boolean_setting("seo_no_index", false)
+      {:ok, _} = Settings.update_boolean_setting("crawlers_no_index", false)
 
       # The exact URL count depends on seeded content/routes; we only assert the
       # noindex short-circuit is NOT taken (generation runs normally).

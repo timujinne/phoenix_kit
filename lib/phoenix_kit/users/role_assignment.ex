@@ -87,9 +87,9 @@ defmodule PhoenixKit.Users.RoleAssignment do
       name: :phoenix_kit_role_assignments_user_uuid_role_uuid_idx,
       message: "user already has this role"
     )
-    |> foreign_key_constraint(:user_uuid)
-    |> foreign_key_constraint(:role_uuid)
-    |> foreign_key_constraint(:assigned_by_uuid)
+    |> foreign_key_constraint(:user_uuid, name: :fk_user_role_assignments_user_uuid)
+    |> foreign_key_constraint(:role_uuid, name: :fk_user_role_assignments_role_uuid)
+    |> foreign_key_constraint(:assigned_by_uuid, name: :fk_user_role_assignments_assigned_by_uuid)
   end
 
   # Set assigned_at to current time if not provided

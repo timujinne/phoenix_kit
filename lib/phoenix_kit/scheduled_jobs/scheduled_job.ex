@@ -31,7 +31,7 @@ defmodule PhoenixKit.ScheduledJobs.ScheduledJob do
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
-  @statuses ~w(pending executed failed cancelled)
+  @statuses ~w(pending processing executed failed cancelled)
 
   schema "phoenix_kit_scheduled_jobs" do
     field :job_type, :string

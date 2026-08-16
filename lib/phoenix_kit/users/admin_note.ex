@@ -59,8 +59,8 @@ defmodule PhoenixKit.Users.AdminNote do
     |> cast(attrs, [:user_uuid, :author_uuid, :content])
     |> validate_required([:user_uuid, :author_uuid, :content])
     |> validate_length(:content, min: 1, max: 10_000)
-    |> foreign_key_constraint(:user_uuid)
-    |> foreign_key_constraint(:author_uuid)
+    |> foreign_key_constraint(:user_uuid, name: :fk_admin_notes_user_uuid)
+    |> foreign_key_constraint(:author_uuid, name: :fk_admin_notes_author_uuid)
   end
 
   @doc """

@@ -240,7 +240,7 @@ defmodule PhoenixKit.Modules.Storage.File do
     |> validate_number(:height, greater_than: 0)
     |> validate_number(:duration, greater_than: 0)
     |> validate_system_managed_invariants()
-    |> foreign_key_constraint(:user_uuid)
+    |> foreign_key_constraint(:user_uuid, name: :fk_files_user_uuid)
     |> foreign_key_constraint(:folder_uuid)
     |> foreign_key_constraint(:parent_file_uuid)
     # V113's `phoenix_kit_files_system_dedup_index` keeps concurrent

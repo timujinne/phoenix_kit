@@ -401,6 +401,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       # (aggregate file, script tag). Picks up the feature on hosts installed
       # before it existed.
       igniter = JsIntegration.ensure_module_js_integration(igniter)
+      igniter = JsIntegration.ensure_theme_bootstrap(igniter)
 
       # Check if this is the first pass (config missing) or second pass (config exists)
       config_status = Process.get(:phoenix_kit_config_status, :ok)

@@ -3436,7 +3436,10 @@ if (typeof window.Chart === "undefined") {
   window.PhoenixKitHooks.TableCardView = {
     mounted() {
       var key = this.el.dataset.storageKey || (this.el.id + "-view");
-      var saved = localStorage.getItem(key) || "table";
+      // "comfy" (comfortable rows — the table with more space per row and
+      // larger thumbs, via the `pk-comfy` marker class) is the default; the
+      // dense table and the card grid are the explicit alternatives.
+      var saved = localStorage.getItem(key) || "comfy";
       this.storageKey = key;
       this.currentMode = saved;
       this.applyMode(saved);
@@ -3494,10 +3497,14 @@ if (typeof window.Chart === "undefined") {
         tableEl.classList.remove("md:block");
         cardEl.classList.remove("md:hidden");
       } else {
+        // "table" (compact) and "comfy" (comfortable) both show the table
+        // branch; comfy additionally marks it so `[.pk-comfy_&]` utilities
+        // in the table markup can widen paddings and thumbnails.
         tableEl.classList.remove("md:hidden");
         tableEl.classList.add("md:block");
         cardEl.classList.add("md:hidden");
       }
+      tableEl.classList.toggle("pk-comfy", mode === "comfy");
 
       btns.forEach(function(b) {
         b.classList.toggle("btn-active", b.dataset.viewAction === mode);
@@ -3962,13 +3969,19 @@ if (typeof window.Chart === "undefined") {
   // ============================================================================
   // LEAF EDITOR (loaded from CDN)
   //
-  // Auto-loads Leaf editor JS from CDN when the hook mounts.
-  // The Elixir LiveComponent comes from the {:leaf, "~> 0.3"} hex dependency.
-  // Keep this pin in lockstep with the resolved hex version in mix.lock.
+  // Auto-loads Leaf editor JS from CDN when the hook mounts, so a page with
+  // no editor on it pays nothing.
+  //
+  // The Elixir LiveComponent comes from the :leaf hex dependency, and this
+  // tag has to name the same release: almost everything leaf adds is a
+  // server<->client contract, and a bundle left behind still renders an
+  // identical editor while quietly not implementing what the server now
+  // expects. test/phoenix_kit_web/leaf_bundle_pin_test.exs holds the two
+  // together, because the comment that used to ask for it did not.
   // ============================================================================
 
   (function() {
-    var LEAF_CDN = "https://cdn.jsdelivr.net/gh/alexdont/leaf@v0.3.2/priv/static/assets/leaf.js";
+    var LEAF_CDN = "https://cdn.jsdelivr.net/gh/alexdont/leaf@v0.5.1/priv/static/assets/leaf.js";
     var leafLoading = false;
     var leafCallbacks = [];
 
@@ -4037,7 +4050,7 @@ if (typeof window.Chart === "undefined") {
   // ============================================================================
 
   (function() {
-    var FRESCO_CDN = "https://cdn.jsdelivr.net/gh/alexdont/fresco@v0.10.0/priv/static/fresco.js";
+    var FRESCO_CDN = "https://cdn.jsdelivr.net/gh/alexdont/fresco@v0.11.0/priv/static/fresco.js";
     var frescoLoading = false;
     var frescoCallbacks = [];
 
@@ -4131,7 +4144,7 @@ if (typeof window.Chart === "undefined") {
   // ============================================================================
 
   (function() {
-    var TESSERA_CDN = "https://cdn.jsdelivr.net/gh/alexdont/tessera@v0.3.1/priv/static/tessera.js";
+    var TESSERA_CDN = "https://cdn.jsdelivr.net/gh/alexdont/tessera@v0.3.5/priv/static/tessera.js";
     var tesseraLoading = false;
     var tesseraCallbacks = [];
 
@@ -4182,17 +4195,20 @@ if (typeof window.Chart === "undefined") {
   //
   // Lazy-fetches Etcher's annotation layer JS. Pairs with Fresco — attaches
   // to a host viewer/canvas via `fresco_id` and adds the pencil toolbar,
-  // draw tools, and shape persistence. Comes from the {:etcher, "~> 0.6"}
-  // hex dependency. Same parent-pre-import short-circuit as Fresco.
+  // draw tools, and shape persistence. Comes from the :etcher hex
+  // dependency. Same parent-pre-import short-circuit as Fresco.
   //
-  // Keep this version pin in sync with the hex dep + the GitHub release tag
-  // (jsDelivr resolves `gh/<user>/<repo>@<tag>`). A stale pin silently serves
-  // an old etcher.js — toolbar hooks like `etcher:line-params-changed` then
-  // never fire even though the server side is wired for them.
+  // This pin must name the release hex resolved —
+  // test/phoenix_kit_web/vendored_cdn_pins_test.exs holds every gh/ pin in
+  // this file to its mix.lock entry, because the comment that used to ask
+  // for it did not: this one sat three minors behind. A stale pin silently
+  // serves an old etcher.js — toolbar hooks like
+  // `etcher:line-params-changed` then never fire even though the server
+  // side is wired for them.
   // ============================================================================
 
   (function() {
-    var ETCHER_CDN = "https://cdn.jsdelivr.net/gh/alexdont/etcher@v0.9.0/priv/static/etcher.js";
+    var ETCHER_CDN = "https://cdn.jsdelivr.net/gh/alexdont/etcher@v0.12.1/priv/static/etcher.js";
     var etcherLoading = false;
     var etcherCallbacks = [];
 
@@ -6358,4 +6374,151 @@ if (typeof window.Chart === "undefined") {
       window.removeEventListener("resize", this.repositionHandler);
     }
   };
+})();
+
+
+// ============================================================================
+// UploadStats - live transfer stats under upload progress bars
+// ============================================================================
+//
+// Attached to a text element rendered next to a LiveView upload entry's
+// progress bar. The server only patches `data-progress` (0-100); everything
+// shown is computed in the browser, so the numbers reflect the network as the
+// user experiences it:
+//
+//   uploading:   "3.2 MB / 12.4 MB · 2.8 MB/s · 4s left"
+//   at 100%:     "12.4 MB · Processing on server… 3s"   (tick continues while
+//                the server consumes the entry and the bar sits frozen)
+//
+// Markup contract: id (required for hooks), data-progress={entry.progress},
+// data-size={entry.client_size}, plus gettext'd labels in
+// data-label-processing / data-label-left. The hook owns the element's text.
+(function() {
+  "use strict";
+
+  // Decimal units, matching the Elixir-side Format.bytes(base: 1000) used in
+  // the media file listings.
+  function formatBytes(n) {
+    if (!isFinite(n) || n < 0) n = 0;
+    if (n < 1000) return Math.round(n) + " B";
+    var units = ["KB", "MB", "GB", "TB"];
+    var v = n;
+    for (var i = 0; i < units.length; i++) {
+      v = v / 1000;
+      if (v < 1000 || i === units.length - 1) {
+        return (v >= 100 ? String(Math.round(v)) : v.toFixed(1)) + " " + units[i];
+      }
+    }
+  }
+
+  function formatDuration(ms) {
+    var s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return s + "s";
+    var m = Math.floor(s / 60);
+    if (m < 60) return m + "m " + (s % 60) + "s";
+    var h = Math.floor(m / 60);
+    return h + "h " + (m % 60) + "m";
+  }
+
+  // Transfer rate in bytes/sec over a trailing window. `samples` is an
+  // ordered list of {t (ms), bytes} pairs. The denominator ends at `now`,
+  // not at the last sample, so a stalled transfer decays toward 0 instead
+  // of freezing at its last good speed.
+  function windowSpeed(samples, now, windowMs) {
+    windowMs = windowMs || 5000;
+    if (!samples || samples.length < 2) return 0;
+    var latest = samples[samples.length - 1];
+    var cutoff = now - windowMs;
+    // Baseline: the newest sample before `latest` that falls outside the
+    // window (anchors the span as the window slides), or the oldest sample
+    // we still hold. Never `latest` itself — during a hard stall every
+    // sample is old, and the span must still run from real data to `now`
+    // so the rate decays rather than snapping to 0.
+    var base = latest;
+    for (var i = samples.length - 2; i >= 0; i--) {
+      base = samples[i];
+      if (samples[i].t < cutoff) break;
+    }
+    if (base === latest) return 0;
+    var seconds = (now - base.t) / 1000;
+    if (seconds <= 0) return 0;
+    return Math.max(0, (latest.bytes - base.bytes) / seconds);
+  }
+
+  // The whole line as a pure function of the tracked state (node-testable).
+  function uploadStatsText(opts) {
+    var labels = opts.labels || {};
+    if (opts.doneAt != null) {
+      var label = labels.processing || "Processing on server…";
+      return formatBytes(opts.size) + " · " + label + " " +
+        formatDuration(opts.now - opts.doneAt);
+    }
+    var parts = [formatBytes(opts.bytes) + " / " + formatBytes(opts.size)];
+    var speed = windowSpeed(opts.samples, opts.now);
+    if (speed > 0) {
+      parts.push(formatBytes(speed) + "/s");
+      var etaMs = (Math.max(0, opts.size - opts.bytes) / speed) * 1000;
+      if (isFinite(etaMs)) parts.push(formatDuration(etaMs) + " " + (labels.left || "left"));
+    }
+    return parts.join(" · ");
+  }
+
+  window.PhoenixKitHooks.UploadStats = {
+    mounted() {
+      this.size = parseInt(this.el.dataset.size || "0", 10) || 0;
+      this.samples = [];
+      this.bytes = 0;
+      this.doneAt = null;
+      this.sample();
+      var self = this;
+      // The interval keeps elapsed/ETA moving between LiveView patches —
+      // that is what makes a stall or a long server phase visibly tick.
+      this.timer = setInterval(function() { self.render(); }, 500);
+      this.render();
+    },
+
+    updated() {
+      this.sample();
+      this.render();
+    },
+
+    sample() {
+      var progress = parseFloat(this.el.dataset.progress || "0") || 0;
+      var now = Date.now();
+      this.bytes = Math.round(this.size * Math.min(progress, 100) / 100);
+      if (progress >= 100 && this.doneAt == null) this.doneAt = now;
+      var last = this.samples[this.samples.length - 1];
+      if (!last || last.bytes !== this.bytes) {
+        this.samples.push({ t: now, bytes: this.bytes });
+        // Progress events arrive per chunk; keep enough to cover the speed
+        // window at any realistic event rate without growing unbounded.
+        if (this.samples.length > 128) this.samples.shift();
+      }
+    },
+
+    render() {
+      this.el.textContent = uploadStatsText({
+        size: this.size,
+        bytes: this.bytes,
+        samples: this.samples,
+        now: Date.now(),
+        doneAt: this.doneAt,
+        labels: {
+          processing: this.el.dataset.labelProcessing,
+          left: this.el.dataset.labelLeft
+        }
+      });
+    },
+
+    destroyed() {
+      clearInterval(this.timer);
+    }
+  };
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.formatBytes = formatBytes;
+    module.exports.formatDuration = formatDuration;
+    module.exports.windowSpeed = windowSpeed;
+    module.exports.uploadStatsText = uploadStatsText;
+  }
 })();

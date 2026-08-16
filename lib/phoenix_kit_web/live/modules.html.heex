@@ -399,16 +399,18 @@
         </PhoenixKitWeb.Components.Core.ModuleCard.module_card>
       <% end %>
 
-      <%!-- SEO Module --%>
-      <%= if "seo" in @accessible_modules do %>
-        <% cfg = @module_configs["seo"] || %{} %>
+      <%!-- Crawlers Module --%>
+      <%= if "crawlers" in @accessible_modules do %>
+        <% cfg = @module_configs["crawlers"] || %{} %>
         <PhoenixKitWeb.Components.Core.ModuleCard.module_card
-          title={gettext("SEO")}
-          description={gettext("Manage search engine optimization controls for your application")}
-          icon="🔍"
+          title={gettext("Crawlers")}
+          description={
+            gettext("Control how search engines and AI bots crawl and index this site")
+          }
+          icon="🕷️"
           enabled={cfg[:module_enabled]}
           toggle_event="toggle_module"
-          toggle_key="seo"
+          toggle_key="crawlers"
         >
           <:status_badges>
             <span class={[
@@ -423,7 +425,7 @@
             <%= if cfg[:module_enabled] do %>
               <.link
                 navigate={
-                  PhoenixKit.Utils.Routes.path("/admin/settings/seo",
+                  PhoenixKit.Utils.Routes.path("/admin/settings/crawlers",
                     locale: @current_locale || "en"
                   )
                 }
@@ -443,6 +445,12 @@
               <span class="text-base-content/70">{gettext("Noindex")}:</span>
               <span class="ml-2 font-medium">
                 {if cfg[:no_index_enabled], do: gettext("On"), else: gettext("Off")}
+              </span>
+            </div>
+            <div class="text-sm">
+              <span class="text-base-content/70">{gettext("Blocked groups")}:</span>
+              <span class="ml-2 font-medium">
+                {length(cfg[:blocked_groups] || [])}
               </span>
             </div>
           </:stats>

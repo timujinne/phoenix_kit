@@ -7,7 +7,99 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V166 - Frozen comment attribution ⚡ LATEST
+  ### V173 - Catalogue attribute groups ⚡ LATEST
+
+  Reusable, translatable attribute groups for the `phoenix_kit_catalogue`
+  module: a group ("Idea doors") owns attributes ("Color", "Trim"), each
+  attribute owns ordered values ("White", "Oak") with an explicit default,
+  and items link to a group through an assignment table (one group per
+  item enforced by a droppable unique index, so multi-group later is not
+  a data migration). Groups referenced by items can only be archived, not
+  deleted (RESTRICT FKs throughout; the module deletes unreferenced draft
+  groups via an explicit transactional cascade). Names and values carry
+  the module's per-language JSONB `data` translations with stable slug
+  keys as durable identity.
+
+  ### V172 - SEO module renamed to Crawlers
+
+  The built-in SEO module becomes Crawlers: everything it held was bot
+  policy (the noindex directive, crawler guidance, and now per-bot-group
+  access controls), while actual SEO work lives in the external
+  phoenix_kit_seo package. Settings rows are renamed
+  (seo_module_enabled/seo_no_index -> crawlers_*), roles granted seo gain
+  crawlers, and the old seo grants stay for the repair manifest.
+
+  ### V171 - Shop slugs unique per (base language, value)
+
+  Product and category slugs are jsonb maps, and the only uniqueness the
+  database enforced was an expression index on the alphabetically-first
+  key's value — under-enforcing (other languages unconstrained, collisions
+  surfacing on "add translation") and over-enforcing (`{"en":"hat"}` vs
+  `{"de":"hat"}` collided though they can never shadow each other in a
+  URL) at once. Trigger-maintained projection tables
+  (`phoenix_kit_shop_{product,category}_slugs`, PK `(lang, value)`) now
+  enforce the bucket the resolver actually reads. Existing duplicates are
+  suffixed `-2`, `-3` …; two LIVE rows sharing a bucket raise instead —
+  which URL survives is the operator's call. The old indexes are dropped;
+  `extract_primary_slug` stays, unused.
+
+  ### V170 - Notification collapsing gets indexes and a uniqueness backstop
+
+  Two indexes for the `upsert_inapp/3` collapsing API. A partial UNIQUE index
+  on `(recipient_uuid, metadata->>'dedupe_key')` over undismissed unseen rows
+  serves the dedupe lookup and turns the find-then-insert race (two workers
+  both inserting the same key) into a constraint the code retries as a
+  collapse; existing duplicate unseen rows are folded — all but the newest per
+  key marked dismissed — before the index is created. A second index on
+  `(recipient_uuid, seen_at IS NOT NULL, inserted_at DESC, uuid DESC)` over
+  undismissed rows matches the unseen-first inbox ordering term-for-term, so
+  the bell and inbox reads come straight off an index again. Rows without a
+  dedupe key are outside both the uniqueness rule and the fold.
+
+  ### V169 - Anonymous entity submissions, and one duplicate foreign key
+
+  Makes `phoenix_kit_entity_data.created_by_uuid` nullable: the public entity
+  form is deliberately unauthenticated and has no creator to record, so on a
+  freshly migrated database every anonymous submission failed with a
+  `not_null_violation`. Long-lived installs were already storing NULL there.
+  Recorded in V164's `@relaxed_after_v57` and in the V135 baseline so repair and
+  a fresh install agree with it.
+
+  Also drops the duplicate foreign key V135 created on
+  `phoenix_kit_ai_requests.prompt_uuid`, keeping the legacy
+  `phoenix_kit_ai_requests_prompt_uuid_fkey` — the name the installed base
+  carries and the one Ecto derives by default — so no live database needs a
+  rename.
+
+  ### V168 - The remaining slug indexes
+
+  Finishes what V167 started. An audit of every schema declaring a slug
+  `unique_constraint/3` found two more with nothing to translate:
+  `phoenix_kit_tickets` (plain btree since V135, while `Ticket` declares
+  `unique_constraint(:slug)` and `get_ticket_by_slug/2` fetches with
+  `one()`) and `phoenix_kit_post_groups` (no slug index at all, while
+  `PostGroup` names a composite `[:user_uuid, :slug]` index that exists
+  nowhere). The other six were already backed correctly.
+
+  Post-group slugs are unique **per user**, so that index is on
+  `(user_uuid, slug)` and the dedup partitions by the pair. Existing
+  duplicates are suffixed `-2`, `-3` … following `Slug.ensure_unique/2`,
+  the oldest row keeping the bare slug.
+
+  ### V167 - Unique post slugs
+
+  Makes `phoenix_kit_posts_slug_index` unique. It had been a plain btree
+  since V135 while its sibling `phoenix_kit_post_tags.slug` was unique, so
+  `Post`'s `unique_constraint(:slug)` had no index to translate and
+  `get_post_by_slug/2` — which fetches with `one()` — raised
+  `Ecto.MultipleResultsError` on any URL two posts shared.
+
+  Existing duplicates are suffixed `-2`, `-3` … following
+  `Slug.ensure_unique/2`, keeping the reachable post over a draft and then
+  the oldest. Two *live* posts on one slug raises instead: one of them has
+  to lose a working URL, and that is the operator's call.
+
+  ### V166 - Frozen comment attribution
 
   Adds `author_display_name`, `attribution_mode`, `attributed_project_uuid`
   and `attributed_label` to `phoenix_kit_comments`. A name resolved at
@@ -456,7 +548,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 166
+  @current_version 173
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries

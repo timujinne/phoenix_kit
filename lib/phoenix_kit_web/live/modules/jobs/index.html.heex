@@ -63,7 +63,7 @@
       <div class="card bg-base-100 shadow-xl">
         <div class="card-body p-4">
           <div class="flex flex-wrap gap-4 mb-4">
-            <form id="jobs-filter-queue-form" phx-change="filter_queue" class="form-control">
+            <form id="jobs-filter-queue-form" phx-change="filter_queue" class="fieldset">
               <.select
                 name="queue"
                 value={@filter_queue}
@@ -73,7 +73,7 @@
               />
             </form>
 
-            <form id="jobs-filter-state-form" phx-change="filter_state" class="form-control">
+            <form id="jobs-filter-state-form" phx-change="filter_state" class="fieldset">
               <.select
                 name="state"
                 value={@filter_state}
@@ -92,7 +92,7 @@
               />
             </form>
 
-            <form id="jobs-filter-worker-form" phx-change="filter_worker" class="form-control">
+            <form id="jobs-filter-worker-form" phx-change="filter_worker" class="fieldset">
               <.select
                 name="worker"
                 value={@filter_worker}

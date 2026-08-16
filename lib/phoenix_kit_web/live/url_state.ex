@@ -303,7 +303,7 @@ defmodule PhoenixKitWeb.Live.UrlState do
   Public so a LiveView that does its own thing with `handle_params/3` can still
   share the exact codec.
   """
-  @spec decode(map(), map()) :: state()
+  @spec decode(map() | :not_mounted_at_router, map()) :: state()
   def decode(params, cfg) when is_map(params) do
     Map.new(cfg.params, fn spec -> {spec.key, decode_param(params, spec)} end)
   end
@@ -409,7 +409,11 @@ defmodule PhoenixKitWeb.Live.UrlState do
     socket =
       socket
       |> assign_state(decode(params, cfg), cfg)
-      |> Phoenix.Component.assign(@extra_assign, extra_params(params, cfg))
+      # Extras are filled from the real query string in handle_params
+      # (:patch) or the client report (:history). Seeding them from the
+      # mount params map would re-encode router path params — the same
+      # leak extras_from_uri/2 exists to close.
+      |> Phoenix.Component.assign(@extra_assign, %{})
       # :patch has a handle_params hook to make the first call; :history has
       # none, so its LiveViews load in mount/3 and are already "loaded" by the
       # time the client reports the query. Marking it here keeps that report
@@ -479,15 +483,36 @@ defmodule PhoenixKitWeb.Live.UrlState do
 
   defp handle_params(params, uri, socket) do
     cfg = config!(socket)
+    parsed = URI.parse(uri)
 
+    # Extras must come from the URI's ACTUAL query string, not the params
+    # map LiveView hands in — that map merges router PATH params (a
+    # `/:uuid` segment, say) with the query, and treating a path param as
+    # an unknown-but-preserved query key re-encodes it into every patched
+    # URL (`?q=oak` became `?q=oak&uuid=<uuid>`).
     socket =
       socket
-      |> Phoenix.Component.assign(@path_assign, URI.parse(uri).path)
-      |> Phoenix.Component.assign(@extra_assign, extra_params(params, cfg))
+      |> Phoenix.Component.assign(@path_assign, parsed.path)
+      |> Phoenix.Component.assign(@extra_assign, extras_from_uri(parsed, cfg))
       |> apply_state(decode(params, cfg), cfg)
 
     {:cont, socket}
   end
+
+  @doc """
+  Unknown query keys from a URI, excluding declared UrlState keys.
+
+  Reads the URI's **query string only** — never the path — so a router
+  segment such as `/:uuid` is not treated as an extra to re-encode into
+  the next patch. Public so a LiveView that owns `handle_params/3` can
+  share the same rule, and so the contract is cheap to pin in a test.
+  """
+  @spec extras_from_uri(String.t() | URI.t(), map()) :: %{String.t() => String.t()}
+  def extras_from_uri(uri, cfg) when is_binary(uri), do: extras_from_uri(URI.parse(uri), cfg)
+  def extras_from_uri(%URI{} = uri, cfg), do: extra_params(query_params(uri), cfg)
+
+  defp query_params(%URI{query: nil}), do: %{}
+  defp query_params(%URI{query: query}), do: URI.decode_query(query)
 
   # Assign the decoded state and, if it actually moved, hand it to the
   # LiveView's callback. Shared by both modes: the patch hook, the client's
@@ -550,8 +575,6 @@ defmodule PhoenixKitWeb.Live.UrlState do
     end)
     |> Map.new()
   end
-
-  defp extra_params(_params, _cfg), do: %{}
 
   # Accepts a socket or a bare assigns map. Inside a template `@socket.assigns`
   # has been swapped for `%Socket.AssignsNotInSocket{}`, which raises on access

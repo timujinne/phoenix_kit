@@ -28,6 +28,12 @@ db_check =
     ErlangError -> :try_connect
   end
 
+# Started before the repo block: the Owner seed below promotes through
+# `ensure_first_user_is_owner/1`, which broadcasts on the internal pubsub —
+# without the manager running, the seed raises and the rescue silently
+# excludes the whole integration half as "no database".
+{:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
+
 repo_available =
   if db_check == :not_found do
     IO.puts("""
@@ -47,6 +53,37 @@ repo_available =
       # `PhoenixKit.Migration.ensure_current/2` moduledoc for the bug
       # story.
       PhoenixKit.Migration.ensure_current(PhoenixKit.Test.Repo, log: false)
+
+      # A COMMITTED Owner, seeded before the sandbox goes manual. Without one,
+      # every async test's first `register_user` sees a committed owner-count
+      # of 0 and takes FOR NO KEY UPDATE on the one committed Owner role row
+      # (Roles.ensure_first_user_is_owner/1), holding it to test end — an
+      # app-wide registration convoy queuing every concurrent test on a single
+      # tuple lock, and the standing suspect for the suite's rare 40P01.
+      # With an Owner already committed, that path short-circuits unlocked.
+      #
+      # Idempotent so a reused database does not grow a second seed. Tests
+      # asserting first-user bootstrap semantics delete this seed's role
+      # assignment inside their own sandbox transaction, where the count goes
+      # to 0 for them alone.
+      # Seeded by direct insert + the bootstrap promoter, NOT register_user:
+      # registration consults the rate limiter, whose ETS table is not alive
+      # at helper time, and its raise here would trip the rescue below and
+      # silently exclude the whole integration half as "no database".
+      if PhoenixKit.Users.Roles.count_active_owners() == 0 do
+        seed =
+          PhoenixKit.Users.Auth.get_user_by_email("seed-owner@phoenixkit.test") ||
+            %PhoenixKit.Users.Auth.User{}
+            |> Ecto.Changeset.change(%{
+              email: "seed-owner@phoenixkit.test",
+              hashed_password: Bcrypt.hash_pwd_salt("SeedOwnerPassword123!"),
+              confirmed_at: DateTime.utc_now() |> DateTime.truncate(:second),
+              is_active: true
+            })
+            |> PhoenixKit.Test.Repo.insert!()
+
+        {:ok, _} = PhoenixKit.Users.Roles.ensure_first_user_is_owner(seed)
+      end
 
       Ecto.Adapters.SQL.Sandbox.mode(PhoenixKit.Test.Repo, :manual)
       true
@@ -93,7 +130,6 @@ unless repo_available do
 end
 
 # Start minimal services needed for tests
-{:ok, _pid} = PhoenixKit.PubSub.Manager.start_link([])
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])
 {:ok, _pid} = PhoenixKit.Users.RateLimiter.Backend.start_link([])
 

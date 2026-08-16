@@ -45,9 +45,9 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
 
   alias Phoenix.HTML
   alias PhoenixKit.Config
+  alias PhoenixKit.Modules.Crawlers
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Languages.DialectMapper
-  alias PhoenixKit.Modules.SEO
   alias PhoenixKit.Modules.Storage.URLSigner
   alias PhoenixKit.ThemeConfig
   alias PhoenixKit.Users.Auth.Scope
@@ -93,6 +93,11 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
     default: nil,
     doc:
       "Prefixed path (via `PhoenixKit.Utils.Routes.path/1`) the `page_section` crumb links to. Renders as plain text when omitted."
+
+  attr :page_crumbs, :list,
+    default: [],
+    doc:
+      "Extra breadcrumb crumbs rendered between `page_section` and `page_title`, for pages nested deeper than one level (e.g. catalogue / category drill trails): `[%{label: \"Plumbing\", path: \"/…\"}]`. `path` is a `push_navigate` target; `patch` is a `push_patch` target for same-LiveView drill trails. Both are optional — omitted renders plain text. The last crumb stays visible below `sm` (the trail truncates from the left); earlier crumbs collapse with the section."
 
   attr :page_action, :map,
     default: nil,
@@ -174,7 +179,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
             PhoenixKit.Settings.get_content_language()
         end
       end)
-      |> assign_new(:seo_no_index, fn -> SEO.no_index_enabled?() end)
+      |> assign_new(:crawlers_no_index, fn -> Crawlers.no_index_enabled?() end)
 
     # Handle both inner_content (Phoenix 1.7-) and inner_block (Phoenix 1.8+)
     assigns = normalize_content_assigns(assigns)
@@ -300,6 +305,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
       page_subtitle: assigns[:page_subtitle],
       page_section: assigns[:page_section],
       page_section_path: assigns[:page_section_path],
+      page_crumbs: assigns[:page_crumbs] || [],
       page_action: assigns[:page_action],
       # The slot travels here as an ordinary key; `assigns[:action]` is
       # `nil` for every caller that does not pass one, and the render
@@ -421,14 +427,20 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                   <div class="flex items-center gap-1 min-w-0">
                     <.link
                       href="/"
-                      class="font-bold text-base-content hover:opacity-80 transition-opacity hidden sm:inline truncate"
+                      class={[
+                        "font-bold text-base-content hover:opacity-80 transition-opacity truncate",
+                        (@page_title && "hidden lg:inline") || "hidden sm:inline"
+                      ]}
                     >
                       {@project_title}
                     </.link>
-                    <%!-- On mobile, when a page has a title, hide the "Admin
-                         Panel /" prefix and show just the page title — the full
-                         breadcrumb is too wide and overlaps the right-side theme
-                         / notifications controls.
+                    <%!-- Progressive collapse when a page has a title, dropping
+                         from the LEFT so the tail of the trail survives: below
+                         lg the site name + "Admin Panel" give way to a "…" that
+                         still links home (the burger appears at lg too, so this
+                         is where width runs out); below sm the section and all
+                         but the LAST page_crumb go too, leaving
+                         "… / parent / page".
 
                          Dropped entirely for a visitor with no admin rights.
                          `/admin` is the landing EVERY authenticated user can
@@ -448,16 +460,24 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                       :if={@show_admin_nav}
                       class={[
                         "font-bold text-base-content shrink-0",
-                        @page_title && "hidden sm:inline"
+                        @page_title && "hidden lg:inline"
                       ]}
                     >
                       {gettext("Admin Panel")}
                     </span>
+                    <.link
+                      :if={@page_title}
+                      href="/"
+                      title={@project_title}
+                      class="lg:hidden font-bold text-base-content/50 hover:text-base-content transition-opacity shrink-0"
+                    >
+                      …
+                    </.link>
                     <%!-- Current page breadcrumb: " / Page Title · subtitle".
                          Pushed in via page_title / page_subtitle so pages can
                          drop their own in-content header and reclaim the space. --%>
                     <span :if={@page_title} class="flex items-center gap-1.5 min-w-0">
-                      <span class="text-base-content/30 shrink-0 hidden sm:inline">/</span>
+                      <span class="text-base-content/30 shrink-0">/</span>
                       <span
                         :if={@page_section}
                         class="hidden sm:flex items-center gap-1.5 shrink-0"
@@ -471,6 +491,43 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                         </.link>
                         <span :if={!@page_section_path} class="font-semibold text-base-content/60">
                           {@page_section}
+                        </span>
+                        <span class="text-base-content/30">/</span>
+                      </span>
+                      <%!-- Deeper crumbs (page_crumbs): between the section and
+                           the page title, for drill-down pages. The LAST crumb
+                           (the page's parent) stays visible below sm — the
+                           trail truncates from the left, not all at once.
+                           `patch` is same-LiveView; `path` is navigate. --%>
+                      <span
+                        :for={{crumb, idx} <- Enum.with_index(@page_crumbs)}
+                        class={[
+                          "items-center gap-1.5 min-w-0",
+                          if(idx == length(@page_crumbs) - 1,
+                            do: "flex",
+                            else: "hidden sm:flex shrink-0"
+                          )
+                        ]}
+                      >
+                        <.link
+                          :if={crumb[:patch]}
+                          patch={crumb[:patch]}
+                          class="font-semibold text-base-content/60 hover:text-base-content transition-opacity truncate"
+                        >
+                          {crumb.label}
+                        </.link>
+                        <.link
+                          :if={is_nil(crumb[:patch]) and crumb[:path]}
+                          navigate={crumb[:path]}
+                          class="font-semibold text-base-content/60 hover:text-base-content transition-opacity truncate"
+                        >
+                          {crumb.label}
+                        </.link>
+                        <span
+                          :if={is_nil(crumb[:patch]) and is_nil(crumb[:path])}
+                          class="font-semibold text-base-content/60 truncate"
+                        >
+                          {crumb.label}
                         </span>
                         <span class="text-base-content/30">/</span>
                       </span>
@@ -636,223 +693,11 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                   });
                 }
               });
-
-              // Theme configuration and controller
-              const themeBaseMap = <%= ThemeConfig.base_map() |> Phoenix.json_library().encode!() |> Phoenix.HTML.raw() %>;
-              const themeLabels = <%= ThemeConfig.translated_label_map() |> Phoenix.json_library().encode!() |> Phoenix.HTML.raw() %>;
-
-              // Admin theme controller for PhoenixKit with animated slider
-              const adminThemeController = {
-                init() {
-                  // Safely query for dropdown controllers with null checks
-                  const dropdownContainers = document.querySelectorAll('[data-theme-dropdown]');
-
-                  this.dropdownControllers = Array.from(dropdownContainers).map((container) => ({
-                    container,
-                    button: container.querySelector('[data-theme-toggle]'),
-                    panel: container.querySelector('[data-theme-dropdown-panel]'),
-                    label: container.querySelector('[data-theme-current-label]')
-                  }));
-
-                  this.registerDropdownAccessibility();
-
-                  this.systemMediaQuery =
-                    typeof window.matchMedia === 'function'
-                      ? window.matchMedia('(prefers-color-scheme: dark)')
-                      : null;
-
-                  if (this.systemMediaQuery) {
-                    this.systemMediaQuery.addEventListener('change', () => {
-                      if ((localStorage.getItem('phx:theme') || 'system') === 'system') {
-                        this.applyThemeAttributes('system');
-                      }
-                    });
-                  }
-
-                  const savedTheme = localStorage.getItem('phx:theme') || 'system';
-                  this.setTheme(savedTheme);
-                  this.setupListeners();
-                },
-
-                setTheme(theme) {
-                  const resolvedTheme = this.applyThemeAttributes(theme, themeBaseMap);
-
-                  if (theme === 'system') {
-                    localStorage.removeItem('phx:theme');
-                  } else {
-                    localStorage.setItem('phx:theme', theme);
-                  }
-
-                  if (this.dropdownControllers?.length) {
-                    this.dropdownControllers.forEach((entry) => {
-                      if (entry.label) {
-                        entry.label.textContent = themeLabels[theme] || this.toTitle(theme);
-                      }
-                      this.setDropdownState(entry, false);
-                    });
-                  }
-
-                  // Update active state for all theme buttons
-                  const themeButtons = document.querySelectorAll('[data-theme-target]');
-
-                  themeButtons.forEach((btn) => {
-                    const targets = (btn.dataset.themeTarget || '')
-                      .split(',')
-                      .map((value) => value.trim())
-                      .filter(Boolean);
-                    const isActive = targets.includes(theme);
-
-                    if (btn.dataset.themeRole === 'dropdown-option') {
-                      btn.classList.toggle('bg-base-200', isActive);
-                      btn.classList.toggle('ring-2', isActive);
-                      btn.classList.toggle('ring-primary/70', isActive);
-                      btn.setAttribute('aria-selected', String(isActive));
-                      btn
-                        .querySelectorAll('[data-theme-active-indicator]')
-                        .forEach((icon) => {
-                          icon.classList.toggle('opacity-100', isActive);
-                          icon.classList.toggle('scale-100', isActive);
-                          icon.classList.toggle('scale-75', !isActive);
-                        });
-                    } else if (btn.dataset.themeRole === 'slider-button') {
-                      btn.classList.toggle('text-primary', isActive);
-                      btn.setAttribute('aria-pressed', String(isActive));
-                    }
-                  });
-
-                  // Notify global PhoenixKit theme listeners
-                  // Dispatch from a fake element with data-phx-theme attribute for compatibility with parent app listeners
-                  // The event bubbles up to window, allowing window-level listeners to work correctly
-                  try {
-                    const fakeTarget = document.createElement('div');
-                    fakeTarget.dataset.phxTheme = theme;
-                    const event = new CustomEvent('phx:set-theme', {
-                      detail: { theme },
-                      bubbles: true
-                    });
-                    fakeTarget.dispatchEvent(event);
-                  } catch (error) {
-                    console.warn('PhoenixKit admin theme controller: unable to dispatch phx:set-theme', error);
-                  }
-
-                  if (window.PhoenixKitTheme && typeof window.PhoenixKitTheme.setTheme === 'function') {
-                    try {
-                      window.PhoenixKitTheme.setTheme(theme);
-                    } catch (error) {
-                      console.warn('PhoenixKit admin theme controller: unable to sync PhoenixKitTheme', error);
-                    }
-                  }
-                },
-
-                setupListeners() {
-                  // Listen to Phoenix LiveView theme events (both variants)
-                  document.addEventListener('phx:set-admin-theme', (e) => {
-                    if (e?.detail?.theme) {
-                      this.setTheme(e.detail.theme);
-                    }
-                  });
-
-                  // Also listen for phx:set-theme from theme_controller component
-                  window.addEventListener('phx:set-theme', (e) => {
-                    if (e?.detail?.theme) {
-                      this.setTheme(e.detail.theme);
-                    }
-                  });
-                },
-
-                registerDropdownAccessibility() {
-                  if (!this.dropdownControllers?.length) return;
-
-                  this.dropdownControllers.forEach((entry) => {
-                    this.setDropdownState(entry, false);
-
-                    if (!entry.button || !entry.panel) return;
-
-                    entry.button.addEventListener('click', (event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      const expanded = entry.button.getAttribute('aria-expanded') === 'true';
-                      this.setDropdownState(entry, !expanded);
-                    });
-
-                    entry.panel.addEventListener('click', (event) => {
-                      event.stopPropagation();
-                    });
-                  });
-
-                  document.addEventListener('click', (event) => {
-                    const clickedInside = this.dropdownControllers.some((entry) =>
-                      entry.container?.contains(event.target)
-                    );
-
-                    if (!clickedInside) {
-                      this.dropdownControllers.forEach((entry) => this.setDropdownState(entry, false));
-                    }
-                  });
-                },
-
-                toTitle(value) {
-                  return value
-                    .split('-')
-                    .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-                    .join(' ');
-                },
-
-                setDropdownState(entry, isOpen) {
-                  if (!entry?.button || !entry?.panel) return;
-
-                  entry.button.setAttribute('aria-expanded', String(!!isOpen));
-                  entry.panel.setAttribute('aria-hidden', String(!isOpen));
-                  entry.panel.classList.toggle('pointer-events-auto', !!isOpen);
-                  entry.panel.classList.toggle('pointer-events-none', !isOpen);
-                  entry.panel.classList.toggle('opacity-100', !!isOpen);
-                  entry.panel.classList.toggle('opacity-0', !isOpen);
-                  entry.panel.classList.toggle('-translate-y-2', !isOpen);
-                  entry.panel.classList.toggle('translate-y-0', !!isOpen);
-                },
-
-                applyThemeAttributes(theme, baseMap = {}) {
-                  const resolvedTheme =
-                    theme === 'system'
-                      ? this.systemMediaQuery && this.systemMediaQuery.matches
-                        ? 'phoenix-dark'
-                        : 'phoenix-light'
-                      : theme;
-
-                  if (document.documentElement) {
-                    document.documentElement.setAttribute('data-theme', resolvedTheme);
-                    document.documentElement.dataset.theme = resolvedTheme;
-                    document.documentElement.setAttribute(
-                      'data-admin-theme-base',
-                      theme === 'system' ? 'system' : baseMap[resolvedTheme] || resolvedTheme
-                    );
-                  }
-
-                  if (document.body) {
-                    document.body.setAttribute('data-theme', resolvedTheme);
-                    document.body.dataset.theme = resolvedTheme;
-                    document.body.setAttribute(
-                      'data-admin-theme-base',
-                      theme === 'system' ? 'system' : baseMap[resolvedTheme] || resolvedTheme
-                    );
-                    document.body.classList.add('bg-base-100', 'transition-colors');
-                  }
-
-                  return resolvedTheme;
-                }
-              };
-
-              // Always initialize after DOM is fully loaded to avoid race conditions
-              if (document.readyState === 'loading' || document.readyState === 'interactive') {
-                // DOM still loading, wait for DOMContentLoaded
-                document.addEventListener('DOMContentLoaded', () => {
-                  adminThemeController.init();
-                });
-              } else {
-                // DOM already loaded (readyState === 'complete'), safe to init immediately
-                adminThemeController.init();
-              }
             </script>
+            <%!-- Shared theme controller (dropdown a11y, pair toggle,
+                 indicators, host dispatch) — the near-copy that lived here
+                 moved to one generated script serving every layout. --%>
+            <PhoenixKitWeb.Components.ThemeControllerScript.theme_controller_script />
             """
           end
         }
@@ -960,10 +805,12 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
     <html
       lang={@content_language || "en"}
       data-theme="light"
-      data-admin-theme-base="system"
       class="[scrollbar-gutter:stable]"
     >
       <head>
+        <%!-- Pre-paint: the standalone admin used to hardcode light and fix
+             it up on DOMContentLoaded — a guaranteed flash for dark users. --%>
+        <PhoenixKitWeb.Components.ThemeBootstrap.theme_bootstrap />
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={Plug.CSRFProtection.get_csrf_token()} />
@@ -977,10 +824,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
           {assigns[:page_title] || "Admin"}
         </.live_title>
         <.phoenix_kit_favicon />
-        <%= if assigns[:seo_no_index] do %>
-          <meta name="robots" content="noindex,nofollow" />
-          <meta name="googlebot" content="noindex,nofollow" />
-        <% end %>
+        <PhoenixKitWeb.Components.Core.CrawlerMetas.crawler_metas />
         <link phx-track-static rel="stylesheet" href="/assets/css/app.css" />
         <%!-- PhoenixKit Cookie Consent Widget Setup --%>
         <.phoenix_kit_globals />
@@ -989,7 +833,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
           </script>
         <% end %>
       </head>
-      <body class="bg-base-100 antialiased transition-colors" data-admin-theme-base="system">
+      <body class="bg-base-100 antialiased transition-colors">
         <%!-- Admin pages without parent headers --%>
         <main class="min-h-screen bg-base-100 transition-colors">
           <.flash_group flash={@flash} />
@@ -1124,7 +968,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
     |> Map.put_new(:phoenix_kit_integrated, true)
     |> Map.put_new(:phoenix_kit_version, get_phoenix_kit_version())
     |> Map.put_new(:phoenix_version_info, PhoenixVersion.get_version_info())
-    |> Map.put_new(:seo_no_index, assigns[:seo_no_index] || false)
+    |> Map.put_new(:crawlers_no_index, assigns[:crawlers_no_index] || false)
   end
 
   # Extract current user from scope for parent layout compatibility

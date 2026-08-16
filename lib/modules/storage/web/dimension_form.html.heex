@@ -50,7 +50,7 @@
           </h2>
 
           <%!-- Aspect Ratio Toggle --%>
-          <div class="form-control">
+          <div class="fieldset">
             <.checkbox
               name="dimension[maintain_aspect_ratio]"
               checked={get_field_value(@changeset, :maintain_aspect_ratio) != false}
@@ -204,7 +204,7 @@
                       checked={fmt in @current_alternatives}
                       class="checkbox checkbox-sm checkbox-primary"
                     />
-                    <span class="label-text">{label}</span>
+                    <span class="fieldset-legend">{label}</span>
                   </label>
                 <% end %>
               <% end %>

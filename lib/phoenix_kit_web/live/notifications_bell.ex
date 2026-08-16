@@ -91,6 +91,7 @@ defmodule PhoenixKitWeb.Live.NotificationsBell do
   def handle_info({event, _payload}, socket)
       when event in [
              :notification_created,
+             :notification_updated,
              :notification_seen,
              :notification_dismissed,
              :notifications_bulk_updated

@@ -185,10 +185,12 @@ defmodule PhoenixKit.Integrations.Providers do
       deepseek(),
       xai(),
       elevenlabs(),
+      amazon_bedrock(),
       aws_ses(),
       smtp(),
       brevo_api(),
-      telegram()
+      telegram(),
+      github()
     ]
   end
 
@@ -681,6 +683,142 @@ defmodule PhoenixKit.Integrations.Providers do
     }
   end
 
+  # Bedrock's OpenAI-compatible chat endpoint is regional, but the registry
+  # `base_url` is static — the default below matches our primary region, and
+  # the AI endpoint form lets the operator override `base_url` per endpoint.
+  # Auth is a long-term Bedrock API key (plain Bearer, no SigV4) — the same
+  # header the OpenAI-compatible runtime endpoint accepts, so one credential
+  # serves both the validation probe and real completions.
+  defp amazon_bedrock do
+    %{
+      key: "amazon_bedrock",
+      scopes: [:system, :personal],
+      name: gettext("Amazon Bedrock"),
+      description:
+        gettext(
+          "AWS Bedrock LLMs via a Bedrock API key (OpenAI-compatible endpoint: gpt-oss models; the rest via native Converse)"
+        ),
+      icon: "hero-sparkles",
+      auth_type: :api_key,
+      oauth_config: nil,
+      base_url: "https://bedrock-runtime.eu-central-1.amazonaws.com/openai/v1",
+      # Region-aware — checked against the Bedrock control plane itself
+      # (ListFoundationModels), see PhoenixKit.Integrations.Validators.
+      validation: %{strategy: :amazon_bedrock},
+      setup_fields: [
+        %{
+          key: "api_key",
+          label: gettext("Bedrock API key"),
+          type: :password,
+          required: true,
+          placeholder: "ABSK…",
+          help: gettext("AWS console → Amazon Bedrock → API keys (long-term key)"),
+          options: nil
+        },
+        %{
+          key: "aws_region",
+          label: gettext("Region"),
+          type: :text,
+          required: true,
+          placeholder: "eu-central-1",
+          help: nil,
+          options: nil
+        }
+      ],
+      capabilities: [:ai_completions],
+      instructions: [
+        %{
+          title: gettext("Create a Bedrock API key"),
+          steps: [
+            {gettext(
+               "Open the [Bedrock console → API keys](https://console.aws.amazon.com/bedrock/home#/api-keys) and generate a **long-term** key (docs: [Bedrock API keys](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html))"
+             ), nil},
+            {gettext(
+               "Or attach one to an existing IAM user: [IAM console](https://console.aws.amazon.com/iam/home#/users) → user → Security credentials → Bedrock API keys"
+             ), nil},
+            {gettext("Copy the key (shown once, `ABSK…`) and paste it into the form above"), nil}
+          ],
+          note:
+            gettext(
+              "The key's IAM identity must allow the `bedrock:CallWithBearerToken` action — without it every Bearer call answers 403 even when invoke permissions are in place."
+            )
+        },
+        %{
+          title: gettext("Enable model access"),
+          steps: [
+            {gettext(
+               "In [Bedrock → Model access](https://console.aws.amazon.com/bedrock/home#/modelaccess) enable the models you plan to call — a key with no enabled models validates but cannot complete"
+             ), nil},
+            {gettext(
+               "Pick the region where access was granted; the AI endpoint's base URL must use the same region"
+             ), nil}
+          ]
+        },
+        %{
+          title: gettext("Use it from the AI module"),
+          steps: [
+            {gettext(
+               "The OpenAI-compatible endpoint (`…/openai/v1`) currently serves only the `openai.gpt-oss-*` models — Anthropic and the other Bedrock models answer on the native Converse API with the same key"
+             ), nil},
+            {gettext(
+               "In the AI module, create an endpoint pointing at this connection with a `gpt-oss` model and a base URL in the SAME region as this key"
+             ), nil}
+          ]
+        }
+      ]
+    }
+  end
+
+  # A read-only token for GitHub API consumers (e.g. org-statistics dashboard
+  # widgets). GraphQL requires authentication even for public data, so the
+  # least-privilege credential is a fine-grained PAT with public-repo
+  # read-only access.
+  defp github do
+    %{
+      key: "github",
+      scopes: [:system, :personal],
+      name: gettext("GitHub"),
+      description:
+        gettext("GitHub API token — org statistics, repositories (read-only is enough)"),
+      icon: "hero-code-bracket-square",
+      auth_type: :api_key,
+      oauth_config: nil,
+      # 200 with a valid token, 401 otherwise; standard Bearer auth.
+      validation: %{
+        url: "https://api.github.com/rate_limit",
+        method: :get,
+        auth_header: "Authorization",
+        auth_prefix: "Bearer "
+      },
+      setup_fields: [
+        %{
+          key: "api_key",
+          label: gettext("Personal access token"),
+          type: :password,
+          required: true,
+          placeholder: "github_pat_… / ghp_…",
+          help: gettext("github.com/settings/personal-access-tokens — fine-grained, read-only"),
+          options: nil
+        }
+      ],
+      capabilities: [:github_api],
+      instructions: [
+        %{
+          title: gettext("Create a token"),
+          steps: [
+            {gettext(
+               "Go to [Fine-grained tokens](https://github.com/settings/personal-access-tokens) and click **Generate new token**"
+             ), nil},
+            {gettext(
+               "Repository access: **Public repositories (read-only)** — no extra permissions needed for public-org statistics"
+             ), nil},
+            {gettext("Copy the token and paste it into the form above"), nil}
+          ]
+        }
+      ]
+    }
+  end
+
   defp aws_ses do
     %{
       key: "aws_ses",
@@ -727,7 +865,35 @@ defmodule PhoenixKit.Integrations.Providers do
           options: nil
         }
       ],
-      capabilities: [:email_send]
+      capabilities: [:email_send],
+      instructions: [
+        %{
+          title: gettext("Create an IAM user with SES access"),
+          steps: [
+            {gettext(
+               "In the [IAM console](https://console.aws.amazon.com/iam/home#/users) create a user for programmatic access and attach an SES policy (least privilege: `ses:SendEmail`/`ses:SendRawEmail`; docs: [SES setup](https://docs.aws.amazon.com/ses/latest/dg/setting-up.html))"
+             ), nil},
+            {gettext(
+               "Create an access key for that user (Security credentials → Create access key) and paste the ID and secret above"
+             ), nil}
+          ]
+        },
+        %{
+          title: gettext("Verify a sender in SES"),
+          steps: [
+            {gettext(
+               "In the [SES console](https://console.aws.amazon.com/ses/home#/identities) verify your domain or sender address — SES refuses to send from unverified identities"
+             ), nil},
+            {gettext(
+               "New accounts start in the SES sandbox (verified recipients only) — [request production access](https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html) before real sending"
+             ), nil}
+          ],
+          note:
+            gettext(
+              "This connection stores the credential. The full sending pipeline — configuration set, SNS topic, SQS event queue, delivery tracking — is configured in Admin → Settings → Emails, which can select this connection as its credential source."
+            )
+        }
+      ]
     }
   end
 

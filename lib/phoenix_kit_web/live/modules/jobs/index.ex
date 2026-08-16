@@ -27,6 +27,7 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
   alias PhoenixKit.ScheduledJobs.ScheduledJob
   alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Json
+  alias PhoenixKit.Utils.Pagination
   alias PhoenixKit.Utils.Routes
 
   @per_page 25
@@ -195,7 +196,7 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
       |> maybe_exclude_hidden_workers(hidden_workers, filter_worker)
 
     total_count = repo.aggregate(query, :count, :id)
-    total_pages = max(1, ceil(total_count / per_page))
+    total_pages = Pagination.total_pages(total_count, per_page)
 
     jobs =
       query
@@ -342,6 +343,9 @@ defmodule PhoenixKitWeb.Live.Modules.Jobs.Index do
   defp scheduled_job_badge_class(status) do
     case status do
       "pending" -> "badge-warning"
+      # Claimed by a sweep and currently executing — same colour as Oban's
+      # "executing" above, because it is the same phase of life.
+      "processing" -> "badge-primary"
       "executed" -> "badge-success"
       "failed" -> "badge-error"
       "cancelled" -> "badge-ghost"

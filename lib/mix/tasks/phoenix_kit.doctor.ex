@@ -43,14 +43,17 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
    13. **Lock Conflicts** — Any blocked or long-running queries?
    14. **Orphaned Connections** — Idle-in-transaction or stuck connections
    15. **Oban Configuration** — Queues and plugins that consume pool connections
-   16. **PhoenixKit Supervisor** — What's running (update_mode vs full)?
-   17. **Child Start Order** — Does the Repo start before PhoenixKit/Oban in application.ex?
-   18. **Update Mode** — Is update_mode active?
-   19. **daisyUI Version** — Is the host's vendored daisyUI recent enough?
-   20. **User Dashboard (deprecated)** — Is the host still on the retired dashboard?
-   21. **Sitemap Discoverability** — Is the sitemap actually reachable?
-   22. **Demo Auth Pages** — Are the demo auth routes still exposed?
-   23. **Manifest Repair (dry-run)** — `PhoenixKit.Migrations.Repair.verify/1`
+   16. **Oban Cron Queues** — Does every crontab worker have its queue configured?
+   17. **PhoenixKit Supervisor** — What's running (update_mode vs full)?
+   18. **Child Start Order** — Does the Repo start before PhoenixKit/Oban in application.ex?
+   19. **Update Mode** — Is update_mode active?
+   20. **daisyUI Version** — Is the host's vendored daisyUI recent enough?
+   21. **User Dashboard (deprecated)** — Is the host still on the retired dashboard?
+   22. **Sitemap Discoverability** — Is the sitemap actually reachable?
+   23. **Crawler Visibility** — noindex on a production-looking host, or a
+       staging-looking host left indexable
+   24. **Demo Auth Pages** — Are the demo auth routes still exposed?
+   25. **Manifest Repair (dry-run)** — `PhoenixKit.Migrations.Repair.verify/1`
        runs read-only against the generated
        `PhoenixKit.Migrations.ExpectedSchema` manifest as an additional,
        non-fatal check (never `:fail`). Passes and says so if the manifest
@@ -66,7 +69,10 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
   alias PhoenixKit.Migrations.Postgres
   alias PhoenixKit.Migrations.Repair
   alias PhoenixKit.Migrations.Repair.Report
+  alias PhoenixKit.Modules.Crawlers
+  alias PhoenixKit.Modules.Crawlers.Bots
   alias PhoenixKit.Modules.Sitemap.RouteResolver
+  alias PhoenixKit.Utils.Routes
 
   @shortdoc "Diagnoses PhoenixKit installation, migration, and runtime issues"
 
@@ -119,12 +125,14 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
       run_check("Lock Conflicts", fn -> check_lock_conflicts() end),
       run_check("Orphaned Connections", fn -> check_orphaned_connections() end),
       run_check("Oban Configuration", fn -> check_oban_config(oban_config) end),
+      run_check("Oban Cron Queues", fn -> check_cron_queues(oban_config) end),
       run_check("PhoenixKit Supervisor", fn -> check_supervisor_state() end),
       run_check("Child Start Order", fn -> check_child_order() end),
       run_check("Update Mode", fn -> check_update_mode() end),
       run_check("daisyUI Version", fn -> check_daisyui() end),
       run_check("User Dashboard (deprecated)", fn -> check_user_dashboard_deprecation() end),
       run_check("Sitemap Discoverability", fn -> check_sitemap_serving() end),
+      run_check("Crawler Visibility", fn -> check_crawler_visibility(prefix) end),
       run_check("Demo Auth Pages", fn -> check_demo_routes() end),
       run_check("Manifest Repair (dry-run)", fn -> check_manifest_repair(prefix) end)
     ]
@@ -906,6 +914,150 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     end)
   end
 
+  # A cron entry inserts a job whether or not anything is configured to run it,
+  # and Oban only fetches for queues this node lists in `queues:`. So a crontab
+  # worker whose queue is missing produces one job per tick that stays
+  # :available forever — Pruner deletes terminal states only, so nothing ever
+  # clears them.
+  #
+  # PhoenixKit shipped exactly this between 2025-12-28 and 1.7.63: the
+  # ProcessScheduledJobsWorker entry went into the generated config without its
+  # :scheduled_jobs queue. Hosts installed in that window are still affected,
+  # because the installer's *upgrade* path only ever added the entry — one such
+  # host was found with 21,337 orphaned rows and climbing at ~1,440/day.
+  #
+  # Checking the whole crontab rather than that one worker is the point: the
+  # next instance of this mistake is then a warning on the next doctor run
+  # instead of something a host has to discover by reading its own oban_jobs
+  # table.
+  @doc """
+  Reports crontab entries whose queue this node does not run.
+
+  Public so it can be unit-tested directly against config keyword lists, for
+  the same reason as `exit_code/1`: it is the pure decision inside a task whose
+  `run/1` needs a live app and a database.
+  """
+  @spec check_cron_queues(keyword() | nil | term()) :: {:pass | :warn, String.t()}
+  def check_cron_queues(nil), do: {:pass, "Oban not configured"}
+
+  def check_cron_queues(config) when is_list(config) do
+    raw_queues = Keyword.get(config, :queues, [])
+    raw_plugins = Keyword.get(config, :plugins, [])
+    queues = normalize_oban_list(raw_queues)
+
+    cond do
+      # `testing: :inline | :manual` makes Oban itself overwrite both plugins
+      # and queues with [] (Oban.Config.normalize_opts/1), so no cron ever
+      # fires and nothing can accumulate. Reading the host's declared values
+      # and warning would describe a config Oban is not going to use.
+      Keyword.get(config, :testing, :disabled) in [:inline, :manual] ->
+        {:pass, "Oban is in testing mode — it runs no queues and no plugins."}
+
+      # `plugins: false` is Oban's documented way to turn plugins off
+      # wholesale: no Cron, so no entries to check.
+      raw_plugins == false ->
+        {:pass, "Oban plugins are disabled on this node (plugins: false)."}
+
+      # Oban documents an empty list and `false` as the same thing — "prevents
+      # any queues from starting on init". A web-only node says one or the
+      # other, and there every entry would look orphaned, so the honest answer
+      # is "not applicable" rather than a warning per crontab line.
+      raw_queues == false or queues == [] ->
+        {:pass, "Oban runs no queues on this node — jobs are executed elsewhere."}
+
+      true ->
+        config
+        |> crontab_entries()
+        |> check_entry_queues(queues)
+    end
+  end
+
+  def check_cron_queues(_other), do: {:pass, "Oban configured (non-keyword config)"}
+
+  # `flat_map` rather than "find the Cron plugin", and the top-level key as
+  # well as the plugin: Oban still accepts `crontab:` directly on the Oban
+  # config and promotes it into a Cron plugin itself
+  # (`Oban.Config.crontab_to_plugin/1`). A host using that form has entries the
+  # plugins list never mentions, and stopping at the first Cron plugin would
+  # have missed them entirely — reporting a clean bill of health on precisely
+  # the config this check exists to catch.
+  defp crontab_entries(config) do
+    plugin_entries =
+      config
+      |> Keyword.get(:plugins, [])
+      |> normalize_oban_list()
+      |> Enum.flat_map(fn
+        {Oban.Plugins.Cron, opts} when is_list(opts) -> Keyword.get(opts, :crontab, [])
+        _ -> []
+      end)
+
+    plugin_entries ++ Keyword.get(config, :crontab, [])
+  end
+
+  defp check_entry_queues([], _queues),
+    do: {:pass, "No Oban.Plugins.Cron crontab entries to check."}
+
+  defp check_entry_queues(entries, queues) do
+    configured = MapSet.new(Keyword.keys(queues), &to_string/1)
+
+    orphans =
+      for entry <- entries,
+          {:ok, worker, queue} <- [entry_queue(entry)],
+          not MapSet.member?(configured, queue),
+          uniq: true,
+          do: {worker, queue}
+
+    case orphans do
+      [] ->
+        {:pass, "#{length(entries)} crontab entries, every queue configured."}
+
+      orphans ->
+        detail =
+          Enum.map_join(orphans, ", ", fn {worker, queue} ->
+            "#{inspect(worker)} → #{queue}"
+          end)
+
+        {:warn,
+         "#{length(entries)} crontab entries. These fire into queues this node does not run, so " <>
+           "each tick inserts a job nothing will execute and Pruner never clears it (terminal " <>
+           "states only): #{detail}. Add the queue to `queues:` in config.exs, or drop the " <>
+           "crontab entry — `mix phoenix_kit.update` adds the ones PhoenixKit ships. Check what " <>
+           "has already collected first (`SELECT count(*) FROM oban_jobs WHERE state = " <>
+           "'available'`): configuring the queue releases the whole backlog at once, and for " <>
+           "ProcessScheduledJobsWorker that first sweep publishes every overdue scheduled post " <>
+           "and sends every overdue broadcast. `Oban.cancel_all_jobs/1` over the queue clears " <>
+           "them without running them."}
+    end
+  end
+
+  # Mirrors Oban.Plugins.Cron.build_changeset/4: the entry's own opts win over
+  # the worker's, and a worker declaring no queue falls back to Oban.Job's
+  # "default". (Cron uses Worker.merge_opts/2, whose only special case is
+  # :unique — for :queue it is a plain Keyword.merge.)
+  #
+  # Queues compare as strings because Oban accepts either form — `queue: :foo`
+  # in a worker and `foo: 10` in `queues:` are the same queue — and it avoids
+  # minting atoms from config while checking it.
+  defp entry_queue({expr, worker}), do: entry_queue({expr, worker, []})
+
+  defp entry_queue({_expr, worker, opts}) when is_atom(worker) and is_list(opts) do
+    # A crontab may name a worker from a dependency that is not loaded in the
+    # doctor's VM. Skipping is right: we cannot read its queue, and guessing
+    # would report a host as broken for a module we simply failed to load.
+    if Code.ensure_loaded?(worker) and function_exported?(worker, :__opts__, 0) do
+      queue =
+        worker.__opts__()
+        |> Keyword.merge(opts)
+        |> Keyword.get(:queue, :default)
+
+      {:ok, worker, to_string(queue)}
+    else
+      :skip
+    end
+  end
+
+  defp entry_queue(_other), do: :skip
+
   defp check_supervisor_state do
     case Process.whereis(PhoenixKit.Supervisor) do
       nil ->
@@ -1169,6 +1321,139 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     end
   rescue
     _ -> {:pass, "Could not introspect routes — skipping."}
+  end
+
+  # The two crawler-visibility footguns, in both directions: a production host
+  # carrying the global noindex directive (the silent SEO killer — the switch
+  # was for staging and someone shipped it), and a staging-looking host that is
+  # indexable (Google will happily index a dev box; both directions have
+  # happened here). Heuristic on the hostname, so it PASSes with a note when
+  # the host cannot be determined rather than guessing.
+  #
+  # Settings are read via direct SQL, NOT PhoenixKit.Settings: the doctor runs
+  # in update_mode, which short-circuits every Settings read to its default —
+  # through that API this check would report "disabled" on every install.
+  defp check_crawler_visibility(prefix) do
+    cond do
+      crawler_setting?(prefix, "crawlers_module_enabled", false) == false ->
+        {:pass, "Crawlers module disabled — no directives active."}
+
+      crawler_setting?(prefix, "crawlers_no_index", false) ->
+        case host_flavor(prefix) do
+          {:staging, host} ->
+            {:pass, "Global noindex is ON for #{host}, which looks like staging — as intended."}
+
+          {:production, host} ->
+            {:warn,
+             "The global noindex directive is ON and #{host} does not look like a staging " <>
+               "host. If this is production, every page is telling search engines to drop " <>
+               "it. Turn it off in Settings → Crawlers."}
+
+          :unknown ->
+            {:pass,
+             "Global noindex is ON (host undetermined — if this deployment is " <>
+               "production, turn it off in Settings → Crawlers)."}
+        end
+
+      true ->
+        case host_flavor(prefix) do
+          {:staging, host} ->
+            {:warn,
+             "#{host} looks like a staging/dev deployment and is INDEXABLE — search " <>
+               "engines will index it. Consider the noindex toggle in Settings → Crawlers."}
+
+          _ ->
+            blocked =
+              Enum.reject(
+                Bots.group_keys(),
+                &crawler_setting?(prefix, Crawlers.group_setting_key(&1), true)
+              )
+
+            summary =
+              case blocked do
+                [] -> "all bot groups allowed"
+                keys -> "blocked bot groups: #{Enum.join(keys, ", ")}"
+              end
+
+            {:pass, "Site indexable, noindex off; #{summary}."}
+        end
+    end
+  rescue
+    _ -> {:pass, "Crawler settings unreadable (no database?) — skipping."}
+  catch
+    :exit, _ -> {:pass, "Crawler settings unreadable (no database?) — skipping."}
+  end
+
+  # A boolean settings row, read straight from the table (see moduledoc of the
+  # check above for why). Missing row → the given default.
+  defp crawler_setting?(prefix, key, default) do
+    repo = get_repo!()
+    p = if prefix == "public", do: "public.", else: "#{prefix}."
+
+    case repo.query!("SELECT value FROM #{p}phoenix_kit_settings WHERE key = $1", [key]) do
+      %{rows: [[value] | _]} -> value == "true"
+      _ -> default
+    end
+  end
+
+  # :staging / :production by hostname shape, :unknown when no URL is
+  # configured. Label-based matching, not substring — "device.com" must not
+  # read as a dev box, while "max-dev2.example" must. The site_url setting is
+  # read via SQL (update_mode, as above) with the endpoint config as fallback.
+  defp host_flavor(prefix) do
+    url = configured_site_url(prefix) || endpoint_url()
+
+    with url when is_binary(url) and url != "" <- url,
+         %URI{host: host} when is_binary(host) and host != "" <- URI.parse(url) do
+      # DNS names are case-insensitive; the label list is lowercase.
+      host = String.downcase(host)
+      if staging_host?(host), do: {:staging, host}, else: {:production, host}
+    else
+      _ -> :unknown
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp configured_site_url(prefix) do
+    repo = get_repo!()
+    p = if prefix == "public", do: "public.", else: "#{prefix}."
+
+    case repo.query!("SELECT value FROM #{p}phoenix_kit_settings WHERE key = 'site_url'", []) do
+      %{rows: [[value] | _]} when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp endpoint_url do
+    Routes.base_url()
+  rescue
+    _ -> nil
+  end
+
+  @staging_labels ~w(localhost local staging stage dev develop development test testing demo preview sandbox)
+
+  defp staging_host?(host) do
+    cond do
+      host in ["localhost", "127.0.0.1", "0.0.0.0", "[::1]"] -> true
+      String.ends_with?(host, ".local") -> true
+      String.contains?(host, "ngrok") or String.ends_with?(host, "lvh.me") -> true
+      ip_address?(host) -> true
+      true -> host |> String.split([".", "-"]) |> Enum.any?(&staging_label?/1)
+    end
+  end
+
+  defp staging_label?(label) do
+    # Strip a trailing ordinal so "dev2" and "staging3" match while "device"
+    # (whose stem is not in the list) does not.
+    base = String.replace(label, ~r/\d+$/, "")
+    base != "" and base in @staging_labels
+  end
+
+  defp ip_address?(host) do
+    match?({:ok, _}, :inet.parse_address(String.to_charlist(host)))
   end
 
   # Which layer answers GET /sitemap.xml, and whether robots.txt points at it.

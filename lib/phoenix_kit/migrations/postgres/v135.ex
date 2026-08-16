@@ -312,7 +312,7 @@ defmodule PhoenixKit.Migrations.Postgres.V135 do
       "date_created" timestamp with time zone DEFAULT now() NOT NULL,
       "date_updated" timestamp with time zone DEFAULT now() NOT NULL,
       "uuid" uuid DEFAULT #{p}uuid_generate_v7() NOT NULL,
-      "created_by_uuid" uuid NOT NULL,
+      "created_by_uuid" uuid,
       "entity_uuid" uuid NOT NULL,
       "position" integer,
       "parent_uuid" uuid

@@ -95,12 +95,15 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
 
   ## Controlled view mode
 
-  By default the card/table toggle is driven entirely client-side (JS hook + localStorage).
-  Pass `view_mode="card"` or `view_mode="table"` to take control from the assigns side —
-  the component then renders ONLY that view (no JS toggle) and the toolbar buttons emit
-  `phx-click={view_event}` with `phx-value-mode="card"|"table"` so the consumer can drive
-  state via `push_patch` (URL-backed) or `assign`. Use this when the view choice must
-  survive across LV navigation or be part of the URL.
+  By default the card / comfortable / compact toggle is driven entirely
+  client-side (JS hook + localStorage; comfortable is the default when
+  nothing is stored). Pass `view_mode="card"`, `view_mode="comfy"`, or
+  `view_mode="table"` to take control from the assigns side — the
+  component then renders ONLY that view (no JS toggle) and the toolbar
+  buttons emit `phx-click={view_event}` with
+  `phx-value-mode="card"|"comfy"|"table"` so the consumer can drive
+  state via `push_patch` (URL-backed) or `assign`. Use this when the
+  view choice must survive across LV navigation or be part of the URL.
   """
   attr :id, :string, default: nil
   attr :class, :any, default: ""
@@ -127,7 +130,7 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
 
   attr :view_mode, :string,
     default: nil,
-    values: [nil, "card", "table"],
+    values: [nil, "card", "table", "comfy"],
     doc:
       "Controlled view selector. When set, renders ONLY that view and disables the JS toggle; toggle buttons emit `view_event` with `phx-value-mode`. When nil, falls back to the JS hook + localStorage default."
 
@@ -278,6 +281,19 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
             </button>
             <button
               type="button"
+              data-view-action={if is_nil(@view_mode), do: "comfy"}
+              phx-click={@view_mode && @view_event}
+              phx-value-mode={@view_mode && "comfy"}
+              class={[
+                "btn btn-sm join-item",
+                @view_mode == "comfy" && "btn-active"
+              ]}
+              title="Comfortable view"
+            >
+              <.icon name="hero-bars-3" class="w-4 h-4" />
+            </button>
+            <button
+              type="button"
               data-view-action={if is_nil(@view_mode), do: "table"}
               phx-click={@view_mode && @view_event}
               phx-value-mode={@view_mode && "table"}
@@ -285,9 +301,9 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
                 "btn btn-sm join-item",
                 @view_mode == "table" && "btn-active"
               ]}
-              title="Table view"
+              title="Compact view"
             >
-              <.icon name="hero-bars-3-bottom-left" class="w-4 h-4" />
+              <.icon name="hero-bars-4" class="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -300,18 +316,29 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
            In controlled mode, visibility is purely driven by @view_mode. --%>
       <div
         data-table-view=""
-        class={[
-          is_nil(@view_mode) && "hidden md:block",
-          @view_mode == "table" && "block",
-          @view_mode == "card" && "hidden"
-        ]}
+        class={
+          [
+            # `pk-comfy` on the uncontrolled branch matches the JS hook's
+            # default so first paint is comfortable, not a compact flash
+            # that jumps after localStorage is read.
+            is_nil(@view_mode) && "hidden md:block pk-comfy",
+            @view_mode == "table" && "block",
+            @view_mode == "comfy" && "block pk-comfy",
+            @view_mode == "card" && "hidden"
+          ]
+        }
       >
         <div class={@wrapper_class}>
+          <%!-- The stacked-variant utilities react to the `pk-comfy` marker
+               (comfortable view): roomier cell padding without changing the
+               table's size class. daisyUI's own paddings sit in :where()
+               (zero specificity), so these win whenever the marker is on. --%>
           <table
             class={[
               "table",
               table_variant_class(@variant),
               table_size_class(@size),
+              "[.pk-comfy_&]:[&_:where(td,th)]:py-3.5",
               @class
             ]}
             {@rest}
@@ -333,7 +360,7 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
             @card_grid_class,
             is_nil(@view_mode) && "grid md:hidden",
             @view_mode == "card" && "grid",
-            @view_mode == "table" && "hidden"
+            @view_mode in ["table", "comfy"] && "hidden"
           ]
         }
         data-sortable={if @on_reorder, do: "true"}
@@ -608,19 +635,13 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
   Drag-handle cell for table-view DnD reorder.
 
   Renders a `<td>` containing the `hero-bars-3` grip icon, with the
-  classes the SortableGrid hook needs to find it (`.pk-drag-handle`)
-  plus the canonical hide-until-hover behavior used elsewhere in the
-  codebase (catalogue category rows, entities card view, etc.):
-
-    * Default: `opacity-0` — icon is invisible.
-    * Row hover: `group-hover/row:opacity-100` — icon fades in.
-
-  Requires the enclosing `<.table_default_row>` to carry the `group/row`
-  marker class — which it does by default, so consumers don't have
-  to wire anything beyond placing this cell + the matching
-  `<.drag_handle_header_cell>` in the header. The named group keeps the
-  reveal keyed to row hover without clobbering any unnamed `group-hover:`
-  utilities a consumer nests inside a cell.
+  classes the SortableGrid hook needs to find it (`.pk-drag-handle`).
+  The icon is **always visible** — a muted tone that strengthens on
+  hover. It used to hide until row hover (`opacity-0
+  group-hover/row:opacity-100`), but an affordance you cannot see is
+  one nobody discovers: users had no idea rows were draggable until
+  they happened to mouse over the right cell. Deliberate product call
+  (2026-08-14) — do not quietly restore the hover reveal.
 
   Pair this with a `<tbody phx-hook="SortableGrid">` setup (see the
   `<.table_default>` moduledoc / phoenix_kit_projects reference call
@@ -642,7 +663,7 @@ defmodule PhoenixKitWeb.Components.Core.TableDefault do
     <td
       class={[
         "pk-drag-handle cursor-grab active:cursor-grabbing",
-        "text-base-content/30 opacity-0 group-hover/row:opacity-100 transition-opacity",
+        "text-base-content/40 hover:text-base-content/70 transition-colors",
         @class
       ]}
       title={@title}
