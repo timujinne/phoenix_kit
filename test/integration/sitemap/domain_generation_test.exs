@@ -8,6 +8,33 @@ defmodule PhoenixKit.Integration.Sitemap.DomainGenerationProviderStub do
   end
 end
 
+defmodule PhoenixKit.Integration.Sitemap.DomainGenerationDisabledSourceStub do
+  @moduledoc """
+  A sitemap source that is always disabled, used to prove that domain-mode
+  generation in INDEX mode honors `enabled?/0` the same way the legacy
+  per-module files do (unlike flat mode's documented force-collect).
+  """
+  @behaviour PhoenixKit.Modules.Sitemap.Sources.Source
+
+  alias PhoenixKit.Modules.Sitemap.UrlEntry
+
+  @impl true
+  def source_name, do: :disabled_stub
+
+  @impl true
+  def enabled?, do: false
+
+  @impl true
+  def collect(_opts) do
+    [
+      UrlEntry.new(%{
+        loc: "https://gen.example.com/secret-disabled-page",
+        source: :disabled_stub
+      })
+    ]
+  end
+end
+
 defmodule PhoenixKit.Integration.Sitemap.DomainGenerationTest do
   @moduledoc """
   End-to-end plumbing of DomainMode through Generator, FileStorage, Cache
@@ -17,7 +44,9 @@ defmodule PhoenixKit.Integration.Sitemap.DomainGenerationTest do
   """
   use PhoenixKit.DataCase, async: false
 
+  alias PhoenixKit.Integration.Sitemap.DomainGenerationDisabledSourceStub, as: DisabledSource
   alias PhoenixKit.Integration.Sitemap.DomainGenerationProviderStub, as: Stub
+  alias PhoenixKit.Modules.Sitemap
   alias PhoenixKit.Modules.Sitemap.Cache
   alias PhoenixKit.Modules.Sitemap.FileStorage
   alias PhoenixKit.Modules.Sitemap.Generator
@@ -84,5 +113,28 @@ defmodule PhoenixKit.Integration.Sitemap.DomainGenerationTest do
 
     {:ok, _} = Generator.generate_all(base_url: @base_url)
     assert FileStorage.list_domain_hosts() == []
+  end
+
+  test "index mode domain files exclude disabled sources (no force-collect leak)" do
+    # flat_mode?/0 is driven by router_discovery_enabled?/0 — disable it so
+    # generation takes the INDEX path, where the legacy per-module files
+    # have always honored `enabled?/0`. Domain-mode generation must match
+    # that guarantee instead of unconditionally force-collecting (which
+    # would leak a disabled source's URLs into the per-host files even
+    # though they'd never appear in the legacy sitemap-index files).
+    {:ok, _} = Settings.update_boolean_setting("sitemap_router_discovery_enabled", false)
+    refute Sitemap.flat_mode?()
+
+    original_sitemap_env = Application.get_env(:phoenix_kit, :sitemap, [])
+    Application.put_env(:phoenix_kit, :sitemap, sources: [DisabledSource])
+
+    on_exit(fn ->
+      Application.put_env(:phoenix_kit, :sitemap, original_sitemap_env)
+    end)
+
+    assert {:ok, _} = Generator.generate_all(base_url: @base_url)
+
+    {:ok, com_path} = FileStorage.domain_file_path("gen.example.com")
+    refute File.read!(com_path) =~ "secret-disabled-page"
   end
 end

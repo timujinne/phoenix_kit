@@ -229,6 +229,31 @@ defmodule PhoenixKitWeb.Components.MultilangFormTest do
       assert result =~ ~s(placeholder="Primary Title")
     end
 
+    test "bare-key overrides render instead of an empty input (sweep)" do
+      # Overrides written outside the form helper (seeds, imports,
+      # set_translation with plain keys) use "title", not "_title" —
+      # rendering blank would wipe them on the next save.
+      changeset = make_changeset(%{title: "Primary Title"})
+      assigns = %{changeset: changeset}
+
+      result =
+        html(~H"""
+        <.translatable_field
+          field_name="title"
+          form_prefix="record"
+          changeset={@changeset}
+          schema_field={:title}
+          multilang_enabled={true}
+          current_lang="fr"
+          primary_language="en"
+          lang_data={%{"title" => "Titre nu"}}
+          label="Title"
+        />
+        """)
+
+      assert result =~ ~s(value="Titre nu")
+    end
+
     test "renders with custom secondary_name" do
       changeset = make_changeset(%{display_name: "Brand"})
       assigns = %{changeset: changeset}
@@ -858,6 +883,35 @@ defmodule PhoenixKitWeb.Components.MultilangFormTest do
                  %{"lang" => "en"},
                  socket
                )
+    end
+  end
+
+  describe "merge_translatable_params auto-preserve (sweep)" do
+    test "secondary-tab params keep the primary columns without preserve_fields" do
+      changeset = make_changeset(%{title: "Primary Title"})
+
+      socket = %Phoenix.LiveView.Socket{
+        assigns: %{
+          __changed__: %{},
+          multilang_enabled: true,
+          current_lang: "fr",
+          primary_language: "en"
+        }
+      }
+
+      params =
+        merge_translatable_params(
+          %{"lang_title" => "Titre"},
+          socket,
+          ["title"],
+          changeset: changeset
+        )
+
+      # The primary column is re-injected even though the secondary tab
+      # never submitted it — every consumer used to need preserve_fields
+      # for this, and the ones that forgot lost the primary text on :new.
+      assert params["title"] == "Primary Title"
+      assert params["data"]["fr"]["_title"] == "Titre"
     end
   end
 end

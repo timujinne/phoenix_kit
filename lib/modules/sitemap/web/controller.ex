@@ -54,8 +54,8 @@ defmodule PhoenixKit.Modules.Sitemap.Web.Controller do
         Map.get(params, "format") == "html" ->
           serve_html(conn, config, xsl_style)
 
-        domain_host(conn) ->
-          serve_domain_file(conn, domain_host(conn), "sitemap", xsl_style)
+        host = domain_host(conn) ->
+          serve_domain_file(conn, host, "sitemap", xsl_style)
 
         true ->
           serve_index_xml(conn, xsl_style)

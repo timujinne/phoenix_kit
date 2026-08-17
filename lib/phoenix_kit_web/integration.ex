@@ -1447,6 +1447,16 @@ defmodule PhoenixKitWeb.Integration do
   # run on that path and the redirect would use the site-wide default.
   # Extra hooks therefore must not assume an authenticated socket.
   #
+  # ⚠️ This only covers the LiveView process. The `:phoenix_kit_locale_validation`
+  # pipeline plug ALSO calls Languages.get_default_language/0 (Gettext locale
+  # + redirect decision for the dead-render), and it runs earlier than any
+  # on_mount hook. A host using Languages.put_request_default_language/1 for
+  # a per-domain override needs a companion conn-level plug in its OWN
+  # `:browser` pipeline (before `phoenix_kit_routes()`'s pipe_through) or the
+  # first response renders in the site-wide default language regardless of
+  # what this hook sets. See the moduledoc on
+  # PhoenixKit.Modules.Languages.put_request_default_language/1.
+  #
   # Read at router compile time; __mix_recompile__? below invalidates the
   # host router when this config changes.
   defp extra_on_mount do

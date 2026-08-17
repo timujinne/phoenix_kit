@@ -348,8 +348,34 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
         params
       end
 
-    do_preserve_primary_fields(params, changeset, assigns, preserve_fields)
+    params
+    |> preserve_translatable_primaries(changeset, assigns, translatable_fields)
+    |> do_preserve_primary_fields(changeset, assigns, preserve_fields)
   end
+
+  # On a secondary language tab the form submits only `lang_<field>` —
+  # the PRIMARY columns are absent from params, so a validate/save that
+  # rebuilds the changeset from the pristine struct silently drops the
+  # primary text typed earlier (fatal on :new, where nothing else holds
+  # it). The translatable fields ALWAYS need this preservation, so it no
+  # longer depends on each consumer remembering `preserve_fields`.
+  defp preserve_translatable_primaries(params, changeset, assigns, translatable_fields) do
+    if assigns[:multilang_enabled] && assigns[:current_lang] != assigns[:primary_language] do
+      Enum.reduce(translatable_fields, params, fn field, acc ->
+        preserve_field_value(acc, changeset, field, safe_existing_atom(field))
+      end)
+    else
+      params
+    end
+  end
+
+  defp safe_existing_atom(field) when is_binary(field) do
+    String.to_existing_atom(field)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp safe_existing_atom(field) when is_atom(field), do: field
 
   @doc """
   Injects a DB column value into the JSONB `data` field for multilang storage.
@@ -489,6 +515,17 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
     _ -> []
   end
 
+  # Bare-key fallback: overrides written outside the form helper
+  # (seeds, API imports, `set_translation` callers using plain "name")
+  # must not render as an empty input — saving that empty field would
+  # wipe the existing translation.
+  defp lang_override_value(lang_data, data_key, field_name) do
+    case Map.get(lang_data, data_key) do
+      nil -> Map.get(lang_data, field_name)
+      value -> value
+    end
+  end
+
   # Safely reads a field from a changeset, returning "" on any error.
   defp safe_get_field(%Ecto.Changeset{} = changeset, field) when is_atom(field) do
     Ecto.Changeset.get_field(changeset, field) || ""
@@ -550,6 +587,8 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
       params
     end
   end
+
+  defp preserve_field_value(params, _changeset, _str_key, nil), do: params
 
   defp preserve_field_value(params, changeset, str_key, atom_key) do
     if Map.has_key?(params, str_key) do
@@ -891,7 +930,7 @@ defmodule PhoenixKitWeb.Components.MultilangForm do
         safe_get_field(assigns.changeset, assigns.schema_field)
       end)
       |> assign_new(:lang_value, fn ->
-        Map.get(assigns.lang_data, data_key)
+        lang_override_value(assigns.lang_data, data_key, assigns.field_name)
       end)
       |> assign(:secondary_input_name, sec_name)
       |> assign_new(:input_id, fn ->

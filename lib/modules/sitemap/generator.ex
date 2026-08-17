@@ -154,8 +154,15 @@ defmodule PhoenixKit.Modules.Sitemap.Generator do
       # generation, in exchange for zero restructuring of the per-module
       # legacy path. Content changing between the two passes within one run
       # can skew module stats vs domain files until the next generation.
-      entries =
-        entries || collect_all_entries(Keyword.put(opts, :force, true), get_sources())
+      #
+      # Deliberately NOT `force: true` here: index mode's own per-module
+      # files honor each source's `enabled?/0` (see `generate_module/2`),
+      # and domain files must match that guarantee. Flat mode's pre-existing
+      # force-collect (a documented, separate trade-off) only reaches this
+      # function via the already-collected `entries` argument, so it is
+      # untouched by this line — forcing it here would additionally leak
+      # disabled-module URLs into index mode, which never leaked before.
+      entries = entries || collect_all_entries(opts, get_sources())
 
       per_host = DomainMode.rebuild_for_domains(entries, base_url)
 

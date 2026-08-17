@@ -987,34 +987,85 @@ defmodule PhoenixKitWeb.Users.Auth do
     {:cont, socket}
   end
 
+  # Sets the process Gettext locale (backend-specific + global for
+  # feature-module backends) from a resolved dialect, downgrading to the
+  # BASE code when the backend ships no catalog for the full dialect.
+  # The po directories across the ecosystem are bare base codes ("fr"),
+  # while the locale pipeline resolves URLs to full dialects ("fr-FR") —
+  # putting the dialect straight into Gettext silently rendered the
+  # whole interface in English msgids for every dialect-mapped language.
+  # `current_locale` assigns keep the full dialect; only Gettext gets
+  # the downgraded code.
+  # Resolves a base code to the dialect the HOST actually enabled,
+  # falling back to the hardcoded default-dialect table. Without this,
+  # a host that enables only "en-CA" still resolved /en/ to "en-US" —
+  # an assign no stored translation or Gettext catalog matched.
+  @doc false
+  def resolve_active_dialect(base) when is_binary(base) do
+    hard = DialectMapper.resolve_dialect(base)
+
+    enabled_codes =
+      if Languages.enabled?() do
+        Enum.map(Languages.get_enabled_languages(), & &1.code)
+      else
+        []
+      end
+
+    cond do
+      enabled_codes == [] ->
+        hard
+
+      hard in enabled_codes ->
+        hard
+
+      code = Enum.find(Enum.sort(enabled_codes), &(DialectMapper.extract_base(&1) == base)) ->
+        code
+
+      true ->
+        hard
+    end
+  end
+
+  @doc false
+  def put_gettext_locale(dialect) when is_binary(dialect) do
+    locale =
+      if dialect in Gettext.known_locales(PhoenixKitWeb.Gettext) do
+        dialect
+      else
+        DialectMapper.extract_base(dialect)
+      end
+
+    Gettext.put_locale(PhoenixKitWeb.Gettext, locale)
+    Gettext.put_locale(locale)
+    locale
+  end
+
   # Update locale assigns when navigating to a URL with a locale param
   defp maybe_update_locale_from_params(socket, %{"locale" => locale}) when is_binary(locale) do
     # Only update if locale actually changed
     current_base = socket.assigns[:current_locale_base]
 
-    if current_base != locale and DialectMapper.valid_base_code?(locale) do
-      # URL-driven dialect: `DialectMapper.resolve_dialect/1` maps the base
-      # code straight to its default dialect. It deliberately takes no user
-      # — a user's `preferred_locale` would otherwise upgrade base "en" →
-      # "en-GB", contradicting the URL-is-authoritative semantic we now hold
-      # across both the LV mount and the HTTP plug. `preferred_locale` is
-      # still written by the switcher hook but no longer read for routing
-      # (base or dialect).
-      full_dialect = DialectMapper.resolve_dialect(locale)
+    cond do
+      # Full-dialect URL (/en-GB/): the HTTP plug accepts these via the
+      # enabled-languages list, so the LiveView lifecycle must too — a
+      # base-only guard made live navigation ignore them and snapped a
+      # dead render's dialect back to the default on WS connect.
+      dialect = String.contains?(locale, "-") && enabled_full_dialect(locale) ->
+        if socket.assigns[:current_locale] == dialect do
+          socket
+        else
+          put_gettext_locale(dialect)
 
-      # Update Gettext locale — set both the backend-specific value (for
-      # PhoenixKitWeb.Gettext callers that look it up explicitly) and the
-      # process-global default (so feature modules with their own backends,
-      # e.g. PhoenixKitProjects.Gettext, also pick up the new locale without
-      # needing per-backend wiring).
-      Gettext.put_locale(PhoenixKitWeb.Gettext, full_dialect)
-      Gettext.put_locale(full_dialect)
+          socket
+          |> Phoenix.Component.assign(:current_locale_base, DialectMapper.extract_base(dialect))
+          |> Phoenix.Component.assign(:current_locale, dialect)
+        end
 
-      socket
-      |> Phoenix.Component.assign(:current_locale_base, locale)
-      |> Phoenix.Component.assign(:current_locale, full_dialect)
-    else
-      socket
+      current_base != locale and DialectMapper.valid_base_code?(locale) ->
+        update_locale_from_base(socket, locale)
+
+      true ->
+        socket
     end
   end
 
@@ -1036,15 +1087,31 @@ defmodule PhoenixKitWeb.Users.Auth do
     else
       # URL-driven dialect (see sibling clause above for the rationale —
       # `preferred_locale` is intentionally ignored for routing).
-      default_dialect = DialectMapper.resolve_dialect(default_base)
+      default_dialect = resolve_active_dialect(default_base)
 
-      Gettext.put_locale(PhoenixKitWeb.Gettext, default_dialect)
-      Gettext.put_locale(default_dialect)
+      put_gettext_locale(default_dialect)
 
       socket
       |> Phoenix.Component.assign(:current_locale_base, default_base)
       |> Phoenix.Component.assign(:current_locale, default_dialect)
     end
+  end
+
+  # URL-driven dialect: the base code maps to the host's ACTIVE dialect
+  # (see `resolve_active_dialect/1`). Deliberately takes no user — a
+  # user's `preferred_locale` would otherwise upgrade base "en" →
+  # "en-GB", contradicting the URL-is-authoritative semantic held
+  # across both the LV mount and the HTTP plug.
+  defp update_locale_from_base(socket, locale) do
+    full_dialect = resolve_active_dialect(locale)
+
+    # Set both the backend-specific Gettext value and the process-global
+    # default (feature modules with their own backends pick it up too).
+    put_gettext_locale(full_dialect)
+
+    socket
+    |> Phoenix.Component.assign(:current_locale_base, locale)
+    |> Phoenix.Component.assign(:current_locale, full_dialect)
   end
 
   defp mount_phoenix_kit_current_user(socket, session) do
@@ -1177,12 +1244,11 @@ defmodule PhoenixKitWeb.Users.Auth do
     # for this base. The user's preferred_locale is intentionally NOT
     # consulted for routing (see `maybe_update_locale_from_params/2` for
     # the matching rationale).
-    current_locale = DialectMapper.resolve_dialect(current_locale_base)
+    current_locale = resolve_active_dialect(current_locale_base)
 
     # Set Gettext locale for translations (backend-specific + global, so
     # module backends like PhoenixKitProjects.Gettext sync too).
-    Gettext.put_locale(PhoenixKitWeb.Gettext, current_locale)
-    Gettext.put_locale(current_locale)
+    put_gettext_locale(current_locale)
 
     socket
     |> maybe_manage_scope_subscription(user)
@@ -2645,10 +2711,9 @@ defmodule PhoenixKitWeb.Users.Auth do
         # takes no user, so user-preferred dialect upgrades (e.g. base
         # "en" → "en-GB" via custom_fields) cannot sneak back in.
         default_base = Routes.get_default_admin_locale()
-        default_dialect = DialectMapper.resolve_dialect(default_base)
+        default_dialect = resolve_active_dialect(default_base)
 
-        Gettext.put_locale(PhoenixKitWeb.Gettext, default_dialect)
-        Gettext.put_locale(default_dialect)
+        put_gettext_locale(default_dialect)
 
         conn
         |> assign(:current_locale_base, default_base)
@@ -2666,10 +2731,9 @@ defmodule PhoenixKitWeb.Users.Auth do
     # Set locale before redirecting. URL-driven dialect — no user (see
     # `process_valid_locale/2` for the rationale).
     default_base = Routes.get_default_admin_locale()
-    default_dialect = DialectMapper.resolve_dialect(default_base)
+    default_dialect = resolve_active_dialect(default_base)
 
-    Gettext.put_locale(PhoenixKitWeb.Gettext, default_dialect)
-    Gettext.put_locale(default_dialect)
+    put_gettext_locale(default_dialect)
 
     case strip_locale_segment(conn, locale) do
       {:ok, clean_path} ->
@@ -2814,8 +2878,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   # siblings are addressed by full-code URLs (the primary's URLs stay
   # base-coded), so a dialect segment is never the default locale.
   defp process_enabled_dialect_locale(conn, dialect) do
-    Gettext.put_locale(PhoenixKitWeb.Gettext, dialect)
-    Gettext.put_locale(dialect)
+    put_gettext_locale(dialect)
 
     conn
     |> assign(:current_locale_base, DialectMapper.extract_base(dialect))
@@ -2854,10 +2917,9 @@ defmodule PhoenixKitWeb.Users.Auth do
     else
       # URL-driven dialect — no user (see `process_as_default_locale/1`
       # for the rationale matching the LV mount path).
-      full_dialect = DialectMapper.resolve_dialect(locale)
+      full_dialect = resolve_active_dialect(locale)
 
-      Gettext.put_locale(PhoenixKitWeb.Gettext, full_dialect)
-      Gettext.put_locale(full_dialect)
+      put_gettext_locale(full_dialect)
 
       conn
       |> assign(:current_locale_base, locale)

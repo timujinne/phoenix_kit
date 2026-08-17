@@ -1,3 +1,75 @@
+## 2.10.0 - 2026-08-17
+
+Locale resolution gets smarter about dialect/bare-code mismatches, hosts
+running multiple domains gain a request-scoped default-language override, and
+sitemaps can now be generated, cached, and served per domain (#722, #723,
+#724).
+
+### Added
+
+- **Multilang dialect/bare-code resolution.** Reading translatable content no
+  longer requires an exact locale-code match — a bare code (`"en"`) resolves
+  against a full-dialect record (`"en-US"`) and vice versa, and a same-base
+  sibling is used as a deterministic, primary-preferring fallback when the
+  requested code has no data of its own. `PhoenixKitWeb.Users.Auth` gained
+  `resolve_active_dialect/1` (resolves a base code to the host's actually
+  *enabled* dialect) and `put_gettext_locale/1` (de-duplicating the
+  `Gettext.put_locale/2` pair previously repeated at 7 call sites); LiveView
+  navigation to a full-dialect URL segment (`/en-GB/...`) is now honored the
+  same way the HTTP plug already honored it (#722).
+- **`PhoenixKit.Modules.Languages.put_request_default_language/1` /
+  `request_default_language/0`.** A `Process`-scoped override that
+  `get_default_language/0` consults before falling back to the configured
+  `is_default` language, for multi-domain hosts that want a different
+  default language per request. `pass nil` or `""` to clear it. Explicitly
+  process-scoped — not inherited by `Task`/Oban (#723).
+- **`PhoenixKitWeb.Integration.extra_on_mount/0`**, read from
+  `config :phoenix_kit, :extra_live_session_on_mount`, prepended to the
+  `on_mount` list of every `live_session` PhoenixKit generates (public,
+  admin, authenticated dashboard, deprecated user-dashboard, maintenance),
+  so a host can hook `put_request_default_language/1` into its own
+  domain-resolution logic on the LiveView socket path (#723).
+- **Per-domain sitemap generation, storage, cache, and serving.** A host app
+  can map several domains to distinct languages (one domain = one canonical
+  language); `PhoenixKit.Modules.Sitemap.DomainMode` builds a per-host
+  `sitemap.xml`/`sitemaps/*` set by re-hosting each language's
+  already-collected entries and computing cross-domain hreflang alternates
+  once per canonical group. Host strings are validated/normalized once and
+  re-validated in `FileStorage` as defense in depth; `Cache.invalidate/0` and
+  `cleanup_stale_domain_dirs/0` sweep per-host directories so stale/renamed
+  domains don't linger (#724).
+
+### Fixed
+
+Post-merge review of #722/#723/#724 found and fixed the following before
+release:
+
+- **`same_base?/2` collapsed genuinely distinct sibling dialects** (e.g.
+  independently-maintained `en-US` and `en-GB` content), not just
+  bare/dialect naming-drift of the *same* language slot. Saving a secondary
+  dialect tab could silently overwrite the primary language's data, or
+  promoting a dialect to primary could delete an unrelated sibling as a
+  false "ghost." Narrowed the equivalence to same-string or literal
+  bare-code-of-the-other only.
+- **Request-scoped language override lost to a same-base dialect earlier in
+  the configured list.** An exact-code override (e.g. `"fr-CA"`) could
+  resolve to a different, earlier-listed dialect of the same base (`"fr-FR"`)
+  on any host with 2+ enabled dialects sharing a base, because the lookup
+  OR'd "exact match" and "base match" into one `Enum.find/2` pass instead of
+  trying exact matches first.
+- **`put_request_default_language("")` silently forced English** instead of
+  behaving like "no override" (its documented behavior for `nil` and for any
+  unknown/disabled code) — a naive host plug computing the override from an
+  unmapped host (`Map.get(domain_map, host, "")`) would trip this on every
+  unmapped domain.
+- **Domain-mode sitemap generation force-collected in index mode**,
+  bypassing `enabled?/0` and leaking a disabled source's URLs into the
+  public, crawlable per-domain files — even though those same URLs were
+  correctly absent from `/sitemap.xml` and every per-module file. Index-mode
+  domain-file collection now honors `enabled?/0` exactly like the legacy
+  per-module path; flat mode's existing, separately-documented force-collect
+  behavior is unchanged.
+
 ## 2.9.0 - 2026-08-17
 
 Media file-type integrity gets defended at the write boundary and repaired

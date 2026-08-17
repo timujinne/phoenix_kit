@@ -535,7 +535,7 @@ defmodule PhoenixKit.Modules.Languages do
       request_override =
         case request_default_language() do
           nil -> nil
-          code -> Enum.find(languages, &request_override_matches?(&1, code))
+          code -> find_request_override(languages, code)
         end
 
       request_override || Enum.find(languages, & &1.is_default)
@@ -547,10 +547,21 @@ defmodule PhoenixKit.Modules.Languages do
   # Only an enabled language can be a request-scoped default; the override
   # code and the configured code may each be a full locale ("fr-FR") or a
   # base URL code ("fr") — match on the base either way.
-  defp request_override_matches?(%Language{code: lang_code, is_enabled: enabled?}, code) do
-    enabled? and
-      (lang_code == code or
-         DialectMapper.extract_base(lang_code) == DialectMapper.extract_base(code))
+  #
+  # Exact code matches are tried first, on purpose: `Enum.find/2` returns
+  # the first predicate match in *list* order, not the most specific one,
+  # so with two enabled dialects sharing a base (e.g. "fr-FR" and "fr-CA"
+  # both enabled) a single base-matching pass could return whichever
+  # dialect happens to sort first — silently ignoring an exact override
+  # like "fr-CA" in favor of "fr-FR". Falling back to a base-code pass
+  # only when no exact match exists keeps an exact override authoritative.
+  defp find_request_override(languages, code) do
+    Enum.find(languages, &(&1.is_enabled and &1.code == code)) ||
+      Enum.find(
+        languages,
+        &(&1.is_enabled and
+            DialectMapper.extract_base(&1.code) == DialectMapper.extract_base(code))
+      )
   end
 
   @request_default_language_key :phoenix_kit_request_default_language
@@ -564,14 +575,38 @@ defmodule PhoenixKit.Modules.Languages do
   and content-language lookup in the workspace already delegates to.
 
   Process-scoped: set it per conn (a Plug) and per LiveView socket (an
-  `on_mount` hook). Spawned tasks and Oban jobs do NOT inherit it. Pass
-  `nil` to clear.
+  `on_mount` hook, wired via `config :phoenix_kit, :extra_live_session_on_mount`
+  — see `PhoenixKitWeb.Integration.build_live_surface/5`). Spawned tasks and
+  Oban jobs do NOT inherit it. Pass `nil` (or `""`, treated the same) to
+  clear/no-op.
+
+  ⚠️ **Plug placement matters.** `PhoenixKitWeb.Users.Auth.validate_and_set_locale/2`
+  (the `:phoenix_kit_locale_validation` pipeline plug) already calls
+  `get_default_language/0` — via `Routes.get_default_admin_locale/0` — to pick
+  the Gettext locale AND decide locale-prefix redirects for the very first
+  (dead-render) response, and it runs BEFORE any `on_mount` hook, extra or
+  built-in, for that same request/process. A host conn-level plug that sets
+  this override must therefore run inside the host's OWN `:browser` pipeline
+  (i.e. before `phoenix_kit_routes()`'s `pipe_through`), not appended after
+  it — otherwise the dead-render renders in the site-wide default language
+  while the on_mount-set override only takes effect for content resolved
+  after mount, producing a visibly mixed-language initial page.
   """
   @spec put_request_default_language(String.t() | nil) :: :ok
   def put_request_default_language(nil) do
     Process.delete(@request_default_language_key)
     :ok
   end
+
+  # Empty string is treated as "no override", matching the fallback
+  # behavior for an unknown/disabled code. Without this clause,
+  # `DialectMapper.extract_base("")` defaults to `"en"` (its documented
+  # behavior for parsing possibly-blank Gettext locales elsewhere), which
+  # would make an accidentally-blank override silently match any enabled
+  # English dialect instead of falling back to the configured default —
+  # a likely trap for a host plug that does e.g.
+  # `Map.get(domain_map, host, "")` before calling this.
+  def put_request_default_language(""), do: put_request_default_language(nil)
 
   def put_request_default_language(code) when is_binary(code) do
     Process.put(@request_default_language_key, code)
