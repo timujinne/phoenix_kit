@@ -96,7 +96,8 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
      socket
      |> assign(:viewer_canvas, nil)
      |> assign(:viewer_annotations, [])
-     |> assign(:composing_annotation_uuid, nil)
+     |> assign(:replying_annotation_uuid, nil)
+     |> assign(:reply_parent_uuid, nil)
      |> assign(:etcher_colors, @default_etcher_colors)
      |> assign(:etcher_line_params, @default_etcher_line_params)
      |> assign(:viewer_only, false)
@@ -109,12 +110,30 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   end
 
   @impl true
-  def update(%{action: :annotation_composer_posted} = assigns, socket) do
-    {:ok, finalize_annotation_compose(socket, assigns[:annotation_uuid], assigns[:title])}
+  def update(%{action: :annotation_composer_posted}, socket) do
+    # The reply landed under the master comment — refresh so the sidebar
+    # thread, the tooltip preview, and the on-shape badge all pick it up.
+    {:ok, close_reply_compose(socket)}
   end
 
-  def update(%{action: :annotation_composer_cancelled} = assigns, socket) do
-    {:ok, rollback_annotation_compose(socket, assigns[:annotation_uuid])}
+  # Comment activity elsewhere in the LV (sidebar delete, another
+  # session's post relayed by the host) — reload annotations so the
+  # tooltip's comment_* fields and the on-shape badges match the table,
+  # and patch every in-DOM shape (the canvas is phx-update="ignore";
+  # patch-shape is the only road in).
+  def update(%{action: :refresh_annotations}, socket) do
+    {:ok, refresh_annotations(socket)}
+  end
+
+  def update(%{action: :annotation_composer_cancelled}, socket) do
+    # Nothing to roll back: shapes are never held hostage by the reply
+    # popup. (If Reply had just lazily created the master comment, it
+    # stays — it's the shape's topic row, dated at the shape's creation,
+    # and the next Reply threads under it.)
+    {:ok,
+     socket
+     |> assign(:replying_annotation_uuid, nil)
+     |> assign(:reply_parent_uuid, nil)}
   end
 
   # Auto-hide timer for the rotation save-status pill (scheduled by
@@ -270,28 +289,33 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   end
 
   # Fires only on a brand-new user draw (Etcher's `_finalizeShape`).
-  # Undo/redo, drags, color picks all bypass this — they go through
-  # `annotations-changed` for persistence but don't re-open the
-  # composer. Text shapes get Etcher's inline editor and skip the
-  # popup. Markers are pure marking for now — they still persist (via
-  # `annotations-changed`) but skip the composer too, so highlighting
-  # doesn't prompt for a title/comment; it's just a line. If the
-  # composer is already open mid-compose, keep its target — a second
-  # quick draw shouldn't ambush an in-flight title/comment.
-  def handle_event("etcher:shape-drawn", %{"uuid" => uuid, "kind" => kind}, socket) do
-    socket =
-      cond do
-        kind in ["text", "marker"] ->
-          socket
-
-        is_binary(socket.assigns[:composing_annotation_uuid]) ->
-          socket
-
-        true ->
-          assign(socket, :composing_annotation_uuid, uuid)
-      end
-
+  # Deliberately a no-op: NO kind opens the composer at draw time
+  # anymore. Drawing is just drawing — the shape (and its inline-typed
+  # label, for the label-bearing kinds) persists via
+  # `annotations-changed`, and the comment system is only entered when
+  # someone presses Reply on the shape's tooltip. The event stays
+  # handled so an older etcher bundle emitting it doesn't crash the LV.
+  def handle_event("etcher:shape-drawn", _params, socket) do
     {:noreply, socket}
+  end
+
+  # Reply pressed on a shape's tooltip (via the `etcher:tooltip-action`
+  # bridge in phoenix_kit.js). Ensure the shape's MASTER comment exists —
+  # the topic row its discussion hangs under, content = the shape's label
+  # (or kind), author = the shape's creator when known, `inserted_at`
+  # backdated to the shape's creation — then open the body-only reply
+  # popup threading under it.
+  def handle_event("annotation_reply", %{"uuid" => uuid}, socket) do
+    with %{} <- socket.assigns[:current_user],
+         %{} = ann <- find_viewer_annotation(socket, uuid),
+         {:ok, master_uuid} <- ensure_master_comment(socket, ann) do
+      {:noreply,
+       socket
+       |> assign(:replying_annotation_uuid, to_string(ann.uuid))
+       |> assign(:reply_parent_uuid, master_uuid)}
+    else
+      _ -> {:noreply, socket}
+    end
   end
 
   # Collapse/expand the info sidebar so the viewer gets the full popup
@@ -477,11 +501,12 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
               :skip
 
             current ->
-              Storage.EtcherAdapter.update(uuid, a)
+              Storage.EtcherAdapter.update(uuid, persistable_attrs(a, current))
 
             true ->
               attrs =
                 a
+                |> persistable_attrs(nil)
                 |> Map.put("target_type", "file")
                 |> Map.put("target_uuid", file_uuid)
                 |> creator_attrs(socket)
@@ -551,15 +576,217 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # Etcher re-broadcasts the *entire* annotation list on every shape
   # mutation, so a file with N annotations would otherwise issue N
   # UPDATEs per interaction. An annotation is worth a DB write only when
-  # Etcher-owned mutable state actually moved — geometry, style or kind.
-  # (title / metadata are edited through the composer, not via
-  # annotations-changed.) Comparing against the last-known struct lets
-  # the untouched rows skip their no-op UPDATE.
-  defp annotation_unchanged?(wire, current) do
+  # Etcher-owned mutable state actually moved — geometry, style, kind,
+  # the label text, or the label's layout keys. The label half is load-
+  # bearing: this used to compare geometry/style/kind only ("titles are
+  # edited through the composer"), so a label typed into Etcher's inline
+  # editor — the ONLY way text/callout/dimension collect their text since
+  # 0.12 — changed nothing the comparison looked at, the write was
+  # skipped, and every label silently vanished on the next open.
+  # Comparing against the last-known struct lets the untouched rows skip
+  # their no-op UPDATE.
+  #
+  # `@etcher_label_meta_keys` — the metadata keys Etcher itself writes for a
+  # label's layout: where a dragged label sits, its alignment, its remembered
+  # colour. Persisted so a placed label doesn't snap back on reload. `title`
+  # is NOT here: the text lives in the dedicated `title` column
+  # (`load_annotations_for/1` surfaces it back as `metadata.title` for the
+  # JS).
+  @etcher_label_meta_keys ~w(title_box title_align title_offset title_color)
+
+  # The keys `load_annotations_for/1` injects into metadata at load — the
+  # comment preview and the column-sourced title. `viewer_annotations` holds
+  # those CURATED maps, not schema rows, so anything persisting "the stored
+  # metadata" must first subtract these or the derived preview gets baked
+  # into the row (and a stale comment count outlives the comments it
+  # counted). `comment_author` is deliberately absent: for markers it IS
+  # stored metadata (the byline stamp), and dropping it on a marker drag
+  # would erase who drew it.
+  @load_injected_meta_keys ~w(title badge comment_count comment_created_at comment_text
+                              comment_thumbnail_url comment_has_attachment)
+
+  # Public (@doc false) with `persistable_attrs/2` so the unit suite can pin
+  # the label round-trip — the bug class here (a metadata-only change judged
+  # "unchanged", a curated map read as a schema struct) produced no error,
+  # just labels that quietly vanished on the next open.
+  @doc false
+  def annotation_unchanged?(wire, current) do
     wire["geometry"] == current.geometry and
       wire["style"] == current.style and
-      wire["kind"] == current.kind
+      wire["kind"] == current.kind and
+      wire_title(wire) == stored_title(current) and
+      wire_label_metadata(wire) == Map.take(current.metadata || %{}, @etcher_label_meta_keys)
   end
+
+  # What the wire annotation is allowed to persist: everything except raw
+  # `metadata`, which is replaced by the curated merge — Etcher's label keys
+  # from the wire over the stored row's other keys (marker author stamps and
+  # anything else server-side code owns), minus the load-injected preview.
+  # The label text goes to the `title` column.
+  @doc false
+  def persistable_attrs(wire, current) do
+    stored_meta =
+      ((current && current.metadata) || %{})
+      |> Map.drop(@etcher_label_meta_keys)
+      |> Map.drop(@load_injected_meta_keys)
+
+    wire
+    |> Map.put("metadata", Map.merge(stored_meta, wire_label_metadata(wire)))
+    |> Map.put("title", wire_title(wire))
+  end
+
+  # The label text as the curated map carries it — `load_annotations_for/1`
+  # surfaces the `title` column as `metadata.title` (there is no :title key
+  # on these maps; reading one crashed the LV on every label commit).
+  defp stored_title(%{metadata: %{"title" => title}}) when is_binary(title), do: title
+  defp stored_title(_), do: nil
+
+  # ── The Reply flow's master comment ───────────────────────────────────
+  #
+  # A shape's discussion hangs under one MASTER comment — the topic row.
+  # It is created lazily, the first time anyone presses Reply on the
+  # shape's tooltip: content is the shape's label (or its kind, for
+  # unlabelled shapes), the author is the shape's creator when known
+  # (falling back to the replier), and `inserted_at` is BACKDATED to the
+  # shape's creation — the topic is as old as the shape, only the replies
+  # are news. Marked `annotation_master` so the load side can exclude it
+  # from discussion counts/previews and surface its uuid for threading.
+
+  defp find_viewer_annotation(socket, uuid) do
+    Enum.find(socket.assigns[:viewer_annotations] || [], fn a ->
+      to_string(a.uuid) == to_string(uuid)
+    end)
+  end
+
+  defp ensure_master_comment(socket, ann) do
+    case ann do
+      %{master_comment_uuid: master} when is_binary(master) ->
+        {:ok, master}
+
+      _ ->
+        create_master_comment(socket, ann)
+    end
+  end
+
+  defp create_master_comment(socket, ann) do
+    with %{file_uuid: file_uuid} <- socket.assigns[:file],
+         %{uuid: replier_uuid} <- socket.assigns[:current_user],
+         true <- comments_installed?() do
+      author_uuid = Map.get(ann, :creator_uuid) || replier_uuid
+
+      attrs = %{
+        content: master_content(ann),
+        metadata: %{
+          "annotation_uuid" => to_string(ann.uuid),
+          "annotation_master" => true
+        },
+        inserted_at: Map.get(ann, :inserted_at)
+      }
+
+      case PhoenixKitComments.create_comment("file", file_uuid, author_uuid, attrs) do
+        {:ok, comment} ->
+          {:ok, to_string(comment.uuid)}
+
+        {:error, reason} ->
+          Logger.warning(
+            "[MediaCanvasViewer] master comment create failed uuid=#{inspect(ann.uuid)}: #{inspect(reason)}"
+          )
+
+          :error
+      end
+    else
+      _ -> :error
+    end
+  end
+
+  defp master_content(ann) do
+    stored_title(ann) || String.capitalize(to_string(Map.get(ann, :kind) || "annotation"))
+  end
+
+  # Reply posted (or the popup dismissed after a post) — refresh so the
+  # sidebar thread, tooltip preview, and on-shape badge pick up the new
+  # discussion entry, and patch the shape in place so the badge updates
+  # without a remount.
+  defp close_reply_compose(socket) do
+    annotation_uuid = socket.assigns[:replying_annotation_uuid]
+
+    file_uuid =
+      case socket.assigns[:file] do
+        %{file_uuid: uuid} -> uuid
+        _ -> nil
+      end
+
+    refresh_file_comments(socket)
+    fresh = if file_uuid, do: load_annotations_for(file_uuid), else: []
+
+    socket =
+      socket
+      |> assign(:replying_annotation_uuid, nil)
+      |> assign(:reply_parent_uuid, nil)
+      |> assign(:viewer_annotations, fresh)
+      |> rebuild_viewer_canvas(fresh)
+
+    case file_uuid &&
+           Enum.find(fresh, fn a -> to_string(a.uuid) == to_string(annotation_uuid) end) do
+      %{} = ann ->
+        Phoenix.LiveView.push_event(socket, "etcher:patch-shape", %{
+          fresco_id: "media-zoom-" <> file_uuid,
+          uuid: ann.uuid,
+          metadata: ann.metadata
+        })
+
+      _ ->
+        socket
+    end
+  end
+
+  defp comments_installed? do
+    Code.ensure_loaded?(PhoenixKitComments) and
+      function_exported?(PhoenixKitComments, :create_comment, 4)
+  end
+
+  # Reload + rebuild + patch EVERY shape's metadata in place. Patching all
+  # (not a diff) is deliberate: metadata is cheap, N is small, and the one
+  # shape that changed is exactly the one we can't cheaply identify from a
+  # broadcast that names only the file.
+  defp refresh_annotations(socket) do
+    case socket.assigns[:file] do
+      %{file_uuid: file_uuid} ->
+        fresh = load_annotations_for(file_uuid)
+
+        socket =
+          socket
+          |> assign(:viewer_annotations, fresh)
+          |> rebuild_viewer_canvas(fresh)
+
+        Enum.reduce(fresh, socket, fn ann, acc ->
+          Phoenix.LiveView.push_event(acc, "etcher:patch-shape", %{
+            fresco_id: "media-zoom-" <> file_uuid,
+            uuid: ann.uuid,
+            metadata: ann.metadata
+          })
+        end)
+
+      _ ->
+        socket
+    end
+  end
+
+  defp wire_label_metadata(%{"metadata" => %{} = meta}),
+    do: Map.take(meta, @etcher_label_meta_keys)
+
+  defp wire_label_metadata(_), do: %{}
+
+  # Blank collapses to nil so an emptied label clears the column instead of
+  # storing "".
+  defp wire_title(%{"metadata" => %{"title" => title}}) when is_binary(title) do
+    case String.trim(title) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp wire_title(_), do: nil
 
   # For every annotation newly created in this batch, push an
   # `etcher:patch-shape` event with the freshly-loaded metadata
@@ -728,7 +955,7 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   def load_annotations_for(file_uuid) do
     file_uuid
     |> Annotations.list_for_file_with_previews()
-    |> Enum.map(fn %{annotation: a, first_comment: fc, comment_count: count} ->
+    |> Enum.map(fn %{annotation: a, first_comment: fc, comment_count: count} = row ->
       # `metadata` flows through to Etcher's tooltip. The JS reads
       # `metadata.label` (consumer-set) plus the comment_* fields we
       # populate here for the auto-rendered preview.
@@ -755,12 +982,31 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
       # truth; the metadata key is the JS-facing contract.
       title_meta = if a.title, do: %{"title" => a.title}, else: %{}
 
+      # `badge` drives Etcher's on-shape count bubble (0.13): the number
+      # of discussion entries, so a glance at the canvas shows which
+      # shapes people are talking about. ALWAYS present, zero included:
+      # `patchShape` merges metadata, so an omitted key would leave a
+      # stale bubble on the shape after its last comment is deleted —
+      # Etcher hides the bubble for 0 itself.
+      badge_meta = %{"badge" => count}
+
       %{
         uuid: a.uuid,
         kind: a.kind,
         geometry: a.geometry,
         style: a.style,
-        metadata: base_meta |> Map.merge(comment_meta) |> Map.merge(title_meta)
+        # For the Reply flow: the shape's creation moment (the master
+        # comment is backdated to it), its creator (the master's author),
+        # and the master's uuid when the thread already exists (nil =
+        # created on first Reply).
+        inserted_at: a.inserted_at,
+        creator_uuid: a.creator_uuid,
+        master_comment_uuid: Map.get(row, :master_comment_uuid),
+        metadata:
+          base_meta
+          |> Map.merge(comment_meta)
+          |> Map.merge(title_meta)
+          |> Map.merge(badge_meta)
       }
     end)
   end
@@ -819,59 +1065,6 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   end
 
   defp user_display_name(_), do: nil
-
-  # ──────────────────────────────────────────────────────────────
-  # Composer Post / Cancel — driven by AnnotationComposer's
-  # send_update with `action: :annotation_composer_posted/_cancelled`
-  # ──────────────────────────────────────────────────────────────
-
-  # Post path: comment was created, annotation is solidified.
-  # Reload annotations so the tooltip's comment_* fields refresh,
-  # poke the file's CommentsComponent so the freshly-posted comment
-  # appears in the sidebar without a page reload, and push the
-  # updated metadata directly to Etcher's in-DOM shape via the
-  # patch-shape bridge (Fresco's `phx-update="ignore"` blocks a
-  # canvas-extensions rebuild from reaching the client).
-  defp finalize_annotation_compose(socket, annotation_uuid, title) do
-    file_uuid =
-      case socket.assigns[:file] do
-        %{file_uuid: uuid} -> uuid
-        _ -> nil
-      end
-
-    if annotation_uuid do
-      title_val =
-        case title do
-          nil -> nil
-          str when is_binary(str) -> if String.trim(str) == "", do: nil, else: str
-          _ -> nil
-        end
-
-      _ = PhoenixKit.Annotations.update(annotation_uuid, %{title: title_val})
-    end
-
-    refresh_file_comments(socket)
-    fresh = if file_uuid, do: load_annotations_for(file_uuid), else: []
-
-    socket =
-      socket
-      |> assign(:composing_annotation_uuid, nil)
-      |> assign(:viewer_annotations, fresh)
-      |> rebuild_viewer_canvas(fresh)
-      |> put_flash(:info, gettext("Annotation saved"))
-
-    case file_uuid && Enum.find(fresh, fn a -> a.uuid == annotation_uuid end) do
-      %{} = ann ->
-        Phoenix.LiveView.push_event(socket, "etcher:patch-shape", %{
-          fresco_id: "media-zoom-" <> file_uuid,
-          uuid: ann.uuid,
-          metadata: ann.metadata
-        })
-
-      _ ->
-        socket
-    end
-  end
 
   defp rebuild_viewer_canvas(socket, annotations) do
     case socket.assigns[:file] do
@@ -980,29 +1173,6 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   end
 
   def build_comment_decorations(_), do: %{}
-
-  # Cancel path: drop the just-drawn shape so the canvas doesn't
-  # carry an untitled placeholder. The `etcher:delete-shape` JS
-  # bridge calls `layer.deleteShape(uuid)` — that removes the shape
-  # from Etcher's local state + DOM, pushes the delete onto Etcher's
-  # undo stack (Cmd+Z restores), and fires `annotations-changed`,
-  # which sync_annotations picks up to delete the DB row + cascade
-  # the comment hard-delete.
-  defp rollback_annotation_compose(socket, annotation_uuid) do
-    socket = assign(socket, :composing_annotation_uuid, nil)
-
-    case {annotation_uuid, socket.assigns[:file]} do
-      {uuid, %{file_uuid: file_uuid}}
-      when is_binary(uuid) and is_binary(file_uuid) ->
-        Phoenix.LiveView.push_event(socket, "etcher:delete-shape", %{
-          fresco_id: "media-zoom-" <> file_uuid,
-          uuid: uuid
-        })
-
-      _ ->
-        socket
-    end
-  end
 
   # Poke the file's CommentsComponent to reload after server-side
   # changes the component didn't drive itself (new annotation

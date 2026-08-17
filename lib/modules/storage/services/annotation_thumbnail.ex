@@ -129,7 +129,19 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnail do
   defp draw_args(annotations, base_dim) do
     if Code.ensure_loaded?(Etcher.Raster) do
       annotations
-      |> Enum.map(fn a -> %{"kind" => a.kind, "geometry" => a.geometry, "style" => a.style} end)
+      # `metadata` rides along for the label text: from etcher 0.12.1,
+      # Raster draws a text/callout annotation's actual words
+      # (`metadata.title`) instead of baking its bounding box — which on a
+      # thumbnail looked like a mystery rectangle where a word should be.
+      # Older Raster ignores the extra key and keeps the box fallback.
+      |> Enum.map(fn a ->
+        %{
+          "kind" => a.kind,
+          "geometry" => a.geometry,
+          "style" => a.style,
+          "metadata" => a.metadata
+        }
+      end)
       |> Etcher.Raster.to_draw_args(stroke_width: max(round(base_dim / 200), 3))
     else
       []

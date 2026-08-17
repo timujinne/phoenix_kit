@@ -92,9 +92,33 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
     {:ok,
      socket
      |> assign(assigns)
+     # :reply mode is the tooltip's Reply flow: the shape's label already
+     # IS the title, so the title input is hidden and the post threads
+     # under `parent_uuid` (the shape's master comment) as pure body.
+     |> assign_new(:mode, fn -> :full end)
+     |> assign_new(:parent_uuid, fn -> nil end)
+     |> apply_initial_title()
      |> assign(:giphy_enabled?, PhoenixKitComments.giphy_enabled?())
      |> assign(:attachments_enabled?, PhoenixKitComments.attachments_enabled?())
      |> assign(:max_length, PhoenixKitComments.get_max_length())}
+  end
+
+  # `initial_title` (optional) pre-fills the title field — the
+  # label-first flow opens this composer AFTER the user typed the shape's
+  # label inline, so the title they already wrote shouldn't be asked for
+  # twice. Applied exactly once per initial_title value: re-renders (and
+  # the user clearing the field on purpose) never re-stamp it.
+  defp apply_initial_title(socket) do
+    initial = socket.assigns[:initial_title]
+
+    if is_binary(initial) and initial != "" and
+         socket.assigns[:initial_title_applied] != initial do
+      socket
+      |> assign(:new_title, initial)
+      |> assign(:initial_title_applied, initial)
+    else
+      socket
+    end
   end
 
   # ──────────────────────────────────────────────────────────────
@@ -235,11 +259,24 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
 
   defp post_with_comment(socket, comment_text, title) do
     # Anchor the comment to the file (not the annotation) so it joins
-    # the file's main comments thread. The annotation linkage is carried
-    # in `metadata.annotation_uuid`; the tooltip preview filters on that.
+    # the file's main comments thread. In :full mode the annotation
+    # linkage rides `metadata.annotation_uuid` (the tooltip preview
+    # filters on it). In :reply mode the comment is a CHILD of the
+    # shape's master comment instead — the master carries the linkage,
+    # and the load side walks the subtree, so stamping the reply too
+    # would double-count it as its own root.
     metadata =
-      %{"annotation_uuid" => socket.assigns.annotation_uuid}
+      case socket.assigns.mode do
+        :reply -> %{}
+        _ -> %{"annotation_uuid" => socket.assigns.annotation_uuid}
+      end
       |> maybe_put_giphy(socket.assigns.giphy_selected)
+
+    attrs = %{
+      content: comment_text,
+      metadata: metadata,
+      attachment_file_uuids: nil
+    }
 
     with {:ok, file_uuids} <- consume_attachments(socket),
          {:ok, comment} <-
@@ -247,11 +284,9 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
              "file",
              socket.assigns.file_uuid,
              socket.assigns.current_user.uuid,
-             %{
-               content: comment_text,
-               metadata: metadata,
-               attachment_file_uuids: file_uuids
-             }
+             attrs
+             |> Map.put(:attachment_file_uuids, file_uuids)
+             |> maybe_put_parent(socket.assigns.parent_uuid)
            ) do
       Phoenix.LiveView.send_update(socket.assigns.parent_module,
         id: socket.assigns.parent_id,
@@ -323,6 +358,11 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
   defp maybe_put_giphy(metadata, nil), do: metadata
   defp maybe_put_giphy(metadata, gif), do: Map.put(metadata, "giphy", gif)
 
+  defp maybe_put_parent(attrs, parent_uuid) when is_binary(parent_uuid),
+    do: Map.put(attrs, :parent_uuid, parent_uuid)
+
+  defp maybe_put_parent(attrs, _), do: attrs
+
   # Translates the first changeset error using the project's gettext-aware
   # helper, so the flash respects the user's locale and interpolates count
   # / opts properly (e.g. "must be at most 500 characters" with %{count}).
@@ -362,8 +402,11 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
         <%!-- Optional title — when non-empty, renders inline on the     --%>
         <%!-- annotation. Above the bounding box for rect/circle/poly,   --%>
         <%!-- at the leader endpoint for callout. Position is draggable  --%>
-        <%!-- in edit mode (saved as metadata.title_offset).             --%>
+        <%!-- in edit mode (saved as metadata.title_offset). Hidden in   --%>
+        <%!-- :reply mode — the shape's label already is the title, and  --%>
+        <%!-- the reply is body only.                                     --%>
         <input
+          :if={@mode != :reply}
           type="text"
           name="title"
           value={@new_title}
@@ -379,6 +422,7 @@ defmodule PhoenixKitWeb.Components.AnnotationComposer do
           placeholder={gettext("Write a note about this annotation...")}
           rows="3"
           class="textarea w-full text-sm"
+          phx-mounted={@mode == :reply && Phoenix.LiveView.JS.focus()}
           phx-debounce="500"
         ><%= @new_comment %></textarea>
 

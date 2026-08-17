@@ -209,6 +209,24 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
     PhoenixKitWeb.CommentsForwarding.forward_leaf_changed(msg, socket)
   end
 
+  # Comment activity on this file (sidebar create/delete — the comments
+  # component reports to the host process): poke the canvas component so
+  # the tooltip counts and on-shape badges refresh in place.
+  def handle_info({:comments_updated, %{resource_type: "file", resource_uuid: uuid}}, socket) do
+    case socket.assigns[:file_data] do
+      %{file_uuid: ^uuid} ->
+        Phoenix.LiveView.send_update(PhoenixKitWeb.Components.MediaCanvasViewer,
+          id: "media-detail-canvas-" <> uuid,
+          action: :refresh_annotations
+        )
+
+      _ ->
+        :ok
+    end
+
+    {:noreply, socket}
+  end
+
   def handle_info(_msg, socket), do: {:noreply, socket}
 
   defp load_file_data(socket, nil) do

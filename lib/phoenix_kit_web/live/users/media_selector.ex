@@ -244,7 +244,8 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
            user_uuid,
            file_hash,
            ext,
-           entry.client_name
+           entry.client_name,
+           mime_type: mime_type
          ) do
       {:ok, file, :duplicate} ->
         Logger.info("Duplicate file uploaded: #{file.uuid}")
@@ -327,7 +328,9 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
           file_uuid: file.uuid,
           filename: file.original_file_name || file.file_name || "Unknown",
           original_filename: file.original_file_name,
-          file_type: file.file_type,
+          # Reconciled against the row's own evidence — see
+          # `Storage.display_file_type/1`.
+          file_type: Storage.display_file_type(file),
           mime_type: file.mime_type,
           size: file.size || 0,
           status: file.status,

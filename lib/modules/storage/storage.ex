@@ -2909,6 +2909,20 @@ defmodule PhoenixKit.Modules.Storage do
   Files are stored using the pattern:
   `{user_uuid[0..1]}/{hash[0..1]}/{full_hash}/{full_hash}_{variant}.{format}`
 
+  ## Options
+
+    * `:mime_type` — the mime type the caller actually observed (a browser
+      upload's `client_type`, a multipart `content_type`). Pass it whenever
+      you have it: it is stored verbatim on the row, where omitting it falls
+      back to guessing from the extension — which is how every mp3 in the
+      wild ended up as `application/octet-stream`. A blank or octet-stream
+      value is treated as absent.
+
+  Whatever `file_type` the caller claims is cross-checked against the mime
+  evidence before the row is written (see `determine_file_type/2`) — a
+  contradicted generic claim is corrected, so no single call site can poison
+  the `file_type` column for every surface that filters on it.
+
   ## Examples
 
   User ID: "12345678"
@@ -2922,7 +2936,8 @@ defmodule PhoenixKit.Modules.Storage do
         user_uuid,
         file_checksum,
         ext,
-        original_filename \\ nil
+        original_filename \\ nil,
+        opts \\ []
       ) do
     # Check if any enabled buckets exist
     case list_enabled_buckets() do
@@ -2937,7 +2952,8 @@ defmodule PhoenixKit.Modules.Storage do
           user_uuid,
           file_checksum,
           ext,
-          original_filename
+          original_filename,
+          opts
         )
     end
   end
@@ -2948,7 +2964,8 @@ defmodule PhoenixKit.Modules.Storage do
          user_uuid,
          file_checksum,
          ext,
-         original_filename
+         original_filename,
+         opts
        ) do
     # Calculate user-specific hash for duplicate detection
     user_file_checksum = calculate_user_file_checksum(user_uuid, file_checksum)
@@ -3032,7 +3049,8 @@ defmodule PhoenixKit.Modules.Storage do
               file_checksum,
               user_file_checksum,
               ext,
-              original_filename
+              original_filename,
+              opts
             )
         end
     end
@@ -3045,7 +3063,8 @@ defmodule PhoenixKit.Modules.Storage do
          file_checksum,
          user_file_checksum,
          ext,
-         original_filename
+         original_filename,
+         opts
        ) do
     # Calculate MD5 hash for path structure
     md5_hash =
@@ -3065,13 +3084,23 @@ defmodule PhoenixKit.Modules.Storage do
     # Use provided original filename or fall back to source basename
     orig_filename = original_filename || Path.basename(source_path)
 
+    # The caller's observed mime (browser `client_type` etc.) beats guessing
+    # from the extension; the guess is only the fallback. Then the claimed
+    # `file_type` is reconciled against that evidence — this is the single
+    # point every upload path funnels through, so a defence here covers
+    # call sites that don't exist yet (a live example: an external module
+    # stored every board upload, .mov and .mp3 included, as `"image"`, and
+    # the media page trusted the column everywhere).
+    mime_type = resolve_mime_type(opts[:mime_type], ext)
+    file_type = reconcile_file_type(file_type, mime_type, orig_filename)
+
     # Create file record
     file_attrs = %{
       uuid: file_uuid,
       file_name: md5_hash <> "." <> ext,
       original_file_name: orig_filename,
       file_path: file_path,
-      mime_type: determine_mime_type(ext),
+      mime_type: mime_type,
       file_type: file_type,
       ext: ext,
       file_checksum: file_checksum,
@@ -3406,19 +3435,124 @@ defmodule PhoenixKit.Modules.Storage do
     end
   end
 
-  defp determine_mime_type(ext) do
-    case String.downcase(ext) do
-      "jpg" -> "image/jpeg"
-      "jpeg" -> "image/jpeg"
-      "png" -> "image/png"
-      "gif" -> "image/gif"
-      "webp" -> "image/webp"
-      "mp4" -> "video/mp4"
-      "webm" -> "video/webm"
-      "mov" -> "video/quicktime"
-      "avi" -> "video/x-msvideo"
-      "pdf" -> "application/pdf"
-      _ -> "application/octet-stream"
+  # The caller's observed mime wins when it carries information; blank and
+  # octet-stream carry none, so they fall through to the extension guess
+  # rather than being enshrined on the row.
+  defp resolve_mime_type(mime_type, ext) do
+    case mime_type do
+      nil -> determine_mime_type(ext)
+      "" -> determine_mime_type(ext)
+      "application/octet-stream" -> determine_mime_type(ext)
+      observed -> observed
+    end
+  end
+
+  # Extension→mime for callers that didn't observe a mime themselves. The
+  # `mime` library, not a hand-rolled map: the map this replaces had no audio
+  # entries at all, so every mp3/m4a/wav landed as `application/octet-stream`
+  # even when the upload path had the browser's own `audio/mpeg` in hand —
+  # and the display side then needed extension-sniffing fallbacks to undo it.
+  # `MIME.type/1` knows the same types the rest of the stack does (including
+  # anything the host adds via `config :mime`); `@audio_mime_fallbacks` fills
+  # only the holes it answers octet-stream for — the same known-blind audio
+  # set `@audio_extensions` exists for (`.m4a`, `.flac`, `.ogg`…), listed in
+  # full so a host's older `mime` still resolves all of them.
+  #
+  # The leading dot is trimmed because callers disagree about it — some pass
+  # `"mp3"`, `Path.extname/1`-based ones pass `".mp3"` — and the old map
+  # recognized only the bare form, so a dotted extension always fell to
+  # octet-stream.
+  @audio_mime_fallbacks %{
+    "mp3" => "audio/mpeg",
+    "wav" => "audio/wav",
+    "ogg" => "audio/ogg",
+    "oga" => "audio/ogg",
+    "m4a" => "audio/mp4",
+    "aac" => "audio/aac",
+    "flac" => "audio/flac",
+    "opus" => "audio/opus",
+    "weba" => "audio/webm",
+    "mid" => "audio/midi",
+    "midi" => "audio/midi"
+  }
+
+  # Public (@doc false) so the unit suite can pin the audio fallbacks and the
+  # dot-tolerance without standing up buckets for a full store call.
+  @doc false
+  def determine_mime_type(ext) do
+    ext = ext |> String.downcase() |> String.trim_leading(".")
+
+    case MIME.type(ext) do
+      "application/octet-stream" ->
+        Map.get(@audio_mime_fallbacks, ext, "application/octet-stream")
+
+      mime ->
+        mime
+    end
+  end
+
+  # The generic classes `determine_file_type/2` can produce — the only claims
+  # the write boundary is entitled to correct. Anything else ("tile") is a
+  # system type deliberately chosen by internal machinery; the classifier
+  # knows nothing about those, so its opinion doesn't apply.
+  @generic_file_types ~w(image video audio document archive other)
+
+  # Cross-checks the caller's claimed `file_type` against the actual mime
+  # evidence before the row is written. A contradicted generic claim is
+  # replaced, loudly, because a wrong value in this column breaks the file on
+  # every surface that trusts it — thumbnail grid, type filters, typed
+  # pickers, variant processing.
+  defp reconcile_file_type(claimed, mime_type, filename) do
+    resolved = resolve_claimed_type(claimed, determine_file_type(mime_type, filename))
+
+    if resolved != claimed do
+      Logger.warning(
+        "Storage: caller claimed file_type #{inspect(claimed)} for " <>
+          "#{inspect(filename)} (#{mime_type}); storing #{inspect(resolved)}"
+      )
+    end
+
+    resolved
+  end
+
+  @doc """
+  The `file_type` a display surface should trust for a stored file.
+
+  Same evidence-over-claim rule the write boundary applies (see
+  `store_file_in_buckets/7`), but usable on rows written before that rule
+  existed: the column wins only when the row's own mime type and filename
+  don't contradict it. A row stored as `"image"` that is demonstrably a
+  `video/quicktime` renders as a video — a play-button tile instead of a
+  broken `<img>` pointed at a `.mov`.
+
+  Accepts a `File` struct or any map carrying `:file_type` / `:mime_type`
+  plus a filename under `:original_file_name`, `:filename` or `:file_name`.
+  System types (`"tile"`) pass through untouched, as does anything the
+  evidence can't improve on.
+
+  This corrects what the user *sees*; the column itself is corrected by the
+  repair migration, and `file_type`-filtered queries answer from the column.
+  """
+  def display_file_type(file) do
+    claimed = Map.get(file, :file_type)
+    mime_type = Map.get(file, :mime_type)
+
+    filename =
+      Map.get(file, :original_file_name) || Map.get(file, :filename) ||
+        Map.get(file, :file_name)
+
+    resolve_claimed_type(claimed, determine_file_type(mime_type, filename))
+  end
+
+  # The claim survives when the evidence agrees, when there is no evidence
+  # (`"other"` — the caller may know more than the classifier), or when it
+  # isn't a generic class at all ("tile" — chosen by internal machinery the
+  # classifier knows nothing about).
+  defp resolve_claimed_type(claimed, derived) do
+    cond do
+      is_binary(claimed) and claimed not in @generic_file_types -> claimed
+      derived == "other" -> claimed || "other"
+      true -> derived
     end
   end
 

@@ -2529,7 +2529,7 @@
         <%!-- link stays admin-only — it targets the admin detail page.   --%>
         <.live_component
           module={PhoenixKitWeb.Components.MediaCanvasViewer}
-          id={"media-canvas-viewer-#{f.file_uuid}-#{f.width || 0}x#{f.height || 0}-#{map_size(f.urls)}"}
+          id={viewer_component_id(f)}
           file={f}
           current_user={assigns[:phoenix_kit_current_user]}
           parent_id={@id}

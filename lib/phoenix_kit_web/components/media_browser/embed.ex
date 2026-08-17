@@ -298,6 +298,22 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
         # credo:disable-for-next-line Credo.Check.Design.AliasUsage
         PhoenixKitWeb.CommentsForwarding.forward_leaf_changed(msg, socket)
       end
+
+      # The embedded CommentsComponent (media viewer sidebar) reports
+      # create/delete to the HOST process — LiveComponents can't receive
+      # handle_info, so the message lands here. Without this clause,
+      # deleting a comment killed the LV (FunctionClauseError → remount),
+      # which read as "the page refreshed and the media modal closed".
+      # File activity is additionally relayed to the browser so the open
+      # viewer refreshes its tooltip counts and on-shape badges — the
+      # component has already refreshed its own thread, but those live on
+      # the canvas side.
+      def handle_info({:comments_updated, %{resource_type: "file"} = payload}, socket) do
+        # credo:disable-for-next-line Credo.Check.Design.AliasUsage
+        PhoenixKitWeb.Components.MediaBrowser.notify_file_comments_changed(socket, payload)
+      end
+
+      def handle_info({:comments_updated, _}, socket), do: {:noreply, socket}
     end
   end
 end

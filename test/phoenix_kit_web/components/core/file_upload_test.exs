@@ -25,6 +25,36 @@ defmodule PhoenixKitWeb.Components.Core.FileUploadTest do
   # entry's size and patches only data-progress; everything else (speed, ETA,
   # the ticking "Processing on server…" phase) is computed in the browser.
   # These pins keep the markup the hook depends on from drifting.
+  # The UploadGuard hook contract: the component root carries the hook and
+  # a data-active flag the server patches — "true" while any entry is in
+  # flight, so the browser's beforeunload dialog blocks an accidental
+  # refresh/close that would kill the transfer.
+  test "file_upload arms the UploadGuard while entries are in flight" do
+    upload = %Phoenix.LiveView.UploadConfig{ref: "phx-upload-1", entries: [entry()]}
+    assigns = %{upload: upload}
+
+    html =
+      render(~H"""
+      <.file_upload upload={@upload} />
+      """)
+
+    assert html =~ ~s(phx-hook="UploadGuard")
+    assert html =~ ~s(id="pk-upload-guard-phx-upload-1")
+    assert html =~ ~s(data-active="true")
+  end
+
+  test "file_upload disarms the UploadGuard with no entries" do
+    upload = %Phoenix.LiveView.UploadConfig{ref: "phx-upload-1", entries: []}
+    assigns = %{upload: upload}
+
+    html =
+      render(~H"""
+      <.file_upload upload={@upload} />
+      """)
+
+    assert html =~ ~s(data-active="false")
+  end
+
   test "upload_entry_stats renders the UploadStats hook contract" do
     assigns = %{entry: entry()}
 

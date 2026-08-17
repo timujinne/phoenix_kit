@@ -57,4 +57,114 @@ defmodule PhoenixKit.Modules.Storage.DetermineFileTypeTest do
       assert Storage.determine_file_type("application/octet-stream", "RECORDING.M4A") == "audio"
     end
   end
+
+  describe "determine_mime_type/1 — the ext→mime fallback for callers with no observed mime" do
+    test "knows audio types" do
+      # The hand-rolled map this replaced had NO audio entries: every mp3 was
+      # stored — and served — as application/octet-stream.
+      assert Storage.determine_mime_type("mp3") == "audio/mpeg"
+      assert Storage.determine_mime_type("wav") == "audio/wav"
+    end
+
+    test "covers the extensions the mime library itself answers octet-stream for" do
+      # The same known-blind set @audio_extensions exists for on the classifier
+      # side. If a future mime lib learns these, the assertions still hold —
+      # the fallback map only fills holes.
+      assert Storage.determine_mime_type("m4a") == "audio/mp4"
+      assert Storage.determine_mime_type("flac") == "audio/flac"
+      assert Storage.determine_mime_type("opus") == "audio/opus"
+      assert Storage.determine_mime_type("weba") == "audio/webm"
+    end
+
+    test "tolerates the leading dot Path.extname/1-based callers pass" do
+      assert Storage.determine_mime_type(".mp3") == "audio/mpeg"
+      assert Storage.determine_mime_type(".jpg") == "image/jpeg"
+    end
+
+    test "ignores case and answers octet-stream for the truly unknown" do
+      assert Storage.determine_mime_type("PNG") == "image/png"
+      assert Storage.determine_mime_type("xyz") == "application/octet-stream"
+    end
+  end
+
+  describe "display_file_type/1" do
+    test "a generic claim contradicted by the row's own mime loses" do
+      # The live corruption this exists for: an upload path hardcoded "image"
+      # for everything its picker accepted, .mov included.
+      assert Storage.display_file_type(%{
+               file_type: "image",
+               mime_type: "video/quicktime",
+               original_file_name: "clip.mov"
+             }) == "video"
+    end
+
+    test "an octet-stream mime falls through to the filename evidence" do
+      assert Storage.display_file_type(%{
+               file_type: "image",
+               mime_type: "application/octet-stream",
+               original_file_name: "song.mp3"
+             }) == "audio"
+    end
+
+    test "the claim survives when the evidence agrees or is absent" do
+      assert Storage.display_file_type(%{
+               file_type: "image",
+               mime_type: "image/png",
+               original_file_name: "photo.png"
+             }) == "image"
+
+      # No verdict from mime or filename — the caller may know more than the
+      # classifier, so "document" stands.
+      assert Storage.display_file_type(%{
+               file_type: "document",
+               mime_type: "application/x-thing",
+               original_file_name: "blob.xyz"
+             }) == "document"
+    end
+
+    test "system types are never second-guessed" do
+      # "tile" is chosen by internal machinery; mime evidence saying "image"
+      # is exactly what a tile looks like and must not reclassify it.
+      assert Storage.display_file_type(%{
+               file_type: "tile",
+               mime_type: "image/png",
+               original_file_name: "0_0.png"
+             }) == "tile"
+    end
+
+    test "a missing claim takes the evidence, or 'other' without any" do
+      assert Storage.display_file_type(%{
+               file_type: nil,
+               mime_type: "audio/mpeg",
+               original_file_name: "song.mp3"
+             }) == "audio"
+
+      assert Storage.display_file_type(%{
+               file_type: nil,
+               mime_type: nil,
+               original_file_name: "blob"
+             }) == "other"
+    end
+
+    test "accepts a File struct and the display maps' :filename / :file_name keys" do
+      assert Storage.display_file_type(%PhoenixKit.Modules.Storage.File{
+               file_type: "image",
+               mime_type: "video/mp4",
+               original_file_name: "movie.mp4"
+             }) == "video"
+
+      # The grid/list display maps carry :filename, not :original_file_name.
+      assert Storage.display_file_type(%{
+               file_type: "image",
+               mime_type: "application/octet-stream",
+               filename: "song.m4a"
+             }) == "audio"
+
+      assert Storage.display_file_type(%{
+               file_type: "image",
+               mime_type: "application/octet-stream",
+               file_name: "abc123.flac"
+             }) == "audio"
+    end
+  end
 end

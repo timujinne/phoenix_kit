@@ -26,8 +26,16 @@
   </button>
 
   <div class="flex flex-col lg:flex-row h-full overflow-hidden">
-    <%!-- Viewer column (image / video / pdf / icon) --%>
-    <div class="flex-[7] relative flex items-center justify-center bg-base-200 overflow-hidden p-0 lg:p-2 min-h-[40vh] lg:min-h-0">
+    <%!-- Viewer column (image / video / pdf / icon). Carries the         --%>
+    <%!-- EtcherTooltipActions hook: Etcher re-dispatches tooltip action  --%>
+    <%!-- buttons as a bubbling `etcher:tooltip-action` DOM event, and    --%>
+    <%!-- this ancestor routes them — Reply to this LiveComponent, Edit   --%>
+    <%!-- straight back into Etcher's label editor client-side.           --%>
+    <div
+      id={"pk-annotation-actions-" <> f.file_uuid}
+      phx-hook="EtcherTooltipActions"
+      class="flex-[7] relative flex items-center justify-center bg-base-200 overflow-hidden p-0 lg:p-2 min-h-[40vh] lg:min-h-0"
+    >
       <%!-- Chevron positioning sits on a wrapper div, not the button.       --%>
       <%!-- daisyUI's active-state CSS replaces `transform` with             --%>
       <%!-- `scale(0.97)` on click, which would clobber a -translate-y-1/2    --%>
@@ -86,10 +94,17 @@
               initial_rotation={@viewer_rotation}
               persist_rotation={@persist_rotation}
             />
+            <%!-- connectors={:off} is the HARD form (Etcher 0.13): the      --%>
+            <%!-- soft default loses to the user's saved toggle, which is    --%>
+            <%!-- shared across every Etcher surface in the browser — a      --%>
+            <%!-- toggle flipped on a board followed people here, where the  --%>
+            <%!-- anchors point at nothing (no arrow tool below). Hard off   --%>
+            <%!-- also hides the toggle from the toolbar.                    --%>
             <Etcher.layer
               fresco_id={"media-zoom-" <> f.file_uuid}
               colors={@etcher_colors}
               line_params={@etcher_line_params}
+              connectors={:off}
               tools={[
                 :grabber,
                 :image,
@@ -131,10 +146,16 @@
             <% end %>
           <% end %>
         <% is_binary(f.mime_type) and String.starts_with?(f.mime_type, "video/") -> %>
+          <%!-- w/h-full + object-contain, not max-w/h: max-* only caps, so a
+               small-intrinsic video (or one whose metadata hasn't loaded —
+               300×150 until then) rendered as a tiny box floating in the
+               lightbox. Filling the column and letterboxing via
+               object-contain sizes the player like the image viewer sizes
+               images, whatever the source dimensions. --%>
           <video
             src={f.urls["original"]}
             controls
-            class="max-w-full max-h-full rounded"
+            class="w-full h-full object-contain rounded"
             preload="metadata"
           >
             {gettext("Your browser does not support the video tag.")}
@@ -151,10 +172,13 @@
                open) and renders an interactive waveform driven by a single
                play/pause button. The hidden native <audio> is the playback
                source and the fallback (revealed) if the library can't load. --%>
+          <%!-- max-w + mx-auto so the player sits centered as a card instead
+               of the button/waveform stretching across the full lightbox
+               width on large screens. --%>
           <div
             id={"waveform-" <> f.file_uuid}
             phx-hook="WaveformPlayer"
-            class="flex flex-col gap-4 py-10 w-full px-8"
+            class="flex flex-col gap-4 py-10 w-full max-w-3xl mx-auto px-8"
           >
             <div class="flex items-center gap-2">
               <.icon name="hero-musical-note" class="w-5 h-5 text-base-content/50 shrink-0" />
@@ -246,30 +270,30 @@
           else: gettext("Failed to save rotation")}
       </div>
 
-      <%!-- Floating annotation composer — positioned above the just-drawn --%>
-      <%!-- shape by the AnnotationComposerPosition JS hook (it looks up    --%>
-      <%!-- the shape via [data-uuid="…"]). Sidebar comments stay visible   --%>
-      <%!-- alongside; this popover is for the new shape only.               --%>
-      <%= if @composing_annotation_uuid && @current_user do %>
+      <%!-- Floating reply popup — opened by the tooltip's Reply button    --%>
+      <%!-- (the etcher:tooltip-action bridge), positioned above its shape --%>
+      <%!-- by the AnnotationComposerPosition JS hook (it parses the uuid  --%>
+      <%!-- from the id suffix and looks the shape up via [data-uuid]).    --%>
+      <%!-- Body-only: the shape's label is its title; this box is what    --%>
+      <%!-- the user wants to SAY about it, threaded under the shape's     --%>
+      <%!-- master comment. --%>
+      <%= if @replying_annotation_uuid && @current_user do %>
         <div
-          id={"annotation-composer-popover-" <> @composing_annotation_uuid}
+          id={"annotation-composer-popover-" <> @replying_annotation_uuid}
           phx-hook="AnnotationComposerPosition"
           class="absolute z-30 w-80 max-w-[calc(100%-1rem)] bg-base-100 rounded-lg shadow-xl border border-base-300 p-3"
           style="left: 0px; top: 0px;"
         >
           <div class="flex items-center gap-2 text-sm font-medium mb-2">
-            <.icon name="hero-pencil-square" class="w-4 h-4 text-warning" />
-            <span>{gettext("Add a note to your annotation")}</span>
+            <.icon name="hero-chat-bubble-left-right" class="w-4 h-4 text-primary" />
+            <span>{gettext("Reply to this annotation")}</span>
           </div>
-          <p class="text-xs text-base-content/60 mb-3">
-            {gettext(
-              "Post to add the note. Cancel to skip — you can edit or delete the annotation later via the toolbar."
-            )}
-          </p>
           <.live_component
             module={PhoenixKitWeb.Components.AnnotationComposer}
-            id={"annotation-composer-" <> @composing_annotation_uuid}
-            annotation_uuid={@composing_annotation_uuid}
+            id={"annotation-composer-" <> @replying_annotation_uuid}
+            annotation_uuid={@replying_annotation_uuid}
+            mode={:reply}
+            parent_uuid={@reply_parent_uuid}
             file_uuid={f.file_uuid}
             current_user={@current_user}
             parent_id={@id}

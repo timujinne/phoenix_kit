@@ -144,10 +144,13 @@
   {"lib/phoenix_kit/users/auth.ex", :unknown_function},
 
   # PhoenixKitComments — optional sibling package; runtime-guarded via
-  # `Code.ensure_loaded?/1` (preview loader + linked-comment cleanup) or
-  # only mounted when the package is installed (composer).
+  # `Code.ensure_loaded?/1` (preview loader + linked-comment cleanup +
+  # the media viewer's master-comment creation, guarded by
+  # `comments_installed?/0`) or only mounted when the package is
+  # installed (composer).
   {"lib/phoenix_kit/annotations/annotations.ex", :unknown_function},
   {"lib/phoenix_kit_web/components/annotation_composer.ex", :unknown_function},
+  {"lib/phoenix_kit_web/components/media_canvas_viewer.ex", :unknown_function},
 
   # Integrations — URI authority is opaque, cond guard false positive
   {"lib/phoenix_kit_web/live/settings/integration_form.ex", :opaque_guard},

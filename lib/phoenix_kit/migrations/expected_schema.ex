@@ -72,6 +72,18 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # keys are catalog-exact rather than transcribed. chain_hash restamped over
   # the shipped set; `verify.exs --scenario s7,s8` remains the body's proof.
   #
+  # RESTAMPED AGAIN 2026-08-17, over 40 files (v135..v174), resolving PR #721's
+  # merge conflict with #720's V173 (catalogue attribute groups, above): #721's
+  # own media file-type repair migration collided on the same V173 slot and was
+  # renumbered to V174. V174 touches no manifest OBJECT — it is UPDATE
+  # statements only (`repair_statements/1`, no CREATE/DROP/ALTER) — so this is
+  # the guard/logic-only class `restamp_chain_hash.exs` permits, same as the
+  # V164 and V166 precedents above. `verify.exs --scenario s7,s8` against a
+  # real database has not run against this exact chain (needs a fresh
+  # `generate_baseline.exs` pre-squash regeneration, not available in this
+  # session); the manifest BODY is otherwise unchanged from the V173 restamp
+  # two entries up.
+  #
   # Chain at generation: object/revision/legacy_optional DATA was captured from a
   # per-version replay of the TRUE pre-squash chain (initial=1 current=163 files=163
   # — the only run that can see pre-floor-only bimodal drift, e.g. V28/V30's
@@ -114,7 +126,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "9597cd5cbe566e644c30ff866ce9ba57407038b15d6448280f064dda732a6349"
+  @chain_hash "475a4a6217362d753c03a7356e901cd1184b3d145aac175661de631d51ab0da4"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)

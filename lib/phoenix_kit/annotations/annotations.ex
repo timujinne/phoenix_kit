@@ -108,8 +108,14 @@ defmodule PhoenixKit.Annotations do
       %{
         annotation: %Annotation{},
         first_comment: %{content, author, thumbnail_url} | nil,
-        comment_count: integer()
+        comment_count: integer(),
+        master_comment_uuid: String.t() | nil
       }
+
+  `comment_count` counts the DISCUSSION — the master/topic comment a
+  shape's thread hangs under (`metadata.annotation_master`) is excluded,
+  and its uuid is surfaced as `master_comment_uuid` (nil until the first
+  Reply creates it) so callers can thread new messages under it.
 
   Annotation comments are stored against the file (`resource_type: "file"`,
   `resource_uuid: file_uuid`) with `metadata.annotation_uuid` pointing at
@@ -164,16 +170,37 @@ defmodule PhoenixKit.Annotations do
   # Comments arrive ordered by inserted_at asc from list_comments/3, so
   # the first top-level entry is the earliest reply. If everything is a
   # reply (rare — usually there's a root), fall back to the first.
-  defp build_preview([]), do: %{first_comment: nil, comment_count: 0}
+  #
+  # The MASTER comment — the topic row a shape's discussion hangs under
+  # (`metadata.annotation_master`, created lazily on the first Reply and
+  # backdated to the shape's creation) — is bookkeeping, not discussion:
+  # its content is the shape's own label, so counting it would say "1
+  # comment" about a shape nobody has said anything about, and previewing
+  # it would echo the label the tooltip is already showing. It is
+  # excluded from both and surfaced as `master_comment_uuid` instead, so
+  # the Reply flow can thread new messages under it (nil = not created
+  # yet). Pre-master rows (composer-posted anchors from older installs)
+  # carry no marker and keep counting as discussion.
+  defp build_preview([]),
+    do: %{first_comment: nil, comment_count: 0, master_comment_uuid: nil}
 
   defp build_preview(comments) do
+    {masters, discussion} =
+      Enum.split_with(comments, fn c ->
+        get_in(c.metadata || %{}, ["annotation_master"]) == true
+      end)
+
     first =
-      case Enum.find(comments, fn c -> c.parent_uuid == nil end) do
-        nil -> hd(comments)
+      case Enum.find(discussion, fn c -> c.parent_uuid == nil end) do
+        nil -> List.first(discussion)
         c -> c
       end
 
-    %{first_comment: build_first_comment(first), comment_count: length(comments)}
+    %{
+      first_comment: build_first_comment(first),
+      comment_count: length(discussion),
+      master_comment_uuid: masters |> List.first() |> then(&(&1 && to_string(&1.uuid)))
+    }
   end
 
   defp build_first_comment(nil), do: nil

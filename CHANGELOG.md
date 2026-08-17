@@ -1,3 +1,100 @@
+## 2.9.0 - 2026-08-17
+
+Media file-type integrity gets defended at the write boundary and repaired
+for rows already corrupted, and the media viewer's shape annotations grow a
+real discussion flow (#721).
+
+### Added
+
+- **Annotation discussions.** Drawing a shape on the media viewer's canvas
+  no longer opens a composer — every kind saves silently, with labels typed
+  through Etcher's inline editor. The tooltip gets three header buttons
+  (Etcher 0.13's `tooltipActions`): **Reply** lazily creates the shape's
+  master comment (content = label, author = shape creator, backdated to the
+  shape's creation) and opens a body-only popup that threads under it;
+  **Edit** reopens Etcher's inline label editor; **View** scrolls the
+  sidebar to the shape's thread. Shapes show a live comment-count badge that
+  refreshes on create/delete via the existing comments PubSub relay.
+- **`Storage.store_file_in_buckets/7` `:mime_type` opt.** Callers can now
+  pass the browser-observed mime (`client_type` / `content_type`) so it's
+  stored verbatim instead of guessed from the extension; all core upload
+  call sites (`UploadController`, `MediaBrowser`, `MediaSelectorModal`,
+  `MediaSelector`) now pass it.
+- **`Storage.display_file_type/1`.** Reconciles a stored row's `file_type`
+  against its own mime/filename evidence for display, so a row misclassified
+  before this release (e.g. a `.mov` stored as `"image"`) renders correctly
+  without needing the repair migration to have run.
+- **V174 migration** — repairs media rows corrupted by two now-fixed writer
+  defects: blank/octet-stream mimes with a known audio extension get the
+  real audio mime (files and file instances), and generic `file_type` values
+  contradicted by the mime are reclassified. System types (`"tile"`) and
+  rows without evidence are left untouched; the migration is idempotent and
+  its `down/1` is deliberately a no-op (there's no record of the pre-repair
+  values to restore).
+
+### Fixed
+
+- **Upload paths could poison `file_type` for every downstream surface.**
+  The storage write boundary now cross-checks a caller's claimed `file_type`
+  against the mime/filename evidence and corrects a contradicted generic
+  claim, so one careless call site (e.g. an external module hardcoding
+  `"image"`) can no longer break the thumbnail grid, type filters, and
+  variant processing for every file it uploads.
+- **`determine_mime_type/1` had no audio entries.** Every `.mp3`/`.m4a`/
+  `.wav` guessed from an extension landed as `application/octet-stream` and
+  was served that way. Now routed through `MIME.type/1` with an audio
+  fallback map for the extensions it still answers octet-stream for.
+- **Etcher label text silently vanished on reload.** `annotation_unchanged?`
+  compared geometry/style/kind only, so a label typed into Etcher's inline
+  editor (the only way text/callout/dimension shapes collect text since
+  Etcher 0.12) changed nothing the comparison looked at and the write was
+  skipped.
+- **Committing a shape label crashed the LiveView.** The sync path read a
+  curated map (as `load_annotations_for/1` produces it) as if it were the
+  `Annotation` schema struct.
+- **Deleting a sidebar comment killed the whole LiveView**, which read as
+  "the page refreshed and the media modal closed" — the `Embed` macro now
+  handles the `{:comments_updated, ...}` message the comments component
+  reports to the host process.
+- **The media viewer's connector anchors are now hard-disabled** (`connectors={:off}`)
+  instead of following a shared saved preference that could follow a user in
+  from boards, where the anchors point at nothing.
+- **Lightbox video/audio sizing.** Video fills the column via
+  `object-contain` instead of floating as a tiny box at its intrinsic size;
+  the audio player is centered with a max width instead of stretching full
+  width.
+- **`default.pot` extraction drift + missing translations.** The composer's
+  copy change ("Reply to this annotation") had never been extracted;
+  re-extracted and translated into de/es/et/fr/it/pl/ru.
+
+### Dependencies
+
+- **etcher 0.13.0** (was 0.12.1) — adds `tooltipActions` and the hard
+  `connectors={:off}` layer option.
+
+## 2.8.1 - 2026-08-16
+
+### Added
+
+- **UploadGuard.** `Core.FileUpload` now blocks accidental tab close/refresh
+  while a file is mid-upload — the browser's native `beforeunload` dialog
+  fires instead of silently losing an in-flight transfer (LiveView uploads
+  aren't resumed). Applies to both the drag-drop and button variants (#720).
+
+### Changed
+
+- **`Core.FileUpload` static strings are translatable.** "Cancel upload",
+  "Drag files here or click to browse", "Drop your files to upload", and
+  "Maximum file size: …" now go through `gettext`; the `label` attr defaults
+  to a translated "Upload Files" instead of a hardcoded string (#720).
+
+### Fixed
+
+- **`default.pot` extraction drift.** `Core.ColumnSettings`' "Columns" and
+  "Shown" labels (added in 2.8.0) had never been extracted, leaving them
+  untranslated in every non-English locale. Re-extracted and translated into
+  de/es/et/fr/it/pl/ru.
+
 ## 2.8.0 - 2026-08-16
 
 The admin header becomes a real breadcrumb for drill-down pages, and

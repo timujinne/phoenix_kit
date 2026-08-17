@@ -239,7 +239,18 @@ defmodule PhoenixKitWeb.UploadController do
     ext = Path.extname(upload.filename) |> String.replace_leading(".", "")
 
     # Store in buckets with hierarchical path structure
-    case Storage.store_file_in_buckets(upload.path, file_type, user_uuid, file_checksum, ext) do
+    # The real filename and observed content type ride along so the row keeps
+    # them — previously this path stored the multipart tempfile's basename as
+    # the original name and an extension-guessed mime.
+    case Storage.store_file_in_buckets(
+           upload.path,
+           file_type,
+           user_uuid,
+           file_checksum,
+           ext,
+           upload.filename,
+           mime_type: upload.content_type
+         ) do
       {:ok, file} ->
         # Queue background job for variant generation
         %{file_uuid: file.uuid, user_uuid: user_uuid, filename: upload.filename}
