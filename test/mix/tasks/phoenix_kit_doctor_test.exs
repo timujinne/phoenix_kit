@@ -261,4 +261,209 @@ defmodule Mix.Tasks.PhoenixKit.DoctorTest do
       assert message =~ "DefaultQueueWorker"
     end
   end
+
+  describe "git_hooks_verdict/1 — 'not installed' and 'could not check' are different answers" do
+    @ok %{
+      repo: {:ok, "/repo/.git"},
+      hooks_path: {:ok, ".githooks"},
+      tracked?: true,
+      shadow: :none
+    }
+
+    test "enabled, tracked, no leftover → pass" do
+      assert {:pass, _} = DoctorTask.git_hooks_verdict(@ok)
+    end
+
+    test "core.hooksPath unset → warns, and says exactly how to fix it" do
+      {status, detail} = DoctorTask.git_hooks_verdict(%{@ok | hooks_path: :unset})
+      assert status == :warn
+      assert detail =~ "NOT running"
+      assert detail =~ "git config core.hooksPath .githooks"
+    end
+
+    test "pointing somewhere else → warns and names where" do
+      {status, detail} = DoctorTask.git_hooks_verdict(%{@ok | hooks_path: {:ok, "hooks"}})
+      assert status == :warn
+      assert detail =~ ~s("hooks")
+      assert detail =~ "git config core.hooksPath .githooks"
+    end
+
+    test "tracked hook missing from the checkout → warns about that, not about config" do
+      {status, detail} = DoctorTask.git_hooks_verdict(%{@ok | tracked?: false})
+      assert status == :warn
+      assert detail =~ ".githooks/pre-commit is missing"
+    end
+
+    test "leftover hook in the common dir → warns it is dead code" do
+      {status, detail} =
+        DoctorTask.git_hooks_verdict(%{@ok | shadow: {:ok, "/repo/.git/hooks/pre-commit"}})
+
+      assert status == :warn
+      assert detail =~ "/repo/.git/hooks/pre-commit"
+      assert detail =~ "Delete it"
+    end
+
+    # The whole reason this check exists in this shape. A check that answers
+    # "not installed" when it merely failed to look is confidently wrong, and
+    # sends the reader to fix something that is not broken.
+    test "not a git repo → says it could not check, and refuses to call it 'not installed'" do
+      {status, detail} = DoctorTask.git_hooks_verdict(%{@ok | repo: :unknown})
+      assert status == :warn
+      assert detail =~ "Could not check"
+      assert detail =~ "NOT the same"
+      refute detail =~ "git config core.hooksPath .githooks"
+    end
+
+    test "core.hooksPath unreadable → same refusal to guess" do
+      {status, detail} = DoctorTask.git_hooks_verdict(%{@ok | hooks_path: :unknown})
+      assert status == :warn
+      assert detail =~ "unknown whether the hook runs"
+      refute detail =~ "Fix:"
+    end
+
+    test "an unreadable config and an unset one do not produce the same message" do
+      {_, could_not_check} = DoctorTask.git_hooks_verdict(%{@ok | hooks_path: :unknown})
+      {_, definitely_off} = DoctorTask.git_hooks_verdict(%{@ok | hooks_path: :unset})
+
+      refute could_not_check == definitely_off
+    end
+
+    test "enabled but the leftover check itself failed → says so rather than passing" do
+      {status, detail} = DoctorTask.git_hooks_verdict(%{@ok | shadow: :unknown})
+      assert status == :warn
+      assert detail =~ "could not check for a stale copy"
+    end
+  end
+
+  describe "classify_fk_check/5 — a probe failure must never read as clean (gate round 2, finding 1)" do
+    test "a failed orphan-count probe lands in the probe_failed bucket, not the clean path" do
+      acc = {[], [], []}
+
+      assert {[], [], [{"t", "c", "r", :orphan_count, "boom", nil}]} =
+               DoctorTask.classify_fk_check(
+                 "t",
+                 "c",
+                 "r",
+                 {:probe_failed, "boom"},
+                 :validated,
+                 acc
+               )
+    end
+
+    test "a failed validation-state probe lands in the probe_failed bucket too" do
+      acc = {[], [], []}
+
+      assert {[], [], [{"t", "c", "r", :validation_state, "no access", 0}]} =
+               DoctorTask.classify_fk_check(
+                 "t",
+                 "c",
+                 "r",
+                 {:ok, 0},
+                 {:probe_failed, "no access"},
+                 acc
+               )
+    end
+
+    test "a failed validation-state probe preserves the measured orphan count (round 2 gate, minor finding 1)" do
+      # The orphan-count probe already succeeded here — 5 real orphaned rows
+      # were measured — and it is only the SEPARATE validation-state probe
+      # that failed. Before this fix, the measured count was discarded and
+      # the caller could only ever print "could not check", losing the exact
+      # number the whole section exists to report.
+      acc = {[], [], []}
+
+      assert {[], [], [{"t", "c", "r", :validation_state, "no access", 5}]} =
+               DoctorTask.classify_fk_check(
+                 "t",
+                 "c",
+                 "r",
+                 {:ok, 5},
+                 {:probe_failed, "no access"},
+                 acc
+               )
+    end
+
+    test "a probe failure wins even when the orphan count would otherwise be clean" do
+      # Both reads must succeed for the old empty-accumulator ("nothing to
+      # report") path to apply — one failing is enough to route to
+      # probe_failed regardless of what the other read said.
+      acc = {[], [], []}
+
+      assert {[], [], [_]} =
+               DoctorTask.classify_fk_check(
+                 "t",
+                 "c",
+                 "r",
+                 {:probe_failed, "timeout"},
+                 :absent,
+                 acc
+               )
+    end
+
+    test "known-good inputs still classify the same as before this round's fix" do
+      assert {[{"t", "c", "r", 3, :validate}], [], []} =
+               DoctorTask.classify_fk_check(
+                 "t",
+                 "c",
+                 "r",
+                 {:ok, 3},
+                 {:not_valid, "fk_x"},
+                 {[], [], []}
+               )
+
+      assert {[], [{"t", "c", "r"}], []} =
+               DoctorTask.classify_fk_check(
+                 "t",
+                 "c",
+                 "r",
+                 {:ok, 0},
+                 {:not_valid, "fk_x"},
+                 {[], [], []}
+               )
+
+      assert {[], [], []} =
+               DoctorTask.classify_fk_check("t", "c", "r", {:ok, 0}, :validated, {[], [], []})
+    end
+  end
+
+  describe "report_orphaned_fk_refs/3 — RED without this round's fix: a probe failure must not be PASS" do
+    test "probe_failed alone (no orphans, no known-unvalidated) is :fail, never :pass" do
+      probe_failed = [
+        {"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users", :orphan_count, "boom", nil}
+      ]
+
+      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed)
+      assert message =~ "could not check"
+      assert message =~ "not a pass"
+      assert message =~ "boom"
+    end
+
+    test "a validation-state probe failure reports the measured orphan count, not just 'could not check' (round 2 gate, minor finding 1)" do
+      probe_failed = [
+        {"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users", :validation_state,
+         "no access", 5}
+      ]
+
+      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed)
+      assert message =~ "5 orphaned row"
+      assert message =~ "no access"
+    end
+
+    test "no findings at all is still :pass — the fix does not make doctor permanently red" do
+      assert {:pass, _} = DoctorTask.report_orphaned_fk_refs([], [], [])
+    end
+
+    test "orphans alone still :fail, unchanged from before this round" do
+      orphaned = [{"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users", 2, :validate}]
+
+      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs(orphaned, [], [])
+      assert message =~ "2 orphaned row"
+    end
+
+    test "not_validated alone (nothing blocking) is still :warn, unchanged from before this round" do
+      not_validated = [{"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users"}]
+
+      assert {:warn, _} = DoctorTask.report_orphaned_fk_refs([], not_validated, [])
+    end
+  end
 end

@@ -1,3 +1,37 @@
+## 2.13.1 - 2026-08-18
+
+FK validation, auth-page SEO, an S3-compatible object-storage integration
+provider, and a tracked pre-commit hook (#733, #734, #735, #736).
+
+### Added
+
+- **V176 validates existing `NOT VALID` user foreign keys in place** and
+  never deletes or nulls a row — a name-matched re-probe after `VALIDATE`
+  guards against shape-only false positives. `mix phoenix_kit.doctor`'s
+  orphaned-FK probe now fails closed on a probe error instead of reporting a
+  pass (#733).
+- **Canonical/hreflang tags on the stable auth pages** (login, registration,
+  magic-link registration request) via a new `PhoenixKitWeb.Users.AuthSeo`
+  helper (#734).
+- **`object_storage` integration provider (S3-compatible)** — registers with
+  `PhoenixKit.Integrations`, with URL/bucket/region validators covering
+  AWS/Backblaze/Cloudflare/China-partition endpoint shapes. This is the
+  provider-side half of the bucket `integration_uuid` credential source added
+  in 2.13.0 — no admin-UI picker yet (#735).
+- **`.githooks/pre-commit`** is now tracked in the repo (`git config
+  core.hooksPath .githooks` to enable) and `mix phoenix_kit.doctor` reports
+  its status under "Git Hooks" — scoped to a checkout of phoenix_kit itself,
+  since the hook is a contributor convention, not something installed into a
+  consuming host app (#736).
+
+### Fixed
+
+- **`.githooks/pre-commit` now runs the same steps as `mix precommit`**, in
+  the same order (`compile --warnings-as-errors --all-warnings`,
+  `deps.unlock --check-unused`, `quality.ci`, `test.js`), instead of a
+  weaker, format-mutating `mix quality` that could leave the working tree
+  dirty immediately after a hook-approved commit (post-#736 review fix).
+
 ## 2.13.0 - 2026-08-18
 
 Storage bucket credentials are now encrypted at rest, with an alternative

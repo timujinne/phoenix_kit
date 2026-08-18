@@ -102,6 +102,17 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # change. `verify.exs --scenario s7,s8` against a real database has not run
   # against this exact chain either way.
   #
+  # V176 (2026-08-18, this branch's own A002) landed independently on a fork
+  # of the pre-V175(buckets) chain, also filed as V175 — merging with
+  # upstream's V175 hit a real add/add conflict, resolved by renumbering
+  # A002's migration to V176 (upstream's V175/buckets kept exactly as
+  # shipped). A002 declares no object here: it only VALIDATEs foreign keys
+  # V164 already created NOT VALID, never adds/drops/reshapes anything the
+  # catalog can see — same reasoning V164 itself gives for why `convalidated`
+  # is not tracked as a manifest field. `@chain_hash` restamped again over
+  # the 42 shipped v*.ex files (restamp_chain_hash.exs --restamp; the move
+  # only touches file content/names, not manifest BODY).
+  #
   # Chain at generation: object/revision/legacy_optional DATA was captured from a
   # per-version replay of the TRUE pre-squash chain (initial=1 current=163 files=163
   # — the only run that can see pre-floor-only bimodal drift, e.g. V28/V30's
@@ -144,7 +155,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "f0ff70c76bbe496fbffda53de2cb82e943410cdf2026dda89192ee85bd2b3907"
+  @chain_hash "079c5f9e1ee247610255664b6ee9b1c1cbb6ee7f11dc8bdee1fc206d8c3ef63e"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)

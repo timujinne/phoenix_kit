@@ -1,0 +1,195 @@
+#!/bin/bash
+
+# NOTE: Exit on any command failure
+set -e
+
+echo "Running pre-commit checks..."
+
+if [ ! -f "mix.exs" ]; then
+    echo "Error: mix.exs not found. Are you in an Elixir project directory?"
+    exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Failure diagnosis
+#
+# Every step below can fail for two unrelated reasons, and this hook used to
+# report only one of them - "Please fix credo issues before committing" - no
+# matter which one actually happened:
+#
+#   1. a check ran and reported findings   -> name the step that reported them;
+#   2. the process was killed, or could not allocate memory -> say that plainly.
+#
+# Case 2 is routine here: `mix dialyzer` builds priv/plts/dialyzer.plt and does
+# not fit into this container's cgroup memory limit, so the kernel kills it.
+# The hook then printed a confident sentence about credo and sent people
+# looking for style findings that do not exist. `mix compile` is memory-hungry
+# too, and used to answer the same way with "fix compilation errors".
+#
+# Deliberately conservative rules:
+#   * tool output is streamed live through tee and is never replaced - the
+#     verdict is appended to it, and the deciding line is quoted back;
+#   * the decisive proof that OUR process was killed is its exit status
+#     (>= 128 means it died on a signal). The cgroup OOM counter is
+#     container-wide and shared with the other worktrees of this repo, so a
+#     neighbour's OOM can move it. It is therefore used only to sharpen the
+#     wording, never as the sole basis for the claim;
+#   * every marker in MEM_RE was observed on this machine by starving a real
+#     BEAM with `ulimit -v`. None of them is guessed.
+# ---------------------------------------------------------------------------
+
+LOG_DIR="${TMPDIR:-/tmp}/phoenix-kit-precommit-$$"
+mkdir -p "$LOG_DIR"
+
+MEM_RE='erts_mmap:|Failed to create super carrier|Failed to create scheduler thread|Cannot allocate|[Oo]ut of memory|std::bad_alloc|erl_crash\.dump|system_limit'
+
+# Test seam: point OOM_EVENTS_FILE at a fixture to exercise the OOM-counter
+# branch without provoking a real OOM kill. Defaults to the live cgroup files.
+oom_kill_count() {
+    local f
+    for f in ${OOM_EVENTS_FILE:-} /sys/fs/cgroup/memory.events /sys/fs/cgroup/memory/memory.oom_control; do
+        if [ -n "$f" ] && [ -r "$f" ]; then
+            awk '$1 == "oom_kill" { print $2; exit }' "$f"
+            return
+        fi
+    done
+}
+
+memory_limit_human() {
+    local v=""
+    if [ -r /sys/fs/cgroup/memory.max ]; then
+        v=$(cat /sys/fs/cgroup/memory.max)
+    elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+        v=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+    fi
+    case "$v" in
+        "" | max) ;;
+        *) awk -v b="$v" 'BEGIN { printf "%.1f GiB", b / 1073741824 }' ;;
+    esac
+}
+
+# Which step of `mix quality.ci` (format --check-formatted -> credo --strict
+# -> dialyzer) was running. The alias stops at the first failure, so the
+# newest stage that printed anything is the one that broke - hence
+# newest-stage-first.
+failing_stage() {
+    local log="$1"
+    if grep -qE 'Starting Dialyzer|Finding suitable PLTs|Checking PLT|Total errors:' "$log"; then
+        echo "dialyzer"
+    elif grep -qE 'Checking [0-9]+ source file|Analysis took|mods/funs, found' "$log"; then
+        echo "credo --strict"
+    elif grep -qE 'mix format failed|The following files are not formatted' "$log"; then
+        echo "format"
+    fi
+}
+
+advise_memory() {
+    echo ""
+    echo "   Nothing in the checks needs fixing. Give the step more memory, or"
+    echo "   run less at once - one command per BEAM:"
+    echo "     mix compile --warnings-as-errors --all-warnings"
+    echo "     mix deps.unlock --check-unused"
+    echo "     mix format --check-formatted"
+    echo "     mix credo --strict"
+    echo "     mix dialyzer          # heaviest; builds priv/plts/dialyzer.plt"
+    echo "     mix test.js"
+    echo "   Do NOT bypass the hook by default - it also catches real problems."
+}
+
+# report_failure <name> <exit status> <log> <oom delta>
+report_failure() {
+    local name="$1" status="$2" log="$3" oom_delta="$4"
+    local stage limit signal signame mem_line
+    stage=$(failing_stage "$log")
+    limit=$(memory_limit_human)
+    mem_line=$(grep -m1 -E "$MEM_RE" "$log" 2>/dev/null | sed 's/^[[:space:]]*//')
+    signal=""
+    if [ "$status" -ge 128 ]; then signal=$((status - 128)); fi
+
+    echo ""
+    echo "❌ $name failed (exit code $status)."
+
+    if [ "$signal" = "9" ]; then
+        echo "   The process was KILLED by SIGKILL (9) - it produced no findings at all."
+        if [ -n "$oom_delta" ] && [ "$oom_delta" -gt 0 ] 2>/dev/null; then
+            echo "   The kernel recorded $oom_delta OOM kill(s) in this container's cgroup while"
+            echo "   this step was running${limit:+ (memory limit $limit)}."
+            echo "   => The step did not fit into the container memory limit."
+        else
+            echo "   No OOM kill was recorded in this container's cgroup during this step${limit:+ (memory limit $limit)}."
+            echo "   => Most likely the memory limit, but the kernel counter does not confirm"
+            echo "      it - the process may also have been killed from the outside."
+        fi
+        echo "   Either way, nothing was reported: do not go looking for style or compile findings."
+        if [ -n "$stage" ]; then echo "   Last step that produced output: mix $stage."; fi
+        advise_memory
+    elif [ -n "$mem_line" ]; then
+        echo "   The BEAM failed to allocate memory${limit:+ (container limit $limit)}:"
+        echo "       $mem_line"
+        echo "   => The step ran out of memory. Nothing was reported by the checks."
+        if [ -n "$stage" ]; then echo "   Last step that produced output: mix $stage."; fi
+        if [ -n "$signal" ]; then echo "   (The process then died on SIG$(kill -l "$signal" 2>/dev/null).)"; fi
+        advise_memory
+    elif [ -n "$signal" ]; then
+        signame=$(kill -l "$signal" 2>/dev/null || echo "$signal")
+        echo "   The process was killed by SIG$signame ($signal) - it produced no findings."
+        echo "   => Nothing was reported by the checks; the cause is not in them."
+        if [ -n "$stage" ]; then echo "   Last step that produced output: mix $stage."; fi
+        advise_memory
+    elif [ -n "$stage" ]; then
+        echo "   The checks ran and reported findings. Failing step: mix $stage."
+        echo "   Fix what it printed above, then commit again."
+    else
+        echo "   The step reported a failure. See its output above - this hook could not"
+        echo "   attribute it to a specific check, and will not guess."
+    fi
+
+    echo ""
+    echo "   Full output of this step: $log"
+    echo "   Last lines:"
+    tail -n 10 "$log" | sed 's/^/   | /'
+    echo ""
+}
+
+# run_step <name> <banner> <command...>
+# Streams output live, keeps a copy, and reports the real reason on failure.
+run_step() {
+    local name="$1" banner="$2"
+    shift 2
+    local log oom_before oom_after oom_delta status
+    log="$LOG_DIR/$(echo "$name" | tr -c 'a-zA-Z0-9' '-').log"
+
+    echo "$banner"
+    oom_before=$(oom_kill_count)
+
+    set +e
+    "$@" 2>&1 | tee "$log"
+    status=${PIPESTATUS[0]}
+    set -e
+
+    oom_after=$(oom_kill_count)
+    if [ -n "$oom_before" ] && [ -n "$oom_after" ]; then
+        oom_delta=$((oom_after - oom_before))
+    else
+        oom_delta=""
+    fi
+
+    if [ "$status" -ne 0 ]; then
+        report_failure "$name" "$status" "$log" "$oom_delta"
+        exit 1
+    fi
+    echo "✅ $name passed"
+}
+
+# Mirrors `mix precommit` (mix.exs) step for step, so a hook-approved commit
+# cannot still fail precommit/CI on something this hook skipped. In
+# particular: `quality.ci`, not `quality` - the latter's `format` step
+# rewrites files after they are staged, leaving the tree dirty right after a
+# commit that just claimed to pass.
+run_step "Compilation" "🔨 Compiling code..." mix compile --warnings-as-errors --all-warnings
+run_step "Unused dependencies" "📦 Checking for unused dependencies..." mix deps.unlock --check-unused
+run_step "Code quality checks" "🔍 Running code quality checks..." mix quality.ci
+run_step "JavaScript tests" "🧪 Running JavaScript tests..." mix test.js
+
+rm -rf "$LOG_DIR"
+echo "🎉 All pre-commit checks passed! Proceeding with commit..."

@@ -7,7 +7,23 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V175 - Buckets: integration_uuid credential source ⚡ LATEST
+  ### V176 - Validate existing NOT VALID foreign keys ⚡ LATEST
+
+  The FK repair V164 added (`UUIDFKColumns.fk_constraints/0`) creates every
+  constraint `NOT VALID` and validates it on the spot, but a validation that
+  fails because of pre-existing orphaned rows stays `NOT VALID` forever —
+  nothing in core ever revisits it (V164's own moduledoc says a re-run does
+  not retry, "VALIDATE each by hand"). This version does exactly that, on
+  every later run: for each declared FK still `NOT VALID`, if the orphan
+  count is now zero it validates it; if orphans remain, it leaves the
+  constraint untouched and warns with the real count. Never deletes a row or
+  nulls a reference — same policy V164 states for itself, for the same
+  reason (this runs against other people's already-deployed data).
+
+  Filed as V175 originally, renumbered to V176 when this branch merged
+  upstream/main and found V175 already taken by the Buckets change below.
+
+  ### V175 - Buckets: integration_uuid credential source
 
   Adds `phoenix_kit_buckets.integration_uuid` (bare UUID, no FK, partial
   index) so a cloud bucket can point at a `PhoenixKit.Integrations`
@@ -572,7 +588,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 175
+  @current_version 176
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries

@@ -18,6 +18,7 @@ defmodule PhoenixKitWeb.Users.Registration do
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth, as: WebAuth
+  alias PhoenixKitWeb.Users.AuthSEO
 
   def mount(params, session, socket) do
     case WebAuth.maybe_redirect_authenticated(socket) do
@@ -68,6 +69,8 @@ defmodule PhoenixKitWeb.Users.Registration do
       # Extract and store IP address during mount for later use
       ip_address = IpAddress.extract_from_socket(socket)
 
+      seo = AuthSEO.seo_assigns("/users/register")
+
       # Parse invitation token from URL params
       invitation_token = Map.get(params, "invitation")
       pending_invitation = load_pending_invitation(invitation_token)
@@ -81,6 +84,8 @@ defmodule PhoenixKitWeb.Users.Registration do
         |> assign(trigger_submit: false, check_errors: false)
         |> assign(username_edited: false)
         |> assign(project_title: project_title)
+        |> assign(canonical_url: seo.canonical_url)
+        |> assign(hreflang_links: seo.hreflang_links)
         |> assign(referral_codes_enabled: referral_codes_config.enabled)
         |> assign(referral_codes_required: referral_codes_config.required)
         |> assign(referral_code: nil)

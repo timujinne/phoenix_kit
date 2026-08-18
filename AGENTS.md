@@ -4,16 +4,20 @@
 
 ## Workflow
 
+0. **First clone only:** `git config core.hooksPath .githooks` — enables the
+   tracked pre-commit hook (`.githooks/pre-commit`). Git deliberately will not
+   do this for you: a clone must not be able to run code on checkout, so one
+   manual command is the floor. `mix phoenix_kit.doctor` reports it under
+   "Git Hooks" when it is missing, and distinguishes "not enabled" from
+   "could not check".
 1. Make changes
-2. `mix precommit` — compile (warnings as errors) + `deps.unlock --check-unused` + `quality.ci` (format-check, credo --strict, dialyzer) + JS tests. **It does not run `mix test`** — run that separately, see "CI/CD" below.
+2. `mix precommit` — compile (warnings as errors) + `deps.unlock --check-unused` + `quality.ci` (format-check, credo --strict, dialyzer) + JS tests. **Does NOT run `mix test`** — see "CI/CD" below.
 3. Fix problems
 4. `git diff` / `git status` → commit
 
 ## Development Commands
 
-- `mix setup` — full project setup
-- `mix deps.get` — deps only
-- `mix ecto` — list ecto commands
+- `mix setup` — full setup; `mix deps.get` — deps only; `mix ecto` — list ecto commands
 - `mix format`, `mix credo --strict`, `mix dialyzer`, `mix quality`, `mix quality.ci`
 
 ### Tests
@@ -26,66 +30,44 @@ mix test          # run all (migrations auto via test_helper)
 mix test.reset    # drop + recreate
 ```
 
-Test DB `phoenix_kit_test` uses embedded `PhoenixKit.Test.Repo` (`test/support/test_repo.ex`). Schema comes from the versioned migration chain — `test_helper.exs` runs `PhoenixKit.Migration.ensure_current/2` on every boot (there is no `test/support/postgres/migrations/` directory; that per-file approach was retired 2026-05-05). **Do not** swap in `Ecto.Migrator.run(repo, [{0, PhoenixKit.Migration}], :up, all: true)` — it goes silently stale (see `ensure_current/2` moduledoc).
+Test DB `phoenix_kit_test` uses embedded `PhoenixKit.Test.Repo` (`test/support/test_repo.ex`). Schema comes from the versioned migration chain — `test_helper.exs` runs `PhoenixKit.Migration.ensure_current/2` on every boot. **Do not** swap in `Ecto.Migrator.run(repo, [{0, PhoenixKit.Migration}], :up, all: true)` — it goes silently stale (see `ensure_current/2` moduledoc).
 
-**Without PostgreSQL:** integration tests are auto-excluded; unit tests still run. `mix test` will print a banner and continue.
+**Without PostgreSQL:** integration tests are auto-excluded; unit tests still run (banner printed, exit 0).
 
-Use `PhoenixKit.DataCase` for tests needing the DB — auto-tags `:integration`.
-
-```elixir
-defmodule PhoenixKit.Integration.MyTest do
-  use PhoenixKit.DataCase, async: true
-  test "example" do
-    {:ok, user} = PhoenixKit.Users.Auth.register_user(%{email: "test@example.com", password: "ValidPassword123!"})
-    assert user.uuid
-  end
-end
-```
+DB tests: `use PhoenixKit.DataCase, async: true` — auto-tags `:integration`.
 
 ### Local cross-repo development
 
-Core has no `phoenix_kit` dep of its own — the flow matters from the **consumer** side. Every Max-maintained feature module wraps its `phoenix_kit*` deps in a `pk_dep/3` helper, so a module's suite can run against **uncommitted local core** without publishing. From inside the module's directory:
+Core has no `phoenix_kit` dep of its own — the flow matters from the **consumer** side. Every feature module wraps its `phoenix_kit*` deps in a `pk_dep/3` helper, so a module's suite can run against **uncommitted local core** without publishing. From inside the module's directory:
 
 ```bash
 PHOENIX_KIT_PATH=../phoenix_kit mix test
 ```
 
-Mix swaps the module's Hex pin for a local `path:` + `override: true` dep (var name = dep app upper-cased + `_PATH`; unset = published pin, so `mix hex.publish` / CI are unaffected). `phoenix_kit_parent` does the same permanently — use it to exercise the whole tree against local core. Full write-up: workspace `AGENTS.md` → "Testing a module against local deps".
+Var name = dep app upper-cased + `_PATH`; unset = published Hex pin (`mix hex.publish` / CI unaffected). `phoenix_kit_parent` does the same permanently — use it to exercise the whole tree against local core. Details: workspace `AGENTS.md` → "Testing a module against local deps".
 
 ### Code Search
 
-- `rg` (ripgrep) — text/regex/strings/comments
-- `ast-grep` — structural patterns; **prefer over text grep for code searches**
-
-```bash
-ast-grep --lang elixir --pattern 'load_filter_data($$$)' lib/
-ast-grep --lang elixir --pattern 'def $FUNC($$$ARGS) do $$$BODY end' lib/
-```
+- `rg` — text/regex/strings/comments
+- `ast-grep` — structural patterns; **prefer over text grep for code searches**: `ast-grep --lang elixir --pattern 'def $FUNC($$$ARGS) do $$$BODY end' lib/`
 
 ## Pull Requests
 
-- **Branch:** core integrates on **`main`** — open PRs against `main` (`gh pr create --base main --head <your-fork-owner>:<branch>`; the previous example hardcoded one contributor's fork and branch). The `dev` branch was **retired 2026-06-01**; do not target it.
-- **CI/CD:** `.github/workflows/ci.yml` is **manual-only** (`on: workflow_dispatch`) — nothing runs on push or on a PR. When dispatched it provisions `postgres:16` and runs `mix format --check-formatted`, `mix credo --strict`, `mix dialyzer`, `mix deps.unlock --check-unused`, and `mix test.setup` + `mix test`.
-
-  ⚠️ **Nothing runs the Elixir suite automatically — not CI, and not `precommit`.** `mix precommit` covers compile-with-warnings-as-errors, unused deps, `quality.ci` and the JS tests, but **not `mix test`** (this section previously claimed otherwise). Running the suite is a manual step, and for anything touching the schema it is not optional: with no database reachable, `test_helper.exs` prints a warning banner and excludes every `:integration` test — but the run still **exits 0 and reports success**, so a green summary proves nothing about a migration.
-
-  Pointing the suite at a database: `PGHOST`/`PGUSER`/`PGPASSWORD` were always read, and `PGDATABASE`/`PGPOOL` were added so you can use a database you already have. The old code hardcoded `phoenix_kit_test`, which forced a role with `CREATEDB` — precisely what a shared or managed instance withholds. On a busy shared server also bound the concurrency, or the pool starves and the failures look like product bugs:
-
+- **Branch:** PRs against **`main`** (`gh pr create --base main --head <fork-owner>:<branch>`). The `dev` branch was retired 2026-06-01; do not target it.
+- **CI/CD:** `.github/workflows/ci.yml` is **manual-only** (`workflow_dispatch`) — nothing runs on push or PR. When dispatched: `postgres:16` + `mix format --check-formatted`, `mix credo --strict`, `mix dialyzer`, `mix deps.unlock --check-unused`, `mix test.setup` + `mix test`.
+- ⚠️ **Nothing runs the Elixir suite automatically — not CI, not `precommit`.** For anything touching the schema, run `mix test` yourself: with no DB reachable, `test_helper.exs` excludes every `:integration` test but still **exits 0** — a green summary proves nothing about a migration.
+- Point the suite at an existing DB (avoids needing `CREATEDB`; bound concurrency on shared servers):
   ```bash
   PGHOST=… PGUSER=… PGPASSWORD=… PGDATABASE=my_scratch_db PGPOOL=20 mix test --max-cases 8
   ```
-
-  Adding `mix test` to `precommit` was tried and reverted: the suite is not green from a clean checkout (with no database ~5 "unit" tests still fail, because `Settings` reads hit the DB on a cache miss), so the gate would be permanently red. Fixing that is worth doing separately — until then, treat the suite as a deliberate manual step, not an oversight.
-
-  ⚠️ **A database-less run now sets `config :phoenix_kit, :update_mode, true`** (`test_helper.exs`, only when the repo is unreachable). That is what closed the "~5 unit tests fail" gap above: it short-circuits every `PhoenixKit.Settings` read to `nil` instead of queueing 4 s against a dead pool. The consequence is that on the unit half **every settings-dependent assertion runs against "nothing is configured"** — a test that needs a *value* cannot get one from the database and must prime the settings cache itself (start `PhoenixKit.Cache.Registry` + `{PhoenixKit.Cache, name: :settings}` and `PhoenixKit.Cache.put/3`; the cache is consulted before the short-circuit). `test/phoenix_kit/utils/safe_destination_settings_test.exs` is the worked example. Without that, an assertion about a configured setting is vacuously true.
+- ⚠️ **Database-less runs set `config :phoenix_kit, :update_mode, true`** (`test_helper.exs`): every `PhoenixKit.Settings` read short-circuits to `nil`, so **every settings-dependent unit assertion runs against "nothing is configured"**. A test that needs a *value* must prime the cache itself (start `PhoenixKit.Cache.Registry` + `{PhoenixKit.Cache, name: :settings}`, then `PhoenixKit.Cache.put/3` — consulted before the short-circuit). Worked example: `test/phoenix_kit/utils/safe_destination_settings_test.exs`.
 - **Commit messages:** start with `Add`, `Update`, `Fix`, `Remove`, `Merge`.
-- **Version management:** `mix.exs` `@version` + `CHANGELOG.md`. Run `mix compile`, `mix test`, `mix format`, `mix credo --strict` before committing. Get current versions:
+- **Versioning:** bump `mix.exs` `@version` + `CHANGELOG.md`; run `mix compile`, `mix test`, `mix format`, `mix credo --strict` before committing. Latest migration version:
   ```bash
-  mix run --eval "IO.puts Mix.Project.config[:version]"
   ls lib/phoenix_kit/migrations/postgres/v*.ex | sed 's/.*\/v\([0-9]*\)\.ex/\1/' | sort -rn | head -1
   ```
-- **CHANGELOG entries:** agents write the entry against the bumped `@version` heading. Match the existing style (Added / Changed / Fixed / i18n sections, bullets sourced from PR scopes + post-merge review fixes).
-- **PR reviews:** files go in `dev_docs/pull_requests/{year}/{pr_number}-{slug}/{AGENT}_REVIEW.md` (always `CLAUDE_REVIEW.md` for me). Severity levels: `BUG - CRITICAL/HIGH/MEDIUM`, `IMPROVEMENT - HIGH/MEDIUM`, `NITPICK`.
+- **CHANGELOG entries:** write against the bumped `@version` heading; match existing style (Added / Changed / Fixed / i18n, bullets from PR scopes + post-merge review fixes).
+- **PR reviews:** `dev_docs/pull_requests/{year}/{pr_number}-{slug}/{AGENT}_REVIEW.md` (`CLAUDE_REVIEW.md` for Claude). Severities: `BUG - CRITICAL/HIGH/MEDIUM`, `IMPROVEMENT - HIGH/MEDIUM`, `NITPICK`.
 - **Publish:** `mix hex.build`, `mix hex.publish`, `mix docs`.
 
 ## Database
@@ -99,12 +81,12 @@ ast-grep --lang elixir --pattern 'def $FUNC($$$ARGS) do $$$BODY end' lib/
 The chain supports running into a named Postgres schema (`prefix:` opt / `--prefix`). Full reference + incident history: `dev_docs/guides/2026-07-27-prefix-safe-migrations.md`. Rules for any new `execute`-built SQL:
 
 - **Index names stay bare on CREATE** — qualify only on `DROP INDEX`.
-- **Every existence check needs a schema anchor** — `table_schema` on `information_schema.*`, `schemaname` on `pg_indexes`, and a name-based `pg_class` + `pg_namespace` JOIN for `pg_constraint` (never `'p.table'::regclass` in an IMMEDIATE check — it raises when the relation doesn't exist yet and aborts the whole transaction).
+- **Every existence check needs a schema anchor** — `table_schema` on `information_schema.*`, `schemaname` on `pg_indexes`, name-based `pg_class` + `pg_namespace` JOIN for `pg_constraint` (never `'p.table'::regclass` in an IMMEDIATE check — it raises when the relation doesn't exist yet and aborts the whole transaction).
 - **Schema-qualify functions** via `PhoenixKit.Migrations.Postgres.Helpers.ensure_uuid_v7_function/1` + `uuid_v7_call/1`; **never bare `CREATE EXTENSION`** (use `Helpers.ensure_extension!/1`) **or bare `CREATE SCHEMA`** (check `information_schema.schemata` first; thread `create_schema: false` to external migrators like Oban).
-- The prefix is validated at the entry points (`Helpers.validate_prefix!/1`); tooling resolves `--prefix` → `config :phoenix_kit, prefix:` → `"public"`.
+- Prefix validated at the entry points (`Helpers.validate_prefix!/1`); tooling resolves `--prefix` → `config :phoenix_kit, prefix:` → `"public"`.
 - **New table-backed schemas must `use PhoenixKit.SchemaPrefix`** right after `use Ecto.Schema` — enforced by `test/phoenix_kit/schema_prefix_test.exs`. Prefix is compile-time config (`config.exs`, never `runtime.exs`).
 - **Oban rides the same prefix** — the host's `config :app, Oban` must carry `prefix: "..."`.
-- Oracle: `test/integration/prefix_migration_test.exs` runs the full chain into a scratch schema (failures surface late — bad SQL queued by one version often blows up at a later version's `flush()`).
+- Oracle: `test/integration/prefix_migration_test.exs` runs the full chain into a scratch schema (bad SQL queued by one version often blows up at a later version's `flush()`).
 
 ## Integrations System
 
@@ -140,7 +122,7 @@ The canonical toolkit for admin list views — DnD reorder, bulk-select, sort, s
 
 **Wrapper scope rule** (load-bearing): `<.multilang_fields_wrapper>` wraps translatable fields **only**. The wrapper's id includes `@current_lang`, so a switch causes morphdom to re-mount everything inside. Non-translatable fields (pricing, status, actions) render as siblings outside the wrapper or they lose state on every switch.
 
-**Language switching:** client-side skeleton toggle + 150ms trailing debounce on the server. `mount_multilang/1` attaches a `:handle_info` hook via `Phoenix.LiveView.attach_hook/4` that intercepts the timer message — consumers don't need a `handle_info` clause. LiveComponent fallback: rescue `ArgumentError` from `attach_hook` and add the clause manually if needed. The `switching_lang` attr is a backwards-compat no-op.
+**Language switching:** client-side skeleton toggle + 150ms trailing debounce on the server. `mount_multilang/1` attaches a `:handle_info` hook via `Phoenix.LiveView.attach_hook/4` that intercepts the timer message — consumers don't need a `handle_info` clause. LiveComponent fallback: rescue `ArgumentError` from `attach_hook` and add the clause manually. The `switching_lang` attr is a backwards-compat no-op.
 
 **Translatable fields:** `<.translatable_field>` takes `changeset={@changeset}` (not FormField) — its behavior changes with the active tab (primary-language vs JSONB-backed secondary). When mixed with `<.input>`/`<.select>`, the LV keeps both `:changeset` and `:form = to_form(changeset)` in sync via a private helper from mount/validate/save-error paths.
 
@@ -150,65 +132,19 @@ Tabs, subtabs, badges, context selectors: see `lib/phoenix_kit/dashboard/README.
 
 ## Login & Registration
 
-Auth surface: session persistence, post-auth destinations, email confirmation.
-Full reference: `dev_docs/guides/2026-07-28-login-and-registration.md`. All
-settings live on the admin Users settings page (`/admin/settings/users`).
+Auth surface: session persistence, post-auth destinations, email confirmation. Full reference: `dev_docs/guides/2026-07-28-login-and-registration.md`. All settings live on `/admin/settings/users`.
 
-- **Session persistence:** `remember_me_enabled` (default true) is the master
-  switch — off hides the checkbox everywhere AND hard-blocks the cookie inside
-  `maybe_write_remember_me_cookie/3`, so no caller or forged param can persist a
-  session. `remember_me_default` (default true) decides whether that checkbox
-  starts **checked**. Read the policy via `Auth.remember_me_enabled?/0` /
-  `remember_me_default?/0`; flows with no UI to tick (magic-link login, OAuth)
-  use `Auth.remember_me_params/0`. **Never hardcode `%{"remember_me" => "true"}`**.
-- **Post-auth destination:** one resolver, `Routes.post_auth_path/1`. Precedence:
-  explicit `return_to` (param or gate-stashed session key) > `after_registration_path`
-  > `after_login_path` > `/admin`. `log_in_user/3` honors a `"return_to"` param too.
-  Both settings validate as local paths on save and are re-guarded on read. The
-  tail is `/admin`, not `"/"`: core declares that route unconditionally and admits
-  every authenticated visitor to it, while `"/"` belongs to the host and 404s
-  wherever no root route was declared.
-- ⚠️ **`Routes.local_path?/1` is the only redirect guard** — it rejects `//`,
-  `/\`, and **ASCII control characters** (browsers strip tab/CR/LF, so
-  `"/\t/evil.com"` lands as `//evil.com`; `Phoenix.Controller.redirect/2` blocks
-  those but LiveView's `validate_local_url!` does not). Every LiveView
-  `redirect(to: ...)` of user-influenced input MUST go through it. The path
-  settings are additionally refused if they point at a page that bounces an
-  authenticated visitor — including **`/users/log-out`**, a real GET route that
-  would sign every user straight back out.
-- **Carrying `return_to`:** `Routes.return_to_query/1` threads it across the
-  links between login/register/magic-link/QR/OAuth, and the magic-link email
-  carries it in its URL. A new sign-in entry point must thread it too.
-- ⚠️ **Public auth endpoints rate-limit BEFORE the lookup** — limiting inside
-  the send only throttles addresses that resolve to a user, which turns the
-  deliberately generic copy into an account-existence oracle. Password reset had
-  exactly that shape; confirmation resend had no limit at all.
-- **Email confirmation:** `require_email_confirmation` (default true) gates
-  *enforcement* only; emails always send. Honored at **eleven** sites — the
-  `ensure_authenticated`, `ensure_authenticated_scope`, `ensure_owner`,
-  `ensure_admin`, `ensure_module_access` on_mount hooks, the
-  `require_authenticated_user` / `require_authenticated_scope` plugs, and the
-  role/permission plugs `require_owner` / `require_admin` /
-  `require_module_access` / `require_role` (these four share the private
-  `confirmation_gate/2`, since the shipped `:phoenix_kit_admin_only` pipeline
-  runs them with NO preceding `require_authenticated_*`). Add it to any new gate.
-- **The parked `/users/confirm` page** advances users instead of stranding them:
-  on mount when already confirmed (covers a direct DB flip + refresh) and live off
-  the `{:user_confirmed, _}` broadcast. It subscribes *before* re-reading the user.
-- ⚠️ **Soft-failure paths need `rescue` AND `catch :exit`** — an unreachable DB
-  raises on an unowned checkout but *exits* on a dead pool. Settings reads are
-  ETS-cached, so this only bites on a cache miss and presents as suite flakiness.
-  Never evict a real settings key in a test; read a unique probe key instead.
-- ⚠️ **Flash belongs inside the LiveView tree** (LayoutWrapper / dashboard / host
-  layout). `root.html.heex` deliberately has none — a copy there double-rendered
-  every message with duplicate ids and froze at its dead-render value.
-- ⚠️ Rate limiting keys on `Plug.Conn.get_peer_data/1`, **not**
-  `conn.remote_ip`, and the test adapter reports one peer for every conn — so a
-  login-heavy test file shares a single bucket and gets bounced under some
-  seeds. Give each test its own peer (`with_peer/2` in `auth_flows_test.exs`).
-- ⚠️ A `disabled` `<.checkbox>` still submits its **un-disabled** hidden
-  `value="false"` fallback, silently rewriting the setting on save. Don't use
-  `disabled` to mean "inactive right now" in a settings form.
+- **Session persistence:** `remember_me_enabled` (default true) is the master switch — off hides the checkbox everywhere AND hard-blocks the cookie inside `maybe_write_remember_me_cookie/3`, so no caller or forged param can persist a session. `remember_me_default` (default true) = checkbox starts **checked**. Policy: `Auth.remember_me_enabled?/0` / `remember_me_default?/0`; flows with no UI to tick (magic-link, OAuth) use `Auth.remember_me_params/0`. **Never hardcode `%{"remember_me" => "true"}`**.
+- **Post-auth destination:** one resolver, `Routes.post_auth_path/1`. Precedence: explicit `return_to` (param or gate-stashed session key) > `after_registration_path` > `after_login_path` > `/admin` (`log_in_user/3` honors `"return_to"` too). Tail is `/admin`, not `"/"` — core declares `/admin` unconditionally; `"/"` belongs to the host and may 404. Both settings validate as local paths on save, re-guarded on read.
+- ⚠️ **`Routes.local_path?/1` is the only redirect guard** — rejects `//`, `/\`, and **ASCII control characters** (browsers strip tab/CR/LF, so `"/\t/evil.com"` lands as `//evil.com`; LiveView's `validate_local_url!` does not block these). Every LiveView `redirect(to: ...)` of user-influenced input MUST go through it. Path settings are also refused if they bounce an authenticated visitor — including **`/users/log-out`**, a real GET route that would sign every user straight back out.
+- **Carrying `return_to`:** `Routes.return_to_query/1` threads it across login/register/magic-link/QR/OAuth links and the magic-link email URL. A new sign-in entry point must thread it too.
+- ⚠️ **Public auth endpoints rate-limit BEFORE the lookup** — limiting inside the send throttles only addresses that resolve to a user, turning the deliberately generic copy into an account-existence oracle.
+- **Email confirmation:** `require_email_confirmation` (default true) gates *enforcement* only; emails always send. Honored at **eleven** sites: the `ensure_authenticated`, `ensure_authenticated_scope`, `ensure_owner`, `ensure_admin`, `ensure_module_access` on_mount hooks; the `require_authenticated_user` / `require_authenticated_scope` plugs; and the role/permission plugs `require_owner` / `require_admin` / `require_module_access` / `require_role` (these four share the private `confirmation_gate/2`, since the shipped `:phoenix_kit_admin_only` pipeline runs them with NO preceding `require_authenticated_*`). Add it to any new gate.
+- **The parked `/users/confirm` page** advances users instead of stranding them: on mount when already confirmed (covers a direct DB flip + refresh) and live off the `{:user_confirmed, _}` broadcast. It subscribes *before* re-reading the user.
+- ⚠️ **Soft-failure paths need `rescue` AND `catch :exit`** — an unreachable DB raises on an unowned checkout but *exits* on a dead pool. Bites on a settings cache miss; presents as suite flakiness. Never evict a real settings key in a test; read a unique probe key instead.
+- ⚠️ **Flash belongs inside the LiveView tree** (LayoutWrapper / dashboard / host layout). `root.html.heex` deliberately has none — a copy there double-rendered every message with duplicate ids.
+- ⚠️ Rate limiting keys on `Plug.Conn.get_peer_data/1`, **not** `conn.remote_ip`, and the test adapter reports one peer for every conn — a login-heavy test file shares a single bucket. Give each test its own peer (`with_peer/2` in `auth_flows_test.exs`).
+- ⚠️ A `disabled` `<.checkbox>` still submits its **un-disabled** hidden `value="false"` fallback, silently rewriting the setting on save. Don't use `disabled` to mean "inactive right now" in a settings form.
 
 ## Permissions
 
@@ -237,24 +173,10 @@ PhoenixKit.Activity.log(%{
 })
 ```
 
-**Profile/field changes** — `log_user_change/4` auto-extracts `field_from`/`field_to` from a changeset; skips logging if nothing changed:
-
-```elixir
-PhoenixKit.Activity.log_user_change("user.profile_updated", user, changeset,
-  actor_uuid: admin.uuid, target_uuid: user.uuid, mode: "manual", actor_role: "admin")
-```
-
-**Conventions:** `action` = `resource.verb`; `module` = key string; `mode` = manual/auto/cron/script; `actor_role` baked at log time; `resource_type` usually equals `module`. Examples: `rg 'Activity.log' lib/phoenix_kit/users/`.
-
-**External modules** — guard with `Code.ensure_loaded?/1`:
-
-```elixir
-if Code.ensure_loaded?(PhoenixKit.Activity) do
-  PhoenixKit.Activity.log(%{action: "comment.created", module: "comments", ...})
-end
-```
-
-**Cleanup:** `activity_retention_days` setting (default 90). `PhoenixKit.Activity.PruneWorker` runs daily via Oban.
+- **Profile/field changes** — `log_user_change("user.profile_updated", user, changeset, actor_uuid: …, target_uuid: …, mode: "manual", actor_role: "admin")` auto-extracts `field_from`/`field_to` from a changeset; skips logging if nothing changed.
+- **Conventions:** `action` = `resource.verb`; `module` = key string; `actor_role` baked at log time; `resource_type` usually equals `module`. Examples: `rg 'Activity.log' lib/phoenix_kit/users/`.
+- **External modules** — guard with `Code.ensure_loaded?(PhoenixKit.Activity)` before calling.
+- **Cleanup:** `activity_retention_days` setting (default 90). `PhoenixKit.Activity.PruneWorker` runs daily via Oban.
 
 ## Notifications
 
@@ -264,7 +186,7 @@ Per-user inbox driven by the activity log. Full reference: `dev_docs/guides/2026
 - **API:** `PhoenixKit.Notifications` — `list_for_user/2`, `recent_for_user/2`, `count_unread/1`, `mark_seen` / `mark_all_seen` / `dismiss` / `dismiss_all`, `get_notification/2` (recipient-scoped). Render via `Notifications.Render.render/1`, which honors `notification_text` / `notification_icon` / `notification_link` metadata keys.
 - **UI:** embeddable `PhoenixKitWeb.Live.NotificationsBell` (sticky nested LV, owns its PubSub sub); "seen" only on explicit user action. PubSub topic: `Notifications.Events.topic_for_user(uuid)`.
 - **Per-user preferences:** mute by *type*; types merge core + modules' `notification_types/0` callback. `Notifications.Prefs.user_wants?/2` is **fail-open**.
-- **External delivery channels** (Telegram, Email; modules add via `notification_channels/0`): parallel routing layer — `Channel` behaviour, `Channels` registry, `ChannelConfig` under `custom_fields["notification_channel:<key>"]`, fail-closed `Routing`, Oban `DeliveryWorker` (`:notifications` queue) + `DigestWorker` cron. The inbox insert is decoupled from channel enqueue. ⚠️ `DigestWorker` runs ONLY from cron, so `mix phoenix_kit.update` must **backfill those entries into existing hosts** (`ObanConfig.ensure_digest_cron_entries/2`) — a digest cadence suppresses the per-event inbox row, so a missing entry drops the notification entirely. Registry lookups need `Code.ensure_loaded?` alongside `function_exported?/3` (false for an unloaded module under a release), and the settings LV `Map.take`s params against known keys rather than iterating raw param keys.
+- **External delivery channels** (Telegram, Email; modules add via `notification_channels/0`): parallel routing layer — `Channel` behaviour, `Channels` registry, `ChannelConfig` under `custom_fields["notification_channel:<key>"]`, fail-closed `Routing`, Oban `DeliveryWorker` (`:notifications` queue) + `DigestWorker` cron. Inbox insert is decoupled from channel enqueue. ⚠️ `DigestWorker` runs ONLY from cron, so `mix phoenix_kit.update` must **backfill those entries into existing hosts** (`ObanConfig.ensure_digest_cron_entries/2`) — a digest cadence suppresses the per-event inbox row, so a missing entry drops the notification entirely. Registry lookups need `Code.ensure_loaded?` alongside `function_exported?/3` (false for an unloaded module under a release); the settings LV `Map.take`s params against known keys.
 - **Cleanup:** `Notifications.PruneWorker` daily; retention `notifications_retention_days` → `activity_retention_days` (default 90).
 
 ## MediaBrowser Component
@@ -391,7 +313,7 @@ Publishing's `/:language/:group/*path` catch-all matches every 2+ segment URL an
 
 ## daisyUI version (host-owned; advisory warnings only)
 
-The daisyUI plugin lives in the **host** app (`assets/vendor/daisyui.js` + `daisyui-theme.js`). Core only declares a designed-for minimum (`PhoenixKit.Install.DaisyUI.minimum_version/0`, currently 5.6.0) and warns below it from `phoenix_kit.install` / `phoenix_kit.update` / `phoenix_kit.doctor` — advisory, never touching host files. Modal scrollbar-gutter compensations were removed 2026-07-12 (daisyUI ≥ 5.1 handles the gutter); **do NOT re-add `scrollbar-gutter` overrides in layouts, PkDialog, or modules**. A vendor-in-core custody design was researched and deliberately NOT implemented: `dev_docs/investigations/2026-07-12-daisyui-version-management-investigation.md`.
+The daisyUI plugin lives in the **host** app (`assets/vendor/daisyui.js` + `daisyui-theme.js`). Core only declares a designed-for minimum (`PhoenixKit.Install.DaisyUI.minimum_version/0`, currently 5.6.0) and warns below it from `phoenix_kit.install` / `phoenix_kit.update` / `phoenix_kit.doctor` — advisory, never touching host files. **Do NOT re-add `scrollbar-gutter` overrides** in layouts, PkDialog, or modules (removed 2026-07-12; daisyUI ≥ 5.1 handles the gutter). Rationale for not vendoring daisyUI in core: `dev_docs/investigations/2026-07-12-daisyui-version-management-investigation.md`.
 
 ## TODOs
 
@@ -399,23 +321,21 @@ Workspace-tracked items not ready for inline `# TODO` in `lib/`.
 
 ### Component test coverage for `phoenix_kit_web/components/core/`
 
-Partial coverage exists in `test/phoenix_kit_web/components/core/` — written for the modal-to-native-dialog sweep. Remaining gaps:
+Partial coverage exists in `test/phoenix_kit_web/components/core/`. Remaining gaps:
 
-- `<.draggable_list>` — three-axis coverage: (a) `:draggable=false` → no SortableJS hook, no `cursor-grab`; (b) `:draggable=true, :sortable_handle=nil` → SortableJS hook + full-item `cursor-grab`; (c) `:draggable=true, :sortable_handle=".pk-drag-handle"` → SortableJS hook + `data-sortable-handle` attribute set, **no** `cursor-grab` on the item wrapper (caller's responsibility). All three branches need rendered-HTML asserts.
-- `<.table_default>` card-view branch — `:on_reorder` / `:reorder_scope` / `:reorder_group` / `:item_id` wire card-view as sortable target. Need to pin `phx-hook="SortableGrid"`, `data-sortable-*`, `data-id`, `class="sortable-item"`, drag-handle footer.
-- `<.input>`, `<.select>`, `<.textarea>` — inline error rendering, daisyUI variant classes, FormField vs raw `name=`/`value=` dispatch. (`<.checkbox>` gained a test — `checkbox_test.exs`.)
+- `<.draggable_list>` — three branches need rendered-HTML asserts: (a) `:draggable=false` → no SortableJS hook, no `cursor-grab`; (b) `draggable, sortable_handle=nil` → hook + full-item `cursor-grab`; (c) `draggable, sortable_handle=".pk-drag-handle"` → hook + `data-sortable-handle` set, **no** `cursor-grab` on the item wrapper (caller's responsibility).
+- `<.table_default>` card-view branch — pin `phx-hook="SortableGrid"`, `data-sortable-*`, `data-id`, `class="sortable-item"`, drag-handle footer.
+- `<.input>`, `<.select>`, `<.textarea>` — inline error rendering, daisyUI variant classes, FormField vs raw `name=`/`value=` dispatch.
 - `<.flash>` if complexity has grown.
-
-Surfaced 2026-05-02 by C12 triage during V108 / DnD core work. Partially closed 2026-05-23 (`bulk_select`, `sortable`, `reorder_modal`, `load_more`, `sort_selector`, `modal` keep_in_dom, `table_default` row + drag_handle); `checkbox` closed since. Fold the rest into a future component-coverage sweep.
 
 ### Signed file-URL hardening (`modules/storage`)
 
-Surfaced 2026-06-11 by an adversarial audit of `phoenix_kit_publishing` (which embeds storage URLs for public post images — low impact there, but the contract is weaker than its naming implies). In `lib/modules/storage/services/url_signer.ex` + `file_controller.ex`:
+In `lib/modules/storage/services/url_signer.ex` + `file_controller.ex`:
 
-- **Token is 16-bit.** The signature is the first 4 hex chars of an MD5 — ~65k space, brute-forceable for a targeted file. Widen it (and consider HMAC over MD5).
-- **Tokens never expire**, yet the 401 says *"Invalid or expired token."* Either add real expiry or fix the message so it doesn't imply time-limited capability URLs.
+- **`POST /api/upload` is unauthenticated and takes the owner from `params["user_uuid"]`** — a live unauthenticated *write*, top of the list. The storage routes sit in the `[:browser, :phoenix_kit_auto_setup]` scope with no auth plug; `UploadController.create/2` falls back to the param verbatim. An anonymous client (CSRF token from the public login page) can attribute a 100 MB upload to any account and trigger variant processing. Fix: drop the params fallback, honor a `user_uuid` override only for an authenticated admin, rate-limit the action.
+- **Token is 16-bit** — first 4 hex chars of an MD5, ~65k space, brute-forceable. Widen it (consider HMAC over MD5).
+- **Tokens never expire**, yet the 401 says *"Invalid or expired token."* Add real expiry or fix the message.
 - **`/api/files/:uuid/info` is unauthenticated** and returns a valid signed URL for any uuid — defeats the signing scheme. Lock it down.
 - **Fails open on a nil `secret_key_base`** — the token degrades to a predictable no-secret hash. Fail closed.
-- **`POST /api/upload` is unauthenticated and takes the file owner from a request parameter.** Added 2026-08-07 by a security review of the whole workspace; this one is a write, not a read, so it belongs at the top of this list. The storage routes are declared in `integration.ex` inside the scope that pipes through `[:browser, :phoenix_kit_auto_setup]` — no auth plug, unlike the `:phoenix_kit_require_authenticated` and `:phoenix_kit_admin_only` pipelines defined a few lines above. `UploadController.create/2` then resolves the owner as: authenticated user from assigns, *else* `params["user_uuid"]`, taken verbatim under the comment `# Verify admin permission here if needed` — the check was never written. Confirmed against the running app: an anonymous client that fetches a CSRF token from the public login page reaches the controller and is answered by the user-resolution branch (401 with no `user_uuid`), so supplying one attributes a 100 MB upload to any account and starts variant processing for it. Fix: drop the params fallback outright, honour a `user_uuid` override only for an authenticated admin, and rate-limit the action.
 
-Only the read half is "not urgent" (current use is public images); the upload half is a live unauthenticated write. Recorded together so the false sense of "capability URL" security isn't relied on for sensitive files.
+Read half is low urgency (current use is public post images); the upload half is a live unauthenticated write. Don't rely on the "capability URL" framing for sensitive files.

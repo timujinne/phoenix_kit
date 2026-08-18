@@ -14,6 +14,7 @@ defmodule PhoenixKitWeb.Users.Login do
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth
+  alias PhoenixKitWeb.Users.AuthSEO
 
   def mount(params, session, socket) do
     case Auth.maybe_redirect_authenticated(socket) do
@@ -49,6 +50,8 @@ defmodule PhoenixKitWeb.Users.Login do
         # Support return_to query param for post-login redirect (e.g., from guest checkout)
         return_to = sanitize_return_to(params["return_to"])
 
+        seo = AuthSEO.seo_assigns("/users/log-in")
+
         socket =
           assign(socket,
             form: form,
@@ -58,7 +61,9 @@ defmodule PhoenixKitWeb.Users.Login do
             qr_login_enabled: qr_login_enabled,
             remember_me_available: Auth.remember_me_enabled?(),
             remember_me: Auth.remember_me_default?(),
-            return_to: return_to
+            return_to: return_to,
+            canonical_url: seo.canonical_url,
+            hreflang_links: seo.hreflang_links
           )
 
         {:ok, socket, temporary_assigns: [form: form]}

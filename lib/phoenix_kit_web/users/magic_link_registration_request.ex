@@ -13,6 +13,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth
+  alias PhoenixKitWeb.Users.AuthSEO
 
   @impl true
   def mount(_params, _session, socket) do
@@ -29,6 +30,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
              Auth.magic_link_registration_enabled?() do
           # Get project title from settings (with Config fallback)
           project_title = PhoenixKit.Settings.get_project_title()
+          seo = AuthSEO.seo_assigns("/users/register/magic-link")
 
           {:ok,
            socket
@@ -38,7 +40,9 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
            |> assign(:ip_address, IpAddress.extract_from_socket(socket))
            |> assign(:email_sent, false)
            |> assign(:error_message, nil)
-           |> assign(:loading, false)}
+           |> assign(:loading, false)
+           |> assign(:canonical_url, seo.canonical_url)
+           |> assign(:hreflang_links, seo.hreflang_links)}
         else
           socket =
             socket
