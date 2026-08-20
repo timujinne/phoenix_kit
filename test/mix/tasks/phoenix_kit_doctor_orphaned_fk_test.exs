@@ -56,4 +56,39 @@ defmodule Mix.Tasks.PhoenixKit.DoctorOrphanedFkTest do
                )
     end
   end
+
+  describe "discover_fk_constraints/2 — I055: full catalog coverage, not the old 4-pair list" do
+    test "finds real FK constraints on the live schema, well beyond the old hardcoded four" do
+      assert {:ok, {constraints, _skipped_multi}} =
+               DoctorTask.discover_fk_constraints(Repo, "public")
+
+      # The old check knew exactly 4 pairs. A real installed schema has far
+      # more single-column FKs than that — this is the whole point of I055:
+      # if this ever regresses back toward "4", the fix regressed with it.
+      assert length(constraints) > 10
+
+      assert Enum.any?(constraints, fn c ->
+               c.table == "phoenix_kit_users_tokens" and c.fk_col == "user_uuid" and
+                 c.ref_table == "phoenix_kit_users"
+             end)
+
+      # convalidated must be a real boolean read from the catalog, not a
+      # placeholder — a stray `nil` here would silently break the
+      # `if convalidated, do: :validated, else: {:not_valid, ...}` branch in
+      # `probe_fk/4` for every single discovered constraint.
+      assert Enum.all?(constraints, fn c -> is_boolean(c.convalidated) end)
+    end
+
+    test "a genuinely wrong schema name returns zero constraints, not an error — the caller decides that's zero coverage" do
+      assert {:ok, {[], []}} =
+               DoctorTask.discover_fk_constraints(Repo, "definitely_not_a_real_schema_12345")
+    end
+
+    test "a malformed schema name (real catalog-access fault) returns {:error, _}, never a silent empty list" do
+      # The unescaped quote breaks the query's own string literal boundary —
+      # a genuine Postgres syntax error, the same class of fault I055 finding
+      # 2 warns can otherwise collapse into "nothing found" and print PASS.
+      assert {:error, %Postgrex.Error{}} = DoctorTask.discover_fk_constraints(Repo, "x'y")
+    end
+  end
 end

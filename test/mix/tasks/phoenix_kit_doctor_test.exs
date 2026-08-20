@@ -426,15 +426,19 @@ defmodule Mix.Tasks.PhoenixKit.DoctorTest do
     end
   end
 
-  describe "report_orphaned_fk_refs/3 — RED without this round's fix: a probe failure must not be PASS" do
-    test "probe_failed alone (no orphans, no known-unvalidated) is :fail, never :pass" do
+  describe "report_orphaned_fk_refs/4 — I055: a probe failure is its own tier, not the same red as real orphans" do
+    test "probe_failed alone (no orphans, no known-unvalidated) is :warn, not :fail — I055's third tier" do
+      # Before I055 this was :fail — the exact "slow and broken-data can't be
+      # one color" defect the contract names. Coverage being incomplete is
+      # "investigate why", not "fix corrupted data"; only real orphans (below)
+      # still earn the red.
       probe_failed = [
         {"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users", :orphan_count, "boom", nil}
       ]
 
-      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed)
-      assert message =~ "could not check"
-      assert message =~ "not a pass"
+      assert {:warn, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed, 4)
+      assert message =~ "Could not check 1 of 4"
+      assert message =~ "not the same as clean"
       assert message =~ "boom"
     end
 
@@ -444,26 +448,73 @@ defmodule Mix.Tasks.PhoenixKit.DoctorTest do
          "no access", 5}
       ]
 
-      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed)
+      assert {:warn, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed, 1)
       assert message =~ "5 orphaned row"
       assert message =~ "no access"
     end
 
-    test "no findings at all is still :pass — the fix does not make doctor permanently red" do
-      assert {:pass, _} = DoctorTask.report_orphaned_fk_refs([], [], [])
+    test "no findings at all is still :pass, and now names the coverage" do
+      assert {:pass, message} = DoctorTask.report_orphaned_fk_refs([], [], [], 231)
+      assert message =~ "checked 231 of 231"
     end
 
-    test "orphans alone still :fail, unchanged from before this round" do
+    test "orphans alone still :fail — real data damage always wins the color" do
       orphaned = [{"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users", 2, :validate}]
 
-      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs(orphaned, [], [])
+      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs(orphaned, [], [], 4)
       assert message =~ "2 orphaned row"
     end
 
-    test "not_validated alone (nothing blocking) is still :warn, unchanged from before this round" do
+    test "orphans found AND a separate probe failure — still :fail, but the coverage gap is still surfaced" do
+      orphaned = [{"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users", 2, :validate}]
+
+      probe_failed = [
+        {"other_table", "other_col", "other_ref", :orphan_count, "boom", nil}
+      ]
+
+      assert {:fail, message} = DoctorTask.report_orphaned_fk_refs(orphaned, [], probe_failed, 5)
+      assert message =~ "2 orphaned row"
+      assert message =~ "boom"
+      assert message =~ "checked 4 of 5"
+    end
+
+    test "not_validated alone (nothing blocking) is still :warn, and names the coverage" do
       not_validated = [{"phoenix_kit_users_tokens", "user_uuid", "phoenix_kit_users"}]
 
-      assert {:warn, _} = DoctorTask.report_orphaned_fk_refs([], not_validated, [])
+      assert {:warn, message} = DoctorTask.report_orphaned_fk_refs([], not_validated, [], 1)
+      assert message =~ "checked 1 of 1"
+    end
+  end
+
+  describe "discover_fk_constraints/2 — I055: source of truth is pg_constraint, not a list in code" do
+    test "a multi-column FK is reported separately from single-column ones, not silently dropped" do
+      # Pure shape check on the split logic doctor's discovery query feeds
+      # into — the actual pg_constraint query itself is exercised against a
+      # real connection in phoenix_kit_doctor_orphaned_fk_test.exs.
+      rows = [
+        ["orders", "users", "fk_orders_user", true, 1, "user_uuid", "uuid"],
+        ["order_items", "orders", "fk_items_composite", false, 2, "order_uuid", "uuid"]
+      ]
+
+      {single, multi} =
+        Enum.split_with(rows, fn [_, _, _, _, col_count, _, _] -> col_count == 1 end)
+
+      assert length(single) == 1
+      assert length(multi) == 1
+      assert [_, _, "fk_items_composite", _, 2, _, _] = hd(multi)
+    end
+  end
+
+  describe "fk_probe_failure_reason/1 — I055: a timed-out probe says so, not a raw Postgres error" do
+    test "a query_canceled Postgrex error becomes a time-limit message" do
+      reason = %Postgrex.Error{postgres: %{code: :query_canceled, message: "canceling statement"}}
+
+      assert DoctorTask.fk_probe_failure_reason(reason) =~ "time limit exceeded"
+      assert DoctorTask.fk_probe_failure_reason(reason) =~ "not checked, not clean"
+    end
+
+    test "any other error reason passes through unchanged" do
+      assert DoctorTask.fk_probe_failure_reason(:some_other_error) == :some_other_error
     end
   end
 end
