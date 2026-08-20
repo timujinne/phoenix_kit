@@ -91,4 +91,27 @@ defmodule Mix.Tasks.PhoenixKit.DoctorOrphanedFkTest do
       assert {:error, %Postgrex.Error{}} = DoctorTask.discover_fk_constraints(Repo, "x'y")
     end
   end
+
+  describe "fk_probe_cost_context/4 — I055 decision 5: measure, don't guess" do
+    test "a real, indexed FK column reports an actual row estimate and 'indexed', not a guess" do
+      context =
+        DoctorTask.fk_probe_cost_context(Repo, "phoenix_kit_users_tokens", "user_uuid", "public")
+
+      assert context =~ "phoenix_kit_users_tokens.user_uuid:"
+      assert context =~ "indexed"
+      refute context =~ "table likely large"
+    end
+
+    test "a nonexistent table/column pair degrades to 'row count unknown', never raises" do
+      context =
+        DoctorTask.fk_probe_cost_context(
+          Repo,
+          "definitely_not_a_real_table_12345",
+          "col",
+          "public"
+        )
+
+      assert context =~ "row count unknown"
+    end
+  end
 end

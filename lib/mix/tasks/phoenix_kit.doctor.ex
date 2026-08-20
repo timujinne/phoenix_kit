@@ -982,9 +982,20 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
     count_result =
       case repo.query(orphan_query, [], log: false, timeout: @fk_probe_timeout_ms) do
-        {:ok, %{rows: [[c]]}} -> {:ok, c}
-        {:error, reason} -> {:probe_failed, fk_probe_failure_reason(reason)}
-        other -> {:probe_failed, other}
+        {:ok, %{rows: [[c]]}} ->
+          {:ok, c}
+
+        {:error, %Postgrex.Error{postgres: %{code: :query_canceled}} = reason} ->
+          message =
+            fk_probe_failure_reason(reason) <> fk_probe_cost_context(repo, table, fk_col, prefix)
+
+          {:probe_failed, message}
+
+        {:error, reason} ->
+          {:probe_failed, fk_probe_failure_reason(reason)}
+
+        other ->
+          {:probe_failed, other}
       end
 
     validation = if valid?, do: :validated, else: {:not_valid, fk.conname}
@@ -1003,10 +1014,50 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
   # decision functions in this module: directly testable without a repo.
   @doc false
   def fk_probe_failure_reason(%Postgrex.Error{postgres: %{code: :query_canceled}}) do
-    "time limit exceeded (#{@fk_probe_timeout_ms}ms) — table likely large; not checked, not clean"
+    "time limit exceeded (#{@fk_probe_timeout_ms}ms) — not checked, not clean"
   end
 
   def fk_probe_failure_reason(reason), do: reason
+
+  # I055 decision 5: cost of an expensive check must be measured and
+  # printed, not guessed at ("table likely large") or silently dropped.
+  # `n_live_tup` is planner statistics (a `pg_stat_user_tables` read), not a
+  # table scan, so this stays cheap even on the table whose real scan just
+  # timed out. Index presence is checked as "leads some index"
+  # (`indkey[0]` — `int2vector` subscripts are 0-based, unlike the
+  # `conkey`/`confkey` smallint[] arrays used in `discover_fk_constraints/2`)
+  # — a composite index where the FK column isn't first doesn't help this
+  # query's plan, so it doesn't count as indexed here either.
+  #
+  # Exposed (not `defp`) and `@doc false`, same reason as
+  # `discover_fk_constraints/2` and `fk_validation_state/5`: takes `repo`
+  # explicitly, so it's a real unit-test seam against a live connection
+  # without starting the whole app.
+  @doc false
+  def fk_probe_cost_context(repo, table, fk_col, prefix) do
+    query = """
+    SELECT
+      (SELECT n_live_tup FROM pg_stat_user_tables
+       WHERE schemaname = $1 AND relname = $2) AS row_estimate,
+      EXISTS (
+        SELECT 1 FROM pg_index i
+        JOIN pg_class t ON t.oid = i.indrelid
+        JOIN pg_namespace n ON n.oid = t.relnamespace
+        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+        WHERE n.nspname = $1 AND t.relname = $2 AND a.attname = $3
+      ) AS fk_col_indexed
+    """
+
+    case repo.query(query, [prefix, table, fk_col], log: false) do
+      {:ok, %{rows: [[row_estimate, indexed?]]}} ->
+        rows_text = if row_estimate, do: "~#{row_estimate} rows", else: "row count unknown"
+        idx_text = if indexed?, do: "indexed", else: "NOT indexed"
+        " (#{table}.#{fk_col}: #{rows_text}, #{idx_text})"
+
+      {:error, _reason} ->
+        ""
+    end
+  end
 
   # Either probe failing must never read as "clean" — a failed probe is a
   # missing answer, not a passing one. Checked before either success shape,
