@@ -114,4 +114,39 @@ defmodule Mix.Tasks.PhoenixKit.DoctorOrphanedFkTest do
       assert context =~ "row count unknown"
     end
   end
+
+  describe "check_orphaned_fk_refs/1 — destructive: a genuinely orphaned row outside the old 4 pairs is caught" do
+    # I055's widened check reads every single-column FK straight from
+    # `pg_constraint` (`discover_fk_constraints/2`), not just the four pairs
+    # the old check knew by name. This proves that widened coverage actually
+    # catches something the old four-pair list could never have seen:
+    # `phoenix_kit_user_oauth_providers.user_uuid -> phoenix_kit_users.uuid`
+    # (constraint `fk_user_oauth_providers_user_uuid`) was never one of the
+    # old four (`phoenix_kit_users_tokens`, `phoenix_kit_user_role_assignments`,
+    # `phoenix_kit_admin_notes`, `phoenix_kit_email_events`).
+    #
+    # A plain `INSERT` can't produce this row — the constraint rejects a
+    # nonexistent `user_uuid` immediately, and it isn't `DEFERRABLE`, so
+    # `SET CONSTRAINTS ALL DEFERRED` doesn't buy anything either. Disabling
+    # the child table's own triggers for one statement is the standard
+    # Postgres idiom for planting a row that could otherwise only arise from
+    # the same kind of bypass in production — a bulk load with constraints
+    # off, a restore from an inconsistent backup, direct catalog surgery —
+    # which is exactly the class of real corruption I055 exists to catch,
+    # not a contrived test-only shape.
+    test "an orphaned phoenix_kit_user_oauth_providers.user_uuid row is reported, not read as clean" do
+      Repo.query!("ALTER TABLE phoenix_kit_user_oauth_providers DISABLE TRIGGER ALL")
+
+      Repo.query!("""
+      INSERT INTO phoenix_kit_user_oauth_providers
+        (user_uuid, provider, provider_uid, inserted_at, updated_at)
+      VALUES (gen_random_uuid(), 'google', 'i055-destructive-orphan-test', now(), now())
+      """)
+
+      Repo.query!("ALTER TABLE phoenix_kit_user_oauth_providers ENABLE TRIGGER ALL")
+
+      assert {:fail, message} = DoctorTask.check_orphaned_fk_refs("public")
+      assert message =~ "phoenix_kit_user_oauth_providers.user_uuid"
+    end
+  end
 end

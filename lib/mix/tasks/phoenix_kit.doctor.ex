@@ -854,7 +854,15 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
   # a catalog query that itself failed — can never read as PASS, no matter
   # which of those reasons caused it (I055 finding 2 and 3: "clean" and
   # "never looked" used to print byte-identical text).
-  defp check_orphaned_fk_refs(prefix) do
+  #
+  # Exposed (not `defp`) and `@doc false`, same reason as the other pure
+  # decision functions in this module: `get_repo!/0` resolves the same
+  # `PhoenixKit.Test.Repo` under `mix test` that it resolves under a real
+  # `mix phoenix_kit.doctor` run, so this is a real end-to-end seam for the
+  # whole discover -> probe -> classify -> report pipeline against a live
+  # connection, not just its pieces in isolation.
+  @doc false
+  def check_orphaned_fk_refs(prefix) do
     repo = get_repo!()
     escaped_prefix = String.replace(prefix, "'", "\\'")
 
@@ -1100,6 +1108,19 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     {[{table, fk_col, ref, count, :create} | orph], nv, pf}
   end
 
+  # A VALID, enforced constraint — Postgres itself should make this state
+  # unreachable through ordinary SQL, but "should" is not "does": a bulk load
+  # with triggers off, a restore from an inconsistent backup, or direct
+  # catalog surgery can all leave orphaned rows behind a constraint that
+  # still reads as fully validated. Before this clause, `count > 0` here fell
+  # through to the generic catch-all below and was silently discarded — the
+  # single most common `validation` shape (most real FKs are validated, not
+  # `NOT VALID`) was exactly the one this function couldn't report on.
+  def classify_fk_check(table, fk_col, ref, {:ok, count}, :validated, {orph, nv, pf})
+      when count > 0 do
+    {[{table, fk_col, ref, count, :existing_orphan} | orph], nv, pf}
+  end
+
   # Constraint present, NOT VALID, but nothing currently blocking it — a
   # nudge, not a failure: V176 validates this on its own.
   def classify_fk_check(table, fk_col, ref, {:ok, _count}, {:not_valid, _conname}, {orph, nv, pf}) do
@@ -1199,6 +1220,11 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
       {table, fk_col, ref, count, :create} ->
         "#{table}.#{fk_col} → #{ref}: #{count} orphaned row(s) — no constraint yet, this " <>
           "blocks its creation"
+
+      {table, fk_col, ref, count, :existing_orphan} ->
+        "#{table}.#{fk_col} → #{ref}: #{count} orphaned row(s) — constraint IS validated but " <>
+          "orphans exist anyway (likely written via a trigger-bypass path: bulk load, " <>
+          "replica catch-up, direct catalog edit) — investigate how, then clean up by hand"
     end)
   end
 

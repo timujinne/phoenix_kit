@@ -426,6 +426,31 @@ defmodule Mix.Tasks.PhoenixKit.DoctorTest do
     end
   end
 
+  describe "classify_fk_check/5 — a VALID constraint with real orphans must not be discarded" do
+    test "count > 0 with :validated lands in orphaned as :existing_orphan, not the clean catch-all" do
+      # Before this clause, `{:ok, count > 0}` paired with `:validated` fell
+      # through to the generic catch-all (`{orph, nv, pf} -> acc`, no change)
+      # — the exact shape a destructive orphan on an already-VALID constraint
+      # takes, since `probe_fk/4` only ever produces `:validated` or
+      # `{:not_valid, _}`, never `:absent`. Confirmed live against a real
+      # orphan planted via disabled triggers in
+      # `phoenix_kit_doctor_orphaned_fk_test.exs`.
+      assert {[{"t", "c", "r", 3, :existing_orphan}], [], []} =
+               DoctorTask.classify_fk_check("t", "c", "r", {:ok, 3}, :validated, {[], [], []})
+    end
+
+    test "an existing_orphan does not clobber unrelated entries already in the accumulator" do
+      acc =
+        {[{"other", "col", "ref2", 1, :create}], [{"t2", "c2", "r2"}],
+         [{"t3", "c3", "r3", :orphan_count, "x", nil}]}
+
+      assert {[{"t", "c", "r", 5, :existing_orphan}, {"other", "col", "ref2", 1, :create}],
+              [{"t2", "c2", "r2"}],
+              [{"t3", "c3", "r3", :orphan_count, "x", nil}]} =
+               DoctorTask.classify_fk_check("t", "c", "r", {:ok, 5}, :validated, acc)
+    end
+  end
+
   describe "report_orphaned_fk_refs/4 — I055: a probe failure is its own tier, not the same red as real orphans" do
     test "probe_failed alone (no orphans, no known-unvalidated) is :warn, not :fail — I055's third tier" do
       # Before I055 this was :fail — the exact "slow and broken-data can't be
