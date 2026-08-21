@@ -149,4 +149,29 @@ defmodule Mix.Tasks.PhoenixKit.DoctorOrphanedFkTest do
       assert message =~ "phoenix_kit_user_oauth_providers.user_uuid"
     end
   end
+
+  describe "probe timeout shape — I055 round 3: the real error shape, not an assumed one" do
+    test "a real slow query through Repo.query/3 with a short timeout is always classified as a time limit, whichever shape it takes" do
+      # `probe_fk/4` calls `repo.query(sql, [], timeout: N)` — through the
+      # DBConnection pool/ownership layer, not a raw `Postgrex.query/3`
+      # against a bare connection. Verified live: this does NOT reliably
+      # return `%Postgrex.Error{postgres: %{code: :query_canceled}}}`.
+      # Depending on whether Postgres acknowledges the cancel before
+      # DBConnection's own grace period expires, the identical timeout can
+      # instead surface as `%DBConnection.ConnectionError{reason: :closed}}`
+      # — reproduced on this same suite with both shapes occurring across
+      # different runs. A test pinned to one specific shape would be flaky
+      # by construction, so this asserts the real property `probe_fk/4`
+      # needs: WHICHEVER shape a live timeout takes, `fk_probe_failure_reason/1`
+      # recognizes it as "time limit exceeded", not a raw driver error.
+      assert {:error, reason} = Repo.query("SELECT pg_sleep(3)", [], log: false, timeout: 200)
+
+      assert match?(%Postgrex.Error{postgres: %{code: :query_canceled}}, reason) or
+               match?(%DBConnection.ConnectionError{reason: :closed}, reason),
+             "expected a query_canceled Postgrex.Error or a closed DBConnection.ConnectionError, " <>
+               "got: #{inspect(reason)}"
+
+      assert DoctorTask.fk_probe_failure_reason(reason) =~ "time limit exceeded"
+    end
+  end
 end

@@ -509,6 +509,23 @@ defmodule Mix.Tasks.PhoenixKit.DoctorTest do
       assert {:warn, message} = DoctorTask.report_orphaned_fk_refs([], not_validated, [], 1)
       assert message =~ "checked 1 of 1"
     end
+
+    test "a composite FK renders its constraint name and column count, not a misread 'probe failed'" do
+      # `check_orphaned_fk_refs/1` folds a composite FK into the same
+      # `probe_failed`-shaped list as a real probe failure — this asserts
+      # the render doesn't collapse it into the generic "probe failed"
+      # clause, which would print the constraint name in the fk_col slot
+      # (reads as a column) and claim a probe was attempted when none was.
+      probe_failed = [
+        {"phoenix_kit_order_items", "fk_items_composite", "phoenix_kit_orders", :multi_column, 2,
+         nil}
+      ]
+
+      assert {:warn, message} = DoctorTask.report_orphaned_fk_refs([], [], probe_failed, 1)
+      assert message =~ "composite FK fk_items_composite (2 columns)"
+      assert message =~ "VALIDATE CONSTRAINT fk_items_composite"
+      refute message =~ "probe failed"
+    end
   end
 
   describe "discover_fk_constraints/2 — I055: source of truth is pg_constraint, not a list in code" do
@@ -536,6 +553,31 @@ defmodule Mix.Tasks.PhoenixKit.DoctorTest do
 
       assert DoctorTask.fk_probe_failure_reason(reason) =~ "time limit exceeded"
       assert DoctorTask.fk_probe_failure_reason(reason) =~ "not checked, not clean"
+    end
+
+    test "a pool-closed DBConnection.ConnectionError becomes a time-limit message too" do
+      # Verified live (not assumed): `repo.query/3` with a `:timeout` — the
+      # exact call `probe_fk/4` makes, through the DBConnection
+      # pool/ownership layer — does not reliably surface as
+      # `%Postgrex.Error{postgres: %{code: :query_canceled}}}`. Depending on
+      # whether Postgres acknowledges the cancel before DBConnection's own
+      # grace period expires, the SAME timeout can instead surface as
+      # DBConnection tearing down the connection itself. Before this round,
+      # this shape fell through to the generic `reason` clause and printed a
+      # raw "tcp recv: closed" pool message instead of "time limit exceeded".
+      reason = %DBConnection.ConnectionError{reason: :closed, message: "tcp recv: closed"}
+
+      assert DoctorTask.fk_probe_failure_reason(reason) =~ "time limit exceeded"
+      assert DoctorTask.fk_probe_failure_reason(reason) =~ "not checked, not clean"
+    end
+
+    test "a DBConnection.ConnectionError for a different reason passes through unchanged" do
+      # Only `:closed` is treated as a timeout — `:queue_timeout` (the pool
+      # itself has no free connection to hand out) is a different failure and
+      # must not be relabeled as "time limit exceeded".
+      reason = %DBConnection.ConnectionError{reason: :queue_timeout, message: "queue timeout"}
+
+      assert DoctorTask.fk_probe_failure_reason(reason) == reason
     end
 
     test "any other error reason passes through unchanged" do

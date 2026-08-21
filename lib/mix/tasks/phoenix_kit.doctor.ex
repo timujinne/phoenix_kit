@@ -885,8 +885,7 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
         multi_column_entries =
           Enum.map(skipped_multi, fn {table, conname, ref_table, col_count} ->
-            {table, conname, ref_table, :multi_column,
-             "composite FK (#{col_count} columns) — not supported by this check", nil}
+            {table, conname, ref_table, :multi_column, col_count, nil}
           end)
 
         total = length(constraints) + length(skipped_multi)
@@ -964,15 +963,19 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
   # Per-constraint time budget: a check that never finishes must never read
   # as clean, but it also must not be allowed to hang the whole doctor run
-  # waiting on one giant table. Postgrex's `:timeout` cancels the statement
-  # server-side on expiry and returns a normal `{:error, %Postgrex.Error{}}`
-  # (verified against a real connection — a client-side `:timeout` here does
-  # NOT exit the calling process), so this needs no special rescue beyond
-  # the {:error, reason} branch `classify_fk_check/5` already routes to
-  # `:probe_failed` — a timeout is just one more reason a probe can fail,
-  # never a silent scope reduction. I055 explicitly rejects a `--full` flag
-  # for this exact reason: breadth (every constraint) is never negotiable,
-  # only depth (how long we wait per constraint) is.
+  # waiting on one giant table. A server-side cancellation on expiry surfaces
+  # as `{:error, %Postgrex.Error{postgres: %{code: :query_canceled}}}` — but
+  # verified live against `PhoenixKit.Test.Repo.query/3` (the exact call
+  # `probe_fk/4` makes, through the DBConnection pool/ownership layer, not a
+  # raw `Postgrex.query/3` against a bare connection), the timeout more often
+  # surfaces ONE layer up instead: DBConnection itself drops the request from
+  # its queue and closes the checked-out connection, returning
+  # `{:error, %DBConnection.ConnectionError{reason: :closed}}` with no
+  # `Postgrex.Error` involved at all. Both shapes are handled the same way —
+  # a timeout is just one more reason a probe can fail, never a silent scope
+  # reduction. I055 explicitly rejects a `--full` flag for this exact reason:
+  # breadth (every constraint) is never negotiable, only depth (how long we
+  # wait per constraint) is.
   @fk_probe_timeout_ms 5_000
 
   defp probe_fk(repo, fk, prefix, {orph, nv, pf}) do
@@ -994,10 +997,10 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
           {:ok, c}
 
         {:error, %Postgrex.Error{postgres: %{code: :query_canceled}} = reason} ->
-          message =
-            fk_probe_failure_reason(reason) <> fk_probe_cost_context(repo, table, fk_col, prefix)
+          {:probe_failed, timeout_probe_failure(reason, repo, table, fk_col, prefix)}
 
-          {:probe_failed, message}
+        {:error, %DBConnection.ConnectionError{reason: :closed} = reason} ->
+          {:probe_failed, timeout_probe_failure(reason, repo, table, fk_col, prefix)}
 
         {:error, reason} ->
           {:probe_failed, fk_probe_failure_reason(reason)}
@@ -1011,17 +1014,27 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     classify_fk_check(table, fk_col, ref_table, count_result, validation, {orph, nv, pf})
   end
 
-  # A query cancelled by the timeout above and every other Postgrex error
-  # both surface as `%Postgrex.Error{}` — this only exists to make the
-  # timeout case say "time limit exceeded" instead of the raw Postgres
-  # cancellation text, so the doctor's report matches the operator-facing
-  # language I055 asks for ("не проверено (превышен предел)") rather than
-  # leaking a database error message that means the same thing.
+  defp timeout_probe_failure(reason, repo, table, fk_col, prefix) do
+    fk_probe_failure_reason(reason) <> fk_probe_cost_context(repo, table, fk_col, prefix)
+  end
+
+  # A query cancelled by the timeout above, a connection closed out from
+  # under it by the pool, and every other Postgrex/DBConnection error all
+  # reach this function — it only exists to make the two timeout shapes say
+  # "time limit exceeded" instead of a raw Postgres cancellation code or a
+  # "tcp recv: closed" pool message, so the doctor's report matches the
+  # operator-facing language I055 asks for ("не проверено (превышен
+  # предел)") rather than leaking a database/pool error that means the same
+  # thing.
   #
   # Exposed (not `defp`) and `@doc false`, same reason as the other pure
   # decision functions in this module: directly testable without a repo.
   @doc false
   def fk_probe_failure_reason(%Postgrex.Error{postgres: %{code: :query_canceled}}) do
+    "time limit exceeded (#{@fk_probe_timeout_ms}ms) — not checked, not clean"
+  end
+
+  def fk_probe_failure_reason(%DBConnection.ConnectionError{reason: :closed}) do
     "time limit exceeded (#{@fk_probe_timeout_ms}ms) — not checked, not clean"
   end
 
@@ -1127,7 +1140,12 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     {orph, [{table, fk_col, ref} | nv], pf}
   end
 
-  def classify_fk_check(_table, _fk_col, _ref, {:ok, _count}, _validated_or_absent_and_clean, acc) do
+  # Narrowed to `{:ok, 0}` deliberately: this is the ONLY combination that
+  # means "clean". Widening it back to `{:ok, _count}` is exactly the bug
+  # this round fixed for `:validated` — a future `validation` shape reaching
+  # here with `count > 0` must raise `FunctionClauseError`, not silently
+  # discard real orphans the way the old wildcard catch-all did.
+  def classify_fk_check(_table, _fk_col, _ref, {:ok, 0}, _validated_or_absent_and_clean, acc) do
     acc
   end
 
@@ -1234,6 +1252,18 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
         "#{table}.#{fk_col} → #{ref}: #{count} orphaned row(s) measured, but could not check " <>
           "whether the constraint is validated (validation_state probe failed: " <>
           "#{inspect(reason)}) — a failed probe is not a pass, treat as unverified"
+
+      # A composite FK was never probed at all — a deliberate scope
+      # exclusion (see `discover_fk_constraints/2`), not a failed attempt.
+      # `conname` sits in the tuple's fk_col-shaped slot for every other
+      # `probe_failed` entry, so it needs its own clause: the generic one
+      # below would print it as if it were a column name and call it a
+      # "probe failed", both wrong for a check that was never run. There is
+      # also no re-run that turns this into :pass — only a manual
+      # VALIDATE CONSTRAINT does.
+      {table, conname, ref, :multi_column, col_count, nil} ->
+        "#{table} → #{ref}: composite FK #{conname} (#{col_count} columns) — not supported " <>
+          "by this check; verify manually via ALTER TABLE ... VALIDATE CONSTRAINT #{conname}"
 
       {table, fk_col, ref, kind, reason, nil} ->
         "#{table}.#{fk_col} → #{ref}: could not check (#{kind} probe failed: #{inspect(reason)}) " <>
