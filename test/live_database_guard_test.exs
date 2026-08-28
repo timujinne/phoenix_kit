@@ -1,7 +1,7 @@
 defmodule PhoenixKit.Test.LiveDatabaseGuardTest do
   @moduledoc """
-  S014 / PK-B: pure unit coverage for `check!/1`'s own decision — separate
-  from `LiveDatabaseGuardWiringTest`, which proves the module is actually
+  Pure unit coverage for `check!/1`'s own decision — separate from
+  `LiveDatabaseGuardWiringTest`, which proves the module is actually
   reachable from `test_helper.exs`'s real boot sequence, not just that its
   logic is correct in isolation.
   """
@@ -10,7 +10,7 @@ defmodule PhoenixKit.Test.LiveDatabaseGuardTest do
   alias PhoenixKit.Test.LiveDatabaseGuard
 
   describe "check!/1 — built-in suffix pattern (zero configuration)" do
-    test "still raises for each of this container's three known live databases" do
+    test "raises for example database names ending in a dangerous suffix" do
       for db <- ~w(phoenix_kit_dev decor_3d_print_dev phoenixkit_hello_world_dev) do
         assert_raise LiveDatabaseGuard.LiveDatabaseError, ~r/#{db}/, fn ->
           LiveDatabaseGuard.check!(db)
@@ -18,10 +18,9 @@ defmodule PhoenixKit.Test.LiveDatabaseGuardTest do
       end
     end
 
-    test "generalizes beyond this container's three hardcoded names" do
-      # None of these ever appeared in the old literal list — proof the
-      # refusal now comes from the suffix pattern, not a name that merely
-      # happens to still be in a hardcoded set somewhere.
+    test "raises for further suffix examples with nothing hardcoded behind them" do
+      # These names illustrate the refusal is genuinely suffix-based —
+      # none of them is special-cased anywhere in the module.
       for db <- ~w(acme_production shop_staging widgets_development other_app_prod) do
         assert_raise LiveDatabaseGuard.LiveDatabaseError, fn ->
           LiveDatabaseGuard.check!(db)

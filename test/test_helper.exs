@@ -1,8 +1,9 @@
 # Test helper for PhoenixKit test suite
 
-# S014: refuse before anything else touches the database — see
+# Refuse before anything else touches the database — see
 # PhoenixKit.Test.LiveDatabaseGuard's moduledoc for why this exists
-# alongside (not instead of) the external `pk-test` wrapper.
+# alongside (not instead of) an external wrapper script some hosts
+# already use for the same purpose.
 db_name =
   Application.get_env(:phoenix_kit, PhoenixKit.Test.Repo)[:database] || "phoenix_kit_test"
 

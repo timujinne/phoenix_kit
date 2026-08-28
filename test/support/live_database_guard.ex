@@ -5,16 +5,17 @@ defmodule PhoenixKit.Test.LiveDatabaseGuard do
   managed Postgres instance, most often). That is legitimate and must keep
   working: this guard does NOT require any particular test database name.
   What it refuses is a database name that *looks like* a non-test
-  environment — because on at least one known host (this container), the
-  shell leaks `PGDATABASE=phoenix_kit_dev` (and `MIX_ENV=dev`) into every
-  process, so a bare `mix test` run, in any working directory, silently
-  resolves its test database to the real, live dev database and hands it
-  straight to the Ecto sandbox to migrate and seed. `/root/bin/pk-test`
-  already refuses this for that one container — but it lives OUTSIDE the
-  repo on purpose (a fork shared with an external maintainer can't carry a
-  machine-specific wrapper) and only checks one literal name, so it only
-  protects a caller who remembers to use it. This guard is the same idea,
-  generalized to travel with the repo to any host.
+  environment — because a shell that leaks an environment-tagged
+  `PGDATABASE` (say, `myapp_dev`) into every process turns a bare `mix
+  test` run, in any working directory, into a silent migrate-and-seed of
+  the real, live database. Some hosts already guard against this with an
+  external wrapper script that checks the resolved database name before
+  invoking `mix test` — but a wrapper living outside the repo only
+  protects a caller who remembers to use it, and can only ever check for
+  the one name (or few names) it was written against. This guard is the
+  same idea, generalized to travel with the repo itself, to any host,
+  checking a whole class of dangerous-looking names rather than a fixed
+  list.
 
   Two layers, checked in order:
 
@@ -22,12 +23,9 @@ defmodule PhoenixKit.Test.LiveDatabaseGuard do
      database name ending in `_dev`, `_development`, `_prod`,
      `_production`, or `_staging` (case-insensitive). These are the
      near-universal Rails/Phoenix/Django convention for naming an
-     environment's database, so this fires with zero configuration on any
-     host that follows it — including, incidentally, all three of this
-     container's own live databases (`phoenix_kit_dev`,
-     `decor_3d_print_dev`, `phoenixkit_hello_world_dev`), so the old
-     hardcoded three-name list is now a special case of this pattern, not
-     a separate mechanism to maintain.
+     environment's database (e.g. `phoenix_kit_dev`, `myapp_production`,
+     `shop_staging`), so this fires with zero configuration on any host
+     that follows it.
 
   2. **Optional extra denylist**, read from the `PHOENIX_KIT_TEST_DB_DENYLIST`
      environment variable (comma-separated exact names, case-insensitive) —
@@ -55,8 +53,9 @@ defmodule PhoenixKit.Test.LiveDatabaseGuard do
   `SchemaOwnerGuard` pattern (a `schema_migrations` ownership-marker
   comment, stamped by a package after its own migrations succeed): that
   mechanism only catches a database another *tracked, guard-wearing*
-  package has already stamped — confirmed live (S014 recon) that it reads
-  a database it has never seen, comment-less `schema_migrations` included,
+  package has already stamped — confirmed against a scratch database
+  built to look exactly like an untouched live one, that it reads a
+  database it has never seen, comment-less `schema_migrations` included,
   as `:ok`. A live dev database populated by ordinary `mix ecto.migrate` is
   exactly that shape: nothing has ever stamped it, so a marker check alone
   would wave it through. This guard instead judges the NAME itself.

@@ -1,22 +1,22 @@
 defmodule PhoenixKit.LiveDatabaseGuardWiringTest do
   @moduledoc """
-  S014 / PK-B: `LiveDatabaseGuardTest` calls `check!/1` directly — it
-  proves the logic is correct, not that `test_helper.exs` actually calls
-  it. Deleting the call from `test_helper.exs` leaves that test green; it
-  would prove the module still works, not that anything still protects a
-  real `mix test` run.
+  `LiveDatabaseGuardTest` calls `check!/1` directly — it proves the logic
+  is correct, not that `test_helper.exs` actually calls it. Deleting the
+  call from `test_helper.exs` leaves that test green; it would prove the
+  module still works, not that anything still protects a real `mix test`
+  run.
 
   This test runs `test_helper.exs` for real, as a genuine `mix test`
   subprocess, with `PGDATABASE` set to a name the guard exists to refuse —
-  this container's three literal live names, plus one generalized
-  pattern-only example (`acme_production`) and one denylist-only example
-  (`acme_main`, via `PHOENIX_KIT_TEST_DB_DENYLIST`) to prove the wiring
-  survives both refusal paths, not just the hardcoded ones. It never lets
-  that subprocess reach a real Postgres server, though — `PGHOST` points
-  at an address nothing is listening on. That is what makes it safe to
-  name `phoenix_kit_dev` literally here: whatever the guard does or
+  several example dev-suffixed names, plus one generalized pattern-only
+  example (`acme_production`) and one denylist-only example (`acme_main`,
+  via `PHOENIX_KIT_TEST_DB_DENYLIST`) to prove the wiring survives both
+  refusal paths, not just the suffix pattern. It never lets that
+  subprocess reach a real Postgres server, though — `PGHOST` points at an
+  address nothing is listening on. That is what makes it safe to name a
+  live-looking database literally here: whatever the guard does or
   doesn't do, no real Postgres exists at the address this subprocess is
-  given, so it can never actually touch the real database.
+  given, so it can never actually touch a real database.
 
   Verified live (mutation, not assumption) that this still tells a correct
   refusal apart from a cut wiring call: with the `check!/1` call commented
@@ -34,7 +34,7 @@ defmodule PhoenixKit.LiveDatabaseGuardWiringTest do
 
   use ExUnit.Case, async: true
 
-  # A loopback port nothing binds inside this container's test run —
+  # A loopback port nothing binds during a normal test run —
   # `ECONNREFUSED` is near-instant, unlike a routed-but-silent address
   # (which would hang for a connect timeout instead of failing fast).
   @unreachable_host "127.0.0.1"
@@ -135,7 +135,8 @@ defmodule PhoenixKit.LiveDatabaseGuardWiringTest do
     # test database — inheriting that ambient environment gives the
     # subprocess a genuine, already-proven-safe connection without this
     # tracked file ever needing to know a password or a machine-specific
-    # path (the same reason `pk-test` itself lives outside the repo).
+    # path (the same reason a machine-specific wrapper script would live
+    # outside the repo too).
     env = [{"PGDATABASE", System.get_env("PGDATABASE", "phoenix_kit_test")}]
 
     {output, exit_code} =
