@@ -217,7 +217,8 @@ defmodule PhoenixKitWeb.Live.Users.Roles do
         {:noreply, socket}
       else
         {:error, reason} ->
-          {:noreply, put_flash(socket, :error, reason)}
+          {:noreply,
+           put_flash(socket, :error, Permissions.edit_role_permissions_error_message(reason))}
 
         false ->
           {:noreply, put_flash(socket, :error, gettext("Role not found"))}

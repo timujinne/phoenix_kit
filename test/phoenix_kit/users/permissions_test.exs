@@ -593,4 +593,28 @@ defmodule PhoenixKit.Users.PermissionsTest do
       assert {:error, :owner_immutable} = Permissions.can_edit_role_permissions?(scope, role)
     end
   end
+
+  # --- Access Control: edit_role_permissions_error_message ---
+  #
+  # can_edit_role_permissions?/2 returns bare atoms on error; LiveViews must
+  # never put_flash the atom itself (raw term leaks to the user). This maps
+  # every reason it can produce to human text, and refuses to compile silent
+  # drift: if a new reason atom is ever added to can_edit_role_permissions?/2
+  # without a matching clause here, this test (not just the fallback) is what
+  # catches it.
+  describe "edit_role_permissions_error_message/1" do
+    test "maps every reason can_edit_role_permissions?/2 can return to a human string" do
+      for reason <- [:not_authenticated, :owner_immutable, :self_role, :admin_owner_only] do
+        message = Permissions.edit_role_permissions_error_message(reason)
+
+        assert is_binary(message)
+        refute message == to_string(reason)
+      end
+    end
+
+    test "falls back to a generic message for an unknown reason" do
+      assert Permissions.edit_role_permissions_error_message(:something_unexpected) ==
+               "Permission denied"
+    end
+  end
 end
