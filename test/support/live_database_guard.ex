@@ -1,58 +1,125 @@
 defmodule PhoenixKit.Test.LiveDatabaseGuard do
   @moduledoc """
-  S014: this container's shell environment leaks `PGDATABASE=phoenix_kit_dev`
-  (and `MIX_ENV=dev`) into every process, including `mix test` run bare, in
-  any working directory (see `/root/bin/pk-test`'s own header comment).
   `config/test.exs` honors `PGDATABASE` — precisely so the suite CAN target
-  an already-provisioned database when the running role lacks `CREATEDB` —
-  which means a bare `mix test` run in this container silently resolves its
-  test database to the real, live dev database and hands it straight to the
-  Ecto sandbox to migrate and seed.
+  an already-provisioned database on a role without `CREATEDB` (a shared or
+  managed Postgres instance, most often). That is legitimate and must keep
+  working: this guard does NOT require any particular test database name.
+  What it refuses is a database name that *looks like* a non-test
+  environment — because on at least one known host (this container), the
+  shell leaks `PGDATABASE=phoenix_kit_dev` (and `MIX_ENV=dev`) into every
+  process, so a bare `mix test` run, in any working directory, silently
+  resolves its test database to the real, live dev database and hands it
+  straight to the Ecto sandbox to migrate and seed. `/root/bin/pk-test`
+  already refuses this for that one container — but it lives OUTSIDE the
+  repo on purpose (a fork shared with an external maintainer can't carry a
+  machine-specific wrapper) and only checks one literal name, so it only
+  protects a caller who remembers to use it. This guard is the same idea,
+  generalized to travel with the repo to any host.
 
-  `pk-test` already refuses this — but it lives OUTSIDE `/app` on purpose
-  (a fork shared with an external maintainer must not carry a
-  machine-specific wrapper), so it only protects a caller who remembers to
-  use it. This guard is the same refusal, INSIDE the repo, so `mix test`
-  itself is safe regardless of how it's invoked.
+  Two layers, checked in order:
+
+  1. **Built-in suffix pattern** (`@dangerous_suffixes`) — refuses a
+     database name ending in `_dev`, `_development`, `_prod`,
+     `_production`, or `_staging` (case-insensitive). These are the
+     near-universal Rails/Phoenix/Django convention for naming an
+     environment's database, so this fires with zero configuration on any
+     host that follows it — including, incidentally, all three of this
+     container's own live databases (`phoenix_kit_dev`,
+     `decor_3d_print_dev`, `phoenixkit_hello_world_dev`), so the old
+     hardcoded three-name list is now a special case of this pattern, not
+     a separate mechanism to maintain.
+
+  2. **Optional extra denylist**, read from the `PHOENIX_KIT_TEST_DB_DENYLIST`
+     environment variable (comma-separated exact names, case-insensitive) —
+     for a live database whose name doesn't happen to match the pattern
+     above. Empty by default: nothing is refused beyond the pattern unless
+     a host opts in. This is an env var rather than app config on purpose —
+     it lets a host declare its own known-live names (e.g. in its shell
+     profile or process supervisor) without editing a tracked file, the
+     same way `PGDATABASE` itself already reaches this repo.
+
+  **What this does NOT do:** refuse a name for merely NOT ending in
+  `_test`. An arbitrary pre-provisioned scratch database name (the exact
+  case `PGDATABASE`-honoring exists for) — `ci_runner_42`, `pk_scratch_7`,
+  a UUID-suffixed throwaway — passes through untouched, because nothing
+  about that name resembles a non-test environment. A rule that instead
+  *required* a `_test` suffix would refuse that legitimate case outright,
+  which is why this guard does not use one. The residual risk this leaves
+  is real and is not hidden: a host whose live database is named with no
+  recognizable environment suffix (e.g. bare `acme`, or `acme_main`) is
+  NOT caught by the built-in pattern and must add it to
+  `PHOENIX_KIT_TEST_DB_DENYLIST` itself — nothing here can guess a name
+  that carries no signal of what it is.
 
   Deliberately NOT the `phoenix_kit_crm`/`phoenix_kit_entities`
-  `SchemaOwnerGuard` pattern (a `schema_migrations` ownership marker):
-  that mechanism only catches a database another *tracked, guard-wearing*
+  `SchemaOwnerGuard` pattern (a `schema_migrations` ownership-marker
+  comment, stamped by a package after its own migrations succeed): that
+  mechanism only catches a database another *tracked, guard-wearing*
   package has already stamped — confirmed live (S014 recon) that it reads
   a database it has never seen, comment-less `schema_migrations` included,
-  as `:ok`. A live dev database populated by ordinary `mix ecto.migrate`
-  is exactly that shape: nothing has ever stamped it, so a marker check
-  alone would wave it through. This guard instead refuses by NAME, against
-  the specific databases this container must never let a test suite touch
-  — the same check `pk-test` already makes, just checked here too.
+  as `:ok`. A live dev database populated by ordinary `mix ecto.migrate` is
+  exactly that shape: nothing has ever stamped it, so a marker check alone
+  would wave it through. This guard instead judges the NAME itself.
   """
 
-  @known_live_databases ~w(phoenix_kit_dev decor_3d_print_dev phoenixkit_hello_world_dev)
+  @dangerous_suffixes ~w(_dev _development _prod _production _staging)
 
   defmodule LiveDatabaseError do
     defexception [:message]
   end
 
   @doc """
-  Raises `LiveDatabaseError` if `database` names one of this container's
-  known live databases. Takes the already-resolved name (what
-  `config/test.exs` put in `Application.get_env/2`), not `PGDATABASE`
-  itself — the config file's own fallback-when-unset logic is the single
-  source of truth for what the suite will actually connect to, and
-  duplicating it here would drift the moment either copy changed.
+  Raises `LiveDatabaseError` if `database` looks like a non-test
+  environment's database (see moduledoc). Takes the already-resolved name
+  (what `config/test.exs` put in `Application.get_env/2`), not
+  `PGDATABASE` itself — the config file's own fallback-when-unset logic is
+  the single source of truth for what the suite will actually connect to,
+  and duplicating it here would drift the moment either copy changed.
   """
   @spec check!(String.t()) :: :ok
   def check!(database) when is_binary(database) do
-    if database in @known_live_databases do
-      raise LiveDatabaseError,
-        message: """
-        Test database resolved to #{inspect(database)}, a live database this \
-        container must never let a test suite touch (PGDATABASE leaks into \
-        every shell here — see this module's moduledoc). Unset PGDATABASE, \
-        or point it at an isolated test database instead.\
-        """
-    else
-      :ok
+    downcased = String.downcase(database)
+
+    cond do
+      database == "" ->
+        :ok
+
+      Enum.any?(@dangerous_suffixes, &String.ends_with?(downcased, &1)) ->
+        raise LiveDatabaseError, message: refusal_message(database, :suffix)
+
+      downcased in extra_denylist() ->
+        raise LiveDatabaseError, message: refusal_message(database, :denylist)
+
+      true ->
+        :ok
     end
+  end
+
+  defp extra_denylist do
+    "PHOENIX_KIT_TEST_DB_DENYLIST"
+    |> System.get_env("")
+    |> String.split(",", trim: true)
+    |> Enum.map(&(&1 |> String.trim() |> String.downcase()))
+    |> Enum.reject(&(&1 == ""))
+    |> MapSet.new()
+  end
+
+  defp refusal_message(database, :suffix) do
+    """
+    Test database resolved to #{inspect(database)}, whose name ends in a \
+    suffix (#{Enum.join(@dangerous_suffixes, ", ")}) this guard treats as a \
+    non-test environment, not a database a test suite may migrate and seed. \
+    Point PGDATABASE at an isolated test database instead \
+    (see PhoenixKit.Test.LiveDatabaseGuard's moduledoc).\
+    """
+  end
+
+  defp refusal_message(database, :denylist) do
+    """
+    Test database resolved to #{inspect(database)}, which PHOENIX_KIT_TEST_DB_DENYLIST \
+    names as a live database this host must never let a test suite touch. \
+    Point PGDATABASE at an isolated test database instead \
+    (see PhoenixKit.Test.LiveDatabaseGuard's moduledoc).\
+    """
   end
 end
