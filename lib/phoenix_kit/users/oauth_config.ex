@@ -362,7 +362,7 @@ defmodule PhoenixKit.Users.OAuthConfig do
   ## Examples
 
       iex> PhoenixKit.Users.OAuthConfig.test_connection(:google)
-      {:error, "Missing Google OAuth credentials: Client ID, Client Secret"}
+      {:error, "Missing Google OAuth credentials: Client Secret, Client ID"}
   """
   def test_connection(provider) when provider in [:google, :github, :facebook] do
     test_connection(provider, Settings.get_oauth_credentials_direct(provider))
@@ -394,7 +394,7 @@ defmodule PhoenixKit.Users.OAuthConfig do
 
   ## Examples
 
-      iex> PhoenixKit.Users.OAuthConfig.test_connection(:github, %{client_id: "x", client_secret: "y"})
+      iex> PhoenixKit.Users.OAuthConfig.test_connection(:github, %{client_id: "x", client_secret: "0123456789abcdef"})
       {:ok, "GitHub OAuth credentials are properly formatted. Initiate OAuth flow to test actual connection."}
   """
   def test_connection(provider, %{} = credentials)
