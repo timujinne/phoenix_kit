@@ -506,20 +506,32 @@ defmodule PhoenixKit.Settings do
       %{"date_format" => "F j, Y", "time_format" => "h:i A"}
   """
   def get_settings_cached(keys, defaults \\ %{}) when is_list(keys) do
-    cached_results = PhoenixKit.Cache.get_multiple(@cache_name, keys, %{})
-
-    # ⚠️ Miss-fill, and it is load-bearing. `Cache.get_multiple/3` simply omits
-    # keys it does not hold, so a key that was never cached — or whose entry has
-    # expired — used to be *absent* from the returned map, and callers read it as
-    # `nil`. Only the explicit "does not exist" sentinel mapped to a default.
+    # ⚠️ Miss-fill, and it is load-bearing — but `Cache.get_multiple/3` does NOT
+    # omit keys it does not hold. Its `handle_call` always writes every
+    # requested key into the returned map, substituting `Map.get(defaults, key)`
+    # on a miss (expired or never cached) instead of leaving the key out. Pass
+    # `%{}` as those defaults, as this used to, and a miss reads back as plain
+    # `nil` — indistinguishable from "cached, and the value happens to be nil" —
+    # so `Map.has_key?/2` sees every key as present and a miss is never detected.
     #
-    # Nothing surfaced that while the cache had no TTL: entries were written once
-    # and never expired. The moment one was added, every expiry wave would have
-    # left OAuth credential helpers and the user-list date formats reading `nil`,
-    # site-wide, until something happened to re-warm them. Fill the gap from the
-    # database and cache what we find, so a miss costs one batch query instead of
-    # silently degrading.
-    missing = Enum.reject(keys, &Map.has_key?(cached_results, &1))
+    # Tag every requested key with a private sentinel as the cache-level
+    # default instead (mirrors the single-key `cache_miss_sentinel` two
+    # functions up), then detect misses by matching the sentinel rather than by
+    # key presence. `defaults` — the caller's own fallback — never reaches
+    # `Cache.get_multiple/3`: passing it there would make a caller-supplied
+    # default indistinguishable from a genuinely cached value equal to it.
+    #
+    # A key that was never cached — or whose entry has expired — must still
+    # cost one batch query against the database instead of silently reading as
+    # `nil`. Nothing surfaced that while the cache had no TTL: entries were
+    # written once and never expired. The moment one was added, every expiry
+    # wave would have left OAuth credential helpers and the user-list date
+    # formats reading `nil`, site-wide, until something happened to re-warm them.
+    cache_miss_sentinel = :__cache_not_found__
+    cache_defaults = Map.new(keys, &{&1, cache_miss_sentinel})
+    cached_results = PhoenixKit.Cache.get_multiple(@cache_name, keys, cache_defaults)
+
+    missing = Enum.filter(keys, &(Map.get(cached_results, &1) == cache_miss_sentinel))
     fetched = if missing == [], do: %{}, else: fill_missing_settings(missing)
 
     Enum.reduce(keys, %{}, fn key, acc ->
@@ -528,17 +540,20 @@ defmodule PhoenixKit.Settings do
           {:ok, @not_found_sentinel} ->
             Map.get(defaults, key)
 
-          {:ok, value} ->
-            value
-
-          # `Map.fetch`, not `||`: a row that genuinely stores nil is a
-          # different answer from a row that does not exist, and `||` collapses
-          # them onto the caller's default.
-          :error ->
+          {:ok, ^cache_miss_sentinel} ->
+            # `Map.fetch`, not `||`: a row that genuinely stores nil is a
+            # different answer from a row that does not exist, and `||` collapses
+            # them onto the caller's default.
             case Map.fetch(fetched, key) do
               {:ok, value} -> value
               :error -> Map.get(defaults, key)
             end
+
+          {:ok, value} ->
+            value
+
+          :error ->
+            Map.get(defaults, key)
         end
 
       Map.put(acc, key, value)
