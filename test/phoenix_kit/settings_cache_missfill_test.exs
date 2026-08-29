@@ -3,20 +3,31 @@ defmodule PhoenixKit.SettingsCacheMissFillTest do
   The settings cache now has a TTL, so entries expire. That is only safe
   because `get_settings_cached/2` fills on a miss — and it did not.
 
-  `Cache.get_multiple/3` simply omits keys it does not hold, so an absent key
-  was absent from the returned map and every caller read it as `nil`. Nothing
-  ever surfaced that, because with no TTL an entry written once never expired.
-  The first expiry wave would have left the OAuth credential helpers and the
-  user-list date formats silently reading `nil` site-wide until something
-  happened to re-warm them.
+  `Cache.get_multiple/3` does NOT simply omit keys it does not hold. Its
+  `handle_call` always writes every requested key into the returned map,
+  substituting `Map.get(defaults, key)` on a miss (expired, or never cached)
+  rather than leaving the key out. `get_settings_cached/2` used to pass `%{}`
+  as those defaults, so a miss read back as plain `nil` — indistinguishable
+  from "cached, and the value happens to be nil" — and `Map.has_key?/2` saw
+  every requested key as present. `fill_missing_settings/1`, the only place
+  that actually goes to the database, was therefore never called. Nothing
+  surfaced that while the cache had no TTL: entries were written once and
+  never expired. The first expiry wave would have left the OAuth credential
+  helpers and the user-list date formats silently reading `nil` site-wide
+  until something happened to re-warm them.
 
   These are the guard on that: they read keys the cache does not hold.
 
-  `Cache.get_multiple/3` returns a map without the key in exactly two cases —
-  the entry expired, or the cache is not answering — and `get_settings_cached/2`
-  cannot tell them apart, so either one exercises the same branch. The test
-  environment does not run the cache process, which makes every read here take
-  the miss path; that is the path under test, not a workaround.
+  The fix tags every requested key with a private sentinel as the
+  cache-level default, then detects a miss by matching that sentinel instead
+  of by key presence in the result — the caller's own `defaults` never reach
+  `Cache.get_multiple/3`, so a genuinely cached value equal to one is never
+  mistaken for a miss either. The test environment does not run the cache
+  process (`Cache.get_multiple/3`'s own `:noproc` fallback returns whatever
+  was passed as `defaults` verbatim), which makes every read here take the
+  miss path regardless; that is the path under test, not a workaround.
+  `test/phoenix_kit/settings_cache_missfill_unit_test.exs` proves the same
+  defect and fix at the cache layer alone, with no database at all.
   """
   use PhoenixKit.DataCase, async: false
 
