@@ -13371,3 +13371,57 @@ msgstr "Введите корректный адрес электронной п
 #, elixir-autogen, elixir-format
 msgid "Too many registration attempts. Please try again later."
 msgstr ""
+
+#: lib/phoenix_kit/users/oauth_config.ex:512
+#, elixir-autogen, elixir-format
+msgid "Could not reach Google to verify these credentials — check network connectivity and try again"
+msgstr "Не удалось связаться с Google, чтобы проверить эти учётные данные — проверьте сетевое подключение и попробуйте снова"
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:493
+#, elixir-autogen, elixir-format
+msgid "Google accepted these credentials. (The test authorization code was rejected, as expected — a full sign-in still requires the real OAuth flow.)"
+msgstr "Google принял эти учётные данные. (Тестовый код авторизации был отклонён — это ожидаемо: для полноценного входа всё ещё нужен настоящий OAuth-поток.)"
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:500
+#, elixir-autogen, elixir-format
+msgid "Google gave an inconclusive response (status %{status}) while checking these credentials — try again in a moment"
+msgstr "Google дал неоднозначный ответ (статус %{status}) при проверке этих учётных данных — попробуйте ещё раз через некоторое время"
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:486
+#, elixir-autogen, elixir-format
+msgid "Google rejected these credentials (invalid_client) — the Client ID and Client Secret do not match a registered Google OAuth app"
+msgstr "Google отклонил эти учётные данные (invalid_client) — ID клиента и секрет клиента не соответствуют зарегистрированному OAuth-приложению Google"
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:288
+#, elixir-autogen, elixir-format
+msgid "Missing %{provider} OAuth credentials: %{fields}"
+msgstr "Не заполнены учётные данные OAuth для %{provider}: %{fields}"
+
+
+#: lib/phoenix_kit_web/live/settings/authorization.ex:95
+#, elixir-autogen, elixir-format
+msgid "OAuth configuration reloaded from database"
+msgstr "Конфигурация OAuth перезагружена из базы данных"
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:442
+#, elixir-autogen, elixir-format
+msgid "%{provider} OAuth credentials are properly formatted. Initiate OAuth flow to test actual connection."
+msgstr "Учётные данные OAuth для %{provider} корректно оформлены. Чтобы проверить настоящее подключение, запустите OAuth-поток."
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:338
+#, elixir-autogen, elixir-format
+msgid "%{provider} secret cannot be only whitespace"
+msgstr "Секрет %{provider} не может состоять только из пробелов"
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:344
+#, elixir-autogen, elixir-format
+msgid "%{provider} secret looks too short to be real (%{length} characters, expected at least %{min}) — double-check you copied the whole value"
+msgstr "Секрет %{provider} выглядит слишком коротким для настоящего (%{length} симв., ожидается не менее %{min}) — проверьте, скопировано ли значение целиком"
+

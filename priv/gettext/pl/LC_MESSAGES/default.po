@@ -13359,3 +13359,57 @@ msgstr "Podaj nazwę"
 #, elixir-autogen, elixir-format
 msgid "Too many registration attempts. Please try again later."
 msgstr ""
+
+#: lib/phoenix_kit/users/oauth_config.ex:512
+#, elixir-autogen, elixir-format
+msgid "Could not reach Google to verify these credentials — check network connectivity and try again"
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:493
+#, elixir-autogen, elixir-format
+msgid "Google accepted these credentials. (The test authorization code was rejected, as expected — a full sign-in still requires the real OAuth flow.)"
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:500
+#, elixir-autogen, elixir-format
+msgid "Google gave an inconclusive response (status %{status}) while checking these credentials — try again in a moment"
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:486
+#, elixir-autogen, elixir-format
+msgid "Google rejected these credentials (invalid_client) — the Client ID and Client Secret do not match a registered Google OAuth app"
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:288
+#, elixir-autogen, elixir-format
+msgid "Missing %{provider} OAuth credentials: %{fields}"
+msgstr ""
+
+
+#: lib/phoenix_kit_web/live/settings/authorization.ex:95
+#, elixir-autogen, elixir-format
+msgid "OAuth configuration reloaded from database"
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:442
+#, elixir-autogen, elixir-format
+msgid "%{provider} OAuth credentials are properly formatted. Initiate OAuth flow to test actual connection."
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:338
+#, elixir-autogen, elixir-format
+msgid "%{provider} secret cannot be only whitespace"
+msgstr ""
+
+
+#: lib/phoenix_kit/users/oauth_config.ex:344
+#, elixir-autogen, elixir-format
+msgid "%{provider} secret looks too short to be real (%{length} characters, expected at least %{min}) — double-check you copied the whole value"
+msgstr ""
+

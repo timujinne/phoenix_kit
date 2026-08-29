@@ -1,3 +1,39 @@
+## 2.13.15 - 2026-08-29
+
+### Fixed
+
+- **The OAuth "Test Credentials" button now actually tests the credentials.**
+  It compared each field to `""` and nothing else, so a 9-character Google
+  client secret — or a field containing only a space — read as "properly
+  formatted" while Google itself answered the same values with 401
+  `invalid_client`. For Google, the button now POSTs the current client
+  ID/secret to `oauth2.googleapis.com/token` with a deliberately invalid
+  authorization code and reads Google's own verdict: `invalid_client` means
+  the credentials are wrong, `invalid_grant` means they are right (only the
+  fake code was rejected, as expected). A third outcome — could not reach
+  Google, or Google answered with something else entirely (its own anti-abuse
+  front door can return a generic `invalid_request` instead of a real
+  verdict, confirmed live) — is reported as inconclusive, never folded into
+  either a pass or a fail. GitHub and Facebook keep the previous
+  format-only check (now actually enforcing it — see below) rather than an
+  unverified live check against their token endpoints.
+- **A short or blank-looking OAuth secret is now rejected on save**, not just
+  by the button. `PhoenixKit.Users.OAuthConfig.validate_secret_format/2`
+  rejects a value that is only whitespace or implausibly short (under 16
+  characters — real secrets from all three providers are at least 24) before
+  `PhoenixKitWeb.Live.Settings.Authorization` persists it; the generic
+  settings schema (`PhoenixKit.Settings.Setting`) is deliberately left alone,
+  since a Google-secret-shaped format check does not belong in a schema
+  shared by every setting in the app. A secret already saved before this fix
+  does not retroactively block saving an unrelated field.
+- **OAuth test-result messages are now translated.** The success message was
+  never wrapped in `gettext` — a translated button produced an English
+  response, and the wording ("...properly formatted. Initiate OAuth flow to
+  test actual connection.") was easy to mistake for "this works" at a glance.
+  All three providers' messages, on all three (now honest) outcomes, are
+  gettext-wrapped, along with the adjacent "Reload Config" flash and the
+  "Test Credentials" button name repeated in the on-page setup instructions.
+
 ## 2.13.14 - 2026-08-28
 
 ### Added

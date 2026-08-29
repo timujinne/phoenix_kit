@@ -68,10 +68,10 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   def handle_event("save_settings", %{"settings" => settings_params}, socket) do
     socket = assign(socket, :saving, true)
 
-    case validate_background_color(settings_params) do
-      :ok ->
-        do_save_settings(socket, settings_params)
-
+    with :ok <- validate_background_color(settings_params),
+         :ok <- validate_oauth_secret_formats(settings_params) do
+      do_save_settings(socket, settings_params)
+    else
       {:error, message} ->
         {:noreply, socket |> assign(:saving, false) |> put_flash(:error, message)}
     end
@@ -92,7 +92,7 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
 
   def handle_event("reload_oauth_config", _params, socket) do
     OAuthConfig.configure_providers()
-    {:noreply, put_flash(socket, :info, "OAuth configuration reloaded from database")}
+    {:noreply, put_flash(socket, :info, gettext("OAuth configuration reloaded from database"))}
   end
 
   def handle_event("open_media_selector", %{"target" => target}, socket) do
@@ -161,6 +161,27 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   end
 
   defp validate_background_color(_settings_params), do: :ok
+
+  # Gate the save on secret *format* the same way `validate_background_color/1`
+  # gates it on color format — runs on the RAW submitted params, before
+  # `preserve_unset_secrets/2` fills a blank field back in with whatever is
+  # already stored. That ordering matters: an admin saving an unrelated
+  # field (say, project_title) must not suddenly be blocked because an
+  # OAuth secret saved before this fix already happens to be short — this
+  # only rejects a secret the admin is actively typing right now, never one
+  # that is merely being carried forward untouched.
+  defp validate_oauth_secret_formats(settings_params) do
+    Enum.reduce_while(@oauth_secret_keys, :ok, fn key, :ok ->
+      case OAuthConfig.validate_secret_format(provider_for_secret_key(key), settings_params[key]) do
+        :ok -> {:cont, :ok}
+        {:error, message} -> {:halt, {:error, message}}
+      end
+    end)
+  end
+
+  defp provider_for_secret_key("oauth_google_client_secret"), do: :google
+  defp provider_for_secret_key("oauth_github_client_secret"), do: :github
+  defp provider_for_secret_key("oauth_facebook_app_secret"), do: :facebook
 
   # S009: the template never renders a real OAuth secret into `value=`
   # (view-source can't leak it), so an untouched password field arrives here
