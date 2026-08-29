@@ -162,7 +162,7 @@ defmodule PhoenixKit.Activity do
 
     query =
       Entry
-      |> order_by([e], desc: e.inserted_at)
+      |> order_by([e], desc: e.inserted_at, desc: e.uuid)
       |> apply_filters(opts)
 
     total = repo().aggregate(query, :count)
@@ -207,7 +207,7 @@ defmodule PhoenixKit.Activity do
   @doc "Returns the N most recent activities."
   def recent(limit \\ 20) do
     Entry
-    |> order_by([e], desc: e.inserted_at)
+    |> order_by([e], desc: e.inserted_at, desc: e.uuid)
     |> limit(^limit)
     |> preload([:actor])
     |> repo().all()
