@@ -64,6 +64,57 @@ defmodule PhoenixKit.SettingsTest do
       end
     end
 
+    # S015 pt.4: extends restriction beyond the original OAuth/AWS set to
+    # every secret-bearing key found across core and the module packages
+    # that write through PhoenixKit.Settings (billing_* is
+    # phoenix_kit_billing's providers/{stripe,paypal,razorpay,everypay}.ex —
+    # a separate hex package, not core, but its secrets land in the same
+    # phoenix_kit_settings table via the same changeset). Audited and
+    # excluded on purpose (public, not secret — the same "visible by the
+    # protocol's own design" reasoning the OAuth client_id/app_id comment
+    # above already gives): billing_stripe_publishable_key,
+    # billing_paypal_client_id, billing_paypal_webhook_id,
+    # billing_razorpay_key_id, billing_everypay_api_username,
+    # billing_everypay_account_name — see the comment above
+    # @restricted_setting_keys for why each one is public.
+    test "the S015 pt.4 secrets (Apple private key, billing provider secrets) are restricted, not public" do
+      for key <- ~w(
+            oauth_apple_private_key
+            billing_stripe_secret_key
+            billing_stripe_webhook_secret
+            billing_stripe_api_key
+            billing_paypal_client_secret
+            billing_razorpay_key_secret
+            billing_razorpay_webhook_secret
+            billing_everypay_api_secret
+          ) do
+        assert key in Settings.restricted_setting_keys(), "#{key} must be restricted"
+        refute key in Settings.public_setting_keys(), "#{key} must not be public"
+      end
+    end
+
+    # These are NOT in @public_setting_keys either — like almost every other
+    # billing_* key (billing_stripe_enabled, billing_default_currency, ...),
+    # they were never added to get_defaults/0, so the partition invariant
+    # does not examine them at all (see "every get_defaults/0 key is
+    # classified exactly once" above — it only walks get_defaults/0's own
+    # keys). That gap predates S015 and is not this fix's to close; this
+    # test only pins down the one guarantee S015 actually owns for them: a
+    # value the provider's own design makes public was not swept into
+    # @restricted_setting_keys by the broader audit above.
+    test "the billing provider identifiers meant for client-side use were not swept into the restricted list" do
+      for key <- ~w(
+            billing_stripe_publishable_key
+            billing_paypal_client_id
+            billing_paypal_webhook_id
+            billing_razorpay_key_id
+            billing_everypay_api_username
+            billing_everypay_account_name
+          ) do
+        refute key in Settings.restricted_setting_keys(), "#{key} must not be restricted"
+      end
+    end
+
     test "the OAuth client/app identifiers stay public (they are public by OAuth's design)" do
       for key <- ~w(oauth_google_client_id oauth_github_client_id oauth_facebook_app_id) do
         assert key in Settings.public_setting_keys(), "#{key} must stay public"
@@ -216,6 +267,137 @@ defmodule PhoenixKit.SettingsTest do
 
       assert Settings.list_all_settings()["oauth_google_client_secret"] ==
                "synthetic-round-trip-secret"
+    end
+
+    # S015 pt.4: the same round trip as the test above, once per key the
+    # broader audit added to @restricted_setting_keys. Written out
+    # individually (not a `for` loop over one shared test body) so a
+    # regression names exactly which key broke, and so the mutation check
+    # this task requires — delete one key from @restricted_setting_keys and
+    # confirm ONLY its own test goes red — has a 1:1 test to point at.
+    # Every `assert String.starts_with?(raw.value, "enc:v1:")` below is the
+    # assertion that mutation exercises: it is true only because
+    # `Setting.changeset/2` consulted `restricted_setting_keys/0` for this
+    # exact key, not because of anything else in the write path.
+    test "write then read (S015 pt.4): oauth_apple_private_key is stored encrypted" do
+      plaintext = "synthetic-apple-private-key-round-trip"
+      {:ok, _} = Settings.update_setting("oauth_apple_private_key", plaintext)
+
+      raw = Queries.get_setting_by_key("oauth_apple_private_key")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("oauth_apple_private_key") == plaintext
+      assert Settings.list_all_settings()["oauth_apple_private_key"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_stripe_secret_key is stored encrypted" do
+      plaintext = "synthetic-stripe-secret-key-round-trip"
+      {:ok, _} = Settings.update_setting("billing_stripe_secret_key", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_stripe_secret_key")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_stripe_secret_key") == plaintext
+      assert Settings.list_all_settings()["billing_stripe_secret_key"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_stripe_webhook_secret is stored encrypted" do
+      plaintext = "synthetic-stripe-webhook-secret-round-trip"
+      {:ok, _} = Settings.update_setting("billing_stripe_webhook_secret", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_stripe_webhook_secret")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_stripe_webhook_secret") == plaintext
+      assert Settings.list_all_settings()["billing_stripe_webhook_secret"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_stripe_api_key (legacy alias) is stored encrypted" do
+      plaintext = "synthetic-stripe-legacy-api-key-round-trip"
+      {:ok, _} = Settings.update_setting("billing_stripe_api_key", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_stripe_api_key")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_stripe_api_key") == plaintext
+      assert Settings.list_all_settings()["billing_stripe_api_key"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_paypal_client_secret is stored encrypted" do
+      plaintext = "synthetic-paypal-client-secret-round-trip"
+      {:ok, _} = Settings.update_setting("billing_paypal_client_secret", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_paypal_client_secret")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_paypal_client_secret") == plaintext
+      assert Settings.list_all_settings()["billing_paypal_client_secret"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_razorpay_key_secret is stored encrypted" do
+      plaintext = "synthetic-razorpay-key-secret-round-trip"
+      {:ok, _} = Settings.update_setting("billing_razorpay_key_secret", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_razorpay_key_secret")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_razorpay_key_secret") == plaintext
+      assert Settings.list_all_settings()["billing_razorpay_key_secret"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_razorpay_webhook_secret is stored encrypted" do
+      plaintext = "synthetic-razorpay-webhook-secret-round-trip"
+      {:ok, _} = Settings.update_setting("billing_razorpay_webhook_secret", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_razorpay_webhook_secret")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_razorpay_webhook_secret") == plaintext
+      assert Settings.list_all_settings()["billing_razorpay_webhook_secret"] == plaintext
+    end
+
+    test "write then read (S015 pt.4): billing_everypay_api_secret is stored encrypted" do
+      plaintext = "synthetic-everypay-api-secret-round-trip"
+      {:ok, _} = Settings.update_setting("billing_everypay_api_secret", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_everypay_api_secret")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_everypay_api_secret") == plaintext
+      assert Settings.list_all_settings()["billing_everypay_api_secret"] == plaintext
+    end
+
+    # S015 pt.4 answer to brief item 5: an old plaintext billing secret must
+    # keep being read as plaintext by the SAME generic legacy path
+    # `decrypt_if_restricted/2` already gives oauth_github_client_secret
+    # above ("an existing plaintext value is read back unchanged") — nothing
+    # about that path is OAuth-specific, but the payment code path is the
+    # one item 5 calls out by name, so it gets its own proof rather than an
+    # inference from a different key. `Ecto.Changeset.change/2` on purpose,
+    # not `Setting.changeset/2` — this is what a row written before this
+    # patch looks like, never routed through the (now encrypting) write path.
+    test "an existing plaintext billing secret is read back unchanged (legacy, not touched by this change)" do
+      {:ok, _} =
+        %PhoenixKit.Settings.Setting{}
+        |> Ecto.Changeset.change(%{
+          key: "billing_stripe_secret_key",
+          value: "already-plaintext-legacy-stripe-key"
+        })
+        |> Queries.insert_setting()
+
+      raw = Queries.get_setting_by_key("billing_stripe_secret_key")
+      refute String.starts_with?(raw.value, "enc:v1:")
+
+      assert Settings.get_setting("billing_stripe_secret_key") ==
+               "already-plaintext-legacy-stripe-key"
     end
 
     # S015 review finding 1: warm_cache_data/0 originally read `setting.value`
