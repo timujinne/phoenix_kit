@@ -114,6 +114,23 @@ defmodule PhoenixKit.Settings do
   # protect them. `billing_stripe_api_key` is a legacy alias
   # `PhoenixKitBilling.Providers.Stripe.stripe_secret_key/0` still falls back
   # to — as sensitive as `billing_stripe_secret_key` itself.
+  #
+  # S015 pt.6: `billing_paypal_webhook_secret` was missed by the pt.4 audit
+  # because `WebhookController.get_webhook_secret/1` builds the key by
+  # STRING INTERPOLATION (`"billing_#{provider}_webhook_secret"`), never as a
+  # literal — invisible to grep-for-literals the same way it is invisible to
+  # `PhoenixKit.Test.SecretKeyPerimeter`'s literal scan. `:stripe` and
+  # `:razorpay` happened to already have their own literal call sites
+  # elsewhere (`billing_stripe_webhook_secret`, `billing_razorpay_webhook_secret`,
+  # both above); `:paypal` had none, so it alone went unclassified. `:everypay`
+  # never reaches `get_webhook_secret/1` at all — `WebhookController.everypay/2`
+  # re-fetches the authoritative record from EveryPay's API instead of trusting
+  # a signed callback, so `billing_everypay_webhook_secret` is not a missed key,
+  # it does not exist. See `settings_webhook_provider_perimeter_test.exs`,
+  # which resolves providers from `handle_webhook(conn, :provider, ...)` call
+  # sites in phoenix_kit_billing rather than a hand-maintained list, so a
+  # fifth provider added to that family fails this list instead of silently
+  # joining :everypay.
   @restricted_setting_keys ~w(
     oauth_google_client_secret
     oauth_github_client_secret
@@ -125,6 +142,7 @@ defmodule PhoenixKit.Settings do
     billing_stripe_webhook_secret
     billing_stripe_api_key
     billing_paypal_client_secret
+    billing_paypal_webhook_secret
     billing_razorpay_key_secret
     billing_razorpay_webhook_secret
     billing_everypay_api_secret
@@ -344,6 +362,7 @@ defmodule PhoenixKit.Settings do
       "billing_stripe_webhook_secret" => "",
       "billing_stripe_api_key" => "",
       "billing_paypal_client_secret" => "",
+      "billing_paypal_webhook_secret" => "",
       "billing_razorpay_key_secret" => "",
       "billing_razorpay_webhook_secret" => "",
       "billing_everypay_api_secret" => "",

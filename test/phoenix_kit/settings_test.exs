@@ -77,13 +77,14 @@ defmodule PhoenixKit.SettingsTest do
     # billing_razorpay_key_id, billing_everypay_api_username,
     # billing_everypay_account_name — see the comment above
     # @restricted_setting_keys for why each one is public.
-    test "the S015 pt.4 secrets (Apple private key, billing provider secrets) are restricted, not public" do
+    test "the S015 pt.4/pt.6 secrets (Apple private key, billing provider secrets) are restricted, not public" do
       for key <- ~w(
             oauth_apple_private_key
             billing_stripe_secret_key
             billing_stripe_webhook_secret
             billing_stripe_api_key
             billing_paypal_client_secret
+            billing_paypal_webhook_secret
             billing_razorpay_key_secret
             billing_razorpay_webhook_secret
             billing_everypay_api_secret
@@ -337,6 +338,24 @@ defmodule PhoenixKit.SettingsTest do
 
       assert Settings.get_setting("billing_paypal_client_secret") == plaintext
       assert Settings.list_all_settings()["billing_paypal_client_secret"] == plaintext
+    end
+
+    # S015 pt.6: found via WebhookController.get_webhook_secret/1, which
+    # builds this key by string interpolation (`"billing_#{provider}_webhook_secret"`)
+    # rather than a literal — invisible to the pt.5 perimeter scan the same
+    # way it was invisible to the pt.4 audit's literal grep. See
+    # settings_webhook_provider_perimeter_test.exs for the guard that
+    # resolves this from call sites instead of a hand-maintained list.
+    test "write then read (S015 pt.6): billing_paypal_webhook_secret is stored encrypted" do
+      plaintext = "synthetic-paypal-webhook-secret-round-trip"
+      {:ok, _} = Settings.update_setting("billing_paypal_webhook_secret", plaintext)
+
+      raw = Queries.get_setting_by_key("billing_paypal_webhook_secret")
+      assert String.starts_with?(raw.value, "enc:v1:")
+      refute raw.value == plaintext
+
+      assert Settings.get_setting("billing_paypal_webhook_secret") == plaintext
+      assert Settings.list_all_settings()["billing_paypal_webhook_secret"] == plaintext
     end
 
     test "write then read (S015 pt.4): billing_razorpay_key_secret is stored encrypted" do

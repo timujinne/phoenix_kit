@@ -94,6 +94,7 @@ defmodule PhoenixKit.Settings.Setting do
     "billing_stripe_webhook_secret",
     "billing_stripe_api_key",
     "billing_paypal_client_secret",
+    "billing_paypal_webhook_secret",
     "billing_razorpay_key_secret",
     "billing_razorpay_webhook_secret",
     "billing_everypay_api_secret",

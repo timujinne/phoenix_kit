@@ -123,4 +123,38 @@ defmodule PhoenixKit.Test.SecretKeyPerimeter do
     |> List.flatten()
     |> Enum.uniq()
   end
+
+  @doc """
+  S015 pt.6: the class of gap `billing_paypal_webhook_secret` fell into —
+  `PhoenixKitBilling.Web.WebhookController.get_webhook_secret/1` builds its
+  setting key by STRING INTERPOLATION
+  (`"billing_\#{provider}_webhook_secret"`), never as a literal, so it is
+  invisible to `scan_settings_literals/1` no matter which root it is pointed
+  at. The only way to find every key this family can produce is to resolve
+  `provider` at its actual source: the `handle_webhook(conn, :provider, ...)`
+  call sites in the controller, one per registered webhook route.
+
+  Returns the provider atoms (as strings) found, NOT the constructed keys —
+  the caller decides the key shape, so this function doesn't encode
+  `"billing_\#{p}_webhook_secret"` itself and go stale the day a second
+  interpolated family exists with a different shape.
+
+  Reaches into a SEPARATE hex package's source on purpose, unlike every
+  other function in this module — this one specific gap cannot be found any
+  other way, since the interpolation itself is what hid it from a
+  core-only, literal-only scan. `root` is the caller's job to locate (see
+  `settings_webhook_provider_perimeter_test.exs` for how this test's
+  environment finds it, and what happens when it can't).
+  """
+  @spec scan_webhook_provider_atoms(String.t()) :: [String.t()]
+  def scan_webhook_provider_atoms(root) do
+    regex = ~r/handle_webhook\(\s*conn\s*,\s*:([a-z0-9_]+)/
+
+    for path <- Path.wildcard(Path.join(root, "**/*.ex")),
+        {:ok, content} = File.read(path),
+        [_, provider] <- Regex.scan(regex, content) do
+      provider
+    end
+    |> Enum.uniq()
+  end
 end
