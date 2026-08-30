@@ -36,10 +36,17 @@ defmodule PhoenixKit.SettingsWebhookProviderPerimeterTest do
   # an arbitrary checkout (mirrors the PHOENIX_KIT_PATH convention the
   # workspace already uses in the other direction — a module pointing at a
   # local core); unset falls back to this container's known sibling layout.
-  # Skips (does not fail) when the sibling repo isn't present — this
-  # container-local convenience must never break `mix test` in a plain clone
-  # of core alone (a fresh CI checkout, a maintainer without the billing repo
-  # cloned).
+  #
+  # Deliberately no existence check here or at the call site: an absent,
+  # moved, or renamed directory must fail this test via the same floor
+  # assertions that catch a broken scan, not skip it silently. An earlier
+  # version of this test special-cased "directory not found" into an
+  # `IO.puts` skip that still reported the test as passing — a plain clone
+  # of core alone would have gone quietly green having checked nothing,
+  # exactly the "filter stopped matching, both sides collapsed, stayed
+  # green" failure this whole file exists to catch, just moved one level
+  # up. Verified by running: pointing this at a nonexistent path now fails
+  # the same way pointing it at an empty existing one does.
   defp billing_repo_path do
     System.get_env("PHOENIX_KIT_BILLING_PATH") || "/root/projects/phoenix_kit_billing"
   end
@@ -48,50 +55,51 @@ defmodule PhoenixKit.SettingsWebhookProviderPerimeterTest do
     test "every provider handle_webhook/3 is called with has a restricted billing_<provider>_webhook_secret" do
       root = billing_repo_path()
 
-      if File.dir?(root) do
-        providers = SecretKeyPerimeter.scan_webhook_provider_atoms(root) |> Enum.sort()
+      # No `File.dir?(root)` branch on purpose: a silent skip when the
+      # directory is absent is the SAME disease as a check that passes on an
+      # empty result — the directory moving, the path being renamed, or the
+      # controller being restructured all collapse to "found nothing" here,
+      # and this must fail exactly like "found nothing because the scan
+      # broke" does. `Path.wildcard/1` against a nonexistent root simply
+      # yields no files (no error), so `providers` is `[]` and the floor
+      # assertions below fail loudly instead of a passing test that checked
+      # nothing. Verified by running: pointed at both an empty EXISTING
+      # directory and a NONEXISTENT path, both turn this test red.
+      providers = SecretKeyPerimeter.scan_webhook_provider_atoms(root) |> Enum.sort()
 
-        # Sanity floor: if this list came back empty or missing a provider
-        # known to be wired in today, the SCAN broke (wrong root, the
-        # controller got refactored to a different call shape) — not proof
-        # the family shrank. Failing loudly here beats a vacuous pass.
-        assert "stripe" in providers,
-               "expected to find WebhookController.stripe/2's handle_webhook(conn, :stripe, ...) " <>
-                 "call — if not, the scan itself is broken"
+      # Sanity floor: if this list came back empty or missing a provider
+      # known to be wired in today, the SCAN broke (wrong root, the
+      # controller got refactored to a different call shape, the sibling
+      # checkout moved) — not proof the family shrank. Failing loudly here
+      # beats a vacuous pass.
+      assert "stripe" in providers,
+             "expected to find WebhookController.stripe/2's handle_webhook(conn, :stripe, ...) " <>
+               "call at #{root} — if not, either the scan broke or #{root} isn't the real " <>
+               "phoenix_kit_billing checkout (set PHOENIX_KIT_BILLING_PATH)"
 
-        assert "razorpay" in providers,
-               "expected to find WebhookController.razorpay/2's handle_webhook(conn, :razorpay, ...) " <>
-                 "call — if not, the scan itself is broken"
+      assert "razorpay" in providers,
+             "expected to find WebhookController.razorpay/2's handle_webhook(conn, :razorpay, ...) " <>
+               "call — if not, the scan itself is broken"
 
-        assert "paypal" in providers,
-               "expected to find WebhookController.paypal/2's handle_webhook(conn, :paypal, ...) " <>
-                 "call — if not, the scan itself is broken"
+      assert "paypal" in providers,
+             "expected to find WebhookController.paypal/2's handle_webhook(conn, :paypal, ...) " <>
+               "call — if not, the scan itself is broken"
 
-        # everypay must NOT appear — it has its own callback path that never
-        # calls handle_webhook/3 (see moduledoc). If this starts failing, a
-        # real everypay webhook-secret key was wired in and belongs on
-        # @restricted_setting_keys, not silently accepted here.
-        refute "everypay" in providers,
-               "everypay now calls handle_webhook/3 — billing_everypay_webhook_secret is a real " <>
-                 "key now and belongs on @restricted_setting_keys, not just this assertion"
+      # everypay must NOT appear — it has its own callback path that never
+      # calls handle_webhook/3 (see moduledoc). If this starts failing, a
+      # real everypay webhook-secret key was wired in and belongs on
+      # @restricted_setting_keys, not silently accepted here.
+      refute "everypay" in providers,
+             "everypay now calls handle_webhook/3 — billing_everypay_webhook_secret is a real " <>
+               "key now and belongs on @restricted_setting_keys, not just this assertion"
 
-        for provider <- providers do
-          key = "billing_#{provider}_webhook_secret"
+      for provider <- providers do
+        key = "billing_#{provider}_webhook_secret"
 
-          assert key in Settings.restricted_setting_keys(),
-                 "#{key} is read by WebhookController.get_webhook_secret(:#{provider}) " <>
-                   "(handle_webhook(conn, :#{provider}, ...) call site found) but is not on " <>
-                   "@restricted_setting_keys"
-        end
-      else
-        # Documented, not silent: a plain clone of core alone has no way to
-        # run this check, and that must show up as a visible skip-reason in
-        # the test log, not a quiet pass that looks identical to "checked,
-        # found nothing wrong".
-        IO.puts(
-          "SKIPPED: #{root} not found — this check needs phoenix_kit_billing checked out " <>
-            "alongside core (set PHOENIX_KIT_BILLING_PATH to point at it elsewhere)"
-        )
+        assert key in Settings.restricted_setting_keys(),
+               "#{key} is read by WebhookController.get_webhook_secret(:#{provider}) " <>
+                 "(handle_webhook(conn, :#{provider}, ...) call site found) but is not on " <>
+                 "@restricted_setting_keys"
       end
     end
 
