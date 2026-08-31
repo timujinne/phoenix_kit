@@ -574,7 +574,11 @@ defmodule PhoenixKit.Settings do
   defp fill_missing_settings(keys) do
     case query_settings_or_error(keys) do
       {:ok, found} ->
-        to_cache = Map.new(keys, &{&1, Map.get(found, &1, @not_found_sentinel)})
+        to_cache =
+          Map.new(keys, fn key ->
+            {key, cacheable_setting_value(key, Map.get(found, key, @not_found_sentinel))}
+          end)
+
         PhoenixKit.Cache.put_multiple(@cache_name, to_cache)
         found
 
@@ -585,12 +589,53 @@ defmodule PhoenixKit.Settings do
     end
   end
 
+  # I157 follow-up: a restricted key (`@restricted_setting_keys`) decrypts to
+  # `nil` in exactly one case — `decrypt_if_restricted/2`'s `{:error, reason}`
+  # branch — never as a genuinely stored value. `update_setting/2` coerces a
+  # `nil` write to `""` before it ever reaches the database, so a restricted
+  # key's row is always either ciphertext or `""`, never a literal `NULL`;
+  # `decrypt_if_restricted/2`'s own doc already claims a decrypt failure
+  # should read "exactly like a row that never existed", but the code handed
+  # back bare `nil` instead of the sentinel that claim requires.
+  #
+  # That bare `nil` is what `fill_missing_settings/1` and `warm_cache_data/0`
+  # used to write straight into the cache. Once written, a later read hits
+  # `{:ok, nil}` through the plain "cache hit" branch of `get_settings_cached/2`
+  # — indistinguishable from a setting that genuinely stores `nil` — and stays
+  # that way for the rest of the entry's life (a full TTL, or forever without
+  # one), instead of retrying the decrypt on the next read. Route it through
+  # `@not_found_sentinel` instead, exactly like a row with no DB entry at all:
+  # the caller gets its own `defaults` back, and the next read re-queries (and
+  # re-attempts decryption) rather than serving a stale decrypt failure.
+  defp cacheable_setting_value(key, nil) do
+    if key in @restricted_setting_keys, do: @not_found_sentinel, else: nil
+  end
+
+  defp cacheable_setting_value(_key, value), do: value
+
   defp fill_missing_json_settings(keys) do
     if Application.get_env(:phoenix_kit, :update_mode, false) or not repo_available?() do
       %{}
     else
       found = query_json_settings_batch(keys)
-      to_cache = Map.new(keys, &{&1, Map.get(found, &1) || @not_found_sentinel})
+
+      # `Map.fetch`, not `||`: a key `query_json_settings_batch/1` found (a
+      # row exists, just with no JSON value — e.g. a plain string-only
+      # setting) legitimately maps to `nil` here, a different answer from a
+      # key with no row at all. `||` collapsed both onto the "not found"
+      # sentinel, so the next read served the caller's default instead of
+      # the correctly-absent `nil` for the rest of the cache entry's life.
+      to_cache =
+        Map.new(keys, fn key ->
+          value =
+            case Map.fetch(found, key) do
+              {:ok, value} -> value
+              :error -> @not_found_sentinel
+            end
+
+          {key, value}
+        end)
+
       PhoenixKit.Cache.put_multiple(@cache_name, to_cache)
       found
     end
@@ -639,20 +684,44 @@ defmodule PhoenixKit.Settings do
       %{"app_config" => %{"theme" => "dark"}, "feature_flags" => %{"auth" => true}}
   """
   def get_json_settings_cached(keys, defaults \\ %{}) when is_list(keys) do
-    cached_results = PhoenixKit.Cache.get_multiple(@cache_name, keys, %{})
+    # I157 follow-up: same miss-fill defect `get_settings_cached/2` had.
+    # `Cache.get_multiple/3` does NOT omit keys it does not hold — its
+    # `handle_call` always writes every requested key into the returned map,
+    # substituting `Map.get(defaults, key)` on a miss (expired or never
+    # cached) instead of leaving the key out. Passing `%{}` as those defaults
+    # made a miss read back as plain `nil`, indistinguishable from "cached,
+    # and the value happens to be nil" — so `Map.has_key?/2` saw every key as
+    # present and a miss was never detected. Same fix: tag every requested
+    # key with a private sentinel as the cache-level default instead, and
+    # detect a miss by matching that sentinel rather than by key presence.
+    cache_miss_sentinel = :__cache_not_found__
+    cache_defaults = Map.new(keys, &{&1, cache_miss_sentinel})
+    cached_results = PhoenixKit.Cache.get_multiple(@cache_name, keys, cache_defaults)
 
-    # Miss-fill, same as `get_settings_cached/2`: `get_multiple/3` omits keys
-    # it does not hold, and a reduce over only the cached map returned `nil`
-    # for every absent/expired key without ever asking the database.
-    missing = Enum.reject(keys, &Map.has_key?(cached_results, &1))
+    missing = Enum.filter(keys, &(Map.get(cached_results, &1) == cache_miss_sentinel))
     fetched = if missing == [], do: %{}, else: fill_missing_json_settings(missing)
 
     Enum.reduce(keys, %{}, fn key, acc ->
       value =
         case Map.fetch(cached_results, key) do
-          {:ok, @not_found_sentinel} -> Map.get(defaults, key)
-          {:ok, cached} -> cached
-          :error -> Map.get(fetched, key) || Map.get(defaults, key)
+          {:ok, @not_found_sentinel} ->
+            Map.get(defaults, key)
+
+          # `Map.fetch`, not `||`: a key `fill_missing_json_settings/1` found
+          # with a JSON value of `nil` is a different answer from a key it
+          # never found at all, and `||` collapsed both onto the caller's
+          # default.
+          {:ok, ^cache_miss_sentinel} ->
+            case Map.fetch(fetched, key) do
+              {:ok, value} -> value
+              :error -> Map.get(defaults, key)
+            end
+
+          {:ok, cached} ->
+            cached
+
+          :error ->
+            Map.get(defaults, key)
         end
 
       Map.put(acc, key, value)
@@ -1987,6 +2056,7 @@ defmodule PhoenixKit.Settings do
           {setting.key, value}
         end)
         |> decrypt_and_map_settings()
+        |> Map.new(fn {key, value} -> {key, cacheable_setting_value(key, value)} end)
       else
         # Repo not available (likely during Mix task execution)
         # Return empty map - cache will be warmed later when repo becomes available
