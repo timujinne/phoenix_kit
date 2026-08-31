@@ -2151,7 +2151,16 @@ defmodule PhoenixKit.Settings do
         case Queries.get_setting_by_key(key) do
           %Setting{value: value} ->
             decrypted = decrypt_if_restricted(key, value)
-            PhoenixKit.Cache.put(@cache_name, key, decrypted)
+
+            # I157 follow-up (F1's single-key sibling): the batch paths
+            # (fill_missing_settings/1, warm_cache_data/0) already route a
+            # restricted key's bare `nil` decrypt failure through
+            # cacheable_setting_value/2 before caching it — this single-key
+            # path cached the same bare `nil` directly, so a decrypt failure
+            # on THIS path stayed cached as indistinguishable from "genuinely
+            # nil" for the rest of the entry's life instead of retrying the
+            # decrypt on the next read.
+            PhoenixKit.Cache.put(@cache_name, key, cacheable_setting_value(key, decrypted))
             decrypted
 
           nil ->
