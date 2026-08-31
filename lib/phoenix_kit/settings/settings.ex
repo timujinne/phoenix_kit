@@ -603,10 +603,11 @@ defmodule PhoenixKit.Settings do
   # `{:ok, nil}` through the plain "cache hit" branch of `get_settings_cached/2`
   # — indistinguishable from a setting that genuinely stores `nil` — and stays
   # that way for the rest of the entry's life (a full TTL, or forever without
-  # one), instead of retrying the decrypt on the next read. Route it through
-  # `@not_found_sentinel` instead, exactly like a row with no DB entry at all:
-  # the caller gets its own `defaults` back, and the next read re-queries (and
-  # re-attempts decryption) rather than serving a stale decrypt failure.
+  # one). Route it through `@not_found_sentinel` instead, exactly like a row
+  # with no DB entry at all: every read while that entry is cached gets the
+  # caller's own `defaults` back — no worse than a genuinely absent key — and
+  # decryption is only retried once the entry itself expires (TTL) or is
+  # invalidated (e.g. the row gets rewritten), not on the very next read.
   defp cacheable_setting_value(key, nil) do
     if key in @restricted_setting_keys, do: @not_found_sentinel, else: nil
   end
@@ -2158,8 +2159,11 @@ defmodule PhoenixKit.Settings do
             # cacheable_setting_value/2 before caching it — this single-key
             # path cached the same bare `nil` directly, so a decrypt failure
             # on THIS path stayed cached as indistinguishable from "genuinely
-            # nil" for the rest of the entry's life instead of retrying the
-            # decrypt on the next read.
+            # nil" for the rest of the entry's life. cacheable_setting_value/2
+            # routes it to the not-found sentinel instead: every read while
+            # that entry is cached gets `defaults`, same as a genuinely
+            # absent key, and decryption is only retried once the entry
+            # expires (TTL) or is invalidated — not on the very next read.
             PhoenixKit.Cache.put(@cache_name, key, cacheable_setting_value(key, decrypted))
             decrypted
 
