@@ -34,7 +34,7 @@ defmodule PhoenixKit.Migrations.ModulesTest do
         assert is_atom(module)
         assert is_atom(migration_module)
         assert is_integer(installed) and installed >= 0
-        assert status in [:not_installed, :needs_update, :up_to_date, :error]
+        assert status in [:not_installed, :needs_update, :up_to_date, :ahead_of_code, :error]
       end
     end
 
@@ -82,9 +82,24 @@ defmodule PhoenixKit.Migrations.ModulesTest do
   end
 
   describe "classify/2" do
-    test "installed at or above target is up to date" do
+    test "installed exactly at target is up to date" do
       assert Modules.classify(2, 2) == :up_to_date
-      assert Modules.classify(3, 2) == :up_to_date
+    end
+
+    test "installed above target is ahead of code, not up to date" do
+      # This is the state a rollback/downgrade produces: the schema was
+      # migrated by a later release than the one now running. Folding it into
+      # :up_to_date (an `installed >= target` guard) hides the downgrade
+      # entirely — this must stay a distinct value.
+      assert Modules.classify(3, 2) == :ahead_of_code
+    end
+
+    test "equal stays up to date even when ahead is also possible nearby" do
+      # Guards against the opposite mutation: swapping `==` for `>=` on the
+      # up_to_date clause would make this pass too, but the ahead test above
+      # would then fail since :ahead_of_code could never be reached first —
+      # together the two tests pin both boundaries of `installed == target`.
+      assert Modules.classify(5, 5) == :up_to_date
     end
 
     test "zero installed with a target has never been installed" do

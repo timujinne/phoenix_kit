@@ -286,6 +286,10 @@ defmodule Mix.Tasks.PhoenixKit.Status do
     "#{entry.name}: #{IO.ANSI.yellow()}tables not created ⚠ (code expects V#{pad_version(entry.target)})#{IO.ANSI.reset()}"
   end
 
+  defp format_module_entry(%{status: :ahead_of_code} = entry) do
+    "#{entry.name}: #{IO.ANSI.red()}V#{pad_version(entry.installed)} ⚠ ahead of code (code expects V#{pad_version(entry.target)}) — rollback?#{IO.ANSI.reset()}"
+  end
+
   defp format_module_entry(%{status: :error} = entry) do
     "#{entry.name}: #{IO.ANSI.red()}unreadable ❌#{IO.ANSI.reset()} (#{entry.error})"
   end

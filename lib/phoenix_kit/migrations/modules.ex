@@ -43,11 +43,17 @@ defmodule PhoenixKit.Migrations.Modules do
       created (installed version 0). The next `mix phoenix_kit.update` creates
       them.
     * `:needs_update` — tables exist at an older version than the code expects.
-    * `:up_to_date` — database matches (or exceeds) what the code needs.
+    * `:up_to_date` — database matches exactly what the code needs.
+    * `:ahead_of_code` — database is NEWER than what the code expects: the
+      schema was migrated by a later release than the one now running (a
+      rollback/downgrade, or a dependency pinned backwards). Deliberately not
+      folded into `:up_to_date` — that would hide the downgrade from callers
+      that branch on this value, exactly the failure this type exists to
+      surface.
     * `:error` — the module's coordinator raised, exited, or reported a
       non-integer version; the `:error` field has the message.
   """
-  @type status :: :not_installed | :needs_update | :up_to_date | :error
+  @type status :: :not_installed | :needs_update | :up_to_date | :ahead_of_code | :error
 
   @type entry :: %{
           name: String.t(),
@@ -93,9 +99,13 @@ defmodule PhoenixKit.Migrations.Modules do
   unguarded comparison would mark a module with no tables as current and skip
   its migration forever.
 
+  `installed > target` is `:ahead_of_code`, never `:up_to_date` — collapsing
+  the two would silently hide a database that is newer than the code now
+  running (a downgrade) behind the same status a healthy install reports.
+
       iex> alias PhoenixKit.Migrations.Modules
       iex> {Modules.classify(2, 2), Modules.classify(3, 2)}
-      {:up_to_date, :up_to_date}
+      {:up_to_date, :ahead_of_code}
       iex> {Modules.classify(0, 1), Modules.classify(1, 5)}
       {:not_installed, :needs_update}
       iex> Modules.classify(nil, 2)
@@ -103,8 +113,12 @@ defmodule PhoenixKit.Migrations.Modules do
   """
   @spec classify(term(), term()) :: status()
   def classify(installed, target)
-      when is_integer(installed) and is_integer(target) and installed >= target,
+      when is_integer(installed) and is_integer(target) and installed == target,
       do: :up_to_date
+
+  def classify(installed, target)
+      when is_integer(installed) and is_integer(target) and installed > target,
+      do: :ahead_of_code
 
   def classify(0, target) when is_integer(target), do: :not_installed
 
