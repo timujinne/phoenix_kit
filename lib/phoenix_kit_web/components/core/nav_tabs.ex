@@ -135,11 +135,18 @@ defmodule PhoenixKitWeb.Components.Core.NavTabs do
 
   attr :class, :string, default: nil
 
+  slot :trailing,
+    doc:
+      "Controls that belong to the strip but are not tabs — a sort select, a count, a note — rendered inside the same frame at its end. A strip with a trailing slot stretches to fill its row (`flex-1`) so the frame visibly holds both; without it a strip with a control beside it reads as two unrelated bars."
+
   def nav_tabs(assigns) do
     assigns = assign(assigns, :tabs, Enum.map(assigns.tabs, &normalize(&1, assigns.on_change)))
 
     ~H"""
-    <div role="tablist" class={tablist_class(@variant, @class)}>
+    <div
+      role="tablist"
+      class={tablist_class(@variant, [@class, @trailing != [] && "flex-1 items-center"])}
+    >
       <%= for tab <- @tabs do %>
         <.link
           :if={tab.link_attrs != nil}
@@ -163,6 +170,9 @@ defmodule PhoenixKitWeb.Components.Core.NavTabs do
           <.tab_body tab={tab} active?={tab.id == @active_tab} />
         </button>
       <% end %>
+      <div :if={@trailing != []} class="ml-auto flex items-center gap-2 pl-2 pr-1">
+        {render_slot(@trailing)}
+      </div>
     </div>
     """
   end

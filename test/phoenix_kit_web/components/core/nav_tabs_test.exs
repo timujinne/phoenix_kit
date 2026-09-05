@@ -331,4 +331,40 @@ defmodule PhoenixKitWeb.Components.Core.NavTabsTest do
       assert html =~ "12"
     end
   end
+
+  describe "trailing slot" do
+    import Phoenix.Component, only: [sigil_H: 2]
+    import PhoenixKitWeb.Components.Core.NavTabs, only: [nav_tabs: 1]
+
+    test "renders controls inside the strip's frame and stretches the strip" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.nav_tabs active_tab="a" on_change="pick" tabs={[%{id: "a", label: "A"}, %{id: "b", label: "B"}]}>
+          <:trailing>
+            <select name="sort"><option>Manual</option></select>
+          </:trailing>
+        </.nav_tabs>
+        """)
+
+      # One frame holds tabs and control: the select is INSIDE the tablist.
+      [tablist] = Regex.run(~r/<div role="tablist".*<\/div>\s*<\/div>/s, html)
+      assert tablist =~ ~s(<select name="sort">)
+      assert tablist =~ "flex-1"
+      assert tablist =~ "ml-auto"
+    end
+
+    test "without it nothing changes" do
+      assigns = %{}
+
+      html =
+        rendered_to_string(~H"""
+        <.nav_tabs active_tab="a" on_change="pick" tabs={[%{id: "a", label: "A"}]} />
+        """)
+
+      refute html =~ "flex-1"
+      refute html =~ "ml-auto"
+    end
+  end
 end

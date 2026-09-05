@@ -240,6 +240,96 @@
                 </ul>
               </div>
             <% end %>
+            <%!-- Status filter. Not decoration: without a visible control, a
+                  visitor arriving from a dashboard card's link would see a
+                  filtered list with nothing on screen saying why. --%>
+            <% status_options = [
+              {"all", gettext("Any status")},
+              {"active", gettext("Active")},
+              {"inactive", gettext("Inactive")}
+            ] %>
+            <% status_label =
+              status_options
+              |> Enum.find(fn {v, _} -> v == @filter_status end)
+              |> then(&(&1 && elem(&1, 1))) %>
+            <div class="dropdown">
+              <div
+                tabindex="0"
+                role="button"
+                class={["btn btn-sm gap-2", @filter_status != "all" && "btn-active"]}
+              >
+                <.icon name="hero-power" class="w-4 h-4" />
+                <span class={["sm:inline", @filter_status == "all" && "hidden"]}>
+                  {status_label || gettext("Status")}
+                </span>
+                <.icon
+                  name="hero-chevron-down"
+                  class="hidden sm:inline-block w-3.5 h-3.5 opacity-60"
+                />
+              </div>
+              <ul
+                tabindex="0"
+                onclick="document.activeElement.blur()"
+                class="dropdown-content menu bg-base-100 rounded-box z-20 w-48 p-2 shadow border border-base-200"
+              >
+                <%= for {val, label} <- status_options do %>
+                  <li>
+                    <button
+                      phx-click="filter_by_status"
+                      phx-value-status={val}
+                      class={@filter_status == val && "active"}
+                    >
+                      {label}
+                    </button>
+                  </li>
+                <% end %>
+              </ul>
+            </div>
+            <%!-- Email filter. Not decoration: without a visible control, a
+                  visitor arriving from a dashboard card's link would see a
+                  filtered list with nothing on screen saying why. --%>
+            <% confirmation_options = [
+              {"all", gettext("Any email state")},
+              {"confirmed", gettext("Email confirmed")},
+              {"pending", gettext("Awaiting confirmation")}
+            ] %>
+            <% confirmation_label =
+              confirmation_options
+              |> Enum.find(fn {v, _} -> v == @filter_confirmation end)
+              |> then(&(&1 && elem(&1, 1))) %>
+            <div class="dropdown">
+              <div
+                tabindex="0"
+                role="button"
+                class={["btn btn-sm gap-2", @filter_confirmation != "all" && "btn-active"]}
+              >
+                <.icon name="hero-envelope" class="w-4 h-4" />
+                <span class={["sm:inline", @filter_confirmation == "all" && "hidden"]}>
+                  {confirmation_label || gettext("Email")}
+                </span>
+                <.icon
+                  name="hero-chevron-down"
+                  class="hidden sm:inline-block w-3.5 h-3.5 opacity-60"
+                />
+              </div>
+              <ul
+                tabindex="0"
+                onclick="document.activeElement.blur()"
+                class="dropdown-content menu bg-base-100 rounded-box z-20 w-52 p-2 shadow border border-base-200"
+              >
+                <%= for {val, label} <- confirmation_options do %>
+                  <li>
+                    <button
+                      phx-click="filter_by_confirmation"
+                      phx-value-confirmation={val}
+                      class={@filter_confirmation == val && "active"}
+                    >
+                      {label}
+                    </button>
+                  </li>
+                <% end %>
+              </ul>
+            </div>
           </div>
         </:toolbar_title>
         <:sort_bar :if={@show_search or @search_query != ""}>

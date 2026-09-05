@@ -425,8 +425,9 @@
             <%= if cfg[:module_enabled] do %>
               <.link
                 navigate={
-                  PhoenixKit.Utils.Routes.path("/admin/settings/crawlers",
-                    locale: @current_locale || "en"
+                  PhoenixKit.Utils.Routes.locale_aware_path(
+                    assigns,
+                    "/admin/settings/crawlers"
                   )
                 }
                 class="btn btn-sm w-full btn-primary"

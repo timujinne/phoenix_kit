@@ -28,12 +28,13 @@ defmodule PhoenixKit.Annotations do
   @type uuid :: String.t()
 
   @doc """
-  Create an annotation for a file.
+  Create an annotation.
 
   `attrs` accepts both atom- and string-keyed maps (the latter is what
-  flows in from LiveView events). Keys: `:file_uuid`, `:kind`,
-  `:geometry`, optional `:creator_uuid`, `:style`, `:metadata`,
-  `:position`.
+  flows in from LiveView events). Keys: the target — either `:file_uuid`
+  alone (a file target, the pre-V183 shape) or `:target_type` +
+  `:target_uuid` (any other anchor, no file) — plus `:kind`, `:geometry`,
+  optional `:creator_uuid`, `:style`, `:metadata`, `:position`.
   """
   @spec create(attrs()) :: {:ok, Annotation.t()} | {:error, Ecto.Changeset.t()}
   def create(attrs) do
@@ -100,6 +101,44 @@ defmodule PhoenixKit.Annotations do
         order_by: [asc: a.position, asc: a.inserted_at]
     )
   end
+
+  @doc """
+  List annotations for any target (`target_type` + `target_uuid`), ordered
+  by `position` then insertion time. A `"file"` target is `list_for_file/1`.
+  """
+  @spec list_for_target(String.t(), uuid()) :: [Annotation.t()]
+  def list_for_target("file", file_uuid), do: list_for_file(file_uuid)
+
+  def list_for_target(target_type, target_uuid)
+      when is_binary(target_type) and is_binary(target_uuid) do
+    RepoHelper.all(
+      from a in Annotation,
+        where: a.target_type == ^target_type and a.target_uuid == ^target_uuid,
+        order_by: [asc: a.position, asc: a.inserted_at]
+    )
+  end
+
+  def list_for_target(_type, _uuid), do: []
+
+  @doc """
+  Deletes every annotation of a non-file target — for the owner of that
+  target to call when the target itself goes (a board deleted). A file's
+  annotations are not deleted this way: they cascade with the file row.
+  Returns the number of rows removed.
+  """
+  @spec delete_for_target(String.t(), uuid()) :: non_neg_integer()
+  def delete_for_target(target_type, target_uuid)
+      when is_binary(target_type) and target_type != "file" and is_binary(target_uuid) do
+    {count, _} =
+      RepoHelper.delete_all(
+        from a in Annotation,
+          where: a.target_type == ^target_type and a.target_uuid == ^target_uuid
+      )
+
+    count
+  end
+
+  def delete_for_target(_type, _uuid), do: 0
 
   @doc """
   List annotations for a file together with a tooltip-friendly preview of

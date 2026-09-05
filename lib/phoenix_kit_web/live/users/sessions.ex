@@ -21,6 +21,16 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
     params: [
       search_query: [default: "", url_key: "q"],
       filter_user_status: [default: "all", url_key: "status"],
+      # Deep-linked from the dashboard's three session cards. Without it,
+      # "Today's Sessions" and "Expired Sessions" had no report at all — and
+      # linking them at the active list would have shown a set that does not
+      # contain what the card counted.
+      filter_scope: [
+        default: :active,
+        cast: :atom,
+        in: [:active, :today, :expired],
+        url_key: "scope"
+      ],
       page: [default: 1, cast: :integer, min: 1]
     ]
 
@@ -83,6 +93,21 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
 
   def handle_event("filter_by_user_status", %{"status" => status}, socket) do
     {:noreply, push_url_state(socket, filter_user_status: status)}
+  end
+
+  # Hardcoded map rather than `String.to_existing_atom/1`: the value arrives
+  # from a form and must never widen the atom table. Anything unrecognised
+  # falls back to the default scope, which is also what `UrlState`'s `in:`
+  # guard does for a hand-edited query string.
+  def handle_event("filter_by_scope", %{"scope" => scope}, socket) do
+    scope =
+      case scope do
+        "today" -> :today
+        "expired" -> :expired
+        _ -> :active
+      end
+
+    {:noreply, push_url_state(socket, filter_scope: scope)}
   end
 
   def handle_event("change_page", %{"page" => page}, socket) do
@@ -205,7 +230,7 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
   end
 
   defp load_sessions(socket) do
-    sessions = Sessions.list_active_sessions()
+    sessions = Sessions.list_active_sessions(socket.assigns.filter_scope)
 
     # Apply filtering
     filtered_sessions =

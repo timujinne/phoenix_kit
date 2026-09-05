@@ -973,7 +973,7 @@ defmodule PhoenixKit.Utils.TimeZone do
 
     rows =
       @groups
-      |> Enum.map(fn group -> {offset_seconds(now, group.rep), group} end)
+      |> Enum.map(fn group -> {zone_offset_at(now, group.rep), group} end)
       |> Enum.sort_by(fn {offset, group} -> {offset, group.cities} end)
       |> Enum.map(fn {offset, group} -> {group_label(offset, group), group.rep} end)
 
@@ -999,7 +999,7 @@ defmodule PhoenixKit.Utils.TimeZone do
   defp selected_extra_row(selected, now) when is_binary(selected) and selected != "" do
     cond do
       identifier?(selected) and not representative?(selected) ->
-        {"(UTC#{format_offset(offset_seconds(now, selected))}) #{selected} — your location",
+        {"(UTC#{format_offset(zone_offset_at(now, selected))}) #{selected} — your location",
          selected}
 
       legacy_offset?(selected) ->
@@ -1072,7 +1072,7 @@ defmodule PhoenixKit.Utils.TimeZone do
 
     cond do
       identifier?(value) ->
-        offset_seconds(now, value)
+        zone_offset_at(now, value)
 
       legacy_offset?(value) ->
         {:ok, hours} = parse_offset(value)
@@ -1102,7 +1102,7 @@ defmodule PhoenixKit.Utils.TimeZone do
     cond do
       identifier?(value) ->
         now = DateTime.utc_now()
-        offset = offset_seconds(now, value)
+        offset = zone_offset_at(now, value)
 
         # A representative renders as its picker row, so the value shown beside
         # a saved setting reads the same as the option that set it. Anything
@@ -1215,6 +1215,88 @@ defmodule PhoenixKit.Utils.TimeZone do
 
   def from_wall(_naive, _value), do: :error
 
+  @doc """
+  Offset from UTC in seconds for either kind of stored value.
+
+  A legacy offset (`"2"`, `"-5"`, `"5.5"`) is that offset. An IANA id has no
+  single answer — `Europe/Warsaw` is +1 in January and +2 in August — so it is
+  resolved **at an instant**, `at` or now.
+
+  That snapshot is the honest limit of this function, and callers doing date
+  arithmetic across a daylight-saving boundary want `shift/2` or `from_wall/2`
+  instead, which are correct per-instant. It exists because several call sites
+  genuinely need a scalar (a window offset, a comparison), and the alternative
+  they had was `Float.parse/1` returning `0` for every named zone — silently
+  computing in UTC on any site that used the picker, which since the move to
+  IANA ids is every site that touched the setting.
+
+  Unresolvable values give `0`, the same safe default as before.
+
+  ## Examples
+
+      iex> PhoenixKit.Utils.TimeZone.offset_seconds("2")
+      7200
+
+      iex> PhoenixKit.Utils.TimeZone.offset_seconds("5.5")
+      19800
+
+      iex> PhoenixKit.Utils.TimeZone.offset_seconds("nonsense")
+      0
+
+  """
+  @spec offset_seconds(String.t() | nil, DateTime.t() | nil) :: integer()
+  def offset_seconds(value, at \\ nil)
+  def offset_seconds(value, _at) when value in [nil, ""], do: 0
+
+  def offset_seconds(value, at) when is_binary(value) do
+    if identifier?(value) do
+      zone_offset_at(at || DateTime.utc_now(), value)
+    else
+      case parse_offset(value) do
+        {:ok, hours} -> round(hours * 3600)
+        :error -> 0
+      end
+    end
+  end
+
+  def offset_seconds(_value, _at), do: 0
+
+  @doc """
+  The UTC instant at which the current day began in `value`.
+
+  For "how many X happened today", where *today* is the operator's day and not
+  UTC's. Getting this wrong is invisible most of the day and then wrong every
+  evening: a site on `Europe/Tallinn` (UTC+3) counting from UTC midnight loses
+  everything between 21:00 and midnight local, every night.
+
+  `at` overrides "now", for tests and for asking about another moment.
+  Falls back to UTC midnight when the value cannot be resolved.
+
+  ## Examples
+
+      iex> PhoenixKit.Utils.TimeZone.day_start("0", ~U[2026-09-05 14:00:00Z])
+      ~U[2026-09-05 00:00:00Z]
+
+      iex> PhoenixKit.Utils.TimeZone.day_start("2", ~U[2026-09-05 00:30:00Z])
+      ~U[2026-09-04 22:00:00Z]
+
+  """
+  @spec day_start(String.t() | nil, DateTime.t() | nil) :: DateTime.t()
+  def day_start(value, at \\ nil) do
+    now = at || DateTime.utc_now()
+
+    local_midnight =
+      now
+      |> shift(value)
+      |> DateTime.to_naive()
+      |> Map.merge(%{hour: 0, minute: 0, second: 0, microsecond: {0, 0}})
+
+    case from_wall(local_midnight, value) do
+      {:ok, utc} -> utc
+      :error -> %{now | hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
+    end
+  end
+
   defp resolve_wall({:ok, datetime}), do: {:ok, datetime}
   # Clocks went back: the wall time happened twice. Take the first.
   defp resolve_wall({:ambiguous, first, _second}), do: {:ok, first}
@@ -1224,7 +1306,9 @@ defmodule PhoenixKit.Utils.TimeZone do
   defp resolve_wall(_other), do: :error
 
   # Current offset of `id` in seconds, 0 if the database cannot place it.
-  defp offset_seconds(now, id) do
+  # Named apart from the public `offset_seconds/2`: same job, opposite argument
+  # order, and two clauses of one name would just be a trap.
+  defp zone_offset_at(%DateTime{} = now, id) do
     case DateTime.shift_zone(now, id, @database) do
       {:ok, shifted} -> shifted.utc_offset + shifted.std_offset
       {:error, _reason} -> 0

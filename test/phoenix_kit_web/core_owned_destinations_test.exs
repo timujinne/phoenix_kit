@@ -75,10 +75,15 @@ defmodule PhoenixKitWeb.CoreOwnedDestinationsTest do
 
     test "every path the resolver can reach resolves, in every locale shape" do
       # `/admin` and `/users/log-in` are the two the chain can TERMINATE at, and
-      # core declares both unconditionally. `/dashboard` is here as a candidate
-      # only — the host can still compile it out — so this asserts core's own
-      # router, which does declare it.
-      for landing <- ["/admin", "/dashboard", "/users/log-in"],
+      # core declares both unconditionally — which is exactly why they are the
+      # ones worth asserting in every locale shape.
+      #
+      # `/dashboard` is deliberately NOT here. It is a candidate only, and
+      # `user_dashboard_enabled` now defaults to false, so core's own router
+      # does not declare it. A candidate that does not resolve is skipped by
+      # `admissible_candidate?/3` — that is the designed behaviour, not a
+      # routing hole, and it is covered in `SafeDestinationTest`.
+      for landing <- ["/admin", "/users/log-in"],
           locale <- [nil, :none, "en", "de", "ru", "en-GB"] do
         path = Routes.path(landing, locale: locale)
 

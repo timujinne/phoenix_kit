@@ -28,18 +28,37 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
   @doc """
   Renders the user widget for dashboard navigation.
 
-  For authenticated visitors this is the avatar dropdown (email,
-  Admin/Dashboard/Settings, language switcher, log out). For anonymous
-  visitors the same dropdown *shape* is rendered with a generic
-  "not signed in" icon and guest-relevant links (log in, sign up, forgot
-  password, magic link) plus the same language switcher — so a single
-  widget covers both states and always offers a language switcher.
+  For authenticated visitors this is the avatar dropdown (email, the admin
+  area, Settings, language switcher, log out). For anonymous visitors the
+  same dropdown *shape* is rendered with a generic "not signed in" icon and
+  guest-relevant links (log in, sign up, forgot password, magic link) plus
+  the same language switcher — so a single widget covers both states and
+  always offers a language switcher.
+
+  ## One destination, two labels
+
+  Every signed-in visitor gets exactly one entry leading to `/admin`, because
+  `/admin` is the one page core declares unconditionally and admits EVERY
+  authenticated visitor to (`PhoenixKitWeb.Users.Auth.landing_view?/1` exempts
+  the index from the admin-area gate, and the page shows a permission-less
+  visitor the welcome block and nothing else). An admin-area holder sees it as
+  "Admin Panel" with a shield; everybody else sees "My Account" with a house.
+  The two are mutually exclusive and share `admin_entry_label/1`.
+
+  The URL is always built with `Routes.path("/admin")`, so a host running
+  `config :phoenix_kit, admin_path: "/myaccount"` gets `/myaccount` here for
+  free — `/admin` stays the canonical spelling in code.
 
   ## Attributes
 
     * `:scope` — current scope; `nil`/unauthenticated renders the guest dropdown.
     * `:current_path` — used for active-link highlighting and locale-switch URLs.
-    * `:current_locale` — base code of the active locale (highlighted in the list).
+      Canonicalised before comparison, so a renamed admin segment still
+      highlights.
+    * `:current_locale` — the active locale. A full dialect (`"en-US"`) is
+      accepted: every URL built here reduces it to the base code the router
+      actually serves (`/en/…`), so passing `@current_locale` rather than
+      `@current_locale_base` no longer emits a link that costs a redirect.
     * `:show_language_switcher` — include the in-menu language list (default `true`).
       Set `false` when the host renders a standalone switcher elsewhere to avoid
       a duplicate. Applies to both the signed-in and guest states.
@@ -51,8 +70,15 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
       `[:admin, :dashboard, :settings, :logout]` (default: all). Same narrowing
       rule as `:guest_links` — `:admin` still requires `Scope.can_access_admin_area?/1` to be
       true, so listing it can't grant an entry a non-admin shouldn't see. Use
-      this to hide entries (e.g. `:dashboard`) a host app's own navigation
-      already covers.
+      this to hide entries a host app's own navigation already covers.
+
+      `:dashboard` is the "My Account" half of the pair described above — the
+      admin-area entry shown to a visitor `:admin` does not cover. It used to
+      point at the deprecated user dashboard (`/dashboard`,
+      `PhoenixKit.Install.Deprecations.user_dashboard_warning/0`), which a host
+      can compile out with `user_dashboard_enabled: false` — leaving this menu
+      offering a 404. The key name is kept so hosts passing an explicit list
+      need no edit.
   """
   attr(:scope, :any, default: nil)
   attr(:current_path, :string, default: "")
@@ -110,7 +136,7 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
                 class={"flex items-center gap-3" <> if(active_path?(assigns[:current_path], "/admin"), do: " bg-primary text-primary-content", else: "")}
               >
                 <.icon name="hero-shield-check" class="w-4 h-4" />
-                <span>{gettext("Admin Panel")}</span>
+                <span>{admin_entry_label(@scope)}</span>
               </.link>
             </li>
             <%= if @admin_edit_url do %>
@@ -126,19 +152,22 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
             <% end %>
           <% end %>
 
-          <li :if={:dashboard in @authenticated_links}>
+          <li :if={
+            :dashboard in @authenticated_links and
+              not PhoenixKit.Users.Auth.Scope.can_access_admin_area?(@scope)
+          }>
             <.link
-              navigate={PhoenixKit.Utils.Routes.path("/dashboard", locale: @current_locale)}
-              class={"flex items-center gap-3" <> if(active_path?(assigns[:current_path], "/dashboard"), do: " bg-primary text-primary-content", else: "")}
+              navigate={PhoenixKit.Utils.Routes.path("/admin")}
+              class={"flex items-center gap-3" <> if(active_path?(assigns[:current_path], "/admin"), do: " bg-primary text-primary-content", else: "")}
             >
               <.icon name="hero-home" class="w-4 h-4" />
-              <span>{gettext("Dashboard")}</span>
+              <span>{admin_entry_label(@scope)}</span>
             </.link>
           </li>
 
           <li :if={:settings in @authenticated_links}>
             <.link
-              navigate={PhoenixKit.Utils.Routes.user_settings_path(locale: @current_locale)}
+              navigate={Routes.locale_aware_user_settings_path(assigns)}
               class={"flex items-center gap-3" <> if(active_path?(assigns[:current_path], "/profile/settings"), do: " bg-primary text-primary-content", else: "")}
             >
               <.icon name="hero-cog-6-tooth" class="w-4 h-4" />
@@ -564,12 +593,40 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
     end
   end
 
+  # The label for the entry that leads to the admin area.
+  #
+  # ONE source for both call sites above, which are mutually exclusive: an
+  # admin-area holder gets the `:admin` entry, everyone else gets the
+  # `:dashboard` one, and both navigate to `Routes.path("/admin")`. The
+  # wording is the only thing that differs, so it lives here rather than
+  # being written out twice.
+  #
+  # Deliberately `gettext/1` on both arms rather than an operator-typed
+  # setting, for the reason `PhoenixKitWeb.Components.LayoutWrapper` gives
+  # for the "Admin Panel" chip beside the project name: these are common
+  # noun phrases, already translated in every shipped locale, and a stored
+  # string would serve one language's wording to all of them. Renaming the
+  # URL segment (`config :phoenix_kit, admin_path:`) therefore does NOT
+  # rename the menu entry — the destination moves, the wording stays
+  # translated.
+  defp admin_entry_label(scope) do
+    if Scope.can_access_admin_area?(scope),
+      do: gettext("Admin Panel"),
+      else: gettext("My Account")
+  end
+
   # Check if current path matches the given path
   defp active_path?(current_path, path) when is_binary(current_path) and is_binary(path) do
     # Remove PhoenixKit prefix if present
     normalized_path = remove_phoenix_kit_prefix(current_path)
     # Remove locale prefix if present
-    clean_path = remove_locale_prefix(normalized_path)
+    # Then fold the configured admin segment back to canonical `/admin`, so a
+    # host running `admin_path: "/myaccount"` compares `/myaccount/...` against
+    # the `/admin` written above rather than never matching (dead highlight).
+    clean_path =
+      normalized_path
+      |> remove_locale_prefix()
+      |> Routes.canonical_admin_path()
 
     # Check for exact match or ends with path
     clean_path == path or String.ends_with?(clean_path, path)

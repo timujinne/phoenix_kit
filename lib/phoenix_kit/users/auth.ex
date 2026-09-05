@@ -2469,6 +2469,8 @@ defmodule PhoenixKit.Users.Auth do
     role_filter = Keyword.get(opts, :role)
     search_query = Keyword.get(opts, :search, "")
     account_type_filter = Keyword.get(opts, :account_type)
+    status_filter = Keyword.get(opts, :status)
+    confirmation_filter = Keyword.get(opts, :confirmation)
 
     base_query = from(u in User, order_by: [desc: u.inserted_at])
 
@@ -2477,6 +2479,8 @@ defmodule PhoenixKit.Users.Auth do
       |> maybe_filter_by_role(role_filter)
       |> maybe_filter_by_search(search_query)
       |> maybe_filter_by_account_type(account_type_filter)
+      |> maybe_filter_by_status(status_filter)
+      |> maybe_filter_by_confirmation(confirmation_filter)
 
     total_count = PhoenixKit.RepoHelper.aggregate(query, :count, :uuid)
     total_pages = Pagination.total_pages(total_count, page_size)
@@ -2513,6 +2517,32 @@ defmodule PhoenixKit.Users.Auth do
   defp maybe_filter_by_account_type(query, account_type) when is_binary(account_type) do
     from([u] in query, where: u.account_type == ^account_type)
   end
+
+  # `:status` and `:confirmation` mirror, exactly, the four counts
+  # `PhoenixKit.Users.Roles.get_extended_stats/0` reports on the admin
+  # dashboard (`is_active = true/false`, `confirmed_at IS NULL / NOT NULL`).
+  # They exist so those cards can link to the list behind their number — a
+  # filter that returned a different set than the card counted would be worse
+  # than no link at all, so the predicates are deliberately identical.
+  defp maybe_filter_by_status(query, nil), do: query
+  defp maybe_filter_by_status(query, "all"), do: query
+  defp maybe_filter_by_status(query, "active"), do: from([u] in query, where: u.is_active == true)
+
+  defp maybe_filter_by_status(query, "inactive"),
+    do: from([u] in query, where: u.is_active == false)
+
+  defp maybe_filter_by_status(query, _unknown), do: query
+
+  defp maybe_filter_by_confirmation(query, nil), do: query
+  defp maybe_filter_by_confirmation(query, "all"), do: query
+
+  defp maybe_filter_by_confirmation(query, "confirmed"),
+    do: from([u] in query, where: not is_nil(u.confirmed_at))
+
+  defp maybe_filter_by_confirmation(query, "pending"),
+    do: from([u] in query, where: is_nil(u.confirmed_at))
+
+  defp maybe_filter_by_confirmation(query, _unknown), do: query
 
   defp maybe_filter_by_search(query, ""), do: query
 

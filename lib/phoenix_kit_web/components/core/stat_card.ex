@@ -75,14 +75,52 @@ defmodule PhoenixKitWeb.Components.Core.StatCard do
         "Any `;` is stripped so the value cannot append further declarations; every " <>
         "legitimate colour syntax (hsl/oklch/var/color-mix) is unaffected."
 
+  attr :navigate, :string,
+    default: nil,
+    doc:
+      "Optional destination. When set the whole card becomes a link to the report behind " <>
+        "the number — a statistic a reader cannot drill into is a dead end. Pass a path " <>
+        "already built through `PhoenixKit.Utils.Routes.path/1`; only pass one when a real " <>
+        "report exists, since a link to a list that does not contain the counted rows is " <>
+        "worse than no link."
+
   slot :icon, required: true, doc: "Icon to display in the card header"
 
   def stat_card(assigns) do
+    ~H"""
+    <%= if @navigate do %>
+      <.link
+        navigate={@navigate}
+        class="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-box"
+      >
+        <.stat_card_body {assigns} />
+      </.link>
+    <% else %>
+      <.stat_card_body {assigns} />
+    <% end %>
+    """
+  end
+
+  attr :rounded, :string, default: "box"
+  attr :compact, :boolean, default: false
+  attr :value, :any, required: true
+  attr :title, :string, required: true
+  attr :subtitle, :string, required: true
+  attr :color, :string, default: "info"
+  attr :value_color, :string, default: nil
+  attr :navigate, :string, default: nil
+  # NOT `required: true`: the slot arrives through `{assigns}` from the public
+  # component, which the compiler cannot see statically. `stat_card/1` already
+  # enforces it.
+  slot :icon
+
+  defp stat_card_body(assigns) do
     ~H"""
     <div class={[
       color_classes(@color),
       rounded_class(@rounded),
       "shadow-xl hover:shadow-2xl transition-all duration-300 transform hover:scale-105",
+      @navigate && "cursor-pointer",
       if(@compact, do: "p-4", else: "p-6")
     ]}>
       <%= if @compact do %>

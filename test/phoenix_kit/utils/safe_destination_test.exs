@@ -96,8 +96,41 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
         :admin_locale
   end
 
+  # Routes /admin AND /dashboard. Stands in for a host that has turned the
+  # deprecated user dashboard back on with `user_dashboard_enabled: true` —
+  # which is now the opt-in, not the default. `@core` below is compiled with
+  # the flag off, so it is no longer the router that can exercise the
+  # `/dashboard` CANDIDATE in `authenticated_candidates/1`; this one is.
+  #
+  # Both URL shapes, same as AdminOnlyRouter, plus the settings page used as a
+  # routable non-admin `return_to` target.
+  defmodule DashboardRouter do
+    use Phoenix.Router
+
+    get "/phoenix_kit/admin",
+        PhoenixKit.Utils.SafeDestinationTest.FakeController,
+        :admin
+
+    get "/phoenix_kit/:locale/admin",
+        PhoenixKit.Utils.SafeDestinationTest.FakeController,
+        :admin_locale
+
+    get "/phoenix_kit/:locale/admin/users",
+        PhoenixKit.Utils.SafeDestinationTest.FakeController,
+        :admin_users
+
+    get "/phoenix_kit/dashboard",
+        PhoenixKit.Utils.SafeDestinationTest.FakeController,
+        :dashboard
+
+    get "/phoenix_kit/:locale/dashboard",
+        PhoenixKit.Utils.SafeDestinationTest.FakeController,
+        :dashboard_locale
+  end
+
   # The real core router — mounts `phoenix_kit_routes()`, so it is the oracle
-  # for "does core own this path".
+  # for "does core own this path". Compiled with the shipped default
+  # `user_dashboard_enabled: false`, so it does NOT route /dashboard.
   @core PhoenixKitWeb.Router
 
   defp conn_for(router, host \\ "localhost") do
@@ -154,9 +187,15 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
     end
 
     test "core routes its own landings but not the locale-prefixed root" do
-      assert Routes.routable?(conn_for(@core), Routes.path("/dashboard"))
       assert Routes.routable?(conn_for(@core), Routes.path("/users/log-in"))
       assert Routes.routable?(conn_for(@core), Routes.path("/admin"))
+      assert Routes.routable?(conn_for(@core), Routes.path("/profile/settings"))
+
+      # NOT /dashboard: `user_dashboard_enabled` defaults to false, so the
+      # route family is not compiled. A host that opts back in gets it, which
+      # is what DashboardRouter stands in for.
+      refute Routes.routable?(conn_for(@core), Routes.path("/dashboard"))
+      assert Routes.routable?(conn_for(DashboardRouter), Routes.path("/dashboard"))
 
       # The shipped bug, at the router level.
       refute Routes.routable?(conn_for(@core), Routes.path("/"))
@@ -172,22 +211,35 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
       end
     end
 
-    test "a plain user lands on /dashboard" do
+    test "a plain user lands on /admin, the guaranteed landing" do
       refute Scope.can_access_admin_area?(plain_user())
 
+      # /dashboard is no longer routed by default, so the CANDIDATE is skipped
+      # and the chain runs on to the terminal — the admin index, which
+      # `landing_view?/1` opens to every authenticated visitor.
       assert Routes.safe_destination(conn_for(@core), scope: plain_user()) ==
+               Routes.path("/admin")
+    end
+
+    test "a plain user still lands on /dashboard where a host opted back in" do
+      # The reversibility that `user_dashboard_enabled: true` is for: the
+      # candidate is probed, not assumed, so turning the routes back on
+      # restores the destination as well as the page.
+      assert Routes.safe_destination(conn_for(DashboardRouter), scope: plain_user()) ==
                Routes.path("/dashboard")
     end
 
     test "an explicit return_to wins over the role branch" do
+      # /profile/settings rather than /dashboard: routed unconditionally, so it
+      # is a stable non-admin target whatever `user_dashboard_enabled` says.
       assert Routes.safe_destination(conn_for(@core),
                scope: owner(),
-               return_to: Routes.path("/dashboard")
-             ) == Routes.path("/dashboard")
+               return_to: Routes.path("/profile/settings")
+             ) == Routes.path("/profile/settings")
     end
 
     test "a return_to keeps its query string" do
-      target = Routes.path("/dashboard") <> "?tab=1"
+      target = Routes.path("/profile/settings") <> "?tab=1"
 
       assert Routes.safe_destination(conn_for(@core), scope: owner(), return_to: target) == target
     end
@@ -198,7 +250,12 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
     end
 
     test "skip_admin suppresses the /admin step — the admin-area guard case" do
-      result = Routes.safe_destination(conn_for(@core), scope: owner(), skip_admin: true)
+      # DashboardRouter, because the assertion is that the /admin CANDIDATE is
+      # skipped in favour of a LATER one. On `@core` there is no later
+      # candidate left to reach, so the chain would exhaust to the terminal —
+      # which is /admin, and would prove nothing about suppression.
+      result =
+        Routes.safe_destination(conn_for(DashboardRouter), scope: owner(), skip_admin: true)
 
       assert result == Routes.path("/dashboard")
       refute result =~ "/admin"
@@ -211,10 +268,10 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
       # because a gated admin page resolves perfectly well and then denies them,
       # re-entering this function with the same arguments.
       target = Routes.path("/admin/users")
-      assert Routes.routable?(conn_for(@core), target)
+      assert Routes.routable?(conn_for(DashboardRouter), target)
 
       result =
-        Routes.safe_destination(conn_for(@core),
+        Routes.safe_destination(conn_for(DashboardRouter),
           scope: owner(),
           return_to: target,
           skip_admin: true
@@ -225,12 +282,22 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
 
       # Nothing changed off the rejection path: an explicit destination still
       # wins for a visitor nobody has refused.
-      assert Routes.safe_destination(conn_for(@core), scope: owner(), return_to: target) == target
+      assert Routes.safe_destination(conn_for(DashboardRouter),
+               scope: owner(),
+               return_to: target
+             ) == target
     end
 
     test "skip_admin is a no-op for a non-admin" do
+      assert Routes.safe_destination(conn_for(DashboardRouter),
+               scope: plain_user(),
+               skip_admin: true
+             ) == Routes.path("/dashboard")
+
+      # And on the shipped default, where /dashboard is not routed, it is a
+      # no-op in the other direction: the terminal is /admin either way.
       assert Routes.safe_destination(conn_for(@core), scope: plain_user(), skip_admin: true) ==
-               Routes.path("/dashboard")
+               Routes.path("/admin")
     end
 
     test "the host's own \"/\" is used when the host actually declares it" do
@@ -264,7 +331,7 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
                Routes.path("/admin")
 
       # And the candidate really is suppressed wherever another one resolves.
-      assert Routes.safe_destination(conn_for(@core), scope: owner(), skip_admin: true) ==
+      assert Routes.safe_destination(conn_for(DashboardRouter), scope: owner(), skip_admin: true) ==
                Routes.path("/dashboard")
     end
 
@@ -340,9 +407,11 @@ defmodule PhoenixKit.Utils.SafeDestinationTest do
     end
 
     test "return_to is ignored for an anonymous visitor" do
+      # A ROUTABLE target, so this proves the anonymous branch ignores
+      # `return_to` rather than merely that the path failed the probe.
       assert Routes.safe_destination(conn_for(@core),
                scope: nil,
-               return_to: Routes.path("/dashboard")
+               return_to: Routes.path("/profile/settings")
              ) == Routes.path("/users/log-in")
     end
 

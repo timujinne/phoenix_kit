@@ -2099,7 +2099,110 @@ if (typeof window.Chart === "undefined") {
   //   data-closeable   "false" → Escape + backdrop click are no-ops (modal still
   //                    closable only via an explicit action button). Default:
   //                    closeable.
+  //   data-close-guard "input" → while a submittable form (`form[phx-submit]`)
+  //                    inside THIS dialog holds a field that differs from its
+  //                    default value, Escape + backdrop are no-ops on the
+  //                    client — before the server hears of the edit; a
+  //                    debounced change event and an Esc inside the debounce
+  //                    window would otherwise discard the text. Recomputed on
+  //                    every input event and every server patch, so it lets
+  //                    go the moment the form is saved, reset, or re-rendered
+  //                    with the value (the server's data-closeable is the
+  //                    authority from then on) — never a latch. Filter /
+  //                    search forms (phx-change only, role="search",
+  //                    type="search") do not count.
   // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // PkShiftEnter — gives an input a second Enter.
+  //
+  // Plain Enter in a text input is the browser's implicit submission: it
+  // presses the form's FIRST submit button. Shift+Enter submits exactly the
+  // same way, so a form cannot tell "add" from "add and start the next"
+  // without help. This hook makes Shift+Enter click the element named by
+  // `data-shift-enter-click` (a selector — typically a second submit button
+  // carrying `name`/`value`, which LiveView then includes as the submitter)
+  // and leaves plain Enter alone. Never fires during IME composition.
+  //
+  //   <input phx-hook="PkShiftEnter" data-shift-enter-click="#add-next" …>
+  //   <button type="submit">Add</button>                       ← Enter
+  //   <button type="submit" id="add-next" name="then" value="next">Add & next</button>
+  // ---------------------------------------------------------------------------
+  function shiftEnter(e) {
+    return !!e && e.key === "Enter" && e.shiftKey === true && !e.isComposing &&
+      !e.metaKey && !e.ctrlKey && !e.altKey;
+  }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.shiftEnter = shiftEnter;
+  }
+
+  window.PhoenixKitHooks.PkShiftEnter = {
+    mounted() {
+      const self = this;
+      self._onKeydown = function(e) {
+        if (!shiftEnter(e)) return;
+        const selector = self.el.dataset.shiftEnterClick;
+        if (!selector) return;
+        const target = document.querySelector(selector);
+        if (!target) return;
+        e.preventDefault();
+        target.click();
+      };
+      this.el.addEventListener("keydown", self._onKeydown);
+    },
+    destroyed() {
+      if (this._onKeydown) this.el.removeEventListener("keydown", this._onKeydown);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // PkUrlMirror — keeps the address bar on the element's `data-url`.
+  //
+  // For a LiveView that switches views in place but cannot export
+  // handle_params/3 (an embeddable LV — LiveView refuses to mount one with
+  // that callback outside a router route). The server renders the canonical
+  // URL of the current view into `data-url`; on every mount/update the hook
+  // `replaceState`s to it when it differs. Replace, never push: a pushed
+  // entry would be a foreign history state that LiveView's popstate handler
+  // treats as live navigation into a callback that does not exist. Back /
+  // forward therefore leave the page, as before; copy / reload / deep links
+  // land on the view that was showing.
+  //
+  //   <div id="tabs" phx-hook="PkUrlMirror" data-url="/admin/projects/1/tasks/board">
+  // ---------------------------------------------------------------------------
+  // Only a root-relative PATH is honoured: not a network-path reference
+  // ("//host", "/\\host" — same-origin-looking, other-origin-going), not
+  // anything with control characters, not a fragment (the comparison
+  // below never sees the hash, so a fragment would re-fire on every
+  // update). Codex, 2026-09-05.
+  function urlMirrorTarget(dataset, current) {
+    const url = dataset && dataset.url;
+    if (typeof url !== "string" || url === "" || url.charAt(0) !== "/") return null;
+    if (url.charAt(1) === "/" || url.charAt(1) === "\\") return null;
+    if (/[\u0000-\u001f\u007f#]/.test(url)) return null;
+    if (url === current) return null;
+    return url;
+  }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.urlMirrorTarget = urlMirrorTarget;
+  }
+
+  window.PhoenixKitHooks.PkUrlMirror = {
+    mounted() { this._sync(); },
+    updated() { this._sync(); },
+    _sync() {
+      const current = window.location.pathname + window.location.search;
+      const target = urlMirrorTarget(this.el.dataset, current);
+      if (target === null) return;
+      try {
+        window.history.replaceState(window.history.state, "", target);
+      } catch (_e) {
+        // A cross-origin or otherwise refused URL: leave the address bar alone.
+      }
+    }
+  };
 
   // ---------------------------------------------------------------------------
   // PkCheckboxIndeterminate — applies the `indeterminate` property to a
@@ -2385,9 +2488,71 @@ if (typeof window.Chart === "undefined") {
     }
   }
 
+  // True when an `input` event's target belongs to a submittable form of
+  // THIS dialog — not a nested dialog's, not a filter/search form's. The
+  // cheap pre-check behind PkDialog's `data-close-guard="input"`; the
+  // decision itself is `guardedDirty` below.
+  function guardedInput(dialog, target) {
+    if (!dialog || !target || typeof target.closest !== "function") return false;
+    if (target.closest("dialog") !== dialog) return false;
+    if (target.type === "search" || target.closest("form[role=search]")) return false;
+    return !!target.closest("form[phx-submit]");
+  }
+
+  // Does a field of a submittable form of THIS dialog differ from its
+  // default (the value the server rendered)? Checkboxes/radios by
+  // checkedness, selects by selection, everything else by value. A
+  // search field never counts. This is what "holds unsaved input" means
+  // on the client: a form the server re-rendered with the typed value, or
+  // reset after a save, reads clean again — no latch to get stuck on.
+  function fieldDirty(el) {
+    if (!el || !el.name || el.disabled) return false;
+    const type = (el.type || "").toLowerCase();
+    if (type === "hidden" || type === "submit" || type === "button" || type === "search") return false;
+    if (el.closest && el.closest("form[role=search]")) return false;
+    if (type === "checkbox" || type === "radio") return el.checked !== el.defaultChecked;
+    if (el.tagName === "SELECT") {
+      for (const o of Array.from(el.options || [])) if (o.selected !== o.defaultSelected) return true;
+      return false;
+    }
+    if (typeof el.value === "string" && typeof el.defaultValue === "string") {
+      return el.value !== el.defaultValue;
+    }
+    return false;
+  }
+
+  function guardedDirty(dialog) {
+    if (!dialog || typeof dialog.querySelectorAll !== "function") return false;
+    for (const form of Array.from(dialog.querySelectorAll("form[phx-submit]"))) {
+      if (form.closest && form.closest("dialog") !== dialog) continue;
+      for (const el of Array.from(form.elements || [])) if (fieldDirty(el)) return true;
+    }
+    return false;
+  }
+
+  // The `phx-value-*` attributes of an element as an event payload — the
+  // same convention LiveView applies to `phx-click`, so a hook-driven
+  // element (PkDialog's close) can carry identifiers exactly like a
+  // clicked button would (`phx-value-frame-ref` → `{"frame-ref": …}`).
+  // Elements without any such attribute yield `{}`, the pre-existing
+  // payload, so every current consumer is unaffected.
+  function phxValuePayload(el) {
+    const payload = {};
+    if (!el || !el.attributes) return payload;
+    for (const attr of Array.from(el.attributes)) {
+      if (attr.name.startsWith("phx-value-")) {
+        payload[attr.name.slice("phx-value-".length)] = attr.value;
+      }
+    }
+    return payload;
+  }
+
   if (typeof module === "object" && module.exports) {
     module.exports.ownerComponentCid = ownerComponentCid;
     module.exports.pushToOwner = pushToOwner;
+    module.exports.phxValuePayload = phxValuePayload;
+    module.exports.guardedInput = guardedInput;
+    module.exports.guardedDirty = guardedDirty;
   }
 
   // Returns true if the given <dialog> is in the browser's top layer
@@ -2592,6 +2757,7 @@ if (typeof window.Chart === "undefined") {
   // (see PhoenixKit.Install.DaisyUI), so the override is gone. Don't re-add it.
   window.PhoenixKitHooks.PkDialog = {
     _isCloseable() {
+      if (this._guardTripped) return false;
       return this.el.dataset.closeable !== "false";
     },
     _pushClose() {
@@ -2602,8 +2768,10 @@ if (typeof window.Chart === "undefined") {
       // item selector's stacked details popup never closed on Esc; the
       // selector itself only "closed" because the misrouted event hit the
       // host). LV-owned dialogs have no component ancestor and keep routing
-      // to the LV. See `pushToOwner`.
-      pushToOwner(this, this.el, ev, {});
+      // to the LV. See `pushToOwner`. The payload is the dialog's own
+      // `phx-value-*` attributes (a stacked popup host stamps its frame
+      // reference there so a close can be matched against the top frame).
+      pushToOwner(this, this.el, ev, phxValuePayload(this.el));
     },
     _sync() {
       // `data-show` drives visibility for keep_in_dom modals. Conditional
@@ -2708,7 +2876,7 @@ if (typeof window.Chart === "undefined") {
             // the server never hears about (and re-opens on the next
             // patch). A stamp self-heals.
             top._pkStackClosePushedAt = Date.now();
-            pushToOwner(self, top, closeEv, {});
+            pushToOwner(self, top, closeEv, phxValuePayload(top));
           }
           top.close();
         }
@@ -2744,6 +2912,20 @@ if (typeof window.Chart === "undefined") {
       this.el.addEventListener("close", self._onClose);
       this.el.addEventListener("click", self._onClick);
 
+      // data-close-guard="input": see the header comment. Local state only —
+      // the server's data-closeable remains the source of truth once it
+      // arrives; this covers the round trip (and a debounce window) before it.
+      // Recomputed, never latched: a frame whose LiveView never reports
+      // dirtiness (a page with a plain submit form) must not lose Esc for
+      // good after one keystroke (the sweep, 2026-09-05).
+      self._guardTripped = false;
+      if (self.el.dataset.closeGuard === "input") {
+        self._onInput = function(e) {
+          if (guardedInput(self.el, e.target)) self._guardTripped = guardedDirty(self.el);
+        };
+        this.el.addEventListener("input", self._onInput);
+      }
+
       // Instant client-side open: a trigger can dispatch this custom
       // event (Phoenix.LiveView.JS.dispatch("pk:dialog-show", to: "#id"))
       // ALONGSIDE its server push, so the dialog appears the same frame
@@ -2777,6 +2959,12 @@ if (typeof window.Chart === "undefined") {
       this._sync();
     },
     updated() {
+      // Every server patch re-reads the forms: a save/reset renders them
+      // clean, a re-render with the typed value makes data-closeable the
+      // authority — either way the local guard lets go.
+      if (this.el.dataset.closeGuard === "input") {
+        this._guardTripped = guardedDirty(this.el);
+      }
       this._sync();
     },
     destroyed() {
@@ -2796,6 +2984,7 @@ if (typeof window.Chart === "undefined") {
       if (this._onClose) this.el.removeEventListener("close", this._onClose);
       if (this._onClick) this.el.removeEventListener("click", this._onClick);
       if (this._onShowEvent) this.el.removeEventListener("pk:dialog-show", this._onShowEvent);
+      if (this._onInput) this.el.removeEventListener("input", this._onInput);
     }
   };
 

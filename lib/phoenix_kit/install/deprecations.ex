@@ -13,21 +13,50 @@ defmodule PhoenixKit.Install.Deprecations do
   """
 
   @doc """
-  Heads-up that the PhoenixKit **user dashboard** (`/dashboard`) is deprecated.
+  Heads-up for a host that has **explicitly turned the user dashboard back on**.
 
-  It still works unchanged and needs no action now. Its functionality is
-  moving into the unified admin panel (`/admin`), which surfaces different
-  sections per the viewer's permissions. Printed as advisory only — there are
-  no migration steps yet.
+  Only worth printing when `PhoenixKit.Config.user_dashboard_enabled?/0` is
+  true: since the dashboard stopped being routed by default, silence is the
+  correct output for everybody else. Advisory only — the routes still work.
   """
   @spec user_dashboard_warning() :: String.t()
   def user_dashboard_warning do
     """
     ⚠️  Deprecation: the PhoenixKit user dashboard (/dashboard) is deprecated.
-    It still works exactly as before and needs no action from you right now.
+    You have it switched on with `config :phoenix_kit, user_dashboard_enabled: true`,
+    so it keeps working exactly as before — no action needed right now.
     In a future release it will be removed and its functionality folded into the
     unified admin panel (/admin), which shows different sections based on each
-    user's permissions. This is an advance heads-up — no migration steps yet.
+    user's permissions. Nothing in PhoenixKit links to /dashboard any more.
+    """
+  end
+
+  @doc """
+  Notice that `:user_dashboard_enabled` now defaults to `false`.
+
+  For a host upgrading across the flip that never wrote the key — it took the
+  old default without ever choosing it, and `/dashboard` will stop routing on
+  the next compile. Print only when
+  `PhoenixKit.Config.user_dashboard_configured?/0` is false; a host that set
+  the key either way already made a decision.
+  """
+  @spec user_dashboard_default_changed() :: String.t()
+  def user_dashboard_default_changed do
+    """
+    ℹ️  Heads-up: `:user_dashboard_enabled` now defaults to **false**.
+
+    The deprecated user dashboard (/dashboard, /dashboard/settings) is no longer
+    routed unless you ask for it. Its job has moved into /admin, which shows each
+    visitor the sections their permissions allow — and greets a visitor holding
+    no permissions rather than bouncing them. Nothing in PhoenixKit links to
+    /dashboard any more.
+
+    If your app links to /dashboard, or you built pages onto it with
+    `mix phoenix_kit.gen.user.dashboard`, keep it by adding to config.exs:
+
+        config :phoenix_kit, user_dashboard_enabled: true
+
+    Nothing has been deleted — that one line restores the routes unchanged.
     """
   end
 end

@@ -1772,12 +1772,23 @@ defmodule PhoenixKitWeb.Integration do
       # if the host's extra_live_session_on_mount config no longer matches the
       # value baked in at compile time (plain Application.get_env at macro
       # expansion is not tracked by the compiler's compile_env mechanism).
+      #
+      # `user_dashboard_enabled` belongs here for the same reason `admin_path`
+      # does: both are read at MACRO EXPANSION time (see the `unquote(...)`
+      # guards on the dashboard route blocks below), so the compiler has no
+      # idea the router depends on them. Without this line a host flipping
+      # `user_dashboard_enabled: true` back on would keep serving a router
+      # compiled without the routes until something unrelated forced a
+      # recompile — which is the whole reason the setting is worth having now
+      # that it defaults to `false`.
       @doc false
       def __mix_recompile__? do
         unquote(current_hash) != PhoenixKit.ModuleDiscovery.module_hash() or
           unquote(Macro.escape(extra_on_mount())) !=
             Application.get_env(:phoenix_kit, :extra_live_session_on_mount, []) or
-          unquote(PhoenixKit.Config.get_admin_path()) != PhoenixKit.Config.get_admin_path()
+          unquote(PhoenixKit.Config.get_admin_path()) != PhoenixKit.Config.get_admin_path() or
+          unquote(PhoenixKit.Config.user_dashboard_enabled?()) !=
+            PhoenixKit.Config.user_dashboard_enabled?()
       end
 
       # Compile-time dependency on each route module (see the comment at

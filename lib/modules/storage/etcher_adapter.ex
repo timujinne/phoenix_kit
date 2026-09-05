@@ -16,9 +16,11 @@ defmodule PhoenixKit.Modules.Storage.EtcherAdapter do
   just plain helpers wrapping the `PhoenixKit.Annotations` context.
 
   Etcher's generic API is keyed by `target_type` + `target_uuid` so the
-  library can annotate any kind of resource. In PhoenixKit the only
-  target is a media File, so this adapter requires `target_type ==
-  "file"` and maps `target_uuid` to `file_uuid`.
+  library can annotate any kind of resource. A `"file"` target is a media
+  File and is stored with `file_uuid` set as well (the hard FK the
+  file-side features key on); any other target — a projects whiteboard,
+  say — is stored by the pair alone, with no file (V183). Both shapes
+  are pinned by the schema and a CHECK.
 
   ## Comment threads
 
@@ -45,19 +47,18 @@ defmodule PhoenixKit.Modules.Storage.EtcherAdapter do
   @schema_keys Enum.map(Annotation.adapter_writable_fields(), &Atom.to_string/1)
 
   def create(attrs) do
-    with {:ok, file_uuid} <- target_uuid(attrs) do
+    with {:ok, target_type, target_uuid} <- target(attrs) do
       attrs
       |> filter_to_schema()
-      |> Map.put(:file_uuid, file_uuid)
+      |> Map.put(:target_type, target_type)
+      |> Map.put(:target_uuid, target_uuid)
+      |> Map.put(:file_uuid, if(target_type == "file", do: target_uuid))
       |> Annotations.create()
     end
   end
 
-  def list_for(target_type, target_uuid)
-
-  def list_for("file", file_uuid) when is_binary(file_uuid) do
-    Annotations.list_for_file(file_uuid)
-  end
+  def list_for(target_type, target_uuid) when is_binary(target_type) and is_binary(target_uuid),
+    do: Annotations.list_for_target(target_type, target_uuid)
 
   def list_for(_other, _uuid), do: []
 
@@ -71,13 +72,21 @@ defmodule PhoenixKit.Modules.Storage.EtcherAdapter do
 
   # ---------------------------------------------------------------------------
 
-  defp target_uuid(%{"target_type" => "file", "target_uuid" => uuid}) when is_binary(uuid),
-    do: {:ok, uuid}
+  # The schema owns the shape; this is the early rejection the Etcher protocol
+  # wants (`{:error, :unsupported_target}` rather than a changeset). Reading it
+  # from `Annotation` keeps the two from drifting.
 
-  defp target_uuid(%{target_type: "file", target_uuid: uuid}) when is_binary(uuid),
-    do: {:ok, uuid}
+  defp target(%{"target_type" => type, "target_uuid" => uuid}), do: target(type, uuid)
+  defp target(%{target_type: type, target_uuid: uuid}), do: target(type, uuid)
+  defp target(_attrs), do: {:error, :unsupported_target}
 
-  defp target_uuid(_attrs), do: {:error, :unsupported_target}
+  defp target(type, uuid) when is_binary(type) and is_binary(uuid) do
+    if Regex.match?(Annotation.target_type_format(), type),
+      do: {:ok, type, uuid},
+      else: {:error, :unsupported_target}
+  end
+
+  defp target(_type, _uuid), do: {:error, :unsupported_target}
 
   defp filter_to_schema(attrs) do
     Enum.reduce(attrs, %{}, fn {k, v}, acc ->

@@ -178,11 +178,19 @@ defmodule PhoenixKit.Utils.AdminSegmentTest do
     end
 
     test "refuses a segment core already owns" do
-      for taken <- ~w(/users /profile /dashboard /api /assets) do
+      for taken <- ~w(/users /profile /api /assets) do
         assert_raise ArgumentError, ~r/already declares/, fn ->
           with_segment(taken, &Config.get_admin_path/0)
         end
       end
+    end
+
+    test "`/dashboard` is reserved only while the user dashboard is routed" do
+      # `user_dashboard_enabled` defaults to false, so nothing occupies
+      # /dashboard and the admin area is free to move onto it — the rename a
+      # host retiring the user dashboard is most likely to want.
+      refute Config.user_dashboard_enabled?()
+      assert with_segment("/dashboard", &Config.get_admin_path/0) == "/dashboard"
     end
   end
 

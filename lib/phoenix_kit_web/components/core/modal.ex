@@ -62,11 +62,13 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
   - `show` - Boolean to show/hide the modal (required)
   - `on_close` - Event name to send when modal should close (required)
   - `id` - Optional ID for the modal element
-  - `max_width` - Maximum width class: "sm", "md", "lg", "xl", "2xl", "3xl", "4xl", "full" (default: "md")
+  - `max_width` - Maximum width class: "sm" … "7xl", "full" (default: "md")
   - `max_height` - Maximum height for content area, e.g., "60vh", "400px" (default: "70vh")
   - `class` - Additional CSS classes for the modal box
   - `backdrop_class` - Additional CSS classes for the backdrop
   - `closeable` - Whether the modal can be closed via backdrop/escape (default: true)
+  - `placement` - `:center` (default) or `:end` — a full-height drawer sliding in from the right edge, for forms opened over the page they belong to
+  - `close_guard` - `:input` makes the dialog non-closeable (Esc/backdrop) on the client from the first keystroke in a submittable form inside it, until the server sets `closeable` back to true
 
   ## Slots
 
@@ -77,11 +79,27 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
   attr :show, :boolean, required: true
   attr :on_close, :string, required: true
   attr :id, :string, default: nil
-  attr :max_width, :string, default: "md", values: ~w(sm md lg xl 2xl 3xl 4xl full)
+  attr :max_width, :string, default: "md", values: ~w(sm md lg xl 2xl 3xl 4xl 5xl 6xl 7xl full)
   attr :max_height, :string, default: "70vh"
   attr :class, :string, default: ""
   attr :backdrop_class, :string, default: ""
   attr :closeable, :boolean, default: true
+
+  attr :placement, :atom,
+    default: :center,
+    values: [:center, :end],
+    doc:
+      "`:center` is the classic centered box. `:end` is a **drawer**: a full-height sheet anchored to the end (right) edge that slides in from the side (daisyUI 5's `modal-end`), for tall content such as a create/edit form opened over the page it belongs to — the page stays underneath, the sheet scrolls internally. The box takes the full width below `sm`, `max_width` above it (`\"2xl\"` is a good form width); `max_height` does not apply — the sheet always fills the viewport height."
+
+  attr :close_guard, :atom,
+    default: nil,
+    values: [nil, :input],
+    doc:
+      "`:input` arms the `PkDialog` hook's client-side guard: while a submittable form (`form[phx-submit]`) inside this dialog holds a field that differs from its rendered default, Esc and the backdrop are no-ops immediately, before the server has heard of the edit — the round trip (plus any `phx-debounce` window) would otherwise let a quick Esc discard what was just typed. Recomputed on every keystroke and every server patch, never latched: once the server re-renders the form (with the value, or reset after a save) the guard lets go and `closeable` is the only authority — so a dialog whose LiveView never reports dirtiness still closes. Filter/search forms (`phx-change` only, `role=\"search\"`, `type=\"search\"`) never count."
+
+  attr :rest, :global,
+    doc:
+      "Extra attributes for the `<dialog>` element. `phx-value-*` ones travel with the close event the `PkDialog` hook pushes (Esc / backdrop), the same way they would on a `phx-click` — a stacked host stamps its frame identifier there."
 
   attr :keep_in_dom, :boolean,
     default: false,
@@ -108,17 +126,23 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
     <%= if @show or @keep_in_dom do %>
       <dialog
         id={@resolved_id}
-        class="modal"
+        class={if(@placement == :end, do: "modal modal-end", else: "modal")}
         phx-hook="PkDialog"
         data-show={to_string(@show)}
         data-close-event={@on_close}
         data-closeable={to_string(@closeable)}
+        data-close-guard={@close_guard}
         role="dialog"
         aria-modal="true"
         aria-labelledby={"#{@resolved_id}-title"}
+        {@rest}
       >
+        <%!-- Drawer: daisyUI's `modal-end` makes the box full-height and
+             slides it in from the edge, but sets `width: auto` — the width
+             comes from here (full below `sm`, `max_width` above). --%>
         <div class={[
           "modal-box flex flex-col",
+          @placement == :end && "w-full sm:w-[calc(100%-2rem)] h-full",
           max_width_class(@max_width),
           @class
         ]}>
@@ -132,10 +156,12 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
             </h3>
           <% end %>
 
-          <%!-- Content with scrollability --%>
+          <%!-- Content with scrollability. A drawer fills the viewport
+               height, so its content scrolls inside the flex column
+               (`min-h-0`) instead of against a max-height. --%>
           <div
-            class="flex-1 overflow-y-auto overscroll-contain"
-            style={"max-height: #{@max_height}"}
+            class="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+            style={@placement == :center && "max-height: #{@max_height}"}
           >
             {render_slot(@inner_block)}
           </div>
@@ -457,6 +483,9 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
   defp max_width_class("2xl"), do: "max-w-2xl"
   defp max_width_class("3xl"), do: "max-w-3xl"
   defp max_width_class("4xl"), do: "max-w-4xl"
+  defp max_width_class("5xl"), do: "max-w-5xl"
+  defp max_width_class("6xl"), do: "max-w-6xl"
+  defp max_width_class("7xl"), do: "max-w-7xl"
   defp max_width_class("full"), do: "max-w-full"
   defp max_width_class(_), do: "max-w-md"
 

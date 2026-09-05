@@ -23,6 +23,7 @@ defmodule PhoenixKitWeb.ContextController do
   use PhoenixKitWeb, :controller
 
   alias PhoenixKit.Dashboard.ContextSelector
+  alias PhoenixKit.Utils.Routes
 
   @doc """
   Sets the current context for a specific selector key.
@@ -36,7 +37,7 @@ defmodule PhoenixKitWeb.ContextController do
 
   ## Response
 
-  Redirects to the referer URL, or `/dashboard` if no referer is present.
+  Redirects to the referer URL, or `/admin` if no referer is present.
   Dependent selectors may be reset based on their `on_parent_change` setting.
   """
   def set(conn, %{"key" => key, "id" => id}) do
@@ -138,9 +139,20 @@ defmodule PhoenixKitWeb.ContextController do
     referer_host == request_host
   end
 
+  # Where a context switch lands when the request carried no usable referer.
+  #
+  # `/admin`, not `/dashboard`: the user dashboard is deprecated and a host can
+  # compile it out with `user_dashboard_enabled: false`, which turned this
+  # fallback into a 404 for exactly the visitors who reached it by accident.
+  # `/admin` is the page core declares unconditionally and admits every
+  # authenticated visitor to — the same terminal
+  # `PhoenixKit.Utils.Routes.safe_destination/2` uses, for the same reason.
+  #
+  # Built through `Routes.path/1` rather than string-concatenating the URL
+  # prefix, so it also picks up a renamed admin segment
+  # (`config :phoenix_kit, admin_path:`).
   defp default_redirect do
-    url_prefix = PhoenixKit.Config.get_url_prefix()
-    "#{url_prefix}/dashboard"
+    Routes.path("/admin")
   end
 
   defp reset_dependent_selectors(ids, changed_key, configs) do

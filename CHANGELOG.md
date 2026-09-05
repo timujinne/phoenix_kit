@@ -1,3 +1,251 @@
+## Unreleased
+
+### Changed
+
+- **`:user_dashboard_enabled` now defaults to `false` — the user dashboard is
+  retired from core's defaults.** `/dashboard`, `/dashboard/settings` and the
+  confirm-email compat redirects are no longer routed unless a host asks for
+  them. Its job has moved into `/admin`, which shows each visitor the sections
+  their permissions allow and greets a permission-less visitor rather than
+  bouncing them (`PhoenixKitWeb.Users.Auth.landing_view?/1`). Together with the
+  widget change below, nothing in core links to `/dashboard` any more.
+
+  ⚠️ **Breaking for a host that never wrote the key** — it took the old default
+  without choosing it, and `/dashboard` stops routing on the next compile.
+  `mix phoenix_kit.update` now says so, and says the one line that keeps it.
+
+  **Nothing has been deleted.** The LiveViews, the layout, the sidebar, the tab
+  machinery and the route macros are all still there, so this is a switch and
+  not a removal:
+
+      config :phoenix_kit, user_dashboard_enabled: true
+
+  restores the routes unchanged. That is only true because of the next item.
+- **`user_dashboard_enabled` is now tracked by `__mix_recompile__?/0`.** It is
+  read at macro-expansion time by the route macros, exactly like `admin_path`,
+  so the compiler had no idea the host router depended on it — and it was not
+  in the recompile check. A host flipping the flag would have kept serving a
+  router compiled against the old value until something unrelated forced a
+  recompile. The setting only became worth having as a real switch once the
+  default flipped, which is what surfaced this.
+- **`/dashboard` is no longer a reserved `admin_path` segment while the user
+  dashboard is off.** `@admin_path_collisions` refused it unconditionally
+  because core declared a route tree there; with `user_dashboard_enabled: false`
+  nothing occupies it, so `config :phoenix_kit, admin_path: "/dashboard"` is now
+  legal — the rename a host retiring the user dashboard is most likely to want.
+  Turning the dashboard back on puts the segment back in the list and the next
+  compile raises, rather than letting whichever tree the router declared first
+  silently win.
+- **The deprecation notices split by what the host actually configured.**
+  `mix phoenix_kit.install` no longer warns about a dashboard a fresh install
+  does not have. `mix phoenix_kit.update` prints the deprecation heads-up only
+  to a host that switched the dashboard **on**, the new default-changed notice
+  to a host that never wrote the key, and nothing to a host that chose `false`
+  — via the new `PhoenixKit.Config.user_dashboard_configured?/0`, which
+  distinguishes "took the default" from "chose false" (`user_dashboard_enabled?/0`
+  answers `false` to both).
+- **The session widget's user-facing entry now leads to the admin area, not the
+  deprecated user dashboard.** `PhoenixKitWeb.Components.UserDashboardNav.user_dropdown/1`
+  — the avatar dropdown a host embeds in its own header — rendered a "Dashboard"
+  item pointing at `/dashboard` for every signed-in visitor, and was the one
+  place in core that did **not** gate that link on
+  `PhoenixKit.Config.user_dashboard_enabled?/0`. Every other call site does
+  (`auth_router.ex`, both route macros in `integration.ex`,
+  `NotificationsBell.default_link/1`, the `AdminNav` divider), so a host that
+  compiled the dashboard out was left with a menu entry that 404s.
+
+  Every signed-in visitor now gets exactly **one** entry leading to
+  `Routes.path("/admin")`, which is the page core declares unconditionally and
+  admits every authenticated visitor to — `PhoenixKitWeb.Users.Auth.landing_view?/1`
+  exempts the index from the admin-area gate, and it shows a permission-less
+  visitor the welcome block and nothing else. An admin-area holder sees it as
+  "Admin Panel" with a shield; everybody else sees "My Account" with a house.
+  The two are mutually exclusive and take their wording from one private
+  `admin_entry_label/1`, so the pair cannot drift.
+
+  Because the destination is built with `Routes.path("/admin")`, it picks up a
+  renamed admin segment (`config :phoenix_kit, admin_path: "/myaccount"`) for
+  free. Note that `admin_path: "/dashboard"` is still refused — `dashboard` is
+  on `@admin_path_collisions` for as long as core declares the `/dashboard`
+  route family.
+
+  The `:dashboard` key in the `:authenticated_links` attr keeps its name and
+  its place in the default list, so a host passing an explicit list needs no
+  edit; only where it points has changed. Wording stays `gettext/1` on both
+  arms rather than becoming an operator-typed setting, for the reason
+  `LayoutWrapper` already gives for the "Admin Panel" chip: a stored string
+  would serve one language's wording to every locale. `"My Account"` is
+  translated in all seven shipped locales.
+- **The context-switch fallback redirect points at `/admin`.**
+  `PhoenixKitWeb.Controllers.ContextController` string-built
+  `"#{url_prefix}/dashboard"` for requests arriving with no usable referer —
+  the same dead destination, reached by exactly the visitors who got there by
+  accident. It now goes through `Routes.path("/admin")`, so it also honours a
+  renamed admin segment instead of concatenating the URL prefix by hand.
+
+### Fixed
+
+- **Menu links no longer emit a locale segment the router immediately redirects
+  away from.** `user_dropdown/1` passed `@current_locale` straight into
+  `Routes.path/2` and `Routes.user_settings_path/1`. That assign is the
+  **gettext dialect** (`"en-US"`); URLs are served on the **base** code
+  (`"en"`), as `PhoenixKitWeb.Users.Auth.validate_and_set_locale/2` documents.
+  `Routes.path/2` takes `:locale` verbatim, so a visitor on `/en/profile/settings`
+  was offered `/en-US/…` links — which route, then bounce through a redirect to
+  `/en/…`. Worse, `default_locale?/1` compares against the base default, so
+  `"en-US" != "en"` also defeated prefixless-primary and produced a locale
+  segment where there should have been none. Both links now go through the
+  normalising helpers (`Routes.locale_aware_path/2` /
+  `locale_aware_user_settings_path/1`) that the multi-session forms three lines
+  below were already using. Same slip fixed in the modules page's "Configure"
+  link for crawler settings.
+- **The dropdown's active-item highlight survives a renamed admin segment.**
+  `active_path?/2` compared the real request path against the `/admin` written
+  in the markup without canonicalising, so under `admin_path: "/myaccount"`
+  nothing ever highlighted. It now folds the configured segment back through
+  `Routes.canonical_admin_path/1` first.
+
+## 2.14.2 - 2026-09-05
+
+PR #783 — annotations stop requiring a file to anchor to — plus the two fixes
+from its review.
+
+### Added
+
+- **An annotation anchors to a TARGET, not necessarily a file** (#783, V183).
+  Every row pointed at `phoenix_kit_files` through a `NOT NULL file_uuid`,
+  which is right for the media viewer and wrong for a whiteboard with no image
+  — the projects module was minting a solid-white PNG per board just to have
+  something to draw over. `target_type` + `target_uuid` (Etcher's own
+  vocabulary) are now the anchor: a `"file"` target still carries its file in
+  both columns, so every file-side feature keeps its hard FK, and any other
+  target carries no file at all. A CHECK pins the two shapes and the changeset
+  mirrors it, so a bad shape is a changeset error rather than a constraint
+  exception. Existing rows are backfilled and unchanged in meaning.
+
+  ⚠️ `down/1` **deletes non-file annotations** — they have no home in the old
+  shape. Back the table up first if a rollback is not final.
+
+- **Modal drawers and a client-side close guard** (#783). `<.modal placement={:end}>`
+  is a full-height sheet sliding in from the edge for tall forms;
+  `close_guard={:input}` makes Esc and the backdrop no-ops from the first
+  keystroke in a submittable form inside it, before the server has heard of the
+  edit — the round trip plus any `phx-debounce` window would otherwise let a
+  quick Esc discard what was just typed. Never latched: once the server
+  re-renders, `closeable` is the only authority again.
+
+- **`<.nav_tabs>` gains a `:trailing` slot** and the admin header a page
+  toolbar beside the title (#783).
+
+### Fixed
+
+- **`PkUrlMirror` accepted network-path references and fragments** (#783). The
+  root-relative check took `//host` and `/\host` — same-origin-looking,
+  other-origin-going — and any fragment, which the comparison against
+  pathname + search never sees, so `/p#x` re-fired on every update. Same guard
+  shape as `Routes.local_path?/1`; control characters refused too.
+
+- **`target_type` was only validated in the Etcher adapter** (review of #783).
+  The adapter checked the format before building attrs; the changeset did not.
+  The adapter is not the sole writer — `Annotations.create/1` is public and is
+  the path a board takes — so a `target_type` over 32 characters reached
+  `character varying(32)` and came back as a raw Postgres error, the exact
+  failure `validate_target/1` exists to prevent one field over. The regex moved
+  onto the changeset and the adapter now reads it from
+  `Annotation.target_type_format/0`, so the two answers cannot drift.
+
+- **V183 checked constraint existence with `::regclass`** (review of #783),
+  which the prefix rules forbid — the cast raises rather than answering false
+  when the relation is absent, aborting the whole transaction. Replaced with
+  the mandated name-based `pg_class` + `pg_namespace` JOIN, as V180 does. It
+  could not bite (V135 creates the table at the migration floor), but V183 is
+  the newest migration and therefore the template the next one is copied from.
+  Amended in place rather than superseded, since V183 has never shipped.
+
+## 2.14.1 - 2026-09-05
+
+Fixes found by running 2.14.0 against a real install: a dashboard statistic
+that could only ever report the wrong number, two timezone consumers left
+behind when the picker moved to IANA identifiers, and every statistic on the
+dashboard becoming a link to the list behind it.
+
+### Added
+
+- **`TimeZone.offset_seconds/2` and `TimeZone.day_start/2`.** The first gives
+  the offset for either kind of stored value — a legacy `"2"` or an IANA id
+  resolved at an instant, since `Europe/Warsaw` has no single answer. The
+  second gives the UTC instant at which the current day began somewhere, for
+  "how many X today" where *today* is the operator's day. Both are what the two
+  fixes below needed and neither had.
+
+- **Every number on the admin dashboard is now a link to the report behind it.**
+  A statistic you cannot drill into is a dead end: seeing "29 Active Sessions"
+  and having no way to ask *which 29* is what sent one operator to the Live
+  Sessions page to reconcile it by hand. All sixteen cards across Platform
+  Statistics, Active Sessions, Real-Time Activity and the user-status row now
+  navigate to a filtered list.
+
+  Five of them had no report to point at, so the filters came first rather than
+  linking at a list that could not contain the counted rows:
+
+  - `Auth.list_users_paginated/1` gains `:status` (`active` / `inactive`) and
+    `:confirmation` (`confirmed` / `pending`), deep-linkable as `?status=` and
+    `?confirmation=` and surfaced as two dropdowns on `/admin/users` — a filter
+    with no visible control would leave a visitor arriving from a card looking
+    at a filtered list with nothing on screen saying why.
+  - `Sessions.list_active_sessions/1` takes a scope — `:active` (the default,
+    so existing callers are unchanged), `:today` and `:expired` — deep-linkable
+    as `?scope=` with a matching selector on `/admin/users/sessions`.
+
+  The predicates are deliberately identical to the ones
+  `Roles.get_extended_stats/0` and `Sessions.get_session_stats/0` count with,
+  and a test file asserts each card's number against its own link's result
+  rather than either in isolation. Unknown values (`?status=nonsense` from a
+  hand-edited URL) fall back to unfiltered rather than to an empty list, which
+  would read as "you have no users".
+
+  `StatCard` and `HeroStatCard` gain an optional `navigate` attr; without it
+  they render exactly as before.
+
+### Fixed
+
+- **"Unique Users" counted session rows, not people.** `get_session_stats/0`
+  asked for `Repo.aggregate(query, :count, :user_uuid, distinct: true)`, but
+  `aggregate/4`'s last argument is REPO options — `:prefix`, `:timeout` — and
+  `Ecto.Repo.Queryable.query_for_aggregate/3` builds the select from the field
+  alone and never sees them. `distinct: true` was accepted and silently
+  ignored, so the card reported one "unique user" per session row and was equal
+  to "Active Sessions" by construction. Reported from a live install showing 29
+  unique users against 2 registered accounts.
+
+- **"Active Sessions / Currently logged in" invited exactly that confusion.**
+  The number counts session tokens inside the 60-day validity window across
+  every device, so one person who has signed in 29 times over two months is 29
+  — while the Live Sessions page, which reads Presence, correctly showed one.
+  The subtitle now reads "Unexpired sign-ins, not live connections".
+
+- **"Today's Sessions" counted UTC's day, not the operator's.** `get_session_stats/0`
+  took midnight from `DateTime.utc_now()` and ignored the `time_zone` setting
+  entirely, so on any site east of UTC every sign-in after 21:00 local (UTC+3)
+  fell into "yesterday" — the card read 0 while somebody was signed in. Both it
+  and the new `:today` session scope now start the day in the configured zone.
+
+- **`Utils.Date.offset_to_seconds/1` returned 0 for every named timezone.** It
+  was `Float.parse/1`, which cannot read `"Europe/Warsaw"` — and since the
+  timezone picker moved to IANA ids, that is what the setting holds on any site
+  that has touched it. Every caller was therefore computing in UTC without
+  saying so. It now delegates to the new `TimeZone.offset_seconds/2`.
+
+  ⚠️ **This one reaches outside core.** Three call sites in module packages take
+  that number as gospel and were silently off by the site's whole offset:
+  `phoenix_kit_bookings`' `site_offset_seconds/0` (availability windows),
+  `phoenix_kit_calendar`'s `window_bounds/3` (timed events near midnight fall
+  out of the day the grid puts them in) and its `tz_differs?/2` (two different
+  named zones compared equal, so "show in their timezone" saw no difference).
+  The first two are corrected by this delegation; `tz_differs?/2` should move to
+  `TimeZone.effectively_same?/2`, which answers the question it is actually
+  asking.
+
 ## 2.14.0 - 2026-09-05
 
 The admin area stops being nailed to `/admin`, the deprecated user dashboard

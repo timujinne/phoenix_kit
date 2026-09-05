@@ -27,8 +27,10 @@ defmodule PhoenixKit.Users.Sessions do
   require Logger
   alias PhoenixKit.Admin.Events
   alias PhoenixKit.RepoHelper, as: Repo
+  alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth.{KnownDevice, User, UserToken}
   alias PhoenixKit.Utils.Date, as: UtilsDate
+  alias PhoenixKit.Utils.TimeZone
 
   @session_validity_in_days 60
 
@@ -52,10 +54,10 @@ defmodule PhoenixKit.Users.Sessions do
       ]
 
   """
-  def list_active_sessions do
+  def list_active_sessions(scope \\ :active) do
     from(token in UserToken,
       where: token.context == "session",
-      where: token.inserted_at > ago(@session_validity_in_days, "day"),
+      where: ^scope_condition(scope),
       join: user in User,
       on: token.user_uuid == user.uuid,
       select: %{
@@ -316,6 +318,35 @@ defmodule PhoenixKit.Users.Sessions do
     |> Repo.one()
   end
 
+  # The three scopes the admin dashboard counts, so each card can link to the
+  # list behind its own number. `:active` is the historical behaviour and the
+  # default, and the predicates are the same expressions `get_session_stats/0`
+  # counts with — a report that disagreed with the card above it would be worse
+  # than no link.
+  defp scope_condition(:active),
+    do: dynamic([token], token.inserted_at > ago(@session_validity_in_days, "day"))
+
+  defp scope_condition(:expired),
+    do: dynamic([token], token.inserted_at <= ago(@session_validity_in_days, "day"))
+
+  defp scope_condition(:today) do
+    today_start = today_start()
+    dynamic([token], token.inserted_at >= ^today_start)
+  end
+
+  defp scope_condition(_other), do: scope_condition(:active)
+
+  # "Today" is the OPERATOR's day, not UTC's. Counting from UTC midnight is
+  # invisible for most of the day and then wrong every evening: on
+  # Europe/Tallinn (UTC+3) every sign-in between 21:00 and midnight local falls
+  # into "yesterday", so a dashboard read at night shows 0 while someone is
+  # signed in — which is exactly how this was found.
+  defp today_start do
+    "time_zone"
+    |> Settings.get_setting_cached("0")
+    |> TimeZone.day_start()
+  end
+
   @doc """
   Gets session statistics including total, unique users, expired sessions etc.
 
@@ -331,8 +362,7 @@ defmodule PhoenixKit.Users.Sessions do
 
   """
   def get_session_stats do
-    now = UtilsDate.utc_now()
-    today_start = %{now | hour: 0, minute: 0, second: 0, microsecond: {0, 0}}
+    today_start = today_start()
 
     # Active sessions
     active_query =

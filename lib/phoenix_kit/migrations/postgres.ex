@@ -7,7 +7,28 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V182 - Users: PhoenixKit's internal keys lose their custom-field definitions ⚡ LATEST
+  ### V184 - Settings: dead `shop_currency` removed ⚡ LATEST
+
+  Deletes the `shop_currency` row `V135` seeds into `phoenix_kit_settings`.
+  Nothing reads it — confirmed by a full grep over `phoenix_kit`,
+  `phoenix_kit_billing`, `phoenix_kit_ecommerce`, and a host application. The
+  currency a shop actually uses is the `is_default = true` row of
+  `phoenix_kit_currencies`; a second, unread "shop currency" setting is a trap
+  for the next reader. `down/1` restores the row with V135's exact seed
+  statement (`ON CONFLICT ("key") DO NOTHING`), so a rollback never overwrites
+  a value an operator re-created by hand.
+
+  ### V183 - Annotations: a shape can anchor to something other than a file
+
+  `phoenix_kit_annotations.file_uuid` becomes nullable behind a generic
+  `target_type` + `target_uuid` pair (backfilled `'file'` / the file uuid for
+  every existing row; a CHECK pins the two shapes). Fresco renders a scene
+  with zero images and Etcher draws over empty canvas, so a whiteboard no
+  longer needs a background file to hold its shapes — the projects module
+  used to mint a white PNG per board for exactly this. Existing rows read
+  unchanged.
+
+  ### V182 - Users: PhoenixKit's internal keys lose their custom-field definitions
 
   Deletes the `custom_user_fields_definitions` entries whose key is one
   PhoenixKit itself writes into `custom_fields` (`etcher_line_params`,
@@ -663,7 +684,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 182
+  @current_version 184
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries

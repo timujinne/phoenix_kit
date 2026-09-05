@@ -1288,10 +1288,25 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       end
     end
 
-    # Advance heads-up that the user dashboard (/dashboard) is deprecated. It
-    # still works unchanged — advisory only (see PhoenixKit.Install.Deprecations).
+    # The user dashboard has two things worth saying, and which one applies
+    # depends on what the host has actually configured:
+    #
+    #   * switched ON explicitly — the deprecation heads-up, as before.
+    #   * key never written — the host is upgrading across the default flip to
+    #     `false`, so /dashboard stops routing on the next compile. Say so, and
+    #     say how to keep it. This is the only notice an unsuspecting host gets.
+    #   * switched OFF explicitly — they decided; nothing to say.
     defp warn_user_dashboard_deprecated do
-      Mix.shell().info(Deprecations.user_dashboard_warning())
+      cond do
+        PhoenixKit.Config.user_dashboard_enabled?() ->
+          Mix.shell().info(Deprecations.user_dashboard_warning())
+
+        not PhoenixKit.Config.user_dashboard_configured?() ->
+          Mix.shell().info(Deprecations.user_dashboard_default_changed())
+
+        true ->
+          :ok
+      end
     end
 
     # Update CSS integration during PhoenixKit updates

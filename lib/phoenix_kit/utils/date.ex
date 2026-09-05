@@ -780,10 +780,14 @@ defmodule PhoenixKit.Utils.Date do
       0
   """
   def offset_to_seconds(tz_offset) when is_binary(tz_offset) do
-    case Float.parse(tz_offset) do
-      {hours, _} -> round(hours * 3600)
-      :error -> 0
-    end
+    # Delegated so an IANA identifier resolves instead of falling through to 0.
+    # The old body was `Float.parse/1`, which cannot read "Europe/Warsaw" and
+    # returned 0 — so every caller silently computed in UTC on any site that
+    # used the timezone picker, which since the move to IANA ids is every site
+    # that has touched the setting. Callers doing arithmetic across a
+    # daylight-saving boundary want `TimeZone.shift/2` or `from_wall/2`, which
+    # are correct per-instant; this is a snapshot of the offset now.
+    TimeZone.offset_seconds(tz_offset)
   end
 
   def offset_to_seconds(_), do: 0

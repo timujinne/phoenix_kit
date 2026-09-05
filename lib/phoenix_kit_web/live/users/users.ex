@@ -15,6 +15,11 @@ defmodule PhoenixKitWeb.Live.Users.Users do
       search_query: [default: "", url_key: "q", alias: "search"],
       filter_role: [default: "all", url_key: "role"],
       filter_account_type: [default: "all", url_key: "account_type"],
+      # Deep-linked from the admin dashboard's user cards, so each number there
+      # opens the list behind it. Values mirror the predicates
+      # `Roles.get_extended_stats/0` counts with.
+      filter_status: [default: "all", url_key: "status"],
+      filter_confirmation: [default: "all", url_key: "confirmation"],
       page: [default: 1, cast: :integer, min: 1]
     ]
 
@@ -187,6 +192,14 @@ defmodule PhoenixKitWeb.Live.Users.Users do
 
   def handle_event("filter_by_account_type", %{"account_type" => account_type}, socket) do
     {:noreply, push_url_state(socket, filter_account_type: account_type)}
+  end
+
+  def handle_event("filter_by_status", %{"status" => status}, socket) do
+    {:noreply, push_url_state(socket, filter_status: status)}
+  end
+
+  def handle_event("filter_by_confirmation", %{"confirmation" => confirmation}, socket) do
+    {:noreply, push_url_state(socket, filter_confirmation: confirmation)}
   end
 
   def handle_event("clear_filters", _params, socket) do
@@ -805,7 +818,9 @@ defmodule PhoenixKitWeb.Live.Users.Users do
       page_size: socket.assigns.per_page,
       search: socket.assigns.search_query,
       role: socket.assigns.filter_role,
-      account_type: socket.assigns.filter_account_type
+      account_type: socket.assigns.filter_account_type,
+      status: socket.assigns.filter_status,
+      confirmation: socket.assigns.filter_confirmation
     ]
 
     %{users: users, total_count: total_count, total_pages: total_pages} =

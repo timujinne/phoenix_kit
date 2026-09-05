@@ -48,6 +48,8 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
   """
 
   use Phoenix.Component
+
+  alias PhoenixKit.Utils.Routes
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
@@ -220,6 +222,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.owner_count}
             title={gettext("System Owners")}
             subtitle={gettext("Complete system authority")}
+            navigate={Routes.path("/admin/users") <> "?role=Owner"}
           >
             <:icon>
               <.icon name="hero-shield-check" class="w-6 h-6" />
@@ -231,6 +234,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.admin_count}
             title={gettext("Administrators")}
             subtitle={gettext("Management privileges")}
+            navigate={Routes.path("/admin/users") <> "?role=Admin"}
           >
             <:icon>
               <.icon name="hero-star" class="w-6 h-6" />
@@ -242,6 +246,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.total_users}
             title={gettext("Total Users")}
             subtitle={gettext("Registered accounts")}
+            navigate={Routes.path("/admin/users")}
           >
             <:icon>
               <.icon name="hero-users" class="w-6 h-6" />
@@ -258,6 +263,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@session_stats.total_active}
               title={gettext("Active Sessions")}
               subtitle={gettext("Unexpired sign-ins, not live connections")}
+              navigate={Routes.path("/admin/users/sessions")}
             >
               <:icon>
                 <.icon name="hero-bolt" class="w-6 h-6" />
@@ -269,6 +275,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@session_stats.unique_users}
               title={gettext("Unique Users")}
               subtitle={gettext("With active sessions")}
+              navigate={Routes.path("/admin/users/sessions")}
             >
               <:icon>
                 <.icon name="hero-user" class="w-6 h-6" />
@@ -280,6 +287,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@session_stats.sessions_today}
               title={gettext("Today's Sessions")}
               subtitle={gettext("New login activity")}
+              navigate={Routes.path("/admin/users/sessions") <> "?scope=today"}
             >
               <:icon>
                 <.icon name="hero-clock" class="w-6 h-6" />
@@ -291,6 +299,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@session_stats.expired_sessions}
               title={gettext("Expired Sessions")}
               subtitle={gettext("Need cleanup")}
+              navigate={Routes.path("/admin/users/sessions") <> "?scope=expired"}
             >
               <:icon>
                 <.icon name="hero-no-symbol" class="w-6 h-6" />
@@ -308,6 +317,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@presence_stats.total_sessions}
               title={gettext("Active Visitors")}
               subtitle={gettext("Real-time connections")}
+              navigate={Routes.path("/admin/users/live_sessions")}
             >
               <:icon>
                 <.icon name="hero-user-circle" class="w-6 h-6" />
@@ -319,6 +329,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@presence_stats.anonymous_sessions}
               title={gettext("Anonymous")}
               subtitle={gettext("Unregistered visitors")}
+              navigate={Routes.path("/admin/users/live_sessions") <> "?type=anonymous"}
             >
               <:icon>
                 <.icon name="hero-user" class="w-6 h-6" />
@@ -330,6 +341,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               value={@presence_stats.authenticated_sessions}
               title={gettext("Authenticated")}
               subtitle={gettext("Logged in users")}
+              navigate={Routes.path("/admin/users/live_sessions") <> "?type=authenticated"}
             >
               <:icon>
                 <.icon name="hero-check-circle" class="w-6 h-6" />
@@ -344,6 +356,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
               }
               title={gettext("Unique Visitors")}
               subtitle={gettext("Individual connections")}
+              navigate={Routes.path("/admin/users/live_sessions")}
             >
               <:icon>
                 <.icon name="hero-user-group" class="w-6 h-6" />
@@ -360,6 +373,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.active_users}
             title={gettext("Active Users")}
             subtitle={gettext("Currently online")}
+            navigate={Routes.path("/admin/users") <> "?status=active"}
           >
             <:icon>
               <.icon name="hero-check-circle-solid" class="w-6 h-6" />
@@ -372,6 +386,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.inactive_users}
             title={gettext("Inactive Users")}
             subtitle={gettext("Disabled accounts")}
+            navigate={Routes.path("/admin/users") <> "?status=inactive"}
           >
             <:icon>
               <.icon name="hero-x-circle-solid" class="w-6 h-6" />
@@ -384,6 +399,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.confirmed_users}
             title={gettext("Email Confirmed")}
             subtitle={gettext("Verified emails")}
+            navigate={Routes.path("/admin/users") <> "?confirmation=confirmed"}
           >
             <:icon>
               <.icon name="hero-envelope" class="w-6 h-6" />
@@ -396,6 +412,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.pending_users}
             title={gettext("Pending Email")}
             subtitle={gettext("Awaiting confirmation")}
+            navigate={Routes.path("/admin/users") <> "?confirmation=pending"}
           >
             <:icon>
               <.icon name="hero-information-circle-solid" class="w-6 h-6" />
@@ -408,6 +425,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
             value={@stats.user_count}
             title={gettext("Regular Users")}
             subtitle={gettext("Standard access level")}
+            navigate={Routes.path("/admin/users") <> "?role=User"}
           >
             <:icon>
               <.icon name="hero-user" class="w-6 h-6" />

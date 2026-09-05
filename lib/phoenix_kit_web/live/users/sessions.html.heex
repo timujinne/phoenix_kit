@@ -179,6 +179,24 @@
         />
       </:toolbar_title>
       <:toolbar_actions>
+        <%!-- Which sessions are listed at all. Deep-linked from the dashboard's
+              session cards, so each of those numbers opens the rows it counted. --%>
+        <span class="text-sm text-base-content/70 whitespace-nowrap">
+          {gettext("Show:")}
+        </span>
+        <form id="sessions-scope-filter-form" phx-change="filter_by_scope" class="contents">
+          <.select
+            name="scope"
+            value={to_string(@filter_scope)}
+            options={[
+              {gettext("Active sessions"), "active"},
+              {gettext("Started today"), "today"},
+              {gettext("Expired"), "expired"}
+            ]}
+            class="select-sm w-40"
+          />
+        </form>
+
         <%!-- Filter by User Status --%>
         <span class="text-sm text-base-content/70 whitespace-nowrap">
           {gettext("Status:")}

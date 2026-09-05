@@ -228,4 +228,79 @@ defmodule PhoenixKit.Utils.TimeZoneTest do
       refute TimeZone.valid?("99")
     end
   end
+
+  describe "offset_seconds/2" do
+    # Exists because `Float.parse/1` answered 0 for every IANA id, and three
+    # module packages (bookings' availability window, calendar's day bounds and
+    # its "same timezone?" comparison) took that 0 as "UTC" — silently, on any
+    # site that had used the picker.
+
+    test "reads a legacy offset, including the half-hour zones" do
+      assert TimeZone.offset_seconds("2") == 7200
+      assert TimeZone.offset_seconds("-5") == -18_000
+      assert TimeZone.offset_seconds("5.5") == 19_800
+    end
+
+    test "resolves an IANA id at the given instant, and follows DST" do
+      # The whole point: one id, two answers, decided by the date.
+      winter = TimeZone.offset_seconds("Europe/Warsaw", ~U[2026-01-15 12:00:00Z])
+      summer = TimeZone.offset_seconds("Europe/Warsaw", ~U[2026-07-15 12:00:00Z])
+
+      assert winter == 3600
+      assert summer == 7200
+    end
+
+    test "a zone that does not observe DST answers the same all year" do
+      jan = TimeZone.offset_seconds("Africa/Johannesburg", ~U[2026-01-15 12:00:00Z])
+      jul = TimeZone.offset_seconds("Africa/Johannesburg", ~U[2026-07-15 12:00:00Z])
+
+      assert jan == 7200
+      assert jul == 7200
+    end
+
+    test "unresolvable and empty values are 0, the previous safe default" do
+      assert TimeZone.offset_seconds("Not/AZone") == 0
+      assert TimeZone.offset_seconds(nil) == 0
+      assert TimeZone.offset_seconds("") == 0
+    end
+  end
+
+  describe "day_start/2" do
+    # "How many today" has to mean the operator's today. From UTC midnight it
+    # is right until evening and then wrong every night east of UTC.
+
+    test "UTC is plain midnight" do
+      assert TimeZone.day_start("0", ~U[2026-09-05 14:00:00Z]) == ~U[2026-09-05 00:00:00Z]
+    end
+
+    test "an eastern zone starts its day before UTC midnight" do
+      # Tallinn is UTC+3 in September: local Sep 5 began at 21:00 UTC on Sep 4.
+      assert TimeZone.day_start("Europe/Tallinn", ~U[2026-09-05 14:00:00Z]) ==
+               ~U[2026-09-04 21:00:00Z]
+    end
+
+    test "just after UTC midnight an eastern zone is already a day ahead" do
+      # 00:30 UTC on Sep 5 is 03:30 local — still Sep 5 there, which began
+      # 21:00 UTC on Sep 4. This is the window the old code got wrong.
+      assert TimeZone.day_start("Europe/Tallinn", ~U[2026-09-05 00:30:00Z]) ==
+               ~U[2026-09-04 21:00:00Z]
+    end
+
+    test "a western zone starts its day after UTC midnight" do
+      assert TimeZone.day_start("America/New_York", ~U[2026-09-05 14:00:00Z]) ==
+               ~U[2026-09-05 04:00:00Z]
+    end
+
+    test "it tracks DST rather than a fixed offset" do
+      winter = TimeZone.day_start("Europe/Warsaw", ~U[2026-01-15 12:00:00Z])
+      summer = TimeZone.day_start("Europe/Warsaw", ~U[2026-07-15 12:00:00Z])
+
+      assert winter == ~U[2026-01-14 23:00:00Z]
+      assert summer == ~U[2026-07-14 22:00:00Z]
+    end
+
+    test "a legacy offset still works" do
+      assert TimeZone.day_start("2", ~U[2026-09-05 00:30:00Z]) == ~U[2026-09-04 22:00:00Z]
+    end
+  end
 end

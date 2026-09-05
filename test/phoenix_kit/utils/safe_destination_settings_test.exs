@@ -155,10 +155,11 @@ defmodule PhoenixKit.Utils.SafeDestinationSettingsTest do
     test "is ranked below the role landing, not above it" do
       put_setting("after_login_path", "/shop")
 
-      # `/dashboard` resolves in core's router, so it wins — the setting is the
-      # fallback for visitors core has no page for, not an override.
+      # `/admin` — the guaranteed landing — is reached before the setting, so
+      # the setting wins only where core has no page for the visitor. It is the
+      # fallback, not an override.
       assert Routes.safe_destination(conn_for(@core), scope: plain_user()) ==
-               Routes.path("/dashboard")
+               Routes.path("/admin")
 
       assert Routes.safe_destination(conn_for(HostRouter), scope: plain_user()) == "/shop"
     end
@@ -268,7 +269,7 @@ defmodule PhoenixKit.Utils.SafeDestinationSettingsTest do
       # log-in page bounces an authenticated visitor through here, and a bare
       # "/" fallback would 404 them on a host that declares no root route.
       assert Routes.post_auth_path([], context: conn_for(@core), scope: plain_user()) ==
-               Routes.path("/dashboard")
+               Routes.path("/admin")
     end
 
     test "after_login_path of \"/\" does not bypass the routability probe" do
@@ -284,10 +285,10 @@ defmodule PhoenixKit.Utils.SafeDestinationSettingsTest do
       # chain falls through to `home_or_core_landing/2`.
       put_setting("after_login_path", "/")
 
-      # @core has no root route: falls through to safe_destination, which picks
-      # /dashboard for an authenticated plain_user.
+      # @core has no root route: falls through to safe_destination, which lands
+      # an authenticated plain_user on /admin, the guaranteed landing.
       assert Routes.post_auth_path([], context: conn_for(@core), scope: plain_user()) ==
-               Routes.path("/dashboard")
+               Routes.path("/admin")
 
       # HostRouter DOES declare "/": routable? returns true, so "/" is used.
       assert Routes.post_auth_path([], context: conn_for(HostRouter), scope: plain_user()) == "/"

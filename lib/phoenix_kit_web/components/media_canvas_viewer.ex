@@ -33,8 +33,27 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
       assigns map so future cross-component send_updates have a
       target without re-plumbing the API.
 
+  ## A board instead of a file
+
+  Pass `:board` (and no `:file`) to draw on an EMPTY canvas — a projects
+  whiteboard, say: `%{target_type: "projects_whiteboard", target_uuid:
+  board.uuid, width: 1920, height: 1080, background: nil}`. Fresco renders
+  the scene with zero images (`infinite_canvas`), Etcher draws over it,
+  and every shape persists against the target pair instead of a file
+  (V183). No file means no rotation, no thumbnail job, no comment thread
+  and no sidebar — the board is the canvas and its tools. The id should
+  include the target uuid for the same remount reason as a file.
+
   ## Optional assigns
 
+    * `:can_annotate` (default `true`) — whether THIS viewer may change
+      the drawings. `false` is read-only: every shape arrives locked
+      (Etcher's `readonly`, so it renders and tooltips but cannot be
+      moved, resized, deleted or edited), the drawing toolbar and the
+      pencil are gone, and the server refuses `etcher:annotations-changed`
+      / `etcher:shape-drawn` outright — Etcher's flag is UX, this is the
+      boundary. Hosts pass their own write permission (a project member's
+      `can_write`); the default keeps every existing host as it was.
     * `:viewer_only` (default `false`) — render only the canvas /
       composer column; suppresses the close button and the sidebar
       (filename + Download + metadata + comments). Used by
@@ -106,6 +125,7 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
      |> assign(:etcher_colors, @default_etcher_colors)
      |> assign(:etcher_line_params, @default_etcher_line_params)
      |> assign(:viewer_only, false)
+     |> assign(:can_annotate, true)
      |> assign(:viewer_rotation, 0)
      |> assign(:persist_rotation, false)
      |> assign(:rotation_status, nil)
@@ -167,16 +187,19 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
 
   def update(assigns, socket) do
     file = assigns[:file]
+    board = if is_nil(file), do: normalize_board(assigns[:board]), else: nil
 
     socket =
       socket
       |> assign(:id, assigns.id)
       |> assign(:file, file)
+      |> assign(:board, board)
       |> assign(:current_user, assigns[:current_user])
       |> assign(:parent_id, assigns[:parent_id])
       |> assign(:has_prev, assigns[:has_prev] || false)
       |> assign(:has_next, assigns[:has_next] || false)
       |> assign(:viewer_only, assigns[:viewer_only] || false)
+      |> assign(:can_annotate, assigns[:can_annotate] != false)
       # Opt-in: hosts that pass `persist_rotation` write a rotation back to the
       # shared file row (see handle_event "fresco:rotate") — the media browser
       # popup and the detail page do, so any user who can open and rotate a file
@@ -191,27 +214,60 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
     # prev/next destroys this LC and mounts a fresh one, so this
     # branch effectively only runs at mount time.
     socket =
-      if socket.assigns[:viewer_canvas] == nil and is_map(file) do
-        annotations = load_annotations_for(file.file_uuid)
+      cond do
+        socket.assigns[:viewer_canvas] == nil and is_map(file) ->
+          annotations = load_annotations_for(file.file_uuid)
 
-        socket
-        |> assign(:viewer_annotations, annotations)
-        |> assign(:viewer_canvas, build_viewer_canvas(file, annotations))
-        # Seed the saved rotation so the image paints already-rotated on open
-        # (no flash of unrotated → rotated). Read from the file's metadata row.
-        |> assign(:viewer_rotation, load_saved_rotation(file.file_uuid))
-        # Read fresh from the DB (not the parent-passed struct) so the
-        # palette is correct even on modal prev/next after an in-session
-        # edit, where the parent's `current_user` may be stale.
-        |> assign(:etcher_colors, load_user_colors(assigns[:current_user]))
-        |> assign(:etcher_line_params, load_user_line_params(assigns[:current_user]))
-        |> assign(:sidebar_collapsed, load_sidebar_collapsed(assigns[:current_user]))
-      else
-        socket
+          socket
+          |> assign(:viewer_annotations, annotations)
+          |> assign(:viewer_canvas, build_viewer_canvas(file, annotations, locked?(socket)))
+          # Seed the saved rotation so the image paints already-rotated on open
+          # (no flash of unrotated → rotated). Read from the file's metadata row.
+          |> assign(:viewer_rotation, load_saved_rotation(file.file_uuid))
+          # Read fresh from the DB (not the parent-passed struct) so the
+          # palette is correct even on modal prev/next after an in-session
+          # edit, where the parent's `current_user` may be stale.
+          |> assign(:etcher_colors, load_user_colors(assigns[:current_user]))
+          |> assign(:etcher_line_params, load_user_line_params(assigns[:current_user]))
+          |> assign(:sidebar_collapsed, load_sidebar_collapsed(assigns[:current_user]))
+
+        socket.assigns[:viewer_canvas] == nil and is_map(board) ->
+          annotations = load_annotations_for_target(board.target_type, board.target_uuid)
+
+          socket
+          |> assign(:viewer_annotations, annotations)
+          |> assign(:viewer_canvas, build_board_canvas(board, annotations, locked?(socket)))
+          |> assign(:viewer_rotation, 0)
+          |> assign(:etcher_colors, load_user_colors(assigns[:current_user]))
+          |> assign(:etcher_line_params, load_user_line_params(assigns[:current_user]))
+          |> assign(:sidebar_collapsed, true)
+
+        true ->
+          socket
       end
 
     {:ok, socket}
   end
+
+  # The `:board` assign, validated: a target pair plus a canvas extent
+  # (defaults to Full HD) and an optional CSS background for the stage.
+  # A malformed board is nil — the component then renders nothing rather
+  # than a canvas whose shapes could never persist.
+  defp normalize_board(%{target_type: type, target_uuid: uuid} = board)
+       when is_binary(type) and type != "file" and is_binary(uuid) do
+    %{
+      target_type: type,
+      target_uuid: uuid,
+      width: positive_int(Map.get(board, :width), 1920),
+      height: positive_int(Map.get(board, :height), 1080),
+      background: Map.get(board, :background)
+    }
+  end
+
+  defp normalize_board(_), do: nil
+
+  defp positive_int(n, _default) when is_integer(n) and n > 0, do: n
+  defp positive_int(_, default), do: default
 
   # ──────────────────────────────────────────────────────────────
   # Etcher events
@@ -231,9 +287,13 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # detours.
   @impl true
   def handle_event("etcher:annotations-changed", %{"annotations" => new_annotations}, socket) do
-    case socket.assigns[:file] do
-      nil -> {:noreply, socket}
-      file -> {:noreply, sync_annotations(socket, file, new_annotations)}
+    case {socket.assigns.can_annotate, socket.assigns[:file], socket.assigns[:board]} do
+      # Read-only viewer: the client should never send this (its shapes
+      # are locked and its tools gone) — a crafted one changes nothing.
+      {false, _, _} -> {:noreply, socket}
+      {true, %{} = file, _} -> {:noreply, sync_annotations(socket, file, new_annotations)}
+      {true, nil, %{} = board} -> {:noreply, sync_annotations(socket, board, new_annotations)}
+      _ -> {:noreply, socket}
     end
   end
 
@@ -300,6 +360,9 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # `annotations-changed`, and the comment system is only entered when
   # someone presses Reply on the shape's tooltip. The event stays
   # handled so an older etcher bundle emitting it doesn't crash the LV.
+  def handle_event("etcher:shape-drawn", _params, %{assigns: %{can_annotate: false}} = socket),
+    do: {:noreply, socket}
+
   def handle_event("etcher:shape-drawn", _params, socket) do
     {:noreply, socket}
   end
@@ -484,8 +547,41 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # Annotation persistence + canvas blob
   # ──────────────────────────────────────────────────────────────
 
-  defp sync_annotations(socket, file, new_annotations) do
-    file_uuid = file.file_uuid
+  # The file-only side effects of a shape change: (re)bake the annotated
+  # thumbnail variant in the background (debounced) so the media grid
+  # shows the markup, and reload the file's comment thread. A board has
+  # neither a file nor a thread.
+  defp after_shapes_changed(_socket, nil), do: :ok
+
+  defp after_shapes_changed(socket, file_uuid) do
+    Storage.AnnotationThumbnailJob.enqueue(file_uuid)
+    refresh_file_comments(socket)
+    :ok
+  end
+
+  # One shape from Etcher's bulk list against our last-known row: unchanged
+  # ⇒ no write, known ⇒ UPDATE, new ⇒ INSERT anchored to the target.
+  defp persist_one(_socket, a, current, _target) when not is_nil(current) do
+    if annotation_unchanged?(a, current),
+      do: :skip,
+      else: Storage.EtcherAdapter.update(a["uuid"], persistable_attrs(a, current))
+  end
+
+  defp persist_one(socket, a, nil, {target_type, target_uuid}) do
+    a
+    |> persistable_attrs(nil)
+    |> Map.put("target_type", target_type)
+    |> Map.put("target_uuid", target_uuid)
+    |> creator_attrs(socket)
+    |> put_marker_author(socket)
+    |> Storage.EtcherAdapter.create()
+  end
+
+  # `subject` is the file map OR a normalized board — `target_of/1` tells
+  # them apart; the file-only side effects live in `after_shapes_changed/2`.
+  defp sync_annotations(socket, subject, new_annotations) do
+    {target_type, target_uuid} = target_of(subject)
+    file_uuid = if target_type == "file", do: target_uuid
 
     current_by_uuid =
       Map.new(socket.assigns.viewer_annotations, fn a -> {to_string(a.uuid), a} end)
@@ -497,30 +593,9 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
 
     wrote? =
       Enum.reduce(new_annotations, false, fn a, wrote? ->
-        uuid = a["uuid"]
-        current = Map.get(current_by_uuid, uuid)
+        current = Map.get(current_by_uuid, a["uuid"])
 
-        result =
-          cond do
-            current && annotation_unchanged?(a, current) ->
-              :skip
-
-            current ->
-              Storage.EtcherAdapter.update(uuid, persistable_attrs(a, current))
-
-            true ->
-              attrs =
-                a
-                |> persistable_attrs(nil)
-                |> Map.put("target_type", "file")
-                |> Map.put("target_uuid", file_uuid)
-                |> creator_attrs(socket)
-                |> put_marker_author(socket)
-
-              Storage.EtcherAdapter.create(attrs)
-          end
-
-        case result do
+        case persist_one(socket, a, current, {target_type, target_uuid}) do
           :skip ->
             wrote?
 
@@ -529,7 +604,7 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
 
           {:error, reason} ->
             Logger.warning(
-              "[MediaCanvasViewer] annotation persist failed kind=#{inspect(a["kind"])} uuid=#{inspect(uuid)}: #{inspect(reason)}"
+              "[MediaCanvasViewer] annotation persist failed kind=#{inspect(a["kind"])} uuid=#{inspect(a["uuid"])}: #{inspect(reason)}"
             )
 
             wrote?
@@ -557,20 +632,17 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
     end)
 
     if wrote? or to_delete != [] do
-      # Shapes changed — (re)bake the annotated thumbnail variant in the
-      # background (debounced) so the media grid shows the markup.
-      Storage.AnnotationThumbnailJob.enqueue(file_uuid)
+      after_shapes_changed(socket, file_uuid)
 
       # A row was created / updated / deleted — reload from DB to pick up
       # fresh comment metadata + cascade changes (deleted-annotation
       # comments cascading out), then rebuild the canvas blob.
-      refreshed = load_annotations_for(file_uuid)
-      refresh_file_comments(socket)
+      refreshed = load_annotations_for_target(target_type, target_uuid)
 
       socket
       |> assign(:viewer_annotations, refreshed)
-      |> assign(:viewer_canvas, build_viewer_canvas(file, refreshed))
-      |> push_metadata_patches(file_uuid, new_in_batch, refreshed)
+      |> assign(:viewer_canvas, build_canvas(subject, refreshed))
+      |> push_metadata_patches(target_uuid, new_in_batch, refreshed)
     else
       # Etcher re-broadcast with no net change — skip the reload and
       # canvas rebuild entirely.
@@ -864,9 +936,87 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # them via `handle.getExtension("etcher")` on mount. Returns nil
   # when there's no usable image url — gates the `<Fresco.canvas>`
   # render in the heex.
-  defp build_viewer_canvas(nil, _annotations), do: nil
+  # The board's markup: the same Fresco canvas + Etcher layer the image
+  # branch renders, over an empty scene, with the connector tool left ON
+  # (arrows between shapes are what a board is for) and nothing that
+  # needs a file — no rotation, no zoom ladder, no sidebar, no composer.
+  attr :board, :map, required: true
+  attr :viewer_canvas, :any, required: true
+  attr :etcher_colors, :list, required: true
+  attr :etcher_line_params, :map, required: true
+  attr :can_annotate, :boolean, required: true
 
-  defp build_viewer_canvas(file, annotations) when is_map(file) do
+  defp board_canvas(assigns) do
+    ~H"""
+    <div class="flex h-full overflow-hidden">
+      <div
+        id={"pk-annotation-actions-" <> @board.target_uuid}
+        phx-hook="EtcherTooltipActions"
+        class="flex-1 relative flex items-center justify-center bg-base-200 overflow-hidden p-0 lg:p-2 min-h-[40vh] lg:min-h-0"
+      >
+        <Fresco.canvas
+          id={"media-zoom-" <> @board.target_uuid}
+          canvas={@viewer_canvas}
+          class="w-full h-full lg:rounded"
+          theme={:inherit}
+          infinite_canvas={true}
+        />
+        <Etcher.layer
+          fresco_id={"media-zoom-" <> @board.target_uuid}
+          colors={@etcher_colors}
+          line_params={@etcher_line_params}
+          toolbar={@can_annotate}
+          nav_buttons={if @can_annotate, do: nil, else: [:visibility]}
+          tools={
+            if @can_annotate,
+              do: [
+                :grabber,
+                :image,
+                :rectangle,
+                :circle,
+                :polygon,
+                :freehand,
+                :marker,
+                :callout,
+                :text,
+                :dimension,
+                :line,
+                :eraser
+              ],
+              else: []
+          }
+        />
+      </div>
+    </div>
+    """
+  end
+
+  defp target_of(%{file_uuid: uuid}) when is_binary(uuid), do: {"file", uuid}
+  defp target_of(%{target_type: type, target_uuid: uuid}), do: {type, uuid}
+
+  defp build_canvas(%{file_uuid: _} = file, annotations),
+    do: build_viewer_canvas(file, annotations, false)
+
+  defp build_canvas(%{target_type: _} = board, annotations),
+    do: build_board_canvas(board, annotations, false)
+
+  # A read-only viewer's shapes are sent locked (Etcher `readonly`).
+  defp locked?(socket), do: not socket.assigns.can_annotate
+
+  # A board: the scene with NO images — Fresco keeps the extent from the
+  # canvas itself and Etcher draws over the void. `infinite_canvas` lets
+  # the user pan beyond the extent, which is what a whiteboard wants.
+  defp build_board_canvas(board, annotations, locked?) do
+    Fresco.Canvas.new(width: board.width, height: board.height, background: board.background)
+    |> Fresco.Canvas.put_extension("etcher", %{
+      "version" => "1",
+      "annotations" => Enum.map(annotations, &etcher_annotation_for_wire(&1, locked?))
+    })
+  end
+
+  defp build_viewer_canvas(nil, _annotations, _locked?), do: nil
+
+  defp build_viewer_canvas(file, annotations, locked?) when is_map(file) do
     # Open on the cheap medium variant; Tessera swaps up to large (and DZI
     # tiles for >4K images) as the user zooms. The canvas keeps the full
     # original dimensions so the coordinate space matches the DZI pyramid.
@@ -879,7 +1029,7 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
       |> Fresco.Canvas.add_image(put_natural_size(%{src: src, x: 0, y: 0, width: width}, file))
       |> Fresco.Canvas.put_extension("etcher", %{
         "version" => "1",
-        "annotations" => Enum.map(annotations, &etcher_annotation_for_wire/1)
+        "annotations" => Enum.map(annotations, &etcher_annotation_for_wire(&1, locked?))
       })
     end
   end
@@ -929,12 +1079,14 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # Map an in-memory annotation (from `load_annotations_for/1`) to
   # the Etcher 0.3 wire shape (string-keyed map with uuid/kind/
   # geometry plus optional style/metadata).
-  defp etcher_annotation_for_wire(a) do
+  defp etcher_annotation_for_wire(a, locked?) do
     base = %{
       "uuid" => to_string(a.uuid),
       "kind" => a.kind,
       "geometry" => a.geometry
     }
+
+    base = if locked?, do: Map.put(base, "readonly", true), else: base
 
     base =
       case Map.get(a, :style) do
@@ -1028,60 +1180,79 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   def load_annotations_for(file_uuid) do
     file_uuid
     |> Annotations.list_for_file_with_previews()
-    |> Enum.map(fn %{annotation: a, first_comment: fc, comment_count: count} = row ->
-      # `metadata` flows through to Etcher's tooltip. The JS reads
-      # `metadata.label` (consumer-set) plus the comment_* fields we
-      # populate here for the auto-rendered preview.
-      base_meta = a.metadata || %{}
+    |> Enum.map(&curate_row/1)
+  end
 
-      comment_meta =
-        case fc do
-          nil ->
-            %{"comment_created_at" => format_date(a.inserted_at), "comment_count" => 0}
+  @doc """
+  `load_annotations_for/1` for any target: a file goes through the
+  comment-preview loader; any other target has no comment threads, so
+  its rows carry the zero-comment shape (badge 0, no preview).
+  """
+  def load_annotations_for_target("file", file_uuid), do: load_annotations_for(file_uuid)
 
-          %{} = c ->
-            %{
-              "comment_text" => truncate(c.content, 80),
-              "comment_author" => c.author,
-              "comment_thumbnail_url" => c.thumbnail_url,
-              "comment_has_attachment" => Map.get(c, :has_attachment, false),
-              "comment_count" => count,
-              "comment_created_at" => format_date(a.inserted_at)
-            }
-        end
-
-      # Surface the dedicated title column as `metadata.title` so the
-      # JS overlay can render it inline. The column is the source of
-      # truth; the metadata key is the JS-facing contract.
-      title_meta = if a.title, do: %{"title" => a.title}, else: %{}
-
-      # `badge` drives Etcher's on-shape count bubble (0.13): the number
-      # of discussion entries, so a glance at the canvas shows which
-      # shapes people are talking about. ALWAYS present, zero included:
-      # `patchShape` merges metadata, so an omitted key would leave a
-      # stale bubble on the shape after its last comment is deleted —
-      # Etcher hides the bubble for 0 itself.
-      badge_meta = %{"badge" => count}
-
-      %{
-        uuid: a.uuid,
-        kind: a.kind,
-        geometry: a.geometry,
-        style: a.style,
-        # For the Reply flow: the shape's creation moment (the master
-        # comment is backdated to it), its creator (the master's author),
-        # and the master's uuid when the thread already exists (nil =
-        # created on first Reply).
-        inserted_at: a.inserted_at,
-        creator_uuid: a.creator_uuid,
-        master_comment_uuid: Map.get(row, :master_comment_uuid),
-        metadata:
-          base_meta
-          |> Map.merge(comment_meta)
-          |> Map.merge(title_meta)
-          |> Map.merge(badge_meta)
-      }
+  def load_annotations_for_target(target_type, target_uuid) do
+    target_type
+    |> Annotations.list_for_target(target_uuid)
+    |> Enum.map(fn a ->
+      curate_row(%{annotation: a, first_comment: nil, comment_count: 0, master_comment_uuid: nil})
     end)
+  end
+
+  defp curate_row(row) do
+    %{annotation: a, first_comment: fc, comment_count: count} = row
+
+    # `metadata` flows through to Etcher's tooltip. The JS reads
+    # `metadata.label` (consumer-set) plus the comment_* fields we
+    # populate here for the auto-rendered preview.
+    base_meta = a.metadata || %{}
+
+    comment_meta =
+      case fc do
+        nil ->
+          %{"comment_created_at" => format_date(a.inserted_at), "comment_count" => 0}
+
+        %{} = c ->
+          %{
+            "comment_text" => truncate(c.content, 80),
+            "comment_author" => c.author,
+            "comment_thumbnail_url" => c.thumbnail_url,
+            "comment_has_attachment" => Map.get(c, :has_attachment, false),
+            "comment_count" => count,
+            "comment_created_at" => format_date(a.inserted_at)
+          }
+      end
+
+    # Surface the dedicated title column as `metadata.title` so the
+    # JS overlay can render it inline. The column is the source of
+    # truth; the metadata key is the JS-facing contract.
+    title_meta = if a.title, do: %{"title" => a.title}, else: %{}
+
+    # `badge` drives Etcher's on-shape count bubble (0.13): the number
+    # of discussion entries, so a glance at the canvas shows which
+    # shapes people are talking about. ALWAYS present, zero included:
+    # `patchShape` merges metadata, so an omitted key would leave a
+    # stale bubble on the shape after its last comment is deleted —
+    # Etcher hides the bubble for 0 itself.
+    badge_meta = %{"badge" => count}
+
+    %{
+      uuid: a.uuid,
+      kind: a.kind,
+      geometry: a.geometry,
+      style: a.style,
+      # For the Reply flow: the shape's creation moment (the master
+      # comment is backdated to it), its creator (the master's author),
+      # and the master's uuid when the thread already exists (nil =
+      # created on first Reply).
+      inserted_at: a.inserted_at,
+      creator_uuid: a.creator_uuid,
+      master_comment_uuid: Map.get(row, :master_comment_uuid),
+      metadata:
+        base_meta
+        |> Map.merge(comment_meta)
+        |> Map.merge(title_meta)
+        |> Map.merge(badge_meta)
+    }
   end
 
   defp creator_attrs(attrs, socket) do
@@ -1141,8 +1312,11 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
 
   defp rebuild_viewer_canvas(socket, annotations) do
     case socket.assigns[:file] do
-      nil -> socket
-      file -> assign(socket, :viewer_canvas, build_viewer_canvas(file, annotations))
+      nil ->
+        socket
+
+      file ->
+        assign(socket, :viewer_canvas, build_viewer_canvas(file, annotations, locked?(socket)))
     end
   end
 

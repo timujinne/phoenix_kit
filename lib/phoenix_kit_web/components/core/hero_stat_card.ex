@@ -38,11 +38,43 @@ defmodule PhoenixKitWeb.Components.Core.HeroStatCard do
   attr :title, :string, required: true, doc: "The card title text (displayed next to icon)"
   attr :subtitle, :string, required: true, doc: "The smaller descriptive text"
 
+  attr :navigate, :string,
+    default: nil,
+    doc:
+      "Optional destination. When set the whole card becomes a link to the report behind " <>
+        "the number. Pass a path already built through `PhoenixKit.Utils.Routes.path/1`."
+
   slot :icon, required: true, doc: "Icon to display next to the title"
 
   def hero_stat_card(assigns) do
     ~H"""
-    <div class="card bg-primary text-primary-content shadow-2xl hover:shadow-3xl transition-all duration-300 border-0 transform hover:scale-105">
+    <%= if @navigate do %>
+      <.link
+        navigate={@navigate}
+        class="block focus:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-box"
+      >
+        <.hero_stat_card_body {assigns} />
+      </.link>
+    <% else %>
+      <.hero_stat_card_body {assigns} />
+    <% end %>
+    """
+  end
+
+  attr :value, :any, required: true
+  attr :title, :string, required: true
+  attr :subtitle, :string, required: true
+  attr :navigate, :string, default: nil
+  # See the note in StatCard: the slot arrives via `{assigns}`, which the
+  # compiler cannot see, so it is not marked required here.
+  slot :icon
+
+  defp hero_stat_card_body(assigns) do
+    ~H"""
+    <div class={[
+      "card bg-primary text-primary-content shadow-2xl hover:shadow-3xl transition-all duration-300 border-0 transform hover:scale-105",
+      @navigate && "cursor-pointer"
+    ]}>
       <div class="card-body relative overflow-hidden">
         <div class="flex items-center gap-3 mb-4">
           <div class="p-2 bg-white/20 rounded-lg">

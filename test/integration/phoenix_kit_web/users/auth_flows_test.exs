@@ -199,7 +199,7 @@ defmodule PhoenixKitWeb.Users.AuthFlowsTest do
           "user" => %{"email_or_username" => user.email, "password" => @password}
         })
 
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      assert redirected_to(conn) == Routes.path("/admin")
     end
 
     test "honors the after_login_path setting", %{conn: conn} do
@@ -241,7 +241,7 @@ defmodule PhoenixKitWeb.Users.AuthFlowsTest do
         })
 
       refute redirected_to(conn) =~ "evil.example"
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      assert redirected_to(conn) == Routes.path("/admin")
     end
   end
 
@@ -938,7 +938,7 @@ defmodule PhoenixKitWeb.Users.AuthFlowsTest do
 
       refute redirected_to(conn) =~ "evil.example"
       # The default destination, resolved: no host `/` in this router.
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      assert redirected_to(conn) == Routes.path("/admin")
     end
 
     test "auth pages hand return_to to each other", %{conn: conn} do
@@ -1046,7 +1046,7 @@ defmodule PhoenixKitWeb.Users.AuthFlowsTest do
 
       refute redirected_to(conn) =~ "log-out"
       # The default destination, resolved: no host `/` in this router.
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      assert redirected_to(conn) == Routes.path("/admin")
     end
   end
 

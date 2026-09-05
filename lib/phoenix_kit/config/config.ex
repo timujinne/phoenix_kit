@@ -41,7 +41,8 @@ defmodule PhoenixKit.Config do
   - `:dashboard_subtab_style` - Default styling for subtabs (indent, icon_size, text_size, animation)
   - `:admin_path` - Top-level URL segment for the admin area (default: "/admin").
     See `get_admin_path/0` — compile-time, `config.exs` only.
-  - `:user_dashboard_enabled` - Enable/disable user dashboard (default: true)
+  - `:user_dashboard_enabled` - Enable/disable the deprecated user dashboard
+    (`/dashboard`). **Default: `false`.** See `user_dashboard_enabled?/0`.
   - `:user_dashboard_tabs` - List of custom tabs for the user dashboard sidebar
   - `:user_dashboard_tab_groups` - List of tab groups for organizing dashboard tabs
   - `:dashboard_presence` - Presence tracking settings for dashboard tabs
@@ -157,7 +158,7 @@ defmodule PhoenixKit.Config do
     users_module: PhoenixKit.Users.Auth.User,
     publishing_settings_module: PhoenixKit.Settings,
     # Dashboard settings
-    user_dashboard_enabled: true,
+    user_dashboard_enabled: false,
     # User dashboard tabs - list of tab configs for the user dashboard sidebar
     user_dashboard_tabs: [],
     # User dashboard tab groups - list of group configs for organizing tabs
@@ -568,6 +569,24 @@ defmodule PhoenixKit.Config do
     end
   end
 
+  # Segments the admin area cannot be renamed onto, because core already
+  # declares a route tree there.
+  #
+  # `dashboard` is conditional: it is only taken while the deprecated user
+  # dashboard is actually routed. With `user_dashboard_enabled: false` — the
+  # default since the dashboard was retired from core's defaults — nothing
+  # occupies `/dashboard`, so a host is free to move the admin area onto it.
+  # Turning the dashboard back on afterwards puts the segment back in this
+  # list, and the next compile raises rather than silently letting whichever
+  # tree the router declared first win.
+  defp admin_path_collisions do
+    if user_dashboard_enabled?() do
+      @admin_path_collisions
+    else
+      @admin_path_collisions -- ["dashboard"]
+    end
+  end
+
   defp validated_admin_segment(value) do
     segment = value |> String.trim_leading("/") |> String.trim_trailing("/")
 
@@ -584,7 +603,7 @@ defmodule PhoenixKit.Config do
         `PhoenixKit.Utils.Routes` compares admin URLs one segment at a time.
         """
 
-      segment in @admin_path_collisions ->
+      segment in admin_path_collisions() ->
         raise ArgumentError, """
         Invalid `config :phoenix_kit, admin_path: #{inspect(value)}`.
 
@@ -592,7 +611,7 @@ defmodule PhoenixKit.Config do
         the admin area cannot also live there — the two route trees would
         overlap and whichever the router declared first would win.
 
-        Reserved: #{Enum.join(@admin_path_collisions, ", ")}
+        Reserved: #{Enum.join(admin_path_collisions(), ", ")}
         """
 
       true ->
@@ -685,23 +704,53 @@ defmodule PhoenixKit.Config do
   end
 
   @doc """
-  Gets the user dashboard enabled flag.
+  Whether the deprecated user dashboard (`/dashboard`) is routed.
 
-  Returns true if the user dashboard is enabled, false otherwise.
-  This can be used to conditionally show/hide dashboard routes and navigation.
+  **Defaults to `false`.** The user dashboard is deprecated — its job has moved
+  into the unified admin panel at `/admin`, which shows each visitor the
+  sections their permissions allow (and greets a permission-less visitor rather
+  than bouncing them, see `PhoenixKitWeb.Users.Auth.landing_view?/1`). Core
+  therefore stopped routing it by default; nothing in core links to it any more.
+
+  It is **not deleted**. A host that still wants it turns it back on:
+
+      config :phoenix_kit, user_dashboard_enabled: true
+
+  and gets `/dashboard`, `/dashboard/settings` and the confirm-email compat
+  redirects back, exactly as before.
+
+  Read at macro-expansion time by the route macros in
+  `PhoenixKitWeb.Integration`, so it is compile-time config — `config.exs`,
+  never `runtime.exs`. `phoenix_kit_routes/0` folds it into
+  `__mix_recompile__?/0`, so flipping it re-expands the host router instead of
+  leaving it serving the old route table.
 
   ## Examples
 
       iex> PhoenixKit.Config.user_dashboard_enabled?()
-      true
-
-      iex> PhoenixKit.Config.user_dashboard_enabled?()
       false
+
+      # With `config :phoenix_kit, user_dashboard_enabled: true`:
+      iex> PhoenixKit.Config.user_dashboard_enabled?()
+      true
 
   """
   @spec user_dashboard_enabled?() :: boolean()
   def user_dashboard_enabled? do
-    get_boolean(:user_dashboard_enabled, true)
+    get_boolean(:user_dashboard_enabled, false)
+  end
+
+  @doc """
+  Whether the host has said anything at all about `:user_dashboard_enabled`.
+
+  Distinguishes "took the new default" from "explicitly chose `false`", which
+  `user_dashboard_enabled?/0` cannot: both answer `false`. `mix phoenix_kit.update`
+  uses it to tell an upgrading host that the default flipped under them — a
+  host that already wrote the key made a choice and needs no notice.
+  """
+  @spec user_dashboard_configured?() :: boolean()
+  def user_dashboard_configured? do
+    Application.get_env(:phoenix_kit, :user_dashboard_enabled) != nil
   end
 
   @doc """

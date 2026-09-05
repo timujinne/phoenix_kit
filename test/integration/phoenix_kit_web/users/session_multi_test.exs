@@ -234,8 +234,10 @@ defmodule PhoenixKitWeb.Users.SessionMultiTest do
 
       conn = delete(conn, Routes.path("/users/session/accounts/#{second.ref}"))
       # Removing the ACTIVE account falls back to root — a plain user here — so
-      # the destination is resolved for them: `/dashboard`, not `/admin`.
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      # the destination is resolved for them. That is `/admin`, the guaranteed
+      # landing every authenticated visitor is admitted to; the deprecated
+      # `/dashboard` is no longer routed by default.
+      assert redirected_to(conn) == Routes.path("/admin")
     end
 
     test "remove_account is forbidden when multi_session setting is off", %{conn: conn} do
@@ -274,7 +276,7 @@ defmodule PhoenixKitWeb.Users.SessionMultiTest do
           "return_to" => "//evil.com"
         })
 
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      assert redirected_to(conn) == Routes.path("/admin")
     end
 
     test "absolute URL redirect is rejected (falls back to a core landing)", %{
@@ -287,7 +289,7 @@ defmodule PhoenixKitWeb.Users.SessionMultiTest do
           "return_to" => "https://evil.com/steal"
         })
 
-      assert redirected_to(conn) == Routes.path("/dashboard")
+      assert redirected_to(conn) == Routes.path("/admin")
     end
 
     test "a safe relative path is accepted", %{conn: conn, other: other} do
