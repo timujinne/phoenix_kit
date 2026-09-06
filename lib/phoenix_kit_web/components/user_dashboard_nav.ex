@@ -12,6 +12,7 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.OAuthAvailability
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitWeb.Components.Core.AdminLabel
   alias PhoenixKitWeb.Components.Core.LanguageSwitcher
 
   # Guest dropdown link catalog. Each entry is
@@ -601,17 +602,23 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
   # wording is the only thing that differs, so it lives here rather than
   # being written out twice.
   #
-  # Deliberately `gettext/1` on both arms rather than an operator-typed
-  # setting, for the reason `PhoenixKitWeb.Components.LayoutWrapper` gives
-  # for the "Admin Panel" chip beside the project name: these are common
-  # noun phrases, already translated in every shipped locale, and a stored
-  # string would serve one language's wording to all of them. Renaming the
-  # URL segment (`config :phoenix_kit, admin_path:`) therefore does NOT
-  # rename the menu entry — the destination moves, the wording stays
-  # translated.
+  # Translated on both arms, not typed into an operator form, for the reason
+  # `PhoenixKitWeb.Components.LayoutWrapper` gives for the "Admin Panel" chip:
+  # these are common noun phrases, already translated in every shipped locale,
+  # and a stored string would serve one language's wording to all of them.
+  #
+  # A DEVELOPER can rename the admin arm in `config.exs` — either by picking a
+  # translated preset (`admin_panel_label: :workspace`) or, since renaming the
+  # URL usually means renaming the thing, just by setting `admin_path:`, which
+  # the label derives from. Both go through
+  # `PhoenixKitWeb.Components.Core.AdminLabel`, the same resolver the header
+  # chip uses, so the menu entry and the chip always say the same thing.
+  #
+  # Neither touches the "My Account" arm, which names the visitor's own
+  # account rather than the admin area.
   defp admin_entry_label(scope) do
     if Scope.can_access_admin_area?(scope),
-      do: gettext("Admin Panel"),
+      do: AdminLabel.text(),
       else: gettext("My Account")
   end
 

@@ -54,6 +54,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.PhoenixVersion
   alias PhoenixKit.Utils.Routes
+  alias PhoenixKitWeb.Components.Core.AdminLabel
   alias PhoenixKitWeb.Users.Auth
 
   @doc """
@@ -723,6 +724,14 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
 
   defp resolve_admin_panel_label(value), do: value
 
+  # The chip's TEXT. Delegates to the shared resolver so the header and the
+  # account-menu entry cannot disagree about what the admin area is called;
+  # see `PhoenixKitWeb.Components.Core.AdminLabel`.
+  #
+  # A named function rather than an inline call in `admin_template_assigns/2`:
+  # that function sits ON credo's cyclomatic ceiling, as its own comment says.
+  defp admin_panel_text, do: AdminLabel.text()
+
   defp strip_locale_prefix(path) do
     case Regex.run(~r/^\/[a-z]{2,3}(-[A-Za-z]{2,4})?(\/.*)?$/, path) do
       [_, _locale, rest] when is_binary(rest) -> rest
@@ -760,12 +769,18 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
       phoenix_kit_current_scope: assigns[:phoenix_kit_current_scope],
       project_title: assigns[:project_title] || PhoenixKit.Settings.get_project_title(),
       # Operator switch for the "Admin Panel" chip beside the project name.
-      # A cache-backed read: this renders on every admin page. The WORDING
-      # stays `gettext("Admin Panel")` rather than becoming an operator-typed
-      # string — it is a common noun phrase, already translated in every
-      # shipped locale, and a stored string would serve one language's wording
-      # to all of them. So the setting is show/hide, not a title field.
+      # A cache-backed read: this renders on every admin page.
+      #
+      # SHOW/HIDE, not a title field — deliberately. The wording is
+      # `gettext("Admin Panel")`, a common noun phrase already translated in
+      # every shipped locale, and a string typed into `/admin/settings` would
+      # serve one language's wording to all of them. A DEVELOPER can still
+      # override it in `config.exs` (`PhoenixKit.Config.admin_panel_label/0`),
+      # where the untranslated-for-everyone tradeoff is visible at the point of
+      # the decision rather than buried in an operator form.
       show_admin_panel_label: resolve_admin_panel_label(assigns[:show_admin_panel_label]),
+      # The chip's TEXT — see `admin_panel_text/0`.
+      admin_panel_text: admin_panel_text(),
       current_locale: assigns[:current_locale],
       current_locale_base:
         assigns[:current_locale] && DialectMapper.extract_base(assigns[:current_locale]),
@@ -916,7 +931,7 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                         @page_title && "hidden lg:inline"
                       ]}
                     >
-                      {gettext("Admin Panel")}
+                      {@admin_panel_text}
                     </span>
                     <.link
                       :if={@page_title}

@@ -107,8 +107,13 @@
         </div>
       <% end %>
 
-      <%!-- Account Type (only when organization accounts enabled) --%>
-      <%= if @org_accounts_enabled do %>
+      <%!-- Account Type. Rendered only where there is a choice to make: the
+           site can fix the type instead (organization accounts off, one of the
+           single-type registration modes, or an organization invitation), and
+           then the picker is one dead question. Hiding it is cosmetic — the
+           type is fixed server-side in `enforce_registration_account_type/2`
+           regardless of what the payload carries. --%>
+      <%= if @account_type_selectable do %>
         <div phx-feedback-for="user[account_type]">
           <label class="label" for="user_account_type">
             <span class="fieldset-legend">{gettext("Account Type")}</span>
@@ -132,20 +137,22 @@
             </option>
           </select>
         </div>
+      <% end %>
 
-        <%!-- Organization Name (only for organization type) --%>
-        <%= if Phoenix.HTML.Form.input_value(@form, :account_type) == "organization" do %>
-          <div phx-feedback-for="user[organization_name]">
-            <label class="label" for="user_organization_name">
-              <span class="fieldset-legend">{gettext("Organization Name")}</span>
-            </label>
-            <.input field={@form[:organization_name]} type="text" required>
-              <:icon>
-                <.icon name="hero-building-office" class="h-[1em] w-[1em] opacity-50" />
-              </:icon>
-            </.input>
-          </div>
-        <% end %>
+      <%!-- Organization Name — asked whenever the account being created is an
+           organization, whether the visitor picked that above or the site fixed
+           it for them. --%>
+      <%= if Phoenix.HTML.Form.input_value(@form, :account_type) == "organization" do %>
+        <div phx-feedback-for="user[organization_name]">
+          <label class="label" for="user_organization_name">
+            <span class="fieldset-legend">{gettext("Organization Name")}</span>
+          </label>
+          <.input field={@form[:organization_name]} type="text" required>
+            <:icon>
+              <.icon name="hero-building-office" class="h-[1em] w-[1em] opacity-50" />
+            </:icon>
+          </.input>
+        </div>
       <% end %>
 
       <div phx-feedback-for="user[password]">

@@ -56,10 +56,16 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
         # Generate username suggestion from email
         suggested_username = User.generate_username_from_email(email)
 
+        # What this form may create. There is no picker here (the visitor
+        # already proved the address; the site decides the type), so the mode
+        # is applied straight to the seed struct and enforced again on submit.
+        account_type_mode = Auth.registration_account_type()
+
         changeset =
           Auth.change_user_registration(%User{
             email: email,
-            username: suggested_username
+            username: suggested_username,
+            account_type: default_account_type(account_type_mode)
           })
 
         # Extract IP address for geolocation
@@ -76,6 +82,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
          |> assign(:token, token)
          |> assign(:email, email)
          |> assign(:ip_address, ip_address)
+         |> assign(:account_type_mode, account_type_mode)
          |> assign(:referral_codes_enabled, referral_codes_config.enabled)
          |> assign(:referral_codes_required, referral_codes_config.required)
          |> assign(:referral_code, nil)
@@ -97,7 +104,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
   @impl true
   def handle_event("validate", %{"user" => user_params} = params, socket) do
     referral_code = params["referral_code"]
-    user_params = form_params(user_params)
+    user_params = form_params(user_params, socket.assigns.account_type_mode)
 
     # Track the checkbox across re-renders so unticking it sticks.
     socket = assign(socket, :remember_me, user_params["remember_me"] == "true")
@@ -134,7 +141,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
   @impl true
   def handle_event("save", %{"user" => user_params} = params, socket) do
     referral_code = params["referral_code"]
-    user_params = form_params(user_params)
+    user_params = form_params(user_params, socket.assigns.account_type_mode)
 
     case validate_referral_code(referral_code, socket, :submit) do
       {:ok, _validated_code} ->
@@ -193,10 +200,16 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistration do
   @form_fields ~w(email username password first_name last_name account_type
                   organization_name user_timezone remember_me return_to)
 
-  defp form_params(user_params) when is_map(user_params),
-    do: Map.take(user_params, @form_fields)
+  defp form_params(user_params, mode) when is_map(user_params) do
+    user_params
+    |> Map.take(@form_fields)
+    |> Auth.enforce_registration_account_type(mode)
+  end
 
-  defp form_params(other), do: other
+  defp form_params(other, _mode), do: other
+
+  defp default_account_type("organization"), do: "organization"
+  defp default_account_type(_mode), do: "person"
 
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
     form = to_form(changeset, as: "user")

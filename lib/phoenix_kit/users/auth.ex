@@ -979,6 +979,94 @@ defmodule PhoenixKit.Users.Auth do
   ## Organization Accounts
 
   @doc """
+  Whether organization accounts are enabled site-wide
+  (`"enable_organization_accounts"`, default `false`).
+
+  The master switch: off, this install has person accounts only and the
+  organization columns, tabs and pickers are hidden throughout the admin area.
+  """
+  @spec organization_accounts_enabled?() :: boolean()
+  def organization_accounts_enabled? do
+    PhoenixKit.Settings.get_boolean_setting("enable_organization_accounts", false)
+  end
+
+  @doc """
+  The account-type policy for the PUBLIC signup forms.
+
+  Returns one of:
+
+    * `"choice"` — the visitor picks Personal or Organization (the default, and
+      what every install that has never touched the setting reads).
+    * `"person"` — every self-serve signup is a person. Organizations still
+      exist; only an admin creates them.
+    * `"organization"` — every self-serve signup IS an organization, and the
+      Organization Name field is required. The B2B shape: there are no personal
+      accounts to open, and staff arrive through an organization invitation.
+
+  Collapses to `"person"` whenever organization accounts are off, so a single
+  call answers "what may this form create?" without every caller also having to
+  ask `organization_accounts_enabled?/0`.
+
+  An unrecognised stored value falls back to the default rather than raising —
+  a bad row must not take the signup page down.
+  """
+  @spec registration_account_type() :: String.t()
+  def registration_account_type do
+    if organization_accounts_enabled?() do
+      default = PhoenixKit.Settings.default_registration_account_type()
+      stored = PhoenixKit.Settings.get_setting_cached("registration_account_type", default)
+
+      if stored in PhoenixKit.Settings.registration_account_types(), do: stored, else: default
+    else
+      "person"
+    end
+  end
+
+  @doc """
+  Stamps the account-type policy onto public-signup params, server-side.
+
+  ⚠️ This — not the hidden `<select>` — is the control. `registration_changeset/3`
+  casts `account_type` and `organization_name` straight from the payload, and a
+  `phx-submit` payload is whatever the client sends: without this, a forged
+  `user[account_type]=organization` created an organization account on a site
+  where the picker was never rendered (including one with organization accounts
+  switched off entirely).
+
+  Mirrors `maybe_write_remember_me_cookie/3`: the policy is enforced where the
+  value is used, so no caller and no forged param can route around it.
+
+  In `"choice"` mode the visitor's pick is honoured but normalised to the two
+  known values — the registration changeset has no `validate_inclusion` of its
+  own, so an unknown string would otherwise reach the insert and be rejected by
+  a CHECK constraint as a 500 rather than a validation error.
+  """
+  @spec enforce_registration_account_type(map(), String.t()) :: map()
+  def enforce_registration_account_type(params, "choice") when is_map(params) do
+    if Map.get(params, "account_type") == "organization" do
+      params
+    else
+      force_person_params(params)
+    end
+  end
+
+  def enforce_registration_account_type(params, "organization") when is_map(params) do
+    Map.put(params, "account_type", "organization")
+  end
+
+  def enforce_registration_account_type(params, _mode) when is_map(params) do
+    force_person_params(params)
+  end
+
+  # `organization_name` goes with it: `validate_organization_fields/1` nils the
+  # column for a person anyway, but dropping it here keeps the value out of the
+  # changeset (and out of the re-rendered form) rather than relying on that.
+  defp force_person_params(params) do
+    params
+    |> Map.put("account_type", "person")
+    |> Map.delete("organization_name")
+  end
+
+  @doc """
   Lists all organization-type users.
   """
   def list_organizations do

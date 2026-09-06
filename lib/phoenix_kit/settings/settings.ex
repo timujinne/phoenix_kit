@@ -164,6 +164,7 @@ defmodule PhoenixKit.Settings do
     crawlers_module_enabled
     crawlers_no_index
     enable_organization_accounts
+    registration_account_type
     webhook_verify_sns_signature
     webhook_check_aws_ip
     webhook_rate_limit_enabled
@@ -294,6 +295,9 @@ defmodule PhoenixKit.Settings do
       "crawlers_no_index" => "false",
       # Organization Accounts
       "enable_organization_accounts" => "false",
+      # Which account types the PUBLIC signup form may create. Only consulted
+      # when organization accounts are on — see `registration_account_types/0`.
+      "registration_account_type" => "choice",
       # Webhook Security Settings
       "webhook_verify_sns_signature" => "true",
       "webhook_check_aws_ip" => "true",
@@ -1394,6 +1398,50 @@ defmodule PhoenixKit.Settings do
       "editor_default_mode" => editor_mode_options()
     }
   end
+
+  # THE canonical `"registration_account_type"` list: `{stored value, label
+  # msgid}`. The label is only a msgid here — it is passed through `gettext/1`
+  # at the call site (the settings LiveView), because this module has no
+  # gettext backend and a label baked in at compile time would ship one
+  # language to every visitor.
+  #
+  # The head entry is the default, and is what every existing install reads:
+  # the row is absent until an operator saves the page.
+  @registration_account_types [
+    {"choice", "Visitor chooses"},
+    {"person", "Personal accounts only"},
+    {"organization", "Organization accounts only"}
+  ]
+
+  @default_registration_account_type @registration_account_types |> hd() |> elem(0)
+
+  @doc """
+  The valid `"registration_account_type"` values.
+
+  Single source for the changeset allowlist in `PhoenixKit.Settings.Setting`
+  and for the coercion in `PhoenixKit.Users.Auth.registration_account_type/0`,
+  so a value the picker offers can never be one the changeset rejects.
+  """
+  @spec registration_account_types() :: [String.t()]
+  def registration_account_types,
+    do: Enum.map(@registration_account_types, fn {value, _label} -> value end)
+
+  @doc """
+  The `"registration_account_type"` options as `{label msgid, value}` tuples.
+
+  The labels are **untranslated msgids** — the caller runs them through its own
+  `gettext/1`. See `PhoenixKitWeb.Live.Settings.Users`.
+  """
+  @spec registration_account_type_options() :: [{String.t(), String.t()}]
+  def registration_account_type_options,
+    do: Enum.map(@registration_account_types, fn {value, label} -> {label, value} end)
+
+  @doc """
+  The default `"registration_account_type"`, `"choice"` — today's behaviour,
+  which is what an install that has never touched the setting keeps.
+  """
+  @spec default_registration_account_type() :: String.t()
+  def default_registration_account_type, do: @default_registration_account_type
 
   # THE canonical content-editor (Leaf) mode list: `{stored value, Leaf atom,
   # label}`. Everything else about editor modes derives from this — the picker

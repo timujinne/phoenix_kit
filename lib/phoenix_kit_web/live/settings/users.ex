@@ -43,6 +43,7 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
       |> assign(:settings, merged_settings)
       |> assign(:saved_settings, merged_settings)
       |> assign(:setting_options, setting_options)
+      |> assign(:registration_account_type_options, registration_account_type_options())
       |> assign(:changeset, changeset)
       |> assign(:saving, false)
       |> assign(
@@ -69,7 +70,13 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
 
     socket =
       socket
-      |> assign(:settings, settings_params)
+      # Params carry only what the form actually rendered, and this page has
+      # fields behind conditionals (the account-type picker appears once
+      # organization accounts are ticked). Assigning the bare params would drop
+      # every key that was not on screen, so the field renders empty and its
+      # dirty hint claims an unsaved change against a value nobody touched.
+      # Submitted values still win; the merge only fills the gaps.
+      |> assign(:settings, Map.merge(socket.assigns.saved_settings, settings_params))
       |> assign(:changeset, changeset)
 
     {:noreply, socket}
@@ -314,4 +321,24 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
   def get_option_label(value, options) do
     Settings.get_option_label(value, options)
   end
+
+  # Values come from the context (single source, shared with the changeset
+  # allowlist); the labels are translated HERE. `gettext/1` needs a literal
+  # msgid to extract, so each value gets its own clause — the same arrangement
+  # as `PhoenixKitWeb.Components.Core.AdminLabel.preset_text/1`, and
+  # `registration_account_type_test.exs` fails if a value ever loses one.
+  defp registration_account_type_options do
+    Enum.map(Settings.registration_account_type_options(), fn {_msgid, value} ->
+      {registration_account_type_label(value), value}
+    end)
+  end
+
+  @doc false
+  def registration_account_type_label("choice"), do: gettext("Visitor chooses")
+  def registration_account_type_label("person"), do: gettext("Personal accounts only")
+  def registration_account_type_label("organization"), do: gettext("Organization accounts only")
+
+  # Not reachable through the context list; kept so a value added there without
+  # a clause degrades to a raw label instead of crashing the settings page.
+  def registration_account_type_label(value), do: value
 end

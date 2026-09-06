@@ -60,20 +60,26 @@ defmodule PhoenixKitWeb.Users.Registration do
       # Get username field visibility setting
       show_username = Settings.get_setting("registration_show_username", "true") != "false"
 
-      # Get organization accounts setting
-      org_accounts_enabled =
-        Settings.get_boolean_setting("enable_organization_accounts", false)
+      # Parse invitation token from URL params
+      invitation_token = Map.get(params, "invitation")
+      pending_invitation = load_pending_invitation(invitation_token)
 
-      changeset = Auth.change_user_registration(%User{})
+      # What this form is allowed to create — see `account_type_mode/1`.
+      account_type_mode = account_type_mode(pending_invitation)
+
+      # Seeded with the type the site fixes, so the form renders the
+      # Organization Name field from the first paint in organization-only mode
+      # (the changeset carries no `:action` yet, so its "can't be blank" does
+      # not display until the visitor submits).
+      changeset =
+        Auth.change_user_registration(%User{
+          account_type: default_account_type(account_type_mode)
+        })
 
       # Extract and store IP address during mount for later use
       ip_address = IpAddress.extract_from_socket(socket)
 
       seo = AuthSEO.seo_assigns("/users/register")
-
-      # Parse invitation token from URL params
-      invitation_token = Map.get(params, "invitation")
-      pending_invitation = load_pending_invitation(invitation_token)
 
       # Support return_to query param for post-registration redirect
       # (mirrors the login page; wins over the after_registration_path setting)
@@ -93,7 +99,8 @@ defmodule PhoenixKitWeb.Users.Registration do
         |> assign(user_ip_address: ip_address)
         |> assign(magic_link_registration_enabled: magic_link_registration_enabled)
         |> assign(show_username: show_username)
-        |> assign(org_accounts_enabled: org_accounts_enabled)
+        |> assign(account_type_mode: account_type_mode)
+        |> assign(account_type_selectable: account_type_mode == "choice")
         |> assign(pending_invitation: pending_invitation)
         |> assign(pending_invitation_token: invitation_token)
         |> assign(return_to: return_to)
@@ -132,7 +139,7 @@ defmodule PhoenixKitWeb.Users.Registration do
 
   def handle_event("validate", %{"user" => user_params} = params, socket) do
     referral_code = params["referral_code"]
-    user_params = form_params(user_params)
+    user_params = form_params(user_params, socket.assigns.account_type_mode)
 
     # Track whether the user owns the username field, then keep it in sync with
     # the email while it's still auto-managed.
@@ -171,7 +178,7 @@ defmodule PhoenixKitWeb.Users.Registration do
 
   defp do_save(user_params, params, socket) do
     referral_code = params["referral_code"]
-    user_params = form_params(user_params)
+    user_params = form_params(user_params, socket.assigns.account_type_mode)
 
     # If the username was never manually edited, let the schema (re)generate it
     # from the final email rather than persisting a possibly-stale preview value.
@@ -318,10 +325,25 @@ defmodule PhoenixKitWeb.Users.Registration do
   @form_fields ~w(email username password first_name last_name account_type
                   organization_name user_timezone remember_me return_to)
 
-  defp form_params(user_params) when is_map(user_params),
-    do: Map.take(user_params, @form_fields)
+  defp form_params(user_params, mode) when is_map(user_params) do
+    user_params
+    |> Map.take(@form_fields)
+    |> Auth.enforce_registration_account_type(mode)
+  end
 
-  defp form_params(other), do: other
+  defp form_params(other, _mode), do: other
+
+  # The site policy, with one local override: a visitor arriving on an
+  # organization invitation is joining an organization that already exists.
+  # Letting them pick "Organization" would create a SECOND one — and an
+  # organization account cannot hold an `organization_uuid`
+  # (`validate_organization_fields/1` nils it), so the invitation could never
+  # be redeemed afterwards.
+  defp account_type_mode(nil), do: Auth.registration_account_type()
+  defp account_type_mode(_pending_invitation), do: "person"
+
+  defp default_account_type("organization"), do: "organization"
+  defp default_account_type(_mode), do: "person"
 
   defp maybe_accept_invitation_without_confirmation(user) do
     if Settings.get_boolean_setting("require_email_confirmation", true) do

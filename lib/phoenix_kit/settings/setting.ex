@@ -351,6 +351,7 @@ defmodule PhoenixKit.Settings.Setting do
       field :user_settings_path, :string
       # Organization Accounts
       field :enable_organization_accounts, :string
+      field :registration_account_type, :string
       # Admin Panel Languages
       field :admin_languages, :string
       # OAuth Provider Credentials
@@ -419,6 +420,7 @@ defmodule PhoenixKit.Settings.Setting do
         :after_registration_path,
         :user_settings_path,
         :enable_organization_accounts,
+        :registration_account_type,
         :admin_languages,
         :oauth_google_client_id,
         :oauth_google_client_secret,
@@ -458,6 +460,12 @@ defmodule PhoenixKit.Settings.Setting do
       # away (or offered in the picker while the changeset rejects it).
       |> validate_inclusion(:editor_default_mode, PhoenixKit.Settings.editor_modes())
       |> validate_inclusion(:enable_organization_accounts, ["true", "false"])
+      # Allowlist comes from the context's canonical list, so the picker and
+      # the accepted set cannot disagree.
+      |> validate_inclusion(
+        :registration_account_type,
+        PhoenixKit.Settings.registration_account_types()
+      )
       |> validate_inclusion(:require_email_confirmation, ["true", "false"],
         message: "must be either 'true' or 'false'"
       )

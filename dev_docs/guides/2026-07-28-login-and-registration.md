@@ -44,6 +44,61 @@ and the value the user sees would disagree with what `phx-trigger-action` POSTs.
 > **un-disabled** hidden `value="false"` input, so a disabled box still submits
 > `false` and silently rewrites the stored setting on save.
 
+## What the signup page may create
+
+Two settings, and the second only exists while the first is on.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `enable_organization_accounts` | `false` | Master switch for organization accounts — the columns, tabs and pickers throughout the admin area. |
+| `registration_account_type` | `"choice"` | What the **public** signup forms may create: `"choice"`, `"person"` or `"organization"`. |
+
+Read both through `Auth.registration_account_type/0`, which collapses them into
+one answer — it returns `"person"` whenever organization accounts are off, so no
+caller has to ask two questions:
+
+| Mode | Signup page | Shape it serves |
+|---|---|---|
+| `"choice"` | Personal / Organization picker | Mixed consumer + business. The shipped default, and what an install that never touched the setting keeps. |
+| `"person"` | no picker, always a person | Organizations exist, but only an admin creates them. |
+| `"organization"` | no picker, Organization Name **required** | B2B: there is no personal account to open, and staff join by invitation. |
+
+An organization account **is a user row** (`account_type: "organization"`, an
+`organization_name`, no first/last name); staff are person rows carrying its
+`organization_uuid`. So in `"organization"` mode the company registers itself
+and then invites its people — nothing on the public form ever produces a
+personal account.
+
+> ⚠️ **The hidden `<select>` is not the control.** `registration_changeset/3`
+> casts `account_type` and `organization_name` straight from the payload, and a
+> `phx-submit` payload is whatever the client sends. Enforcement is
+> `Auth.enforce_registration_account_type/2`, applied inside each form's
+> `form_params/2` allowlist — the same arrangement as
+> `maybe_write_remember_me_cookie/3`. Before it existed, a forged
+> `user[account_type]=organization` created an organization account on a site
+> with organization accounts switched off entirely.
+
+`"choice"` mode normalises anything that is not `"organization"` to
+`"person"` rather than passing it through: the registration changeset has no
+`validate_inclusion` of its own, so an unknown string would otherwise reach the
+insert and come back as a CHECK-constraint 500 instead of a validation error.
+
+**Both registration forms honour it.** The magic-link completion form has no
+picker at all, so it renders the Organization Name field exactly when the mode
+is `"organization"` (and drops the first/last-name fields there — an
+organization has neither).
+
+**An organization invitation overrides the mode**, pinning the visitor to
+`"person"`. Letting an invitee pick "Organization" would create a *second*
+organization, and an organization account cannot hold an `organization_uuid`
+(`validate_organization_fields/1` nils it), so the invitation could never be
+redeemed afterwards.
+
+A LiveView test that submits the signup form needs
+`start_supervised!(PhoenixKit.Admin.SimplePresence)` — a **connected** mount
+tracks the anonymous visitor, and the suite does not start what a host app
+supervises.
+
 ## Post-auth destination
 
 One resolver — `Routes.post_auth_path/1` — takes candidate destinations in

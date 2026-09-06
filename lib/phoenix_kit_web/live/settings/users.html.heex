@@ -93,6 +93,7 @@
                 label={gettext("Enable organization accounts")}
                 wrapper_class="mt-3"
               />
+
               <.unsaved_hint dirty={
                 Enum.any?(
                   [
@@ -105,6 +106,57 @@
                   fn key -> @settings[key] != @saved_settings[key] end
                 )
               } />
+
+              <%!-- Only meaningful while organization accounts exist. Not
+                   rendered means not submitted, and `update_settings/1` only
+                   writes the keys a form actually sends — so switching the
+                   feature off leaves the stored mode untouched for when it
+                   comes back on. --%>
+              <%= if @settings["enable_organization_accounts"] == "true" do %>
+                <div class="mt-3 ml-7 pl-4 border-l-2 border-base-300">
+                  <label class="label" for="settings_registration_account_type">
+                    <span class="fieldset-legend text-base font-medium">
+                      {gettext("Account types on the signup page")}
+                    </span>
+                    <span class="fieldset-label text-sm text-base-content/60">
+                      {gettext("What a visitor is allowed to open")}
+                    </span>
+                  </label>
+                  <.select
+                    id="settings_registration_account_type"
+                    name="settings[registration_account_type]"
+                    value={@settings["registration_account_type"]}
+                    options={@registration_account_type_options}
+                    class="focus-within:select-primary"
+                  />
+                  <.unsaved_hint
+                    dirty={
+                      @settings["registration_account_type"] !=
+                        @saved_settings["registration_account_type"]
+                    }
+                    saved={
+                      get_option_label(
+                        @saved_settings["registration_account_type"],
+                        @registration_account_type_options
+                      )
+                    }
+                  />
+
+                  <%= if @settings["registration_account_type"] == "organization" do %>
+                    <div class="alert alert-info text-sm mt-2 max-w-prose">
+                      <.icon name="hero-information-circle" class="w-5 h-5" />
+                      <div class="text-xs">
+                        {gettext(
+                          "The account type picker disappears from the signup page and every visitor who registers opens an organization."
+                        )}
+                        {gettext(
+                          "People who work for one join it by invitation instead, so no personal account is ever opened from the public form."
+                        )}
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
 
               <%!-- Privacy Notice for Geolocation --%>
               <%= if @settings["track_registration_geolocation"] == "true" do %>
