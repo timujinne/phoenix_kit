@@ -7,7 +7,24 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V184 - Settings: dead `shop_currency` removed ⚡ LATEST
+  ### V185 - Carts/orders: frozen base currency and exchange rate ⚡ LATEST
+
+  Adds `base_currency`/`exchange_rate` to `phoenix_kit_shop_carts` and
+  `phoenix_kit_orders`, and `base_unit_price` to
+  `phoenix_kit_shop_cart_items` — all nullable, no default. A `DO` block
+  raises before touching a column if `phoenix_kit_currencies` does not have
+  exactly one `is_default` row, since the backfill's subqueries would
+  otherwise pick an arbitrary one and silently mis-price. The backfill
+  itself derives every value from the currency table's *current* state
+  rather than from a literal: a row already in the base currency gets
+  `exchange_rate = 1.0` and its own totals copied into `base_*`; a row in
+  another currency gets that currency's rate (or `NULL` if the currency is
+  gone from the table) and `NULL` `base_*` amounts, since computing them
+  now would fabricate a conversion nobody performed. On a host whose base
+  currency is USD with all-USD carts and orders (ours), the backfill is the
+  identity — no price changes, no order is repriced.
+
+  ### V184 - Settings: dead `shop_currency` removed
 
   Deletes the `shop_currency` row `V135` seeds into `phoenix_kit_settings`.
   Nothing reads it — confirmed by a full grep over `phoenix_kit`,
@@ -684,7 +701,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 184
+  @current_version 185
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries
