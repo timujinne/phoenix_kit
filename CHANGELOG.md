@@ -1,7 +1,125 @@
-## Unreleased
+## 2.15.1 - 2026-09-05
+
+### Added
+
+- **A B2B site can stop asking whether an account is personal.** With
+  organization accounts on, the signup page has always shown a Personal /
+  Organization picker — a dead question on a site where every account is a
+  company. A new **Account types on the signup page** setting
+  (`registration_account_type`, on `/admin/settings/users` beside the feature
+  switch) takes three values:
+
+  | Mode | Signup page |
+  |---|---|
+  | `"choice"` | the picker, as before — the default, and what every existing install keeps |
+  | `"person"` | no picker; organizations exist, but only an admin creates them |
+  | `"organization"` | no picker; Organization Name required, and staff join by invitation |
+
+  `Auth.registration_account_type/0` collapses this with the master switch, so
+  one call answers "what may this form create?" — it returns `"person"`
+  whenever organization accounts are off.
+
+  The magic-link completion form honours the same policy: it has no picker, so
+  it grows the Organization Name field (and drops first/last name, which an
+  organization has neither of) exactly in `"organization"` mode.
+
+### Fixed
+
+- **The account type was never enforced server-side.** `registration_changeset/3`
+  casts `account_type` and `organization_name` straight from the payload, and a
+  `phx-submit` payload is whatever the client sends — so a forged
+  `user[account_type]=organization` created an organization account on a site
+  with organization accounts **switched off entirely**, where the picker had
+  never been rendered. Both public forms now pipe their params through
+  `Auth.enforce_registration_account_type/2` inside their field allowlist, the
+  same arrangement that makes `remember_me_enabled` hold at the cookie writer.
+  In `"choice"` mode an unknown string normalises to `"person"` rather than
+  reaching the insert and coming back as a CHECK-constraint 500.
+
+- **An organization invitation no longer offers "Organization".** A visitor
+  registering from an invitation link saw the full picker, and choosing
+  Organization created a *second* organization — which cannot hold an
+  `organization_uuid`, so the invitation could never be redeemed. The
+  invitation now pins the signup to a person account, on the page and in the
+  payload.
+
+## 2.15.0 - 2026-09-05
+
+The deprecated user dashboard stops being routed by default, and the admin area
+gets a name of its own — one that a host can change without giving up
+translation.
+
+⚠️ **Two behaviour changes for existing hosts**, both covered below:
+`:user_dashboard_enabled` now defaults to `false`, so `/dashboard` stops routing
+for anyone who never wrote the key; and a host already running a renamed
+`:admin_path` that matches a preset will see its header wording change to match
+the URL. Neither deletes anything — one config line restores either.
+
+### Added
+
+- **The admin area can be called something else, and stay translated.**
+  Ten built-in names — Admin Panel, Dashboard, Backoffice, Console, Control
+  Panel, Workspace, Portal, My Account, Management, Studio — each a real
+  `gettext/1` msgid translated into all seven shipped locales. A host picks
+  one and a German visitor still reads "Arbeitsbereich" where an English one
+  reads "Workspace":
+
+      config :phoenix_kit, admin_panel_label: :workspace
+
+  **Unset, the name is derived from `:admin_path`**, so renaming the URL renames
+  the wording with it and the two cannot drift:
+
+      config :phoenix_kit, admin_path: "/backoffice"
+      # URL /backoffice, header "Backoffice" — one key, both aligned
+
+  `-` and `_` are equivalent in the segment, and a segment matching no preset
+  (`/x7q`, or any deliberately obscure rename) keeps the translated "Admin
+  Panel" rather than inventing a label out of the URL.
+
+  A free-text string still works — `admin_panel_label: "Acme HQ"` — as the
+  escape hatch for a brand name no preset covers. ⚠️ It is **not** translated:
+  one string, shown to every visitor in every language. That is exactly why the
+  presets exist, and why neither form is an operator field on
+  `/admin/settings`: `config.exs` puts the tradeoff at the point of the
+  decision, and keeps the wording next to `:admin_path`, which is compile-time
+  config for the same reason.
+
+  Resolution is `PhoenixKit.Config.admin_panel_label/0` → `{:preset, atom}` or
+  `{:custom, binary}`, rendered by the new
+  `PhoenixKitWeb.Components.Core.AdminLabel`. Both the header chip and the
+  account-menu admin entry go through it, so they cannot disagree. Unlike
+  `:admin_path`, an unrecognised value here **falls back rather than raising** —
+  this is cosmetic, and a typo must not take the admin area down in production
+  — but it logs once, naming the valid presets, so the fallback is not silent.
+- **`mix phoenix_kit.install` / `.update` write the naming options into the
+  host's `config/config.exs`, commented out.** A closed vocabulary of atoms is
+  not something a developer can guess, and neither of the places it was first
+  written down reaches them: the settings page is read by operators who cannot
+  act on it, and a CHANGELOG is read once. The block puts the whole list — each
+  preset, what it reads as, and the `admin_path` it pairs with — in the file
+  they open to make the change.
+
+  Every line is a comment, so the block is inert: it cannot execute, cannot
+  conflict, and does not care where in the file it lands, which is what makes
+  appending it after `import_config` safe. A test asserts that property
+  directly, and a second walks `admin_label_presets/0` so a preset added
+  without its comment entry fails the suite instead of raising partway through
+  somebody's install. Idempotent on a marker, and skipped entirely once the
+  host has an uncommented `admin_panel_label:` — at that point they have made
+  the choice the block exists to explain.
+
+  With the list living there, the settings-page description shortened to point
+  at it rather than reciting ten names to an audience that cannot use them.
 
 ### Changed
 
+- **The "Admin Panel" settings field says where the label appears and how to
+  change the wording.** The checkbox now reads *Show the "Admin Panel" label in
+  the admin header* rather than leaving the location to the description, and
+  the description no longer repeats it. It also no longer says the wording
+  "has no setting" — it lists the built-in names and points at `admin_panel_label`,
+  and notes that renaming the URL with `admin_path` picks the matching name on
+  its own. Both strings translated in all seven shipped locales.
 - **`:user_dashboard_enabled` now defaults to `false` — the user dashboard is
   retired from core's defaults.** `/dashboard`, `/dashboard/settings` and the
   confirm-email compat redirects are no longer routed unless a host asks for

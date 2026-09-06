@@ -84,6 +84,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     alias Igniter.Project.Config
 
     alias PhoenixKit.Install.{
+      AdminLabelConfig,
       ApplicationSupervisor,
       AssetRebuild,
       BasicConfiguration,
@@ -144,6 +145,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       else
         igniter
         |> BasicConfiguration.add_basic_config()
+        |> AdminLabelConfig.add_admin_label_options()
         |> ApplicationSupervisor.add_supervisor()
         |> BootHook.add_boot_hook()
         |> MailerConfig.repair_runtime_import_order()

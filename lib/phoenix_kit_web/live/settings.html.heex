@@ -74,11 +74,11 @@
             <.checkbox
               name="settings[show_admin_panel_label]"
               checked={@settings["show_admin_panel_label"] != "false"}
-              label={gettext("Show the \"Admin Panel\" label")}
+              label={gettext("Show the \"Admin Panel\" label in the admin header")}
             >
               <:description>
                 {gettext(
-                  "Shown next to the project name in the admin header. Turn it off to show just the project name. The wording itself follows each visitor's language and has no setting — a label typed here would show one language to everyone. The browser tab title is unaffected."
+                  "Shown next to the project name. Turn it off to show just the project name. The wording is not editable here because it is translated — each visitor reads it in their own language. To call your admin area something else and keep that, a developer can set `admin_panel_label` in config.exs, where the available names are listed as comments. The browser tab title is unaffected."
                 )}
               </:description>
             </.checkbox>

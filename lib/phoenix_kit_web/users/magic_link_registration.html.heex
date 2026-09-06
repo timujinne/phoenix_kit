@@ -48,37 +48,59 @@
         </.input>
       </div>
 
-      <%!-- First Name Field (optional) --%>
-      <div phx-feedback-for="user[first_name]">
-        <label class="label" for="user_first_name">
-          <span class="fieldset-legend">
-            {gettext("First Name")}
-            <span class="text-base-content/50 font-normal">({gettext("optional")})</span>
-          </span>
-        </label>
-        <.input
-          field={@form[:first_name]}
-          type="text"
-          autocomplete="given-name"
-          class="transition-colors focus:input-primary"
-        />
-      </div>
+      <%!-- Organization Name — this form has no account-type picker, so it is
+           shown exactly when the site fixes signups to organizations. Required
+           there: `registration_changeset/3` will not insert an organization
+           without one. --%>
+      <%= if @account_type_mode == "organization" do %>
+        <div phx-feedback-for="user[organization_name]">
+          <label class="label" for="user_organization_name">
+            <span class="fieldset-legend">{gettext("Organization Name")}</span>
+          </label>
+          <.input field={@form[:organization_name]} type="text" required>
+            <:icon>
+              <.icon name="hero-building-office" class="h-[1em] w-[1em] opacity-50" />
+            </:icon>
+          </.input>
+        </div>
+      <% end %>
 
-      <%!-- Last Name Field (optional) --%>
-      <div phx-feedback-for="user[last_name]">
-        <label class="label" for="user_last_name">
-          <span class="fieldset-legend">
-            {gettext("Last Name")}
-            <span class="text-base-content/50 font-normal">({gettext("optional")})</span>
-          </span>
-        </label>
-        <.input
-          field={@form[:last_name]}
-          type="text"
-          autocomplete="family-name"
-          class="transition-colors focus:input-primary"
-        />
-      </div>
+      <%!-- First and last name belong to a person; an organization account has
+           neither (`full_name/1` reads its organization name instead), so they
+           would only collect dead data. --%>
+      <%= if @account_type_mode != "organization" do %>
+        <%!-- First Name Field (optional) --%>
+        <div phx-feedback-for="user[first_name]">
+          <label class="label" for="user_first_name">
+            <span class="fieldset-legend">
+              {gettext("First Name")}
+              <span class="text-base-content/50 font-normal">({gettext("optional")})</span>
+            </span>
+          </label>
+          <.input
+            field={@form[:first_name]}
+            type="text"
+            autocomplete="given-name"
+            class="transition-colors focus:input-primary"
+          />
+        </div>
+
+        <%!-- Last Name Field (optional) --%>
+        <div phx-feedback-for="user[last_name]">
+          <label class="label" for="user_last_name">
+            <span class="fieldset-legend">
+              {gettext("Last Name")}
+              <span class="text-base-content/50 font-normal">({gettext("optional")})</span>
+            </span>
+          </label>
+          <.input
+            field={@form[:last_name]}
+            type="text"
+            autocomplete="family-name"
+            class="transition-colors focus:input-primary"
+          />
+        </div>
+      <% end %>
 
       <%!-- Referral Code Field --%>
       <%= if @referral_codes_enabled do %>

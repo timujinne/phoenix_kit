@@ -339,4 +339,101 @@ defmodule PhoenixKit.Utils.AdminSegmentTest do
       cached_permissions: MapSet.new([])
     }
   end
+
+  describe "Config.admin_panel_label/0" do
+    setup do
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :admin_panel_label) end)
+      Application.delete_env(:phoenix_kit, :admin_panel_label)
+      :ok
+    end
+
+    test "defaults to the translated Admin Panel preset" do
+      assert Config.admin_panel_label() == {:preset, :admin_panel}
+    end
+
+    test "an explicit preset wins" do
+      Application.put_env(:phoenix_kit, :admin_panel_label, :workspace)
+      assert Config.admin_panel_label() == {:preset, :workspace}
+    end
+
+    test "a string is carried through verbatim, trimmed" do
+      Application.put_env(:phoenix_kit, :admin_panel_label, "  Acme HQ  ")
+      assert Config.admin_panel_label() == {:custom, "Acme HQ"}
+    end
+
+    test "derives the preset from admin_path so the URL and the wording agree" do
+      for {segment, preset} <- [
+            {"/backoffice", :backoffice},
+            {"/console", :console},
+            {"/workspace", :workspace},
+            {"/studio", :studio}
+          ] do
+        with_segment(segment, fn ->
+          assert Config.admin_panel_label() == {:preset, preset},
+                 "expected #{segment} to derive #{inspect(preset)}"
+        end)
+      end
+    end
+
+    test "treats - and _ as the same segment spelling" do
+      for segment <- ["/control-panel", "/control_panel"] do
+        with_segment(segment, fn ->
+          assert Config.admin_panel_label() == {:preset, :control_panel}
+        end)
+      end
+    end
+
+    test "a segment matching no preset keeps Admin Panel, it does not invent one" do
+      with_segment("/x7q", fn ->
+        assert Config.admin_panel_label() == {:preset, :admin_panel}
+      end)
+    end
+
+    test "an explicit label beats the derivation" do
+      with_segment("/backoffice", fn ->
+        Application.put_env(:phoenix_kit, :admin_panel_label, :console)
+        assert Config.admin_panel_label() == {:preset, :console}
+      end)
+    end
+
+    @tag :capture_log
+    test "junk falls back to the derivation rather than raising" do
+      # Cosmetic setting: a typo must not take the admin area down in prod.
+      with_segment("/portal", fn ->
+        for junk <- [:not_a_preset, "", "   ", 42, %{}] do
+          Application.put_env(:phoenix_kit, :admin_panel_label, junk)
+
+          assert Config.admin_panel_label() == {:preset, :portal},
+                 "expected #{inspect(junk)} to fall through to the derivation"
+        end
+      end)
+    end
+  end
+
+  describe "AdminLabel" do
+    alias PhoenixKitWeb.Components.Core.AdminLabel
+
+    test "every preset renders to non-empty text" do
+      for {preset, _segment} <- Config.admin_label_presets() do
+        text = AdminLabel.preset_text(preset)
+        assert is_binary(text) and text != "", "#{inspect(preset)} rendered #{inspect(text)}"
+      end
+    end
+
+    test "every preset in the config list has a preset_text/1 clause" do
+      # The two lists live in different modules on purpose (msgids must be
+      # literal `gettext/1` calls for extraction). This is what keeps them
+      # in step — adding a preset without its clause fails here, loudly,
+      # instead of raising FunctionClauseError on somebody's admin header.
+      for {preset, _segment} <- Config.admin_label_presets() do
+        assert AdminLabel.preset_text(preset)
+      end
+    end
+
+    test "text/0 renders a custom string verbatim" do
+      Application.put_env(:phoenix_kit, :admin_panel_label, "Acme HQ")
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :admin_panel_label) end)
+      assert AdminLabel.text() == "Acme HQ"
+    end
+  end
 end

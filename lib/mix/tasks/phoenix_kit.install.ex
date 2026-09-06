@@ -67,6 +67,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
     use Igniter.Mix.Task
 
     alias PhoenixKit.Install.{
+      AdminLabelConfig,
       ApplicationSupervisor,
       BasicConfiguration,
       BootHook,
@@ -119,6 +120,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
       igniter
       |> BasicConfiguration.add_basic_config()
+      |> AdminLabelConfig.add_admin_label_options()
       |> RepoDetection.add_phoenix_kit_configuration(opts[:repo])
       |> PrefixConfig.add_prefix_configuration(opts[:prefix])
       |> MailerConfig.add_mailer_configuration()

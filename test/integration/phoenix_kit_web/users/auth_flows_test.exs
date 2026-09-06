@@ -1087,4 +1087,174 @@ defmodule PhoenixKitWeb.Users.AuthFlowsTest do
       assert conn |> get(Routes.path("/users/register/complete/#{token}")) |> html_response(200)
     end
   end
+
+  describe "registration account-type policy" do
+    alias PhoenixKit.Users.Invitations
+
+    # A CONNECTED mount tracks the anonymous visitor through
+    # `PhoenixKit.Admin.SimplePresence`, which a host app supervises but this
+    # suite does not start. Same arrangement (and reason) as
+    # `auth_seo_mount_test.exs`; the plain `get/2` tests above never reach it.
+    setup do
+      start_supervised!(PhoenixKit.Admin.SimplePresence)
+      :ok
+    end
+
+    defp orgs_on(mode) do
+      Settings.update_setting("enable_organization_accounts", "true")
+      Settings.update_setting("registration_account_type", mode)
+    end
+
+    defp register_page(conn),
+      do: conn |> get(Routes.path("/users/register")) |> html_response(200)
+
+    # Submits the signup LiveView's "save" event directly, which is the shape a
+    # forged payload has: fields the rendered form never contained. Going
+    # through `form/3` would only prove the picker is hidden, and the picker is
+    # not the control.
+    defp submit_registration(conn, user_params) do
+      {:ok, lv, _html} = live(conn, Routes.path("/users/register"))
+      render_submit(lv, "save", %{"user" => user_params})
+    end
+
+    defp organization_with_invitation(email) do
+      owner = confirmed_user()
+
+      {:ok, org} =
+        Auth.register_user(%{
+          email: unique_email(),
+          password: @password,
+          account_type: "organization",
+          organization_name: "Acme GmbH"
+        })
+
+      {:ok, _invitation, token} = Invitations.create_invitation(org, email, owner)
+      {org, token}
+    end
+
+    test "no picker while organization accounts are off", %{conn: conn} do
+      Settings.update_setting("enable_organization_accounts", "false")
+
+      refute register_page(conn) =~ ~s(name="user[account_type]")
+    end
+
+    test "\"choice\" renders the picker — the shipped default", %{conn: conn} do
+      orgs_on("choice")
+
+      html = register_page(conn)
+
+      assert html =~ ~s(name="user[account_type]")
+      assert html =~ ~s(value="organization")
+    end
+
+    test "\"person\" hides the picker even with the feature on", %{conn: conn} do
+      orgs_on("person")
+
+      html = register_page(conn)
+
+      refute html =~ ~s(name="user[account_type]")
+      refute html =~ ~s(name="user[organization_name]")
+    end
+
+    test "\"organization\" swaps the picker for a required Organization Name", %{conn: conn} do
+      orgs_on("organization")
+
+      html = register_page(conn)
+
+      refute html =~ ~s(name="user[account_type]")
+      assert html =~ ~s(name="user[organization_name]")
+    end
+
+    test "a forged account_type cannot beat \"person\" mode", %{conn: conn} do
+      orgs_on("person")
+      email = unique_email()
+
+      submit_registration(conn, %{
+        "email" => email,
+        "password" => @password,
+        "account_type" => "organization",
+        "organization_name" => "Forged Ltd"
+      })
+
+      user = Auth.get_user_by_email(email)
+
+      assert user.account_type == "person"
+      assert is_nil(user.organization_name)
+    end
+
+    test "a forged account_type cannot beat the feature being off", %{conn: conn} do
+      Settings.update_setting("enable_organization_accounts", "false")
+      email = unique_email()
+
+      submit_registration(conn, %{
+        "email" => email,
+        "password" => @password,
+        "account_type" => "organization",
+        "organization_name" => "Forged Ltd"
+      })
+
+      assert Auth.get_user_by_email(email).account_type == "person"
+    end
+
+    test "\"organization\" mode registers an organization", %{conn: conn} do
+      orgs_on("organization")
+      email = unique_email()
+
+      submit_registration(conn, %{
+        "email" => email,
+        "password" => @password,
+        "organization_name" => "Woodmatrix OÜ"
+      })
+
+      user = Auth.get_user_by_email(email)
+
+      assert user.account_type == "organization"
+      assert user.organization_name == "Woodmatrix OÜ"
+    end
+
+    test "an unnamed organization is refused rather than silently registered", %{conn: conn} do
+      orgs_on("organization")
+      email = unique_email()
+
+      html = submit_registration(conn, %{"email" => email, "password" => @password})
+
+      assert html =~ "can&#39;t be blank"
+      refute Auth.get_user_by_email(email)
+    end
+
+    test "an organization invitation pins the visitor to a person", %{conn: conn} do
+      orgs_on("choice")
+      email = unique_email()
+      {_org, token} = organization_with_invitation(email)
+
+      html =
+        conn
+        |> get(Routes.path("/users/register") <> "?invitation=#{token}")
+        |> html_response(200)
+
+      # Choosing "Organization" here would create a SECOND organization, and an
+      # organization account cannot hold an organization_uuid — the invitation
+      # could never be redeemed afterwards.
+      refute html =~ ~s(name="user[account_type]")
+    end
+
+    test "and a forged payload on that page is pinned too", %{conn: conn} do
+      orgs_on("choice")
+      email = unique_email()
+      {_org, token} = organization_with_invitation(email)
+
+      {:ok, lv, _html} = live(conn, Routes.path("/users/register") <> "?invitation=#{token}")
+
+      render_submit(lv, "save", %{
+        "user" => %{
+          "email" => email,
+          "password" => @password,
+          "account_type" => "organization",
+          "organization_name" => "Forged Ltd"
+        }
+      })
+
+      assert Auth.get_user_by_email(email).account_type == "person"
+    end
+  end
 end

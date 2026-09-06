@@ -132,9 +132,10 @@ Tabs, subtabs, badges, context selectors: see `lib/phoenix_kit/dashboard/README.
 
 ## Login & Registration
 
-Auth surface: session persistence, post-auth destinations, email confirmation. Full reference: `dev_docs/guides/2026-07-28-login-and-registration.md`. All settings live on `/admin/settings/users`.
+Auth surface: session persistence, post-auth destinations, what the signup page may create, email confirmation. Full reference: `dev_docs/guides/2026-07-28-login-and-registration.md`. All settings live on `/admin/settings/users`.
 
 - **Session persistence:** `remember_me_enabled` (default true) is the master switch — off hides the checkbox everywhere AND hard-blocks the cookie inside `maybe_write_remember_me_cookie/3`, so no caller or forged param can persist a session. `remember_me_default` (default true) = checkbox starts **checked**. Policy: `Auth.remember_me_enabled?/0` / `remember_me_default?/0`; flows with no UI to tick (magic-link, OAuth) use `Auth.remember_me_params/0`. **Never hardcode `%{"remember_me" => "true"}`**.
+- **What signup may create:** `enable_organization_accounts` (default false) is the master switch; `registration_account_type` (`"choice"` | `"person"` | `"organization"`, default `"choice"`) says what the PUBLIC forms may open. Read both through `Auth.registration_account_type/0` — it returns `"person"` whenever org accounts are off. `"organization"` is the B2B shape: no picker, Organization Name required, staff join by invitation. ⚠️ **Hiding the `<select>` is not the control** — `registration_changeset/3` casts `account_type` from the payload, so every public form pipes its params through `Auth.enforce_registration_account_type/2` in `form_params/2`. An organization invitation overrides the mode to `"person"` (a second org could never redeem the invitation).
 - **Post-auth destination:** one resolver, `Routes.post_auth_path/1`. Precedence: explicit `return_to` (param or gate-stashed session key) > `after_registration_path` > `after_login_path` > `/admin` (`log_in_user/3` honors `"return_to"` too). Tail is `/admin`, not `"/"` — core declares `/admin` unconditionally; `"/"` belongs to the host and may 404. Both settings validate as local paths on save, re-guarded on read.
 - ⚠️ **`Routes.local_path?/1` is the only redirect guard** — rejects `//`, `/\`, and **ASCII control characters** (browsers strip tab/CR/LF, so `"/\t/evil.com"` lands as `//evil.com`; LiveView's `validate_local_url!` does not block these). Every LiveView `redirect(to: ...)` of user-influenced input MUST go through it. Path settings are also refused if they bounce an authenticated visitor — including **`/users/log-out`**, a real GET route that would sign every user straight back out.
 - **Carrying `return_to`:** `Routes.return_to_query/1` threads it across login/register/magic-link/QR/OAuth links and the magic-link email URL. A new sign-in entry point must thread it too.
@@ -310,6 +311,40 @@ Consequences worth remembering:
   `setup_all`/a test). It is cached in `:persistent_term`, and `mix test` loads
   test files in parallel — a flip in a file body leaks into other files' router
   compilation. See `test/phoenix_kit/utils/admin_segment_test.exs`.
+
+#### Renaming the segment also renames the WORDING
+
+`admin_path` moves the URL; `admin_panel_label` decides what the admin area is
+*called* in the admin header chip and the account-menu entry. Leave the label
+unset and it is **derived from the segment**, so the two cannot drift:
+
+    config :phoenix_kit, admin_path: "/backoffice"
+    # URL /backoffice, header "Backoffice", menu "Backoffice"
+
+- **Ten presets**, each a real `gettext/1` msgid translated in every shipped
+  locale: `:admin_panel` (default), `:dashboard`, `:backoffice`, `:console`,
+  `:control_panel`, `:workspace`, `:portal`, `:my_account`, `:management`,
+  `:studio`. Canonical table: `PhoenixKit.Config.admin_label_presets/0`.
+- **Override** with `admin_panel_label: :workspace`. A plain string
+  (`"Acme HQ"`) also works and is the escape hatch — but is **not translated**:
+  one string for every visitor in every language. That is why the list is
+  closed and why neither form is an operator field on `/admin/settings`, where
+  the settings checkbox stays show/hide.
+- A segment matching no preset (`/x7q`) keeps the translated "Admin Panel"
+  rather than inventing a label from the URL.
+- ⚠️ Unlike `admin_path`, an unrecognised value **does not raise** — this is
+  cosmetic and a typo must not take the admin area down in production. It logs
+  once (naming the valid presets) and falls back to the derivation.
+- Adding a preset means BOTH `@admin_label_presets` in `PhoenixKit.Config` and
+  a `preset_text/1` clause in `PhoenixKitWeb.Components.Core.AdminLabel` — the
+  msgid must be a literal `gettext/1` call or extraction misses it and it
+  ships untranslated. `admin_segment_test.exs` walks the list and fails if a
+  clause is missing. Then translate the new msgid in all seven locales.
+- `mix phoenix_kit.install` / `.update` write the whole list into the host's
+  `config/config.exs` as a **comment block**
+  (`PhoenixKit.Install.AdminLabelConfig`), so the vocabulary is in front of a
+  developer at the moment they go to change it. Idempotent, and skipped once
+  the host has an uncommented `admin_panel_label:`.
 
 ### LiveView form ids
 
