@@ -1,3 +1,520 @@
+## Unreleased
+
+### Added
+
+- **Public "Edit link" API** — `PhoenixKitWeb.AdminEditHelper.assign_admin_edit/3`
+  is now a documented public API: a host LiveView or a module's own public
+  controller/LiveView calls it to declare a public page's matching admin
+  edit target. The label argument now also accepts a keyword list
+  (`label:`, `permission:`), gating the link on a specific module's
+  `Scope.has_module_access?/2` in addition to the existing admin-area check,
+  while every existing string-label call site keeps working unchanged. A new
+  `PhoenixKitWeb.Components.Core.AdminEditLink.admin_edit_link/1` component
+  (`<.admin_edit_link .../>`) renders the link — as a standalone button or a
+  `:menu_item` for dropdowns — and renders nothing when there is no URL, so
+  hosts can drop one line into their public layout unconditionally. See the
+  "Edit link on public pages" section in `guides/integration.md`.
+
+## 2.22.0 - 2026-09-08
+
+### Added
+
+- The parked `/users/confirm` page (where a logged-in but unconfirmed user
+  lands) now has a "Wrong email? Change it" option — a compact version of
+  Profile Settings' change-email form (current password + new address).
+  Confirming the new address both changes the account's email and confirms
+  it in one step, so a typo'd signup email no longer strands the account.
+  The confirmation link points at a new, purpose-built page
+  (`/users/confirm/change-email/:token`) rather than the normal
+  `/profile/settings/confirm-email/:token` — that page requires a confirmed
+  account to reach, which would have made the fix for "I'm unconfirmed"
+  depend on already being confirmed.
+
+### Fixed
+
+- The parked page's "Resend confirmation instructions" flash message said
+  "If your email is in our system and it has not been confirmed yet..." even
+  though the visitor was already logged in as that exact account — the
+  enumeration-safe hedge (correct for the public, logged-out resend form)
+  read as a wrong answer once you're signed in. A logged-in unconfirmed user
+  now gets a direct message naming their own address, and the (previously
+  editable) email field on that form is now read-only and its value ignored
+  server-side — editing it could otherwise be used to probe whether an
+  arbitrary address is registered.
+
+## 2.21.5 - 2026-09-08
+
+### Changed
+
+- The "Development site" preset (Website Access settings) no longer switches
+  on the visitor notice bar — the admin header's automatic "[dev]" tag
+  (added in 2.21.3) already tells an admin apart from production, so the
+  preset only needs the password gate and hiding from search engines now.
+  The notice feature itself is unchanged and still available for hosts that
+  want a visitor-facing banner for any reason (maintenance, under
+  construction, or their own dev-site text). Existing installs that already
+  applied the old preset keep their notice switched on until turned off by
+  hand on Settings → Website Access → Notice.
+
+### Fixed
+
+- Flash notifications could get stuck on screen indefinitely instead of
+  auto-dismissing. `@flash` is one Phoenix assign covering all three kinds
+  (info/warning/error), so putting or clearing a *different* kind's flash —
+  or the same kind with unchanged text — marks the whole assign dirty and
+  re-diffs every currently-shown flash node, not just the one that actually
+  changed. The `FlashAutoDismiss` hook's `updated()` callback (added in
+  2.21.0 to fix a related issue) treated every such patch as "a new message
+  landed" and unconditionally restarted the dismiss timer, so a flash on a
+  page where anything else touched flash state could sit on screen forever.
+  It now fingerprints the message text and only restarts the timer when it
+  actually changed.
+
+## 2.21.4 - 2026-09-07
+
+### Fixed
+
+- The "igniter dependency is missing" message that `mix phoenix_kit.update`
+  (and the other Igniter-backed tasks) prints for an unsupported `MIX_ENV`
+  (e.g. `prod`) told the operator to add
+  `{:igniter, "~> 0.7", only: [:dev, :test]}` — the exact fix the message had
+  just explained would not work, since that scoping excludes the very
+  environment the task is running in. It now explains that these tasks
+  generate/apply code and genuinely need igniter loaded wherever they run,
+  and offers the two real options: run the task from dev/CI and ship the
+  generated files, or broaden the host's own igniter dependency's `only:` to
+  include that environment.
+
+## 2.21.3 - 2026-09-07
+
+### Added
+
+- A quiet "[dev]" tag next to the project title in the admin header,
+  automatic whenever `PhoenixKit.WebsiteAccess.environment().looks_like_dev?`
+  is true (non-`prod` mix env, or a dev/staging/test/local/sandbox/preview
+  word in the hostname or configured site URL) — no setting to remember to
+  flip. Replaces the old workflow of switching on the general-purpose Notice
+  bar (a fixed bar across the bottom of every page) just to signal "this
+  isn't the production site"; that feature is unchanged and still available
+  for actual visitor announcements.
+
+### Changed
+
+- **Breaking:** the website-wide Integrations settings page moved from
+  `/admin/settings/integrations/website` to `/admin/settings/integrations`.
+  The `/website` segment only ever existed to disambiguate it from the
+  personal per-user integrations page, which shared the same base path; that
+  page has since moved to `/profile/settings/integrations`, so the
+  disambiguation segment is no longer needed. Any bookmarked or linked
+  `/website` URL will 404.
+
+## 2.21.2 - 2026-09-07
+
+### Added
+
+- Non-destructive avatar cropping, Apple Photos style — picking a new avatar
+  opens a drag/wheel/slider crop editor before anything persists; the crop
+  geometry (`x`, `y`, `zoom`, aspect ratio) is stored alongside the original
+  upload rather than baked into re-encoded pixels, so re-cropping never loses
+  quality.
+
+### Fixed
+
+- Multi-domain sitemaps could list the same home URL twice (once bare, once
+  with the full cross-domain hreflang set) when a locale-prefixed clone route
+  had no `canonical_path` of its own, and a single-language canonical group
+  on a non-primary domain could carry a self-only hreflang pair that the
+  page's own `<head>` never backed up.
+- The storage orphan-file check now recognizes catalogue-owned tables:
+  `phoenix_kit_cat_items`, `phoenix_kit_cat_categories`, and
+  `phoenix_kit_cat_catalogues` store image references inside a JSONB `data`
+  column rather than dedicated FK columns, so a plain join was missing them
+  and could queue a live catalogue image for deletion. `phoenix_kit_cat_pdfs`
+  references its file through a real FK with `ON DELETE RESTRICT`; a PDF
+  still in use could have its file data deleted and then crash the cleanup
+  job on the FK violation — that table is now guarded too.
+- A stale avatar crop could outlive the file it was framed for — replacing
+  an avatar without submitting a new crop now clears the old geometry
+  instead of stretching the old aspect ratio onto the new image.
+- Landscape avatars rendered soft: crop-variant selection compared needed
+  pixels against the image's width instead of its short side, which is what
+  actually bounds sharpness under cover-fit.
+
+## 2.21.1 - 2026-09-07
+
+### Fixed
+
+- **Languages settings page's breadcrumb fix from 2.21.0 was incomplete**
+  — the `page_section`/`page_section_path` assigns were added to `mount/3`
+  but never threaded into the template's `app_layout` call, so the
+  breadcrumb still showed bare "Languages" instead of "Settings /
+  Languages".
+- Media settings page's subtitle was a full paragraph that didn't fit in
+  the header on any but the widest screens, truncating to unreadable
+  fragments. Shortened to match the length of every other Settings page's
+  subtitle.
+- **Two mistranslated strings from 2.21.0's gettext round-trip**: the
+  Sitemap tab label "Sources" had been auto-fuzzy-matched to unrelated
+  "Success" translations in Russian, French, German, Spanish, Italian,
+  Polish, and Estonian; the Email Sending tab label "Local Dev Mailbox"
+  was fuzzy-matched correctly but never had its fuzzy flag verified and
+  cleared. Both fixed with real translations.
+
+## 2.21.0 - 2026-09-07
+
+### Added
+
+- Tabs on the Email Sending and Sitemap settings pages — same treatment
+  as the rest of Settings: Sender Identity / Transport / Local Dev
+  Mailbox / Default Integration / Test Send / Send Profiles for Email
+  Sending, and Sources / Configuration / Quick Actions / Advanced for
+  Sitemap.
+
+### Fixed
+
+- **Settings breadcrumb regressions on several pages that don't call
+  `LayoutWrapper.app_layout` from a per-page `.ex`/`.heex` pair the same
+  way the rest of Settings does** — Media (`/admin/settings/media` and
+  its Dimensions/Health/bucket/dimension sub-pages) and Sitemap
+  (`/admin/settings/sitemap`) both linked their breadcrumb's second
+  segment to "Modules" → `/admin/modules` instead of "Settings" →
+  `/admin/settings`, even though both live under the Settings sidebar
+  group — the wrong link, not just a mislabeled one. Media's page title
+  was also shortened from "Media Settings" to "Media" to match the
+  sidebar and stop the breadcrumb truncating to unreadable fragments on
+  narrower screens.
+- **Languages settings page had no breadcrumb section at all**, showing
+  bare "Languages" instead of "Settings / Languages" like every sibling
+  page.
+- Renamed "Website Integrations" back to plain "Integrations" now that
+  the personal "My Integrations" page (the reason for the "Website"
+  qualifier) lives under Profile Settings instead of colliding with this
+  one.
+- "Main countries" label capitalization on the Organization settings
+  page's Main Countries tab (was inconsistent with the other tab
+  labels).
+- Drag-and-drop reordering on touch devices (iPad) for the Main
+  Countries list — SortableJS's fallback drag mode needs
+  `touch-action: none` on the drag handle, which nothing in the
+  codebase set; added it globally to `.pk-drag-handle`, plus a larger
+  touch target for this specific handle.
+- Flash notifications no longer auto-dismissed after their timeout — the
+  `FlashAutoDismiss` hook only started its timer in `mounted()`, which
+  LiveView doesn't call again when it patches an existing flash node in
+  place. Added the missing `updated()` lifecycle callback.
+- VAT/Tax ID on the Organization settings page is optional again (format
+  is still validated when a value is given) — most jurisdictions don't
+  require every company to register for VAT/a tax ID below a threshold.
+  Registration Number is now required instead, since every incorporated
+  company gets one.
+- The "Main Page" field under General → Site Address is now labeled
+  "Signed-Out Landing Page" with a clearer explanation of what it
+  actually controls (where a signed-out visitor lands, including right
+  after logging out).
+
+## 2.20.0 - 2026-09-07
+
+### Added
+
+- **Multiple bank accounts** — the Organization settings page's Bank
+  Accounts card now supports more than one account (a EUR operating
+  account and a USD reserve account, say), each with a label, bank name,
+  IBAN, SWIFT/BIC, and a "primary" flag, via a proper add/edit/delete UI.
+  Previously there was room for exactly one. `phoenix_kit_billing`'s
+  integration point is unaffected — it now reads the primary account.
+- **Country-aware Company Information fields** — the State/Province field
+  is a real dropdown for the 224 countries with subdivision data (US: 50
+  states + DC + territories; Canada: 13 provinces/territories; and 222
+  others), falling back to free text only for the 26 without. The tax-ID
+  field is labeled and validated correctly per country instead of always
+  saying "VAT Number": **EIN** for the US, **Business Number (BN)** for
+  Canada, **VAT Number** for EU members, generic **Tax ID** elsewhere. The
+  postal-code field says **ZIP Code** for the US and **Postal Code**
+  everywhere else, both with real format validation.
+- Tabs on the Authorization, Users, Crawlers, Website Access, and
+  Organization settings pages — same treatment as General settings' tabs
+  in 2.19.0, each page's sections behind a strip instead of one long
+  scroll.
+
+### Fixed
+
+- The bank accounts list could not actually be saved: `value_json` is an
+  Ecto `:map` column that silently rejects a bare JSON array, so every
+  save looked successful (the flash fired) while quietly never
+  persisting past a single legacy account on reload. Fixed by wrapping
+  the list the same way Custom User Fields already does
+  (`%{"accounts" => [...]}`).
+- `CountryData.get_subdivision_label("CA")` had a stale doctest claiming
+  "Province"; the real value from `beamlab_countries` is "Provinces and
+  territories".
+
+||||||| parent of 8fbfa12992 (Make the public-page Edit link a documented API with a component and a permission gate)
+## 2.19.0 - 2026-09-07
+
+### Changed
+
+- **Personal integrations moved off Settings, onto the profile page** — "My
+  Integrations" was a Settings sub-sub-tab three levels deep (Settings ›
+  Integrations › My Integrations), and holding only the personal
+  `integrations` permission made the whole Settings section appear in a
+  regular user's sidebar just for that one page, despite it being per-user
+  data rather than a site-wide setting. It now lives at
+  `/profile/settings/integrations`, reached from a new **Integrations**
+  section on the Profile Settings page (connection summary + a "Manage
+  Integrations" link). The Settings sidebar's "Integrations" grouping tab is
+  gone; "Website Integrations" is now a plain flat Settings subtab like
+  Users/Authorization, gated on `integrations_system` alone. Hosts linking
+  directly to the old `/admin/settings/integrations` path need to update to
+  `/profile/settings/integrations`.
+
+### Added
+
+- Tabs on the General settings page (Site Identity, Site Address, Features,
+  Content Editor, Date & Time) instead of one long scroll — one form, one
+  Save button underneath all of them.
+
+### Fixed
+
+- Settings breadcrumbs are consistent across every subtab now: "Settings /
+  <Name>", matching the sidebar label exactly. Most subtabs previously
+  hardcoded their own breadcrumb title directly in the template (ignoring
+  the `page_title` their own `mount/3` set) and none showed a "Settings /"
+  parent crumb, so titles drifted from the sidebar's labels (e.g.
+  "Authorization Settings" vs. sidebar "Authorization") and General showed
+  bare "Settings" with no subtab name at all. Nested pages (Send Profiles,
+  the integration forms) now show their full breadcrumb trail.
+
+## 2.18.1 - 2026-09-07
+
+### Fixed
+
+- Login page heading hierarchy — the bold heading said "Welcome back" and the
+  subtext said "Sign in to %{project_title}", backwards for a visitor who
+  isn't authenticated yet. Swapped which string gets which styling.
+- Removed duplicate in-body page headings on the General, Users, and
+  Authorization settings pages, and on the profile settings page
+  (`/profile/settings`) — each repeated the page title already shown in the
+  top breadcrumb bar.
+- Removed hardcoded Comments, Referrals, Customer Support, and Connections
+  cards from the admin Modules page — each of those modules was extracted
+  into its own hex package that auto-registers via `PhoenixKit.Module` and
+  already renders through the generic external-module card loop, so
+  installing any of them showed a duplicate card. The generic card now
+  covers everything the hardcoded ones did via each package's
+  `module_stats/0`.
+
+## 2.18.0 - 2026-09-07
+
+### Added
+
+- **Website access** — one settings page (`/admin/settings/website-access`) for every
+  way of controlling who sees the site, with independently switchable features and
+  presets (Maintenance, Under construction, Development site, Live) that bundle them:
+  - **Password gate** — a blank page with one field at `<prefix>/access`, before
+    anyone sees anything. Unlock is a session epoch (rotated on password change,
+    switch-on, or "ask everyone again"), never password-derived. Every try is
+    recorded with a verdict (correct, case, close, unrelated, empty, locked, link)
+    and, by default, what was typed — narrowable to near-misses or nothing. Optional
+    per-address lockout under a per-address advisory lock. An access link unlocks
+    only on the button's POST, never on the link's own GET, so a preview fetcher
+    can't burn it. Logged-in users pass by default.
+  - **Redirect to production** — public GET/HEAD to the same path and query on the
+    production URL, never for logged-in users, the kit's own pages, or back to this
+    host; everyone or crawlers only.
+  - **Visitor notice** — an escaped bar injected after `<body>` on HTML 200s
+    (byte-safe), editable live from the settings page.
+  - **Site closed** — maintenance is now part of core: heading, message, a
+    from/until window, a status line, a preview, and a visitor 503 page that counts
+    down to the end. `PhoenixKit.Modules.Maintenance` keeps its name and API.
+  - **Hide from search engines** — the crawlers noindex switch, plus
+    `X-Robots-Tag` on every response in the chain.
+  - **Allowed addresses** — pass the gate and the redirect; editing the list
+    relocks already-open sessions.
+  - **Environment panel** — release/mix, `MIX_ENV`, host, site URL — suggests a
+    preset, never switches anything on. Header badges (lock, wrench, arrow) show
+    while a feature is on and link to its settings.
+
+  `PhoenixKitWeb.Plugs.WebsiteAccess` runs the chain in the host's browser
+  pipeline: allowed-address bookkeeping → notice/robots → redirect → gate →
+  maintenance. Every `on_mount` hook in `Users.Auth` checks the gate first. New
+  migration **V187** adds `phoenix_kit_access_attempts`. Core's `<.checkbox>`
+  gained `variant="toggle"`; `Routes.prefix_base/0` was added for root-mounted
+  kits.
+
+### Fixed
+
+- The settings cache warmer could run before the host's endpoint was up. Under
+  the legacy encryption tier the endpoint's `secret_key_base` **is** the key, so
+  a restricted value failed to decrypt at boot and the failure was cached as
+  `nil` until that key's next write — any host reading an OAuth secret or AWS
+  key through `get_setting_cached/2` right after a restart hit this. The warm
+  map now leaves an undecryptable key out instead of caching `nil` for it, and a
+  cache miss caused by a decrypt failure is answered `nil` without being cached.
+- A password-gate redirect-target test asserted a maintenance schedule starting
+  exactly 60 seconds in the past, which sits on the validator's own tolerance
+  boundary and failed deterministically once clock drift pushed it a hair past
+  `-60`.
+- The gate's `?to=` redirect-target check reimplemented local-path validation
+  with its own regex instead of `Routes.local_path?/1`; it now calls the shared
+  guard, with the gate's own rules layered on top.
+
+## 2.17.0 - 2026-09-06
+
+### Changed
+
+- **`Mailer.send_from_template/4` no longer depends on the email templates
+  table.** It is core's generic host-facing send API, and it resolved names
+  from the database alone — answering `{:error, :template_not_found}` when
+  there was no row. That table is being retired, and `phoenix_kit_billing`
+  reaches through this function for its invoice, receipt, credit-note and
+  payment-confirmation emails, so dropping the table with this path untouched
+  would have stopped those emails **silently**, with an error shape the caller
+  already tolerates.
+
+  It now resolves through `PhoenixKit.Email.Content`, in order: an active
+  database template, then a host override file for the recipient's locale, then
+  the caller's own `:defaults`.
+
+  **Nothing changes for an install that has a row** — the database layer still
+  wins, exactly as it does for the auth emails. This ships ahead of the schema
+  move on purpose, so no caller is ever in a window where its emails depend on
+  a path that no longer works.
+
+  Three new options:
+
+  | Option | Effect |
+  |---|---|
+  | `:defaults` | content to fall back to — a `%{subject:, text:, html:}` map, or a zero-arity function returning one. Prefer the function for `gettext/1` content: it is evaluated inside the recipient's locale |
+  | `:locale` | render in this locale instead of the one resolved from the recipient (a bare address carries no preference, so that falls through to the site's content language) |
+  | `:paths` | host override roots to search, overriding the configured ones |
+
+  A host or module that calls this function should add `:defaults` before the
+  table is retired. Until then, adding them changes nothing.
+
+- `PhoenixKit.Email.Content.resolve/5` accepts `:locale`, for callers whose
+  recipient is a bare address rather than a user, and treats an explicit `nil`
+  `:paths` as "use the configured roots".
+
+### Fixed
+
+- `{:error, :template_inactive}` is documented as no longer returned by
+  `send_from_template/4`, and never was:
+  `get_active_template_by_name/1` already filters on `status == "active"`, so
+  the branch that returned it was unreachable.
+
+## 2.16.0 - 2026-09-06
+
+### Added
+
+- **Outbound messages are rendered in the recipient's language.** Every auth
+  email had been going out in English no matter who received it. Five call
+  sites in `UserNotifier` and one in `Mailer` used the two-arity
+  `render_template/2`, whose locale defaults to `"en"` — so a template
+  translated into all seven locales was only ever read in one of them, and the
+  translations sat in the database unread. Only
+  `Mailer.send_from_template/4` passed a locale.
+
+  `PhoenixKit.Utils.RecipientLocale` is now the single answer to "whose
+  language is this message in": `for_rendering/1` returns the recipient's full
+  dialect and never `nil`, falling back to the site content language and then
+  `"en"`; `base/1` returns the base code or `nil` for Gettext, which reads
+  `nil` as "leave the current locale alone". It keeps the dialect rather than
+  narrowing it, since template resolution tries `"en-GB"` before `"en"` and
+  pre-truncating would discard a dialect-specific translation. The preference
+  comes from `custom_fields["preferred_locale"]`, written by the language
+  switcher.
+
+- **Message templates can be customized by the host, as files.**
+  `PhoenixKit.Email.Content` resolves every auth email across three layers: an
+  active database template (unchanged, and still winning — see below), then a
+  host override file for the recipient's locale, then core's own translated
+  default. Parts resolve independently, so a host that overrides only the body
+  keeps core's translated subject.
+
+  An override is a file in the host's own repo, version-controlled and
+  reviewable. The template's **name is a directory**; the files inside it are
+  named for the part they supply:
+
+      <host>/priv/phoenix_kit_templates/
+      └── new_login_alert/
+          ├── text.txt          # <part>.<ext>
+          └── text.de.txt       # <part>.<locale>.<ext>
+
+  Lookup runs most- to least-specific — `text.de-AT.txt` → `text.de.txt` →
+  `text.txt` → core's default — so a single-language host writes one file and
+  is done. Roots come from `config :phoenix_kit, template_paths:`, defaulting
+  to the host application's `priv/phoenix_kit_templates`.
+
+- **New dependency: `phoenix_kit_templates`.** A leaf package with no runtime
+  dependencies of its own, which is what lets core depend on it rather than
+  feature-detect it through a behaviour. `mix deps.get` after upgrading.
+
+- **The new-login alert finally carries a link.** It had been telling readers
+  to change their password immediately while giving them nothing to click — on
+  the one email that reaches a genuinely compromised account.
+
+- **Three templates that were looked up but never existed.**
+  `new_login_alert` and `magic_link_registration` were both resolved by name
+  and had no seeded template, so they always fell through to a hardcoded
+  English string. Both now exist, as does `organization_invitation`, which had
+  never been templated at all.
+
+### Changed
+
+- ⚠️ **Auth email wording changes for hosts with no database template.** Those
+  installs were receiving the hardcoded English fallbacks; they now receive
+  core's Gettext defaults in the recipient's language. This is the point of
+  the release, but it is visible — someone will notice their confirmation
+  email reads differently. **Hosts with customized database templates see
+  nothing change**: that layer still wins, deliberately, and will keep winning
+  until an export task ships and operators have moved their edits to files.
+  Removing it now would silently revert every customized message.
+
+- **Notification text is translated.** `Notifications.Render` held 21
+  hardcoded English literals — the text of every notification reaching the
+  inbox, Telegram, the email channel and any future push. `Channel`'s own
+  moduledoc had named the hole: the envelope carried `:locale` "but the core's
+  built-in rendering is English today". It no longer is. `render/2` installs
+  the recipient's locale for the lookup; a `nil` locale still means "leave the
+  current locale alone", which is what the admin inbox wants — it renders in
+  the viewer's language, not a recipient's.
+
+  Three strings that concatenated a detail onto a translated stem ("Your email
+  was changed" + " to x") became two complete msgids each. A suffix cannot be
+  reordered, and several languages need the detail somewhere other than the
+  end.
+
+- 38 new msgids, translated into all seven locales. Five of them arrived from
+  `gettext.merge` carrying a translation matched from a *different* msgid —
+  `"New notification."` had inherited the translation of "My notifications" in
+  every locale, and `"Confirm your account"` had inherited "Confirm **my**
+  account". Gettext compiles and serves fuzzy entries, so all five were
+  rewritten by hand.
+
+### Fixed
+
+- **Batch settings writes could deadlock.** The settings history added in this
+  release reads each key `FOR UPDATE` inside the write's transaction, and the
+  batch path took those locks in `Enum.reduce` order over a map. Erlang map iteration is not a stable total
+  order — a map of 32 keys or fewer is a flatmap iterated in term order, a
+  larger one is a hashmap iterated in hash order, and the same two keys come
+  out reversed between them. Two concurrent `update_settings_batch/2` calls
+  sharing keys, one small and one large, would take them in opposite orders
+  and deadlock. Keys are now sorted before the reduce, so every batch acquires
+  in the same order whatever its size.
+
+- **`ModuleRegistry.not_installed_packages/0` advertised an installed
+  package.** It derived "installed" from module discovery alone, which only
+  finds packages implementing the `PhoenixKit.Module` behaviour — so an
+  infrastructure dependency that implements none looked absent, and the admin
+  Modules page would have offered `phoenix_kit_templates` as available to
+  install while it was already a transitive dependency of core. It now also
+  consults loaded applications; neither check subsumes the other.
+
+- The notification delivery and digest workers each carried their own
+  identical private copy of the recipient-locale resolution, and a third was
+  about to be written. All three now share one.
+
 ## 2.15.1 - 2026-09-05
 
 ### Added

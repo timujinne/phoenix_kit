@@ -192,6 +192,7 @@ defmodule PhoenixKitWeb do
       import PhoenixKitWeb.Components.Core.FormSection
       import PhoenixKitWeb.Components.Core.FormActions
       import PhoenixKitWeb.Components.Core.BulkActionsBar
+      import PhoenixKitWeb.Components.Core.AdminEditLink
     end
   end
 

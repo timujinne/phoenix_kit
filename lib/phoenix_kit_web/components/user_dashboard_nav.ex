@@ -140,17 +140,11 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
                 <span>{admin_entry_label(@scope)}</span>
               </.link>
             </li>
-            <%= if @admin_edit_url do %>
-              <li>
-                <a
-                  href={@admin_edit_url}
-                  class="flex items-center gap-3"
-                >
-                  <.icon name="hero-pencil-square" class="w-4 h-4" />
-                  <span>{@admin_edit_label || "Edit"}</span>
-                </a>
-              </li>
-            <% end %>
+            <PhoenixKitWeb.Components.Core.AdminEditLink.admin_edit_link
+              url={@admin_edit_url}
+              label={@admin_edit_label}
+              variant={:menu_item}
+            />
           <% end %>
 
           <li :if={

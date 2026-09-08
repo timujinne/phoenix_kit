@@ -270,6 +270,57 @@ Scope.accessible_modules(scope)  # MapSet of granted permission keys
 
 **Route enforcement**: PhoenixKit's `phoenix_kit_ensure_admin` and `phoenix_kit_ensure_module_access` on_mount hooks automatically enforce permissions on admin routes. Sidebar navigation is gated per-user.
 
+### Edit link on public pages
+
+When an admin is viewing a public page — a host LiveView, or a module's own
+public controller/LiveView — you can offer them a one-click "Edit" link into
+that page's admin counterpart.
+
+Declare the edit target from `handle_params`/`mount` (or a controller action)
+with `PhoenixKitWeb.AdminEditHelper.assign_admin_edit/3`:
+
+```elixir
+def handle_params(%{"slug" => slug}, _uri, socket) do
+  post = Blog.get_post_by_slug!(slug)
+
+  socket =
+    PhoenixKitWeb.AdminEditHelper.assign_admin_edit(socket, "/admin/posts/#{post.id}/edit")
+
+  {:noreply, assign(socket, :post, post)}
+end
+```
+
+The third argument accepts a plain string label (used as-is) or a keyword
+list — `label:` (default: gettext "Edit") and `permission:` (a module
+permission key, e.g. `"publishing"`, checked with
+`Scope.has_module_access?/2`):
+
+```elixir
+PhoenixKitWeb.AdminEditHelper.assign_admin_edit(
+  socket,
+  "/admin/publishing/posts/#{post.id}/edit",
+  label: "Edit Post",
+  permission: "publishing"
+)
+```
+
+The link is only assigned when the current scope can access the admin area
+at all and — when `permission:` is given — holds that specific module's
+access. Otherwise nothing is assigned, so the render side never sees a URL
+it shouldn't.
+
+Then drop the renderer into your public layout once:
+
+```heex
+<.admin_edit_link url={assigns[:admin_edit_url]} label={assigns[:admin_edit_label]} />
+```
+
+`PhoenixKitWeb.Components.Core.AdminEditLink.admin_edit_link/1` renders
+nothing when there is no URL, so this line is safe to leave in every public
+layout unconditionally. Pass `variant={:menu_item}` to render it as a
+daisyUI `menu` `<li>` instead of a standalone button, for dropping into an
+existing dropdown menu.
+
 ### User Registration
 
 ```elixir
