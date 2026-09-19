@@ -15491,3 +15491,41 @@ msgstr "Leitud viimase testiga. Seo grupp ainult siis, kui tunned selle ära —
 #, elixir-autogen, elixir-format
 msgid "there, press Test Connection and confirm the group it finds. A group needs that command — bots cannot read ordinary group messages."
 msgstr "seal, vajuta „Testi ühendust“ ja kinnita leitud grupp. Grupp vajab seda käsku — botid ei saa tavalisi grupisõnumeid lugeda."
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:39
+#: lib/phoenix_kit_web/components/featured_image.html.heex:43
+#: lib/phoenix_kit_web/components/featured_image.html.heex:55
+#: lib/phoenix_kit_web/components/featured_image.html.heex:57
+#, elixir-autogen, elixir-format
+msgid "Choose image"
+msgstr "Vali pilt"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:179
+#, elixir-autogen, elixir-format
+msgid "Image actions"
+msgstr "Pildi toimingud"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:148
+#: lib/phoenix_kit_web/components/featured_image.html.heex:151
+#: lib/phoenix_kit_web/components/featured_image.html.heex:161
+#: lib/phoenix_kit_web/components/featured_image.html.heex:162
+#: lib/phoenix_kit_web/components/featured_image.html.heex:165
+#, elixir-autogen, elixir-format
+msgid "Image missing"
+msgstr "Pilt puudub"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:125
+#: lib/phoenix_kit_web/components/featured_image.html.heex:128
+#, elixir-autogen, elixir-format
+msgid "Processing image…"
+msgstr "Pilti töödeldakse…"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:203
+#, elixir-autogen, elixir-format
+msgid "Remove image"
+msgstr "Eemalda pilt"
+
+#: lib/phoenix_kit_web/components/featured_image.ex:367
+#, elixir-autogen, elixir-format
+msgid "The selected file is not an available image"
+msgstr "Valitud fail ei ole saadaolev pilt"

@@ -15482,3 +15482,41 @@ msgstr "Trouvé lors du dernier test. Ne liez un groupe que si vous le reconnais
 #, elixir-autogen, elixir-format
 msgid "there, press Test Connection and confirm the group it finds. A group needs that command — bots cannot read ordinary group messages."
 msgstr "là, cliquez sur « Tester la connexion » et confirmez le groupe trouvé. Un groupe a besoin de cette commande — les bots ne peuvent pas lire les messages ordinaires d'un groupe."
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:39
+#: lib/phoenix_kit_web/components/featured_image.html.heex:43
+#: lib/phoenix_kit_web/components/featured_image.html.heex:55
+#: lib/phoenix_kit_web/components/featured_image.html.heex:57
+#, elixir-autogen, elixir-format
+msgid "Choose image"
+msgstr "Choisir une image"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:179
+#, elixir-autogen, elixir-format
+msgid "Image actions"
+msgstr "Actions sur l’image"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:148
+#: lib/phoenix_kit_web/components/featured_image.html.heex:151
+#: lib/phoenix_kit_web/components/featured_image.html.heex:161
+#: lib/phoenix_kit_web/components/featured_image.html.heex:162
+#: lib/phoenix_kit_web/components/featured_image.html.heex:165
+#, elixir-autogen, elixir-format
+msgid "Image missing"
+msgstr "Image manquante"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:125
+#: lib/phoenix_kit_web/components/featured_image.html.heex:128
+#, elixir-autogen, elixir-format
+msgid "Processing image…"
+msgstr "Traitement de l’image…"
+
+#: lib/phoenix_kit_web/components/featured_image.html.heex:203
+#, elixir-autogen, elixir-format
+msgid "Remove image"
+msgstr "Supprimer l’image"
+
+#: lib/phoenix_kit_web/components/featured_image.ex:367
+#, elixir-autogen, elixir-format
+msgid "The selected file is not an available image"
+msgstr "Le fichier sélectionné n’est pas une image disponible"
