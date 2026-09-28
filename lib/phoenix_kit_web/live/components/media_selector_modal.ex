@@ -93,6 +93,14 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       living elsewhere get a `FolderLink` into the scope folder on
       re-upload rather than being moved out from under their original
       owner. `nil` (default) = no scope, legacy full-library behaviour.
+    * `group_by_folder` — `false` (default) lists the scoped library as one
+      newest-first grid. `true` (with `scope_folder_id` holding subfolders)
+      sorts it by the folder each file sits in — the scope folder first, then
+      its subfolders in path order, newest first within each — under one
+      heading per folder: its path below the scope and its file count. A
+      folder cut by a page break repeats its heading on the next page, marked
+      "continued". A file linked into the scope (`FolderLink`) is grouped
+      where it is linked unless its home folder is inside the scope.
   """
   use PhoenixKitWeb, :live_component
 
@@ -140,6 +148,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       # a single domain object (e.g. a catalogue item) pass this
       # after lazy-creating their folder.
       |> assign_new(:scope_folder_id, fn -> nil end)
+      |> assign_new(:group_by_folder, fn -> false end)
       |> assign_new(:notify, fn -> nil end)
       # `browse: false` → upload-only mode: hide the library grid, search,
       # type filter, pagination, and the accepted-types hint, leaving just the
@@ -715,7 +724,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     per_page = socket.assigns.per_page
 
     query =
-      from(f in File, order_by: [desc: f.inserted_at])
+      from(f in File)
       # Don't suggest trashed, system-managed, or private-library files.
       |> where([f], f.status != "trashed" and f.system_managed == false)
       |> Libraries.exclude_private()
@@ -727,11 +736,8 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     total_count = repo.aggregate(query, :count, :uuid)
     offset = (page - 1) * per_page
 
-    files =
-      query
-      |> limit(^per_page)
-      |> offset(^offset)
-      |> repo.all()
+    {files, file_groups} =
+      page_files(query, folder_groups(socket), per_page, offset, repo)
 
     file_uuids = Enum.map(files, & &1.uuid)
 
@@ -751,7 +757,9 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     private = files |> Enum.map(& &1.library_uuid) |> Libraries.private_among()
 
     files_with_urls =
-      Enum.map(files, fn file ->
+      files
+      |> Enum.zip(file_groups)
+      |> Enum.map(fn {file, group} ->
         instances = Map.get(instances_by_file, file.uuid, [])
 
         urls =
@@ -777,11 +785,186 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
           # the picker shows images the same way up as the media grid.
           rotation: Map.get(file.metadata || %{}, "rotation"),
           width: get_dimension_from_instances(instances, :width),
-          height: get_dimension_from_instances(instances, :height)
+          height: get_dimension_from_instances(instances, :height),
+          # The folder heading this file is listed under (`group_by_folder`),
+          # nil when the picker is not grouped.
+          group: group
         }
       end)
 
     {files_with_urls, total_count}
+  end
+
+  # One page of files, each paired with its folder group: newest first, or —
+  # grouped — in folder order, then newest first within a folder.
+  defp page_files(query, nil, per_page, offset, repo) do
+    files =
+      query
+      |> order_by([f], desc: f.inserted_at)
+      |> limit(^per_page)
+      |> offset(^offset)
+      |> repo.all()
+
+    {files, List.duplicate(nil, length(files))}
+  end
+
+  defp page_files(query, groups, per_page, offset, repo) do
+    ordered = Enum.map(groups, & &1.uuid)
+
+    rows =
+      query
+      |> with_group_position(ordered)
+      |> order_by([f, lp],
+        asc:
+          fragment(
+            "COALESCE(array_position(?, ?), ?)",
+            type(^ordered, {:array, UUIDv7}),
+            f.folder_uuid,
+            lp.pos
+          ),
+        desc: f.inserted_at
+      )
+      |> select(
+        [f, lp],
+        {f,
+         fragment(
+           "COALESCE(array_position(?, ?), ?)",
+           type(^ordered, {:array, UUIDv7}),
+           f.folder_uuid,
+           lp.pos
+         )}
+      )
+      |> limit(^per_page)
+      |> offset(^offset)
+      |> repo.all()
+
+    by_position = group_positions(query, groups, ordered, repo)
+    {files, positions} = Enum.unzip(rows)
+    {files, Enum.map(positions, &Map.get(by_position, &1))}
+  end
+
+  # A file's group is its home folder when that is inside the scope,
+  # otherwise the first scope folder (in path order) it is linked into.
+  defp with_group_position(query, ordered) do
+    link_positions =
+      from(fl in FolderLink,
+        where: fl.folder_uuid in type(^ordered, {:array, UUIDv7}),
+        group_by: fl.file_uuid,
+        select: %{
+          file_uuid: fl.file_uuid,
+          pos:
+            min(
+              fragment("array_position(?, ?)", type(^ordered, {:array, UUIDv7}), fl.folder_uuid)
+            )
+        }
+      )
+
+    join(query, :left, [f], lp in subquery(link_positions), on: lp.file_uuid == f.uuid)
+  end
+
+  # Position (1-based, in `ordered`) → the group with its file count over the
+  # whole filtered list and the offset its first file sits at — what the
+  # heading shows and what tells a page that a folder continues from the one
+  # before.
+  defp group_positions(query, groups, ordered, repo) do
+    counts =
+      from(
+        x in subquery(
+          query
+          |> with_group_position(ordered)
+          |> select([f, lp], %{
+            pos:
+              fragment(
+                "COALESCE(array_position(?, ?), ?)",
+                type(^ordered, {:array, UUIDv7}),
+                f.folder_uuid,
+                lp.pos
+              )
+          })
+        ),
+        group_by: x.pos,
+        select: {x.pos, count()}
+      )
+      |> repo.all()
+      |> Map.new()
+
+    groups
+    |> Enum.with_index(1)
+    |> Enum.map_reduce(0, fn {group, pos}, start ->
+      count = Map.get(counts, pos, 0)
+      {{pos, Map.merge(group, %{count: count, start: start})}, start + count}
+    end)
+    |> elem(0)
+    |> Map.new()
+  end
+
+  # `group_by_folder` on a scope that has subfolders: the scope folder and
+  # every folder beneath it in path order (a folder, then its subfolders by
+  # name, depth first), labelled by their path below the scope — the scope
+  # folder by its own name. nil = a flat, ungrouped list.
+  defp folder_groups(%{assigns: %{group_by_folder: true, scope_folder_id: scope}})
+       when is_binary(scope) and scope != "" do
+    uuids = TreeQuery.subtree_uuids(Folder, [scope])
+
+    folders =
+      from(fo in Folder,
+        where: fo.uuid in type(^uuids, {:array, UUIDv7}),
+        select: {fo.uuid, fo.name, fo.parent_uuid}
+      )
+      |> PhoenixKit.Config.get_repo().all()
+
+    in_tree = MapSet.new(folders, &elem(&1, 0))
+
+    case {length(folders), Enum.find(folders, &(elem(&1, 2) not in in_tree))} do
+      {n, root} when n > 1 and root != nil ->
+        by_parent = Enum.group_by(folders, &elem(&1, 2))
+
+        root
+        |> folder_paths([], by_parent)
+        |> Enum.map(fn
+          {uuid, []} -> %{uuid: uuid, label: elem(root, 1)}
+          {uuid, path} -> %{uuid: uuid, label: Enum.join(path, " / ")}
+        end)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp folder_groups(_socket), do: nil
+
+  defp folder_paths({uuid, _name, _parent}, path, by_parent) do
+    children =
+      by_parent
+      |> Map.get(uuid, [])
+      |> Enum.sort_by(fn {_uuid, name, _parent} -> String.downcase(name || "") end)
+
+    [
+      {uuid, path}
+      | Enum.flat_map(children, fn {_uuid, name, _parent} = child ->
+          folder_paths(child, path ++ [name], by_parent)
+        end)
+    ]
+  end
+
+  # The grid's runs: consecutive files under the same folder heading. An
+  # ungrouped picker is one run without a heading. A run that opens a page
+  # but whose folder began on an earlier page is marked `continued?`.
+  defp file_runs(files, current_page, per_page) do
+    offset = (current_page - 1) * per_page
+
+    files
+    |> Enum.chunk_by(&(Map.get(&1, :group) && &1.group.uuid))
+    |> Enum.with_index()
+    |> Enum.map(fn {[first | _] = run, index} ->
+      group = Map.get(first, :group)
+
+      %{
+        group: group,
+        files: run,
+        continued?: index == 0 and group != nil and group.start < offset
+      }
+    end)
   end
 
   # Scope helpers for load_files/2. Each one returns the query

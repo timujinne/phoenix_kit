@@ -16088,3 +16088,8 @@ msgstr "Näita halduspäises lehe kirjeldusi"
 #, elixir-autogen, elixir-format
 msgid "Signed (short-lived link)"
 msgstr "Allkirjastatud (lühiajaline link)"
+
+#: lib/phoenix_kit_web/live/components/media_selector_modal.html.heex:325
+#, elixir-autogen, elixir-format
+msgid "continued"
+msgstr "jätk"

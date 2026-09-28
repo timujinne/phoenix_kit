@@ -16087,3 +16087,8 @@ msgstr "Mostrar las descripciones de página en la cabecera de administración"
 #, elixir-autogen, elixir-format
 msgid "Signed (short-lived link)"
 msgstr "Firmado (enlace de corta duración)"
+
+#: lib/phoenix_kit_web/live/components/media_selector_modal.html.heex:325
+#, elixir-autogen, elixir-format
+msgid "continued"
+msgstr "continuación"

@@ -16114,3 +16114,8 @@ msgstr "Pokazuj opisy stron w nagłówku panelu"
 #, elixir-autogen, elixir-format
 msgid "Signed (short-lived link)"
 msgstr "Podpisany (krótkotrwały link)"
+
+#: lib/phoenix_kit_web/live/components/media_selector_modal.html.heex:325
+#, elixir-autogen, elixir-format
+msgid "continued"
+msgstr "ciąg dalszy"
