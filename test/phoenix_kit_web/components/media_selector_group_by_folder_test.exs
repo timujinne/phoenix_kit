@@ -21,7 +21,12 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
     def mount(_params, session, socket) do
       # Only what the test passes, so the component's own defaults hold.
       opts =
-        %{group_by_folder: session["group"], per_page: session["per_page"], size: session["size"]}
+        %{
+          group_by_folder: session["group"],
+          per_page: session["per_page"],
+          size: session["size"],
+          folder_labels: session["labels"]
+        }
         |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
       {:ok, assign(socket, scope: session["scope"], opts: opts)}
@@ -81,7 +86,8 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
         "scope" => scope.uuid,
         "group" => Keyword.get(opts, :group, true),
         "per_page" => Keyword.get(opts, :per_page),
-        "size" => Keyword.get(opts, :size)
+        "size" => Keyword.get(opts, :size),
+        "labels" => Keyword.get(opts, :labels)
       }
     )
   end
@@ -202,5 +208,34 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
            |> Enum.count() == 35
 
     refute has_element?(view, ~s(button[phx-click="change_page"]))
+  end
+
+  test "folder_labels name folders in the headings in place of their stored names",
+       %{conn: conn} = ctx do
+    file!(ctx.scope)
+    file!(ctx.sub1)
+    file!(ctx.tootmine)
+    file!(ctx.sub2)
+
+    labels = %{ctx.sub1.uuid => "No. 30-1 — Kitchen — Main house"}
+    {:ok, _view, html} = open(conn, ctx.scope, labels: labels)
+
+    assert headings(html) == [
+             ctx.scope.name,
+             "No. 30-1 — Kitchen — Main house",
+             "No. 30-1 — Kitchen — Main house / tootmine",
+             "sub-2"
+           ]
+  end
+
+  test "subfolders sort by name with numbers by value", %{conn: conn} = ctx do
+    sub10 = folder!("sub-10", ctx.scope)
+    file!(ctx.sub2)
+    file!(sub10)
+    file!(ctx.sub1)
+
+    {:ok, _view, html} = open(conn, ctx.scope)
+
+    assert headings(html) == ["sub-1", "sub-2", "sub-10"]
   end
 end

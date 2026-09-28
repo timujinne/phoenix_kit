@@ -102,6 +102,10 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       heading on the next page, marked "continued". A file linked into the
       scope (`FolderLink`) is grouped where it is linked unless its home
       folder is inside the scope.
+    * `folder_labels` — `%{folder_uuid => name}`: what a folder is called in
+      the `group_by_folder` headings instead of its stored name, for hosts
+      whose folders stand for records ("sub-2" → "No. 30-2 — Kitchen").
+      Folders not in the map keep their own name.
     * `size` — `:default` (a centred window up to 80rem wide, 30 files a
       page) or `:full` (the whole viewport, up to 10 columns, 60 files a
       page) for pickers where many images are chosen from.
@@ -154,6 +158,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       # after lazy-creating their folder.
       |> assign_new(:scope_folder_id, fn -> nil end)
       |> assign_new(:group_by_folder, fn -> false end)
+      |> assign_new(:folder_labels, fn -> %{} end)
       |> assign_new(:size, fn -> :default end)
       |> assign_new(:notify, fn -> nil end)
       # `browse: false` → upload-only mode: hide the library grid, search,
@@ -908,8 +913,10 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
   # every folder beneath it in path order (a folder, then its subfolders by
   # name, depth first), labelled by their path below the scope — the scope
   # folder by its own name. nil = a flat, ungrouped list.
-  defp folder_groups(%{assigns: %{group_by_folder: true, scope_folder_id: scope}})
+  defp folder_groups(%{assigns: %{group_by_folder: true, scope_folder_id: scope} = assigns})
        when is_binary(scope) and scope != "" do
+    labels = assigns[:folder_labels] || %{}
+
     uuids = TreeQuery.subtree_uuids(Folder, [scope])
 
     folders =
@@ -926,9 +933,9 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
         by_parent = Enum.group_by(folders, &elem(&1, 2))
 
         root
-        |> folder_paths([], by_parent)
+        |> folder_paths([], by_parent, labels)
         |> Enum.map(fn
-          {uuid, []} -> %{uuid: uuid, label: elem(root, 1)}
+          {uuid, []} -> %{uuid: uuid, label: Map.get(labels, uuid) || elem(root, 1)}
           {uuid, path} -> %{uuid: uuid, label: Enum.join(path, " / ")}
         end)
 
@@ -939,18 +946,31 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
 
   defp folder_groups(_socket), do: nil
 
-  defp folder_paths({uuid, _name, _parent}, path, by_parent) do
+  # Subfolders sort by their stored name, numbers by value ("sub-2" before
+  # "sub-10"); a host label (`folder_labels`) only changes what is shown.
+  defp folder_paths({uuid, _name, _parent}, path, by_parent, labels) do
     children =
       by_parent
       |> Map.get(uuid, [])
-      |> Enum.sort_by(fn {_uuid, name, _parent} -> String.downcase(name || "") end)
+      |> Enum.sort_by(fn {_uuid, name, _parent} -> natural_key(name) end)
 
     [
       {uuid, path}
-      | Enum.flat_map(children, fn {_uuid, name, _parent} = child ->
-          folder_paths(child, path ++ [name], by_parent)
+      | Enum.flat_map(children, fn {child_uuid, name, _parent} = child ->
+          folder_paths(child, path ++ [Map.get(labels, child_uuid) || name], by_parent, labels)
         end)
     ]
+  end
+
+  defp natural_key(name) do
+    ~r/(\d+)/
+    |> Regex.split(String.downcase(name || ""), include_captures: true, trim: true)
+    |> Enum.map(fn part ->
+      case Integer.parse(part) do
+        {number, ""} -> {0, number, ""}
+        _ -> {1, 0, part}
+      end
+    end)
   end
 
   defp default_per_page(:full), do: @per_page * 2
