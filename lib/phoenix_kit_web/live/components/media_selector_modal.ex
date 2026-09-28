@@ -96,11 +96,16 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
     * `group_by_folder` — `false` (default) lists the scoped library as one
       newest-first grid. `true` (with `scope_folder_id` holding subfolders)
       sorts it by the folder each file sits in — the scope folder first, then
-      its subfolders in path order, newest first within each — under one
-      heading per folder: its path below the scope and its file count. A
-      folder cut by a page break repeats its heading on the next page, marked
-      "continued". A file linked into the scope (`FolderLink`) is grouped
-      where it is linked unless its home folder is inside the scope.
+      its subfolders in path order, newest first within each — and opens each
+      folder's files with a heading tile in the same grid: its path below the
+      scope and its file count. A folder cut by a page break repeats its
+      heading on the next page, marked "continued". A file linked into the
+      scope (`FolderLink`) is grouped where it is linked unless its home
+      folder is inside the scope.
+    * `size` — `:default` (a centred window up to 80rem wide, 30 files a
+      page) or `:full` (the whole viewport, up to 10 columns, 60 files a
+      page) for pickers where many images are chosen from.
+    * `per_page` — files per page; defaults by `size`.
   """
   use PhoenixKitWeb, :live_component
 
@@ -149,6 +154,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       # after lazy-creating their folder.
       |> assign_new(:scope_folder_id, fn -> nil end)
       |> assign_new(:group_by_folder, fn -> false end)
+      |> assign_new(:size, fn -> :default end)
       |> assign_new(:notify, fn -> nil end)
       # `browse: false` → upload-only mode: hide the library grid, search,
       # type filter, pagination, and the accepted-types hint, leaving just the
@@ -172,7 +178,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       |> assign_new(:always_show_search, fn -> false end)
       |> assign_new(:search_query, fn -> "" end)
       |> assign_new(:current_page, fn -> 1 end)
-      |> assign_new(:per_page, fn -> @per_page end)
+      |> assign_new(:per_page, fn -> default_per_page(assigns[:size]) end)
       |> assign_new(:uploaded_files, fn -> [] end)
       |> assign_new(:total_count, fn -> 0 end)
       |> assign_new(:total_pages, fn -> 0 end)
@@ -946,6 +952,28 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
         end)
     ]
   end
+
+  defp default_per_page(:full), do: @per_page * 2
+  defp default_per_page(_size), do: @per_page
+
+  defp container_class(:full), do: "min-h-screen p-2 flex items-stretch justify-center"
+
+  defp container_class(_size),
+    do: "min-h-screen px-2 py-2 sm:px-4 sm:py-6 flex items-center justify-center"
+
+  defp panel_class(:full),
+    do:
+      "bg-base-100 rounded-lg shadow-2xl w-full h-[calc(100dvh-1rem)] overflow-hidden flex flex-col"
+
+  defp panel_class(_size),
+    do:
+      "bg-base-100 rounded-lg shadow-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+
+  defp grid_class(:full),
+    do: "grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 2xl:grid-cols-10 gap-2"
+
+  defp grid_class(_size),
+    do: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
 
   # The grid's runs: consecutive files under the same folder heading. An
   # ungrouped picker is one run without a heading. A run that opens a page

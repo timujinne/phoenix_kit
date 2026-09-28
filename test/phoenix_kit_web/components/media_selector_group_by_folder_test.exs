@@ -19,12 +19,12 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
     use Phoenix.LiveView
 
     def mount(_params, session, socket) do
-      {:ok,
-       assign(socket,
-         scope: session["scope"],
-         group: session["group"],
-         per_page: session["per_page"]
-       )}
+      # Only what the test passes, so the component's own defaults hold.
+      opts =
+        %{group_by_folder: session["group"], per_page: session["per_page"], size: session["size"]}
+        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+
+      {:ok, assign(socket, scope: session["scope"], opts: opts)}
     end
 
     def render(assigns) do
@@ -38,9 +38,8 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
         scope_folder_id={@scope}
         file_type_filter={:image}
         lock_file_type
-        group_by_folder={@group}
-        per_page={@per_page}
         phoenix_kit_current_user={nil}
+        {@opts}
       />
       """
     end
@@ -81,7 +80,8 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
       session: %{
         "scope" => scope.uuid,
         "group" => Keyword.get(opts, :group, true),
-        "per_page" => Keyword.get(opts, :per_page, 30)
+        "per_page" => Keyword.get(opts, :per_page),
+        "size" => Keyword.get(opts, :size)
       }
     )
   end
@@ -89,7 +89,11 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
   defp group_id(folder), do: "#media-selector-group-picker-#{folder.uuid}"
 
   defp tile_in?(view, folder, file),
-    do: has_element?(view, ~s(#{group_id(folder)} div[phx-value-file-uuid="#{file.uuid}"]))
+    do:
+      has_element?(
+        view,
+        ~s(div[phx-value-file-uuid="#{file.uuid}"][data-media-group="#{folder.uuid}"])
+      )
 
   defp headings(html) do
     html
@@ -183,5 +187,20 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorGroupByFolderTest do
       |> Enum.map(&(&1 |> LazyHTML.attribute("phx-value-file-uuid") |> List.first()))
 
     assert uuids == [newer.uuid, older.uuid]
+  end
+
+  test "size :full fills the viewport and lists 60 files a page", %{conn: conn} = ctx do
+    for _ <- 1..35, do: file!(ctx.sub1)
+
+    {:ok, view, html} = open(conn, ctx.scope, size: :full)
+
+    assert has_element?(view, ~s{div[class*="h-[calc(100dvh-1rem)]"]})
+
+    assert html
+           |> LazyHTML.from_fragment()
+           |> LazyHTML.query("div[phx-value-file-uuid]")
+           |> Enum.count() == 35
+
+    refute has_element?(view, ~s(button[phx-click="change_page"]))
   end
 end

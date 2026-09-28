@@ -10,10 +10,10 @@
   aria-labelledby={"media-selector-modal-title-#{@id}"}
 >
   <%!-- Modal Container --%>
-  <div class="min-h-screen px-2 py-2 sm:px-4 sm:py-6 flex items-center justify-center">
+  <div class={container_class(@size)}>
     <%!-- Modal Content (click inside shouldn't close) --%>
     <div
-      class="bg-base-100 rounded-lg shadow-2xl max-w-7xl w-full max-h-[90vh] overflow-hidden flex flex-col"
+      class={panel_class(@size)}
       phx-click="noop"
       phx-target={@myself}
     >
@@ -300,98 +300,99 @@
               </div>
             <% end %>
           <% else %>
-            <%!-- One run per folder heading when `group_by_folder` is on;
-                 otherwise a single run without a heading. --%>
-            <%= for run <- file_runs(@uploaded_files, @current_page, @per_page) do %>
-              <div
-                id={run.group && "media-selector-group-#{@id}-#{run.group.uuid}"}
-                data-media-group={run.group && run.group.uuid}
-                class={run.group && "space-y-2"}
-              >
-                <div :if={run.group} class="flex items-center gap-2 pt-1 min-w-0">
-                  <.icon name="hero-folder" class="w-4 h-4 shrink-0 text-base-content/50" />
-                  <span class="text-sm font-semibold truncate" data-media-group-label>
+            <%!-- One grid. With `group_by_folder` each folder's files follow a
+                 heading tile in the same grid, so a small folder does not
+                 leave the rest of its row empty; without it, just the files. --%>
+            <div class={grid_class(@size)}>
+              <%= for run <- file_runs(@uploaded_files, @current_page, @per_page) do %>
+                <div
+                  :if={run.group}
+                  id={"media-selector-group-#{@id}-#{run.group.uuid}"}
+                  data-media-group-heading={run.group.uuid}
+                  class="rounded-lg border border-dashed border-base-300 bg-base-200/60 p-2 flex flex-col justify-center gap-1 min-w-0 min-h-24"
+                >
+                  <.icon name="hero-folder" class="w-5 h-5 text-base-content/50" />
+                  <span class="text-xs font-semibold break-words" data-media-group-label>
                     {run.group.label}
                   </span>
-                  <span class="badge badge-ghost badge-sm shrink-0" data-media-group-count>
+                  <span class="text-[11px] text-base-content/60" data-media-group-count>
                     {ngettext("%{count} file", "%{count} files", run.group.count,
                       count: run.group.count
                     )}
                   </span>
                   <span
                     :if={run.continued?}
-                    class="text-xs text-base-content/50 shrink-0"
+                    class="text-[11px] text-base-content/50"
                     data-continued
                   >
                     {gettext("continued")}
                   </span>
                 </div>
-                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                  <%= for file <- run.files do %>
-                    <% is_selected = file.file_uuid in @selected_uuids %>
-                    <div
-                      phx-click="toggle_selection"
-                      phx-dblclick={@mode == :single && "quick_confirm"}
-                      phx-value-file-uuid={file.file_uuid}
-                      phx-target={@myself}
-                      class={[
-                        "card bg-base-200 shadow-md cursor-pointer transition-all hover:shadow-lg",
-                        is_selected && "ring-4 ring-primary"
-                      ]}
-                    >
-                      <%!-- Card-size slot needs the card-tier variant: the
-                  default :small is the 150px thumbnail, and stretched
-                  across an aspect-square grid tile (~150-300px CSS,
-                  double on retina) it is the blur the boss reported
-                  (2026-08-31) — the same fix the media browser's grid
-                  already carries. --%>
-                      <figure class="aspect-square bg-base-300 relative">
-                        <.thumbnail_url :let={url} file={file} size={:card}>
-                          <%= if url do %>
-                            <img
-                              src={url}
-                              alt={Map.get(file, :alt) || file.filename}
-                              class={["object-cover w-full h-full", rotation_class(file)]}
-                            />
-                          <% else %>
-                            <div class="flex items-center justify-center w-full h-full">
-                              <.icon name="hero-document" class="w-12 h-12 text-base-content/30" />
-                            </div>
-                          <% end %>
-                        </.thumbnail_url>
-                        <%!-- Selection Indicator --%>
-                        <%= if is_selected do %>
-                          <div class="absolute top-1 right-1 bg-primary text-primary-content rounded-full w-7 h-7 flex items-center justify-center">
-                            <.icon name="hero-check" class="w-4 h-4" />
-                          </div>
+                <%= for file <- run.files do %>
+                  <% is_selected = file.file_uuid in @selected_uuids %>
+                  <div
+                    phx-click="toggle_selection"
+                    phx-dblclick={@mode == :single && "quick_confirm"}
+                    phx-value-file-uuid={file.file_uuid}
+                    data-media-group={run.group && run.group.uuid}
+                    phx-target={@myself}
+                    class={[
+                      "card bg-base-200 shadow-md cursor-pointer transition-all hover:shadow-lg",
+                      is_selected && "ring-4 ring-primary"
+                    ]}
+                  >
+                    <%!-- Card-size slot needs the card-tier variant: the
+              default :small is the 150px thumbnail, and stretched
+              across an aspect-square grid tile (~150-300px CSS,
+              double on retina) it is the blur the boss reported
+              (2026-08-31) — the same fix the media browser's grid
+              already carries. --%>
+                    <figure class="aspect-square bg-base-300 relative">
+                      <.thumbnail_url :let={url} file={file} size={:card}>
+                        <%= if url do %>
+                          <img
+                            src={url}
+                            alt={Map.get(file, :alt) || file.filename}
+                            class={["object-cover w-full h-full", rotation_class(file)]}
+                          />
                         <% else %>
-                          <div class="absolute top-1 right-1 bg-base-100/80 border-2 border-base-300 rounded-full w-7 h-7">
+                          <div class="flex items-center justify-center w-full h-full">
+                            <.icon name="hero-document" class="w-12 h-12 text-base-content/30" />
                           </div>
                         <% end %>
-                        <%!-- File Type Badge --%>
-                        <div class="absolute bottom-1 left-1">
-                          <span class="badge badge-xs badge-neutral uppercase">
-                            {file.file_type}
-                          </span>
+                      </.thumbnail_url>
+                      <%!-- Selection Indicator --%>
+                      <%= if is_selected do %>
+                        <div class="absolute top-1 right-1 bg-primary text-primary-content rounded-full w-7 h-7 flex items-center justify-center">
+                          <.icon name="hero-check" class="w-4 h-4" />
                         </div>
-                      </figure>
-                      <%!-- File Info --%>
-                      <div class="card-body p-2">
-                        <p class="text-xs font-semibold truncate" title={file.filename}>
-                          {file.filename}
-                        </p>
-                        <div class="flex justify-between items-center text-[10px] text-base-content/60">
-                          <span>{format_file_size(file.size)}</span>
-                          <%= if file.width && file.height do %>
-                            <span>{file.width}×{file.height}</span>
-                          <% end %>
+                      <% else %>
+                        <div class="absolute top-1 right-1 bg-base-100/80 border-2 border-base-300 rounded-full w-7 h-7">
                         </div>
+                      <% end %>
+                      <%!-- File Type Badge --%>
+                      <div class="absolute bottom-1 left-1">
+                        <span class="badge badge-xs badge-neutral uppercase">
+                          {file.file_type}
+                        </span>
+                      </div>
+                    </figure>
+                    <%!-- File Info --%>
+                    <div class="card-body p-2">
+                      <p class="text-xs font-semibold truncate" title={file.filename}>
+                        {file.filename}
+                      </p>
+                      <div class="flex justify-between items-center text-[10px] text-base-content/60">
+                        <span>{format_file_size(file.size)}</span>
+                        <%= if file.width && file.height do %>
+                          <span>{file.width}×{file.height}</span>
+                        <% end %>
                       </div>
                     </div>
-                  <% end %>
-                </div>
-              </div>
-            <% end %>
+                  </div>
+                <% end %>
+              <% end %>
+            </div>
           <% end %>
           <%!-- Pagination --%>
           <%= if @total_pages > 1 do %>
