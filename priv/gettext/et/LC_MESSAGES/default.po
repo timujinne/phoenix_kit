@@ -1153,7 +1153,7 @@ msgstr "Funktsionaalsed moodulid"
 #: lib/modules/storage/web/libraries_component.ex:666
 #: lib/modules/storage/web/settings.html.heex:129
 #: lib/modules/storage/web/settings.html.heex:146
-#: lib/phoenix_kit/users/auth.ex:3249
+#: lib/phoenix_kit/users/auth.ex:3268
 #: lib/phoenix_kit_web/components/core/preview_card.ex:284
 #: lib/phoenix_kit_web/live/users/libraries.html.heex:105
 #, elixir-autogen, elixir-format
@@ -2063,7 +2063,7 @@ msgid "Unconfirmed"
 msgstr "Kinnitamata"
 
 #: lib/phoenix_kit/email/core_templates.ex:408
-#: lib/phoenix_kit/users/auth/user_notifier.ex:237
+#: lib/phoenix_kit/users/auth/user_notifier.ex:253
 #: lib/phoenix_kit_web/comments_gettext_manifest.ex:64
 #: lib/phoenix_kit_web/components/core/time_display.ex:183
 #: lib/phoenix_kit_web/components/language_switcher.ex:832
@@ -5238,7 +5238,7 @@ msgstr "Saadaval"
 msgid "Body Saved"
 msgstr "Sisu salvestatud"
 
-#: lib/phoenix_kit/users/auth.ex:3236
+#: lib/phoenix_kit/users/auth.ex:3255
 #: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex:721
 #: lib/phoenix_kit_web/live/modules.ex:127
 #: lib/phoenix_kit_web/live/users/media_detail.html.heex:378
@@ -5633,7 +5633,7 @@ msgstr "Üksused"
 
 #: lib/modules/sitemap/web/settings.html.heex:135
 #: lib/modules/sitemap/web/settings.html.heex:315
-#: lib/phoenix_kit/users/auth.ex:3234
+#: lib/phoenix_kit/users/auth.ex:3253
 #: lib/phoenix_kit_web/live/modules.ex:139
 #, elixir-autogen
 msgid "Posts"
@@ -13899,27 +13899,27 @@ msgstr "Saadetud"
 msgid "We emailed a confirmation link to %{email}. Open it to continue — you'll land back in the app automatically, no need to come back to this page."
 msgstr "Saatsime kinnituslingi aadressile %{email}. Ava see jätkamiseks — jõuate automaatselt tagasi rakendusse, ilma et peaksite sellele lehele naasma."
 
-#: lib/phoenix_kit/users/auth.ex:3229
+#: lib/phoenix_kit/users/auth.ex:3248
 #, elixir-autogen, elixir-format
 msgid "Admin notes"
 msgstr "Administraatori märkmed"
 
-#: lib/phoenix_kit/users/auth.ex:3226
+#: lib/phoenix_kit/users/auth.ex:3245
 #, elixir-autogen, elixir-format
 msgid "Billing profiles"
 msgstr "Arveldusprofiilid"
 
-#: lib/phoenix_kit/users/auth.ex:3247
+#: lib/phoenix_kit/users/auth.ex:3266
 #, elixir-autogen, elixir-format
 msgid "Email logs"
 msgstr "E-posti logid"
 
-#: lib/phoenix_kit/users/auth.ex:3225
+#: lib/phoenix_kit/users/auth.ex:3244
 #, elixir-autogen, elixir-format
 msgid "OAuth connections"
 msgstr "OAuth-ühendused"
 
-#: lib/phoenix_kit/users/auth.ex:3232
+#: lib/phoenix_kit/users/auth.ex:3251
 #, elixir-autogen, elixir-format
 msgid "Orders"
 msgstr "Tellimused"
@@ -13935,22 +13935,22 @@ msgstr "Kustuta jäädavalt"
 msgid "Permanently Delete User"
 msgstr "Kustuta kasutaja jäädavalt"
 
-#: lib/phoenix_kit/users/auth.ex:3224
+#: lib/phoenix_kit/users/auth.ex:3243
 #, elixir-autogen, elixir-format
 msgid "Role assignments"
 msgstr "Rollide määramised"
 
-#: lib/phoenix_kit/users/auth.ex:3223
+#: lib/phoenix_kit/users/auth.ex:3242
 #, elixir-autogen, elixir-format
 msgid "Session and other tokens"
 msgstr "Seansi- ja muud tokenid"
 
-#: lib/phoenix_kit/users/auth.ex:3228
+#: lib/phoenix_kit/users/auth.ex:3247
 #, elixir-autogen, elixir-format
 msgid "Shopping carts"
 msgstr "Ostukorvid"
 
-#: lib/phoenix_kit/users/auth.ex:3245
+#: lib/phoenix_kit/users/auth.ex:3264
 #, elixir-autogen, elixir-format
 msgid "Support tickets"
 msgstr "Tugipäringud"
@@ -17912,47 +17912,47 @@ msgstr "Tervituskirja seadet ei õnnestunud muuta"
 #: lib/phoenix_kit/email/core_templates.ex:204
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nPlease confirm your account with the button below.\n\n[Confirm account]({{confirmation_url}})\n\nIf the button doesn't work, open this link: [{{confirmation_url}}]({{confirmation_url}})\n\nIf you didn't create an account with us, please ignore this email.\n"
-msgstr "Tere {{user_email}},\n\npalun kinnitage oma konto alloleva nupuga.\n\n[Kinnita konto]({{confirmation_url}})\n\nKui nupp ei tööta, avage see link: [{{confirmation_url}}]({{confirmation_url}})\n\nKui te ei loonud meie juures kontot, jätke see e-kiri tähelepanuta.\n"
+msgstr "Tere, {{user_email}},\n\npalun kinnitage oma konto alloleva nupuga.\n\n[Kinnita konto]({{confirmation_url}})\n\nKui nupp ei tööta, avage see link: [{{confirmation_url}}]({{confirmation_url}})\n\nKui te ei loonud meie juures kontot, jätke see e-kiri tähelepanuta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:359
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nSomeone has been trying to sign in to your account and failing.\n\n- Failed attempts: {{attempt_count}}\n- In the last: {{window_hours}} hour(s)\n\nNobody has signed in. You do not need to do anything if you recognize this as your own mistyped password.\n\nIf you do not, your password may be being guessed. Change it to something you do not use anywhere else:\n\n[Change password]({{security_url}})\n\nIf the button doesn't work, open this link: [{{security_url}}]({{security_url}})\n"
-msgstr "Tere {{user_email}},\n\nkeegi üritab korduvalt teie kontosse sisse logida ja ebaõnnestub.\n\n- Ebaõnnestunud katseid: {{attempt_count}}\n- Viimase: {{window_hours}} tunni jooksul\n\nKeegi ei ole sisse loginud. Kui see oli teie enda valesti sisestatud parool, ei pea te midagi tegema.\n\nKui ei olnud, võidakse teie parooli ära arvata. Vahetage see parooli vastu, mida te mujal ei kasuta:\n\n[Vaheta parool]({{security_url}})\n\nKui nupp ei tööta, avage see link: [{{security_url}}]({{security_url}})\n"
+msgstr "Tere, {{user_email}},\n\nkeegi üritab korduvalt teie kontosse sisse logida ja ebaõnnestub.\n\n- Ebaõnnestunud katseid: {{attempt_count}}\n- Viimase: {{window_hours}} tunni jooksul\n\nKeegi ei ole sisse loginud. Kui see oli teie enda valesti sisestatud parool, ei pea te midagi tegema.\n\nKui ei olnud, võidakse teie parooli ära arvata. Vahetage see parooli vastu, mida te mujal ei kasuta:\n\n[Vaheta parool]({{security_url}})\n\nKui nupp ei tööta, avage see link: [{{security_url}}]({{security_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:264
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nUse the button below to sign in. This link expires in 15 minutes.\n\n[Sign in]({{magic_link_url}})\n\nIf the button doesn't work, open this link: [{{magic_link_url}}]({{magic_link_url}})\n\nIf you didn't ask for this link, you can ignore this email.\n"
-msgstr "Tere {{user_email}},\n\nlogige sisse alloleva nupuga. See link aegub 15 minuti pärast.\n\n[Logi sisse]({{magic_link_url}})\n\nKui nupp ei tööta, avage see link: [{{magic_link_url}}]({{magic_link_url}})\n\nKui te seda linki ei küsinud, võite selle e-kirja tähelepanuta jätta.\n"
+msgstr "Tere, {{user_email}},\n\nlogige sisse alloleva nupuga. See link aegub 15 minuti pärast.\n\n[Logi sisse]({{magic_link_url}})\n\nKui nupp ei tööta, avage see link: [{{magic_link_url}}]({{magic_link_url}})\n\nKui te seda linki ei küsinud, võite selle e-kirja tähelepanuta jätta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:330
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWe noticed a new login to your account from an unrecognized device:\n\n- Time: {{login_time}}\n- IP address: {{ip_address}}\n- Location: {{location}}\n- Device: {{browser_os}}\n\n{{failed_attempts}}\n\nIf this was you, no action is needed.\n\nIf you don't recognize this activity, secure your account:\n\n[Review account security]({{security_url}})\n\nIf the button doesn't work, open this link: [{{security_url}}]({{security_url}})\n"
-msgstr "Tere {{user_email}},\n\nmärkasime teie kontole uut sisselogimist tundmatust seadmest:\n\n- Aeg: {{login_time}}\n- IP-aadress: {{ip_address}}\n- Asukoht: {{location}}\n- Seade: {{browser_os}}\n\n{{failed_attempts}}\n\nKui see olite teie, ei ole vaja midagi teha.\n\nKui te seda tegevust ei tunne, turvake oma konto:\n\n[Kontrolli konto turvalisust]({{security_url}})\n\nKui nupp ei tööta, avage see link: [{{security_url}}]({{security_url}})\n"
+msgstr "Tere, {{user_email}},\n\nmärkasime teie kontole uut sisselogimist tundmatust seadmest:\n\n- Aeg: {{login_time}}\n- IP-aadress: {{ip_address}}\n- Asukoht: {{location}}\n- Seade: {{browser_os}}\n\n{{failed_attempts}}\n\nKui see olite teie, ei ole vaja midagi teha.\n\nKui te seda tegevust ei tunne, turvake oma konto:\n\n[Kontrolli konto turvalisust]({{security_url}})\n\nKui nupp ei tööta, avage see link: [{{security_url}}]({{security_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:384
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome to {{site_name}}! Your email address is confirmed and your account is ready.\n\n[Go to {{site_name}}]({{site_url}})\n\nIf the button doesn't work, open this link: [{{site_url}}]({{site_url}})\n"
-msgstr "Tere {{user_email}},\n\nmeil on hea meel teid näha! Teie e-posti aadress on kinnitatud ja konto on kasutamiseks valmis.\n\n[Ava {{site_name}}]({{site_url}})\n\nKui nupp ei tööta, avage see link: [{{site_url}}]({{site_url}})\n"
+msgstr "Tere, {{user_email}},\n\nmeil on hea meel teid näha! Teie e-posti aadress on kinnitatud ja konto on kasutamiseks valmis.\n\n[Ava {{site_name}}]({{site_url}})\n\nKui nupp ei tööta, avage see link: [{{site_url}}]({{site_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:284
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome! To complete your registration, use the button below.\n\n[Complete registration]({{registration_url}})\n\nIf the button doesn't work, open this link: [{{registration_url}}]({{registration_url}})\n\nThis link will expire in 30 minutes for your security.\n\nIf you didn't request this registration, please ignore this email.\n"
-msgstr "Tere {{user_email}},\n\nmeil on hea meel, et liitute! Registreerimise lõpetamiseks kasutage allolevat nuppu.\n\n[Lõpeta registreerimine]({{registration_url}})\n\nKui nupp ei tööta, avage see link: [{{registration_url}}]({{registration_url}})\n\nTeie turvalisuse huvides aegub see link 30 minuti pärast.\n\nKui te seda registreerimist ei taotlenud, jätke see e-kiri tähelepanuta.\n"
+msgstr "Tere, {{user_email}},\n\nmeil on hea meel, et liitute! Registreerimise lõpetamiseks kasutage allolevat nuppu.\n\n[Lõpeta registreerimine]({{registration_url}})\n\nKui nupp ei tööta, avage see link: [{{registration_url}}]({{registration_url}})\n\nTeie turvalisuse huvides aegub see link 30 minuti pärast.\n\nKui te seda registreerimist ei taotlenud, jätke see e-kiri tähelepanuta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:244
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nYou can change your email with the button below.\n\n[Confirm email change]({{update_url}})\n\nIf the button doesn't work, open this link: [{{update_url}}]({{update_url}})\n\nIf you didn't request this change, please ignore this email.\n"
-msgstr "Tere {{user_email}},\n\nsaate oma e-posti aadressi muuta alloleva nupuga.\n\n[Kinnita e-posti aadressi muutmine]({{update_url}})\n\nKui nupp ei tööta, avage see link: [{{update_url}}]({{update_url}})\n\nKui te seda muudatust ei taotlenud, jätke see e-kiri tähelepanuta.\n"
+msgstr "Tere, {{user_email}},\n\nsaate oma e-posti aadressi muuta alloleva nupuga.\n\n[Kinnita e-posti aadressi muutmine]({{update_url}})\n\nKui nupp ei tööta, avage see link: [{{update_url}}]({{update_url}})\n\nKui te seda muudatust ei taotlenud, jätke see e-kiri tähelepanuta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:224
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nYou can reset your password with the button below.\n\n[Reset password]({{reset_url}})\n\nIf the button doesn't work, open this link: [{{reset_url}}]({{reset_url}})\n\nIf you didn't request this change, please ignore this email.\n"
-msgstr "Tere {{user_email}},\n\nsaate oma parooli lähtestada alloleva nupuga.\n\n[Lähtesta parool]({{reset_url}})\n\nKui nupp ei tööta, avage see link: [{{reset_url}}]({{reset_url}})\n\nKui te seda muudatust ei taotlenud, jätke see e-kiri tähelepanuta.\n"
+msgstr "Tere, {{user_email}},\n\nsaate oma parooli lähtestada alloleva nupuga.\n\n[Lähtesta parool]({{reset_url}})\n\nKui nupp ei tööta, avage see link: [{{reset_url}}]({{reset_url}})\n\nKui te seda muudatust ei taotlenud, jätke see e-kiri tähelepanuta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:306
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to join their organization.\n\nTo accept the invitation, register an account with the button below.\n\n[Accept invitation]({{registration_url}})\n\nIf the button doesn't work, open this link: [{{registration_url}}]({{registration_url}})\n\nThis invitation link will expire in 7 days.\n\nIf you did not expect this invitation, you can safely ignore this email.\n"
-msgstr "Tere {{user_email}},\n\n{{organization_name}} kutsus teid oma organisatsiooniga liituma.\n\nKutse vastuvõtmiseks registreerige alloleva nupuga konto.\n\n[Võta kutse vastu]({{registration_url}})\n\nKui nupp ei tööta, avage see link: [{{registration_url}}]({{registration_url}})\n\nSee kutselink aegub 7 päeva pärast.\n\nKui te seda kutset ei oodanud, võite selle e-kirja julgelt tähelepanuta jätta.\n"
+msgstr "Tere, {{user_email}},\n\n{{organization_name}} kutsus teid oma organisatsiooniga liituma.\n\nKutse vastuvõtmiseks registreerige alloleva nupuga konto.\n\n[Võta kutse vastu]({{registration_url}})\n\nKui nupp ei tööta, avage see link: [{{registration_url}}]({{registration_url}})\n\nSee kutselink aegub 7 päeva pärast.\n\nKui te seda kutset ei oodanud, võite selle e-kirja julgelt tähelepanuta jätta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:154
 #, elixir-autogen, elixir-format

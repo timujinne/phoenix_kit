@@ -1153,7 +1153,7 @@ msgstr "Módulos de funciones"
 #: lib/modules/storage/web/libraries_component.ex:666
 #: lib/modules/storage/web/settings.html.heex:129
 #: lib/modules/storage/web/settings.html.heex:146
-#: lib/phoenix_kit/users/auth.ex:3249
+#: lib/phoenix_kit/users/auth.ex:3268
 #: lib/phoenix_kit_web/components/core/preview_card.ex:284
 #: lib/phoenix_kit_web/live/users/libraries.html.heex:105
 #, elixir-autogen, elixir-format
@@ -2063,7 +2063,7 @@ msgid "Unconfirmed"
 msgstr "Sin confirmar"
 
 #: lib/phoenix_kit/email/core_templates.ex:408
-#: lib/phoenix_kit/users/auth/user_notifier.ex:237
+#: lib/phoenix_kit/users/auth/user_notifier.ex:253
 #: lib/phoenix_kit_web/comments_gettext_manifest.ex:64
 #: lib/phoenix_kit_web/components/core/time_display.ex:183
 #: lib/phoenix_kit_web/components/language_switcher.ex:832
@@ -5240,7 +5240,7 @@ msgstr "Disponible"
 msgid "Body Saved"
 msgstr "Contenido guardado"
 
-#: lib/phoenix_kit/users/auth.ex:3236
+#: lib/phoenix_kit/users/auth.ex:3255
 #: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex:721
 #: lib/phoenix_kit_web/live/modules.ex:127
 #: lib/phoenix_kit_web/live/users/media_detail.html.heex:378
@@ -5635,7 +5635,7 @@ msgstr "Entidades"
 
 #: lib/modules/sitemap/web/settings.html.heex:135
 #: lib/modules/sitemap/web/settings.html.heex:315
-#: lib/phoenix_kit/users/auth.ex:3234
+#: lib/phoenix_kit/users/auth.ex:3253
 #: lib/phoenix_kit_web/live/modules.ex:139
 #, elixir-autogen
 msgid "Posts"
@@ -13898,27 +13898,27 @@ msgstr "Enviado"
 msgid "We emailed a confirmation link to %{email}. Open it to continue — you'll land back in the app automatically, no need to come back to this page."
 msgstr "Te enviamos un enlace de confirmación a %{email}. Ábrelo para continuar — volverás a la aplicación automáticamente, sin necesidad de regresar a esta página."
 
-#: lib/phoenix_kit/users/auth.ex:3229
+#: lib/phoenix_kit/users/auth.ex:3248
 #, elixir-autogen, elixir-format
 msgid "Admin notes"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3226
+#: lib/phoenix_kit/users/auth.ex:3245
 #, elixir-autogen, elixir-format
 msgid "Billing profiles"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3247
+#: lib/phoenix_kit/users/auth.ex:3266
 #, elixir-autogen, elixir-format
 msgid "Email logs"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3225
+#: lib/phoenix_kit/users/auth.ex:3244
 #, elixir-autogen, elixir-format
 msgid "OAuth connections"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3232
+#: lib/phoenix_kit/users/auth.ex:3251
 #, elixir-autogen, elixir-format
 msgid "Orders"
 msgstr ""
@@ -13934,22 +13934,22 @@ msgstr ""
 msgid "Permanently Delete User"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3224
+#: lib/phoenix_kit/users/auth.ex:3243
 #, elixir-autogen, elixir-format
 msgid "Role assignments"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3223
+#: lib/phoenix_kit/users/auth.ex:3242
 #, elixir-autogen, elixir-format
 msgid "Session and other tokens"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3228
+#: lib/phoenix_kit/users/auth.ex:3247
 #, elixir-autogen, elixir-format
 msgid "Shopping carts"
 msgstr ""
 
-#: lib/phoenix_kit/users/auth.ex:3245
+#: lib/phoenix_kit/users/auth.ex:3264
 #, elixir-autogen, elixir-format
 msgid "Support tickets"
 msgstr ""
@@ -17932,12 +17932,12 @@ msgstr "Hola {{user_email}}:\n\nHemos detectado un nuevo inicio de sesión en su
 #: lib/phoenix_kit/email/core_templates.ex:384
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome to {{site_name}}! Your email address is confirmed and your account is ready.\n\n[Go to {{site_name}}]({{site_url}})\n\nIf the button doesn't work, open this link: [{{site_url}}]({{site_url}})\n"
-msgstr "Hola {{user_email}}:\n\n¡Bienvenido a {{site_name}}! Su dirección de correo electrónico está confirmada y su cuenta ya está lista.\n\n[Ir a {{site_name}}]({{site_url}})\n\nSi el botón no funciona, abra este enlace: [{{site_url}}]({{site_url}})\n"
+msgstr "Hola {{user_email}}:\n\nLe damos la bienvenida a {{site_name}}. Su dirección de correo electrónico está confirmada y su cuenta ya está lista.\n\n[Ir a {{site_name}}]({{site_url}})\n\nSi el botón no funciona, abra este enlace: [{{site_url}}]({{site_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:284
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome! To complete your registration, use the button below.\n\n[Complete registration]({{registration_url}})\n\nIf the button doesn't work, open this link: [{{registration_url}}]({{registration_url}})\n\nThis link will expire in 30 minutes for your security.\n\nIf you didn't request this registration, please ignore this email.\n"
-msgstr "Hola {{user_email}}:\n\n¡Bienvenido! Para completar su registro, use el botón de abajo.\n\n[Completar el registro]({{registration_url}})\n\nSi el botón no funciona, abra este enlace: [{{registration_url}}]({{registration_url}})\n\nPor su seguridad, este enlace caducará en 30 minutos.\n\nSi no solicitó este registro, ignore este correo.\n"
+msgstr "Hola {{user_email}}:\n\n¡Le damos la bienvenida! Para completar su registro, use el botón de abajo.\n\n[Completar el registro]({{registration_url}})\n\nSi el botón no funciona, abra este enlace: [{{registration_url}}]({{registration_url}})\n\nPor su seguridad, este enlace caducará en 30 minutos.\n\nSi no solicitó este registro, ignore este correo.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:244
 #, elixir-autogen, elixir-format
@@ -18007,4 +18007,4 @@ msgstr "Correo de bienvenida activado"
 #: lib/phoenix_kit/email/core_templates.ex:382
 #, elixir-autogen, elixir-format
 msgid "Welcome to {{site_name}}"
-msgstr "Bienvenido a {{site_name}}"
+msgstr "Le damos la bienvenida a {{site_name}}"
