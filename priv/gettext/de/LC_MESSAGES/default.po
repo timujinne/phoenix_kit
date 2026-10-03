@@ -17957,8 +17957,8 @@ msgstr "Nach der Bestätigung einer Adresse eine Willkommens-E-Mail senden"
 
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:197
 #, elixir-autogen, elixir-format
-msgid "Sent once to each user, right after they confirm their email address — by the confirmation link, a magic link, or a sign-in with a provider that verified the address. Not sent when an administrator confirms an account."
-msgstr "Wird jedem Benutzer einmal gesendet, sobald er seine E-Mail-Adresse bestätigt – über den Bestätigungslink, einen Magic Link oder eine Anmeldung bei einem Anbieter, der die Adresse verifiziert hat. Bestätigt ein Administrator ein Konto, wird sie nicht gesendet."
+msgid "Sent once to each user, after they confirm their own email address — by the confirmation link, a magic link, a sign-in with a provider that verified the address, or by correcting an address they had not confirmed yet. Not sent when an administrator confirms an account."
+msgstr "Wird jedem Benutzer einmal gesendet, nachdem er seine E-Mail-Adresse selbst bestätigt hat – über den Bestätigungslink, einen Magic Link, eine Anmeldung bei einem Anbieter, der die Adresse verifiziert hat, oder durch die Korrektur einer noch nicht bestätigten Adresse. Bestätigt ein Administrator ein Konto, wird sie nicht gesendet."
 
 #: lib/phoenix_kit/email/core_templates.ex:146
 #, elixir-autogen, elixir-format
@@ -17968,12 +17968,12 @@ msgstr "Wird einmal nach der Bestätigung einer Adresse gesendet – nur, wenn d
 #: lib/phoenix_kit_web/live/settings/email_preview.ex:232
 #, elixir-autogen, elixir-format
 msgid "The HTML version comes from the first of: your %{html}, your %{markdown}, your %{text} (as paragraphs, without buttons), then the built-in HTML, Markdown and text."
-msgstr "Die HTML-Version stammt aus dem ersten vorhandenen Teil: Ihrer %{html}, Ihrer %{markdown}, Ihrer %{text} (als Absätze, ohne Schaltflächen), dann dem integrierten HTML, Markdown und Text."
+msgstr "Die HTML-Version stammt aus dem ersten vorhandenen Teil in dieser Reihenfolge: Ihre %{html}, Ihre %{markdown}, Ihre %{text} (als Absätze, ohne Schaltflächen), dann das integrierte HTML, Markdown und der integrierte Text."
 
 #: lib/phoenix_kit_web/live/settings/email_preview.ex:241
 #, elixir-autogen, elixir-format
 msgid "The text version comes from the first of: your %{text}, your %{markdown}, then the built-in text and Markdown. Override %{markdown} to change both versions at once."
-msgstr "Die Textversion stammt aus dem ersten vorhandenen Teil: Ihrer %{text}, Ihrer %{markdown}, dann dem integrierten Text und Markdown. Überschreiben Sie %{markdown}, um beide Versionen auf einmal zu ändern."
+msgstr "Die Textversion stammt aus dem ersten vorhandenen Teil in dieser Reihenfolge: Ihre %{text}, Ihre %{markdown}, dann der integrierte Text und das integrierte Markdown. Überschreiben Sie %{markdown}, um beide Versionen auf einmal zu ändern."
 
 #: lib/phoenix_kit/email/core_templates.ex:144
 #, elixir-autogen, elixir-format

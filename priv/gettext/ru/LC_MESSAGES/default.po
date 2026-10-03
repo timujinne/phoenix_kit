@@ -18022,8 +18022,8 @@ msgstr "Отправлять приветственное письмо посл�
 
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:197
 #, elixir-autogen, elixir-format
-msgid "Sent once to each user, right after they confirm their email address — by the confirmation link, a magic link, or a sign-in with a provider that verified the address. Not sent when an administrator confirms an account."
-msgstr "Отправляется каждому пользователю один раз, сразу после подтверждения адреса — по ссылке из письма, по magic link или при входе через провайдера, подтвердившего адрес. Не отправляется, когда аккаунт подтверждает администратор."
+msgid "Sent once to each user, after they confirm their own email address — by the confirmation link, a magic link, a sign-in with a provider that verified the address, or by correcting an address they had not confirmed yet. Not sent when an administrator confirms an account."
+msgstr "Отправляется каждому пользователю один раз, после того как он сам подтвердил адрес, — по ссылке из письма, по magic link, при входе через провайдера, подтвердившего адрес, или при исправлении ещё не подтверждённого адреса. Не отправляется, когда аккаунт подтверждает администратор."
 
 #: lib/phoenix_kit/email/core_templates.ex:146
 #, elixir-autogen, elixir-format

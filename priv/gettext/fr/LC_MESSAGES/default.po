@@ -17903,42 +17903,42 @@ msgstr "Impossible de mettre à jour le réglage de l'e-mail de bienvenue"
 #: lib/phoenix_kit/email/core_templates.ex:204
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nPlease confirm your account with the button below.\n\n[Confirm account]({{confirmation_url}})\n\nIf the button doesn't work, open this link: [{{confirmation_url}}]({{confirmation_url}})\n\nIf you didn't create an account with us, please ignore this email.\n"
-msgstr "Bonjour {{user_email}},\n\nveuillez confirmer votre compte avec le bouton ci-dessous.\n\n[Confirmer le compte]({{confirmation_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{confirmation_url}}]({{confirmation_url}})\n\nSi vous n'avez pas créé de compte chez nous, ignorez cet e-mail.\n"
+msgstr "Bonjour {{user_email}},\n\nVeuillez confirmer votre compte avec le bouton ci-dessous.\n\n[Confirmer le compte]({{confirmation_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{confirmation_url}}]({{confirmation_url}})\n\nSi vous n'avez pas créé de compte chez nous, ignorez cet e-mail.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:359
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nSomeone has been trying to sign in to your account and failing.\n\n- Failed attempts: {{attempt_count}}\n- In the last: {{window_hours}} hour(s)\n\nNobody has signed in. You do not need to do anything if you recognize this as your own mistyped password.\n\nIf you do not, your password may be being guessed. Change it to something you do not use anywhere else:\n\n[Change password]({{security_url}})\n\nIf the button doesn't work, open this link: [{{security_url}}]({{security_url}})\n"
-msgstr "Bonjour {{user_email}},\n\nquelqu'un essaie de se connecter à votre compte sans y parvenir.\n\n- Tentatives échouées : {{attempt_count}}\n- Au cours des dernières : {{window_hours}} heure(s)\n\nPersonne ne s'est connecté. Vous n'avez rien à faire si vous reconnaissez là votre propre mot de passe mal saisi.\n\nSinon, votre mot de passe est peut-être en train d'être deviné. Changez-le pour un mot de passe que vous n'utilisez nulle part ailleurs :\n\n[Changer le mot de passe]({{security_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{security_url}}]({{security_url}})\n"
+msgstr "Bonjour {{user_email}},\n\nQuelqu'un essaie de se connecter à votre compte sans y parvenir.\n\n- Tentatives échouées : {{attempt_count}}\n- Au cours des dernières : {{window_hours}} heure(s)\n\nPersonne ne s'est connecté. Vous n'avez rien à faire si vous reconnaissez là votre propre mot de passe mal saisi.\n\nSinon, votre mot de passe est peut-être en train d'être deviné. Changez-le pour un mot de passe que vous n'utilisez nulle part ailleurs :\n\n[Changer le mot de passe]({{security_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{security_url}}]({{security_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:264
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nUse the button below to sign in. This link expires in 15 minutes.\n\n[Sign in]({{magic_link_url}})\n\nIf the button doesn't work, open this link: [{{magic_link_url}}]({{magic_link_url}})\n\nIf you didn't ask for this link, you can ignore this email.\n"
-msgstr "Bonjour {{user_email}},\n\nutilisez le bouton ci-dessous pour vous connecter. Ce lien expire dans 15 minutes.\n\n[Se connecter]({{magic_link_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{magic_link_url}}]({{magic_link_url}})\n\nSi vous n'avez pas demandé ce lien, vous pouvez ignorer cet e-mail.\n"
+msgstr "Bonjour {{user_email}},\n\nUtilisez le bouton ci-dessous pour vous connecter. Ce lien expire dans 15 minutes.\n\n[Se connecter]({{magic_link_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{magic_link_url}}]({{magic_link_url}})\n\nSi vous n'avez pas demandé ce lien, vous pouvez ignorer cet e-mail.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:330
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWe noticed a new login to your account from an unrecognized device:\n\n- Time: {{login_time}}\n- IP address: {{ip_address}}\n- Location: {{location}}\n- Device: {{browser_os}}\n\n{{failed_attempts}}\n\nIf this was you, no action is needed.\n\nIf you don't recognize this activity, secure your account:\n\n[Review account security]({{security_url}})\n\nIf the button doesn't work, open this link: [{{security_url}}]({{security_url}})\n"
-msgstr "Bonjour {{user_email}},\n\nnous avons remarqué une nouvelle connexion à votre compte depuis un appareil non reconnu :\n\n- Heure : {{login_time}}\n- Adresse IP : {{ip_address}}\n- Lieu : {{location}}\n- Appareil : {{browser_os}}\n\n{{failed_attempts}}\n\nSi c'était vous, aucune action n'est nécessaire.\n\nSi vous ne reconnaissez pas cette activité, sécurisez votre compte :\n\n[Vérifier la sécurité du compte]({{security_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{security_url}}]({{security_url}})\n"
+msgstr "Bonjour {{user_email}},\n\nNous avons remarqué une nouvelle connexion à votre compte depuis un appareil non reconnu :\n\n- Heure : {{login_time}}\n- Adresse IP : {{ip_address}}\n- Lieu : {{location}}\n- Appareil : {{browser_os}}\n\n{{failed_attempts}}\n\nSi c'était vous, aucune action n'est nécessaire.\n\nSi vous ne reconnaissez pas cette activité, sécurisez votre compte :\n\n[Vérifier la sécurité du compte]({{security_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{security_url}}]({{security_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:384
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome to {{site_name}}! Your email address is confirmed and your account is ready.\n\n[Go to {{site_name}}]({{site_url}})\n\nIf the button doesn't work, open this link: [{{site_url}}]({{site_url}})\n"
-msgstr "Bonjour {{user_email}},\n\nbienvenue sur {{site_name}} ! Votre adresse e-mail est confirmée et votre compte est prêt.\n\n[Aller sur {{site_name}}]({{site_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{site_url}}]({{site_url}})\n"
+msgstr "Bonjour {{user_email}},\n\nBienvenue sur {{site_name}} ! Votre adresse e-mail est confirmée et votre compte est prêt.\n\n[Aller sur {{site_name}}]({{site_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{site_url}}]({{site_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:284
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome! To complete your registration, use the button below.\n\n[Complete registration]({{registration_url}})\n\nIf the button doesn't work, open this link: [{{registration_url}}]({{registration_url}})\n\nThis link will expire in 30 minutes for your security.\n\nIf you didn't request this registration, please ignore this email.\n"
-msgstr "Bonjour {{user_email}},\n\nbienvenue ! Pour terminer votre inscription, utilisez le bouton ci-dessous.\n\n[Terminer l'inscription]({{registration_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{registration_url}}]({{registration_url}})\n\nPour votre sécurité, ce lien expirera dans 30 minutes.\n\nSi vous n'avez pas demandé cette inscription, ignorez cet e-mail.\n"
+msgstr "Bonjour {{user_email}},\n\nBienvenue ! Pour terminer votre inscription, utilisez le bouton ci-dessous.\n\n[Terminer l'inscription]({{registration_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{registration_url}}]({{registration_url}})\n\nPour votre sécurité, ce lien expirera dans 30 minutes.\n\nSi vous n'avez pas demandé cette inscription, ignorez cet e-mail.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:244
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nYou can change your email with the button below.\n\n[Confirm email change]({{update_url}})\n\nIf the button doesn't work, open this link: [{{update_url}}]({{update_url}})\n\nIf you didn't request this change, please ignore this email.\n"
-msgstr "Bonjour {{user_email}},\n\nvous pouvez changer votre adresse e-mail avec le bouton ci-dessous.\n\n[Confirmer le changement d'adresse]({{update_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{update_url}}]({{update_url}})\n\nSi vous n'avez pas demandé ce changement, ignorez cet e-mail.\n"
+msgstr "Bonjour {{user_email}},\n\nVous pouvez changer votre adresse e-mail avec le bouton ci-dessous.\n\n[Confirmer le changement d'adresse]({{update_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{update_url}}]({{update_url}})\n\nSi vous n'avez pas demandé ce changement, ignorez cet e-mail.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:224
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nYou can reset your password with the button below.\n\n[Reset password]({{reset_url}})\n\nIf the button doesn't work, open this link: [{{reset_url}}]({{reset_url}})\n\nIf you didn't request this change, please ignore this email.\n"
-msgstr "Bonjour {{user_email}},\n\nvous pouvez réinitialiser votre mot de passe avec le bouton ci-dessous.\n\n[Réinitialiser le mot de passe]({{reset_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{reset_url}}]({{reset_url}})\n\nSi vous n'avez pas demandé ce changement, ignorez cet e-mail.\n"
+msgstr "Bonjour {{user_email}},\n\nVous pouvez réinitialiser votre mot de passe avec le bouton ci-dessous.\n\n[Réinitialiser le mot de passe]({{reset_url}})\n\nSi le bouton ne fonctionne pas, ouvrez ce lien : [{{reset_url}}]({{reset_url}})\n\nSi vous n'avez pas demandé ce changement, ignorez cet e-mail.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:306
 #, elixir-autogen, elixir-format
@@ -17957,8 +17957,8 @@ msgstr "Envoyer un e-mail de bienvenue après la confirmation d'une adresse"
 
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:197
 #, elixir-autogen, elixir-format
-msgid "Sent once to each user, right after they confirm their email address — by the confirmation link, a magic link, or a sign-in with a provider that verified the address. Not sent when an administrator confirms an account."
-msgstr "Envoyé une seule fois à chaque utilisateur, juste après la confirmation de son adresse e-mail — par le lien de confirmation, un lien magique ou une connexion via un fournisseur qui a vérifié l'adresse. Non envoyé lorsqu'un administrateur confirme un compte."
+msgid "Sent once to each user, after they confirm their own email address — by the confirmation link, a magic link, a sign-in with a provider that verified the address, or by correcting an address they had not confirmed yet. Not sent when an administrator confirms an account."
+msgstr "Envoyé une seule fois à chaque utilisateur, après qu'il a lui-même confirmé son adresse e-mail — par le lien de confirmation, un lien magique, une connexion via un fournisseur qui a vérifié l'adresse, ou en corrigeant une adresse qu'il n'avait pas encore confirmée. Non envoyé lorsqu'un administrateur confirme un compte."
 
 #: lib/phoenix_kit/email/core_templates.ex:146
 #, elixir-autogen, elixir-format

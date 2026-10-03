@@ -17957,8 +17957,8 @@ msgstr "Invia un'email di benvenuto dopo la conferma di un indirizzo"
 
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:197
 #, elixir-autogen, elixir-format
-msgid "Sent once to each user, right after they confirm their email address — by the confirmation link, a magic link, or a sign-in with a provider that verified the address. Not sent when an administrator confirms an account."
-msgstr "Inviata una sola volta a ogni utente, subito dopo la conferma del suo indirizzo email: tramite il link di conferma, un magic link o un accesso con un provider che ha verificato l'indirizzo. Non viene inviata quando un amministratore conferma un account."
+msgid "Sent once to each user, after they confirm their own email address — by the confirmation link, a magic link, a sign-in with a provider that verified the address, or by correcting an address they had not confirmed yet. Not sent when an administrator confirms an account."
+msgstr "Inviata una sola volta a ogni utente, dopo che ha confermato da sé il proprio indirizzo email: tramite il link di conferma, un magic link, un accesso con un provider che ha verificato l'indirizzo o correggendo un indirizzo non ancora confermato. Non viene inviata quando un amministratore conferma un account."
 
 #: lib/phoenix_kit/email/core_templates.ex:146
 #, elixir-autogen, elixir-format

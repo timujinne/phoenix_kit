@@ -17932,12 +17932,12 @@ msgstr "Tere {{user_email}},\n\nmärkasime teie kontole uut sisselogimist tundma
 #: lib/phoenix_kit/email/core_templates.ex:384
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome to {{site_name}}! Your email address is confirmed and your account is ready.\n\n[Go to {{site_name}}]({{site_url}})\n\nIf the button doesn't work, open this link: [{{site_url}}]({{site_url}})\n"
-msgstr "Tere {{user_email}},\n\ntere tulemast! Teie e-posti aadress on kinnitatud ja konto on kasutamiseks valmis.\n\n[Ava {{site_name}}]({{site_url}})\n\nKui nupp ei tööta, avage see link: [{{site_url}}]({{site_url}})\n"
+msgstr "Tere {{user_email}},\n\nmeil on hea meel teid näha! Teie e-posti aadress on kinnitatud ja konto on kasutamiseks valmis.\n\n[Ava {{site_name}}]({{site_url}})\n\nKui nupp ei tööta, avage see link: [{{site_url}}]({{site_url}})\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:284
 #, elixir-autogen, elixir-format
 msgid "Hi {{user_email}},\n\nWelcome! To complete your registration, use the button below.\n\n[Complete registration]({{registration_url}})\n\nIf the button doesn't work, open this link: [{{registration_url}}]({{registration_url}})\n\nThis link will expire in 30 minutes for your security.\n\nIf you didn't request this registration, please ignore this email.\n"
-msgstr "Tere {{user_email}},\n\ntere tulemast! Registreerimise lõpetamiseks kasutage allolevat nuppu.\n\n[Lõpeta registreerimine]({{registration_url}})\n\nKui nupp ei tööta, avage see link: [{{registration_url}}]({{registration_url}})\n\nTeie turvalisuse huvides aegub see link 30 minuti pärast.\n\nKui te seda registreerimist ei taotlenud, jätke see e-kiri tähelepanuta.\n"
+msgstr "Tere {{user_email}},\n\nmeil on hea meel, et liitute! Registreerimise lõpetamiseks kasutage allolevat nuppu.\n\n[Lõpeta registreerimine]({{registration_url}})\n\nKui nupp ei tööta, avage see link: [{{registration_url}}]({{registration_url}})\n\nTeie turvalisuse huvides aegub see link 30 minuti pärast.\n\nKui te seda registreerimist ei taotlenud, jätke see e-kiri tähelepanuta.\n"
 
 #: lib/phoenix_kit/email/core_templates.ex:244
 #, elixir-autogen, elixir-format
@@ -17966,8 +17966,8 @@ msgstr "Saada pärast aadressi kinnitamist tervituskiri"
 
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:197
 #, elixir-autogen, elixir-format
-msgid "Sent once to each user, right after they confirm their email address — by the confirmation link, a magic link, or a sign-in with a provider that verified the address. Not sent when an administrator confirms an account."
-msgstr "Saadetakse igale kasutajale üks kord, kohe pärast seda, kui ta on oma e-posti aadressi kinnitanud – kinnituslingi, maagilise lingi või aadressi kinnitanud teenusepakkuja kaudu sisselogimisega. Ei saadeta, kui konto kinnitab administraator."
+msgid "Sent once to each user, after they confirm their own email address — by the confirmation link, a magic link, a sign-in with a provider that verified the address, or by correcting an address they had not confirmed yet. Not sent when an administrator confirms an account."
+msgstr "Saadetakse igale kasutajale üks kord pärast seda, kui ta on oma e-posti aadressi ise kinnitanud – kinnituslingi, maagilise lingi, aadressi kinnitanud teenusepakkuja kaudu sisselogimise või veel kinnitamata aadressi parandamisega. Ei saadeta, kui konto kinnitab administraator."
 
 #: lib/phoenix_kit/email/core_templates.ex:146
 #, elixir-autogen, elixir-format
