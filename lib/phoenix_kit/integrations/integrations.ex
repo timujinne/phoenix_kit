@@ -1128,6 +1128,24 @@ defmodule PhoenixKit.Integrations do
 
   defp do_validate(provider, data, _opts), do: do_validate(provider, data)
 
+  # A provider that another module contributes cannot add a named strategy
+  # here, so it names a module to ask instead — see
+  # `PhoenixKit.Integrations.Validator`. Ahead of the auth-type clauses: the
+  # module knows how its service is checked, whatever the auth type.
+  defp do_validate(%{validation: %{strategy: :module, module: module}} = provider, data)
+       when is_atom(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :validate_connection, 1) do
+      module |> module_check(data) |> Probe.run() |> module_verdict()
+    else
+      Logger.warning(
+        "[Integrations] #{inspect(module)} has no validate_connection/1 " <>
+          "(provider #{inspect(provider[:key])}); connection left unverified"
+      )
+
+      :unverified
+    end
+  end
+
   defp do_validate(%{auth_type: :oauth2} = provider, data) do
     token = data["access_token"]
     config = provider.oauth_config || %{}
@@ -1195,6 +1213,23 @@ defmodule PhoenixKit.Integrations do
     # them directly with a synthetic provider map.
     @doc false
     def __do_validate__(provider, data), do: do_validate(provider, data)
+  end
+
+  defp module_check(module, data), do: fn -> module.validate_connection(data) end
+
+  # What a module's check may answer is `PhoenixKit.Integrations.Validator`'s
+  # contract; anything else is reported, not guessed at.
+  defp module_verdict(verdict) when verdict in [:ok, :unverified], do: verdict
+  defp module_verdict({:ok, note}) when is_binary(note) or is_map(note), do: {:ok, note}
+  defp module_verdict({:error, message}) when is_binary(message), do: {:error, message}
+  defp module_verdict({:inconclusive, message}) when is_binary(message), do: {:error, message}
+
+  defp module_verdict(other) do
+    Logger.warning(
+      "[Integrations] a module's connection check answered #{inspect(other, limit: 5)}"
+    )
+
+    {:error, gettext("The connection check gave an unexpected answer")}
   end
 
   defp check_http(url, headers) do
