@@ -94,6 +94,7 @@ defmodule PhoenixKit.Module do
   - `required_integrations/0` - Integration provider keys this module needs (default: `[]`).
     Used by the Integrations settings page to show relevant providers.
   - `integration_providers/0` - Additional provider definitions this module contributes (default: `[]`).
+    A provider can bring its own connection check: `PhoenixKit.Integrations.Validator`.
   - `notification_types/0` - Notification types this module contributes (default: `[]`)
   - `notification_channels/0` - Modules implementing `PhoenixKit.Notifications.Channel`
     this module contributes (default: `[]`)
