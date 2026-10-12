@@ -42,6 +42,9 @@ defmodule PhoenixKit.Integrations.Providers do
           # `:ai_completions` providers declare it (used as the default
           # endpoint base by AI consumers). `validation` and `instructions`
           # are present on most built-ins but absent on a few, hence optional.
+          # A provider a module contributes names its own check with
+          # `validation: %{strategy: :module, module: Mod}` — see
+          # `PhoenixKit.Integrations.Validator`.
           optional(:base_url) => String.t(),
           optional(:validation) => map(),
           optional(:instructions) => [map()],
