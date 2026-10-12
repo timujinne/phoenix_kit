@@ -68,11 +68,12 @@ defmodule PhoenixKit.Integrations.Probe do
   actively rejected, or `{:inconclusive, message}` when the check could not
   reach a yes/no verdict at all (a response neither a pass nor a rejection) —
   distinct from `:error` so a caller can tell "definitely wrong" apart from
-  "could not tell".
+  "could not tell". A check that has no way to tell at all answers `:unverified`.
   """
   @type check ::
           (-> :ok
               | {:ok, String.t() | note()}
+              | :unverified
               | {:error, String.t()}
               | {:inconclusive, String.t()})
 
@@ -88,6 +89,7 @@ defmodule PhoenixKit.Integrations.Probe do
   @spec run(check(), timeout()) ::
           :ok
           | {:ok, String.t() | note()}
+          | :unverified
           | {:error, String.t()}
           | {:inconclusive, String.t()}
   def run(check, deadline \\ deadline()) when is_function(check, 0) do
