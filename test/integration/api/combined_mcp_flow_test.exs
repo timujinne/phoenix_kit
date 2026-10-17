@@ -302,6 +302,32 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       assert ApiFlowStore.items() == @all_items
     end
 
+    test "marks the held answer of an operation that already waits as a replay, with or without a key",
+         %{conn: conn, gated: gated} do
+      first = admin_call(conn, gated.token, @delete, %{"ids" => ["a"]})
+      same = admin_call(conn, gated.token, @delete, %{"ids" => ["a"]})
+
+      keyed =
+        admin_call(conn, gated.token, @delete, %{"ids" => ["a"], "idempotency_key" => idem()})
+
+      other = admin_call(conn, gated.token, @delete, %{"ids" => ["b"]})
+
+      assert get_resp_header(first, "idempotent-replayed") == []
+
+      for again <- [same, keyed] do
+        assert again.status == 200
+        assert result(again)["isError"] == false
+        assert structured(again)["approval_id"] == structured(first)["approval_id"]
+        assert get_resp_header(again, "idempotent-replayed") == ["true"]
+      end
+
+      refute structured(other)["approval_id"] == structured(first)["approval_id"]
+      assert get_resp_header(other, "idempotent-replayed") == []
+
+      assert audits(gated.key.uuid) ==
+               List.duplicate({"flowkit.delete_items", "pending_approval", nil}, 4)
+    end
+
     test "gets pending_approval over REST, and the same operation is one approval on both",
          %{conn: conn, gated: gated} do
       rest = rest_call(conn, gated.token, "flowkit.delete_items", %{"ids" => ["a"]})
@@ -881,7 +907,8 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       pending = admin_call(conn, gated.token, @delete, arguments)
       again = admin_call(conn, gated.token, @delete, arguments)
       assert structured(again)["approval_id"] == structured(pending)["approval_id"]
-      assert get_resp_header(again, "idempotent-replayed") == []
+      assert get_resp_header(pending, "idempotent-replayed") == []
+      assert get_resp_header(again, "idempotent-replayed") == ["true"]
       assert claims(pending_key) == 0
 
       dry_key = idem()

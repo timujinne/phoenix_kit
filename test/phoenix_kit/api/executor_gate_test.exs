@@ -749,6 +749,29 @@ defmodule PhoenixKit.API.ExecutorGateTest do
       assert length(rows("approval")) == 1
     end
 
+    test "a held answer asked for again carries the replay header, a new approval does not", %{
+      gated: gated
+    } do
+      first = call(gated.token, @delete, %{"ids" => ["a"]})
+      same = call(gated.token, @delete, %{"ids" => ["a"]})
+
+      key = "idem-key-" <> String.pad_leading("#{System.unique_integer([:positive])}", 12, "0")
+      keyed = call(gated.token, @delete, %{"ids" => ["a"], "idempotency_key" => key})
+      keyed_again = call(gated.token, @delete, %{"ids" => ["a"], "idempotency_key" => key})
+
+      other = call(gated.token, @delete, %{"ids" => ["b"]})
+
+      assert get_resp_header(first, "idempotent-replayed") == []
+      assert get_resp_header(same, "idempotent-replayed") == ["true"]
+      assert get_resp_header(keyed, "idempotent-replayed") == ["true"]
+      assert get_resp_header(keyed_again, "idempotent-replayed") == ["true"]
+      assert json(keyed_again)["approval_id"] == json(first)["approval_id"]
+      assert get_resp_header(other, "idempotent-replayed") == []
+
+      assert same.status == 200
+      assert %{"executed" => false, "status" => "pending_approval"} = json(same)
+    end
+
     test "the cap of pending approvals is a 429", %{gated: gated} do
       put_setting("api_approval_pending_max", 1)
 

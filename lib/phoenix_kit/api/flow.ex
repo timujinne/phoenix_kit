@@ -14,10 +14,10 @@ defmodule PhoenixKit.API.Flow do
   claim up.
 
   The request state is the executor's map. Besides its own keys the steps read and set
-  `control`, `dry_run?`, `input_hash`, `claim`, `replayed?`, `store?`, `outcome`,
-  `confirmation`, `preview` and `result` (the answer as a decoded map, for a transport
-  that wants the map rather than the text). The executor resolves `request_context` once,
-  before the gate, for every context the steps build.
+  `control`, `dry_run?`, `input_hash`, `claim`, `replayed?`, `held_again?`, `store?`,
+  `outcome`, `confirmation`, `preview` and `result` (the answer as a decoded map, for a
+  transport that wants the map rather than the text). The executor resolves
+  `request_context` once, before the gate, for every context the steps build.
   """
 
   require Logger
@@ -408,7 +408,7 @@ defmodule PhoenixKit.API.Flow do
   # Approval queue.
   defp request_approval(state) do
     with {:ok, previewed} <- Executor.preview(state),
-         {:ok, row, _created_or_existing} <-
+         {:ok, row, queued} <-
            Approvals.request(%{
              actor: state.actor,
              tool: state.tool.name,
@@ -427,7 +427,7 @@ defmodule PhoenixKit.API.Flow do
         "expires_in_seconds" => max(DateTime.diff(row.expires_at, DateTime.utc_now()), 0)
       }
 
-      {:done, answer(previewed, body, "pending_approval")}
+      {:done, %{answer(previewed, body, "pending_approval") | held_again?: queued == :existing}}
     else
       {:error, :pending_cap} ->
         {:error, :rate_limited,

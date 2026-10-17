@@ -18,9 +18,10 @@ defmodule PhoenixKit.API.OpenAPI do
       `outputSchema` (a write tool may answer with a preview instead);
     * a write tool (`PhoenixKit.API.ControlFields.write_tool?/1`) also takes the
       optional `Idempotency-Key` request header, can answer with the
-      `Idempotent-Replayed` header on a replay, and lists `409` (a confirmation
-      code that is not valid, an idempotency key reused for another request or
-      still in progress);
+      `Idempotent-Replayed` header on a replay (for the admin API also on the
+      held answer of an operation that already waits for approval), and lists
+      `409` (a confirmation code that is not valid, an idempotency key reused
+      for another request or still in progress);
     * errors are RFC 9457 `application/problem+json`, defined once in
       `components.schemas.Problem`.
 
@@ -137,12 +138,23 @@ defmodule PhoenixKit.API.OpenAPI do
 
   defp description(:admin) do
     "Admin tools of the shop. Every call is POST /<tool> with a JSON object; send the API key as " <>
-      "Authorization: Bearer. Errors are application/problem+json."
+      "Authorization: Bearer. " <>
+      json_body_text() <>
+      " A dangerous call from a key that needs approval is not run: it is answered with HTTP 200 " <>
+      "and executed: false, status: pending_approval, an approval_id and a preview, and runs only " <>
+      "when an owner approves it. While that approval is still waiting, asking again for the same " <>
+      "operation (with or without an Idempotency-Key) answers with the same approval_id and the " <>
+      "Idempotent-Replayed header. " <>
+      "Errors are application/problem+json."
   end
 
   defp description(:public) do
     "Public tools of the shop. Every call is POST /<tool> with a JSON object; no key is needed. " <>
-      "Errors are application/problem+json."
+      json_body_text() <> " Errors are application/problem+json."
+  end
+
+  defp json_body_text do
+    "The request body is always read as JSON, whatever its Content-Type says."
   end
 
   # --- tags and paths -----------------------------------------------------------
@@ -274,7 +286,7 @@ defmodule PhoenixKit.API.OpenAPI do
   defp components(audience) do
     components = %{
       "schemas" => %{"Problem" => problem_schema()},
-      "headers" => %{"IdempotentReplayed" => replayed_header()},
+      "headers" => %{"IdempotentReplayed" => replayed_header(audience)},
       "responses" =>
         Map.new([@conflict | statuses(audience)], fn {_status, name, text} ->
           {name, problem_response(text)}
@@ -302,7 +314,8 @@ defmodule PhoenixKit.API.OpenAPI do
       "in" => "header",
       "required" => false,
       "description" =>
-        "Makes a retry of this write safe: the same key and request replay the first answer. " <>
+        "Makes a retry of this write safe: the same key and request replay the first answer, " <>
+          "unless that answer was not stored (a held, preview or error answer); the key is then free. " <>
           "The same value may be sent as the idempotency_key field instead; both with " <>
           "different values is a 422.",
       "schema" =>
@@ -313,13 +326,20 @@ defmodule PhoenixKit.API.OpenAPI do
     }
   end
 
-  defp replayed_header do
+  defp replayed_header(audience) do
     %{
-      "description" =>
-        "true when this is the stored answer of an earlier request with the same key.",
+      "description" => replayed_text(audience),
       "schema" => %{"type" => "string", "enum" => ["true"]}
     }
   end
+
+  defp replayed_text(:admin),
+    do:
+      "true when this is the stored answer of an earlier request with the same key, or the " <>
+        "pending_approval answer of an operation that already waits for approval."
+
+  defp replayed_text(:public),
+    do: "true when this is the stored answer of an earlier request with the same key."
 
   defp problem_response(text) do
     %{

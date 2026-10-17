@@ -58,7 +58,9 @@ defmodule PhoenixKit.API.Executor do
        store, a running twin is `409`.
     8. **Danger** (`Flow.gate/1`): `dry_run` answers the preview; a dangerous
        operation answers a preview and a confirmation code, or is queued for
-       approval; with a valid code it runs.
+       approval (a repeat of an operation that already waits gets the same
+       approval back, marked with the replay header but not stored, and still
+       audited); with a valid code it runs.
 
   Each step is one function taking and returning the request state, chained
   in `execute/4`. A step may also end the request with `{:done, state}`: the
@@ -273,6 +275,7 @@ defmodule PhoenixKit.API.Executor do
       input_hash: nil,
       claim: nil,
       replayed?: false,
+      held_again?: false,
       store?: true,
       outcome: nil,
       confirmation: nil,
@@ -594,7 +597,8 @@ defmodule PhoenixKit.API.Executor do
   # A request that ended with an answer: the handler's, or one a `Flow` step
   # ended (a preview, a confirmation prompt, a replay). The audit entry is
   # written here and the idempotency claim is finished; the answer of a replay
-  # carries the `idempotent-replayed` header.
+  # carries the `idempotent-replayed` header, and so does the held answer of a
+  # call that an approval already waits for (`held_again?`).
   defp complete(%{body: body, result: result} = state) do
     log_write(state, state.outcome || "ok", nil)
     Flow.finish(state)
@@ -645,6 +649,9 @@ defmodule PhoenixKit.API.Executor do
   end
 
   defp replay_headers(%{replayed?: true, headers: headers}),
+    do: headers ++ [{"idempotent-replayed", "true"}]
+
+  defp replay_headers(%{held_again?: true, headers: headers}),
     do: headers ++ [{"idempotent-replayed", "true"}]
 
   defp replay_headers(%{headers: headers}), do: headers
