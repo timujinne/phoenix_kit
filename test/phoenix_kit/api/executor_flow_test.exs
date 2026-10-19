@@ -529,6 +529,31 @@ defmodule PhoenixKit.API.ExecutorFlowTest do
       assert ApiFlowStore.calls() == 2
     end
 
+    test "a public tool that cannot replay refuses the idempotency_key field and ignores the header" do
+      key = idem()
+
+      refused = public_call("flowkit.mint_cart", %{"idempotency_key" => key})
+      assert refused.status == 422
+      assert error_paths(refused) == ["idempotency_key"]
+      refute_received {:flow, "flowkit.mint_cart", _, _}
+
+      conn = authed(:public, headers: [{"idempotency-key", key}])
+      first = Executor.call(conn, :public, "flowkit.mint_cart", %{})
+      second = Executor.call(conn, :public, "flowkit.mint_cart", %{})
+
+      assert first.status == 200 and second.status == 200
+      refute first.resp_body == second.resp_body
+      assert get_resp_header(second, "idempotent-replayed") == []
+      assert record_count(key) == 0
+    end
+
+    test "a tool that cannot replay still takes dry_run" do
+      conn = public_call("flowkit.mint_cart", %{"dry_run" => true})
+
+      assert conn.status == 200
+      assert %{"executed" => false, "dry_run" => true} = json(conn)
+    end
+
     test "a public write without a cart token has no idempotency" do
       key = idem()
       body = %{"text" => "hi", "idempotency_key" => key}

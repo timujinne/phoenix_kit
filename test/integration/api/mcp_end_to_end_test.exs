@@ -325,7 +325,11 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
   end
 
   describe "errors are tool results, in both name forms" do
-    test "validation, scope, unknown tool", %{conn: conn, owner: owner, token: token} do
+    test "validation and scope are tool results, an unknown tool is a protocol error", %{
+      conn: conn,
+      owner: owner,
+      token: token
+    } do
       for name <- ["testkit_write_item", "testkit.write_item"] do
         invalid = call_tool(conn, "/mcp/admin", token, name, %{"nope" => 1})
         assert invalid.status == 200
@@ -342,8 +346,10 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
 
       assert text(forbidden) =~ "[forbidden] "
 
-      unknown = call_tool(conn, "/mcp/admin", token, "testkit_nope") |> result()
-      assert text(unknown) =~ "[not_found] "
+      unknown = call_tool(conn, "/mcp/admin", token, "testkit_nope")
+
+      assert %{"code" => -32_602, "message" => "Unknown tool: testkit_nope"} =
+               json(unknown)["error"]
 
       refute_received {:write_item, _}
     end
@@ -495,7 +501,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
       for n <- 1..3 do
         answer = call_tool(conn, "/mcp/admin", token, "testkit_nope_#{n}")
         assert answer.status == 200
-        assert text(result(answer)) =~ "[not_found] "
+        assert %{"code" => -32_602} = json(answer)["error"]
       end
 
       answer = call_tool(conn, "/mcp/admin", token, "testkit_nope_4")
@@ -514,7 +520,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
       for n <- 1..3 do
         answer = call_tool(conn, "/mcp/shop", nil, "invented_tool_#{n}", %{}, ip: ip)
         assert answer.status == 200
-        assert text(result(answer)) =~ "[not_found] "
+        assert %{"code" => -32_602} = json(answer)["error"]
       end
 
       answer = call_tool(conn, "/mcp/shop", nil, "invented_tool_4", %{}, ip: ip)

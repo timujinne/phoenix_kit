@@ -140,7 +140,7 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         },
         danger: {__MODULE__, :misbehave_danger}
       ),
-      public("flowkit.mint_cart", @write, :mint_cart, %{}),
+      public("flowkit.mint_cart", @write, :mint_cart, %{}, replay: false),
       public("flowkit.public_write", @write, :public_write, %{
         "text" => %{"type" => "string"},
         "cart_token" => %{"type" => "string"},
@@ -191,7 +191,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       output_schema: %{"type" => "object"},
       handler: {__MODULE__, function},
       annotations: annotations,
-      danger: Keyword.get(opts, :danger)
+      danger: Keyword.get(opts, :danger),
+      replay: Keyword.get(opts, :replay, true)
     )
   end
 

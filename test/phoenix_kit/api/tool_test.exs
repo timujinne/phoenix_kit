@@ -41,6 +41,14 @@ defmodule PhoenixKit.API.ToolTest do
              }
     end
 
+    test "a tool replays by default, and replay must be true or false" do
+      assert {:ok, %Tool{replay: true}} = Tool.new(@admin_tool)
+      assert {:ok, %Tool{replay: false}} = Tool.new(Keyword.put(@admin_tool, :replay, false))
+
+      assert {:error, [message]} = Tool.new(Keyword.put(@admin_tool, :replay, "no"))
+      assert message == ~s(replay must be true or false, got "no")
+    end
+
     test "accepts a map and merges the annotations it is given over the defaults" do
       attrs = @admin_tool |> Map.new() |> Map.put(:annotations, %{read_only: true})
 
