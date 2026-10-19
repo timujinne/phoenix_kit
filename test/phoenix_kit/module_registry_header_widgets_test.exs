@@ -119,6 +119,25 @@ defmodule PhoenixKit.ModuleRegistryHeaderWidgetsTest do
     end
   end
 
+  defmodule ReservedKeysModule do
+    def enabled?, do: true
+
+    def header_widgets do
+      [
+        {PhoenixKitWeb.Test.HeaderWidgetProbeLive, "hw-r-reserved",
+         fn _ ->
+           %{
+             "label" => "kept",
+             "user_token" => "forged",
+             "pk_session_accounts" => [],
+             "live_socket_id" => "x",
+             "phoenix_kit_session_uuid" => "y"
+           }
+         end}
+      ]
+    end
+  end
+
   # `warn_once` remembers in :persistent_term, which outlives a test (and a rerun of the file
   # in the same VM); forget the keys these tests use so each one sees its first warning.
   @warned_keys [
@@ -127,7 +146,8 @@ defmodule PhoenixKit.ModuleRegistryHeaderWidgetsTest do
     {:duplicate_header_widget, "hw-on-plain"},
     {:header_widget_session, SessionModule, "hw-s-raises"},
     {:header_widget_session, SessionModule, "hw-s-nil"},
-    {:header_widget_session, SessionModule, "hw-s-atom-keys"}
+    {:header_widget_session, SessionModule, "hw-s-atom-keys"},
+    {:header_widget_reserved_keys, ReservedKeysModule, "hw-r-reserved"}
   ]
 
   setup do
@@ -283,6 +303,23 @@ defmodule PhoenixKit.ModuleRegistryHeaderWidgetsTest do
         assert log =~ ~s("hw-s-atom-keys" skipped: the session has a key that is not a string)
 
         # Once per widget, not on every render of the layout.
+        assert "" == capture_log(fn -> ModuleRegistry.header_widgets_for(%{}) end)
+      end)
+    end
+
+    test "drops the reserved cookie-session keys from the session, keeps the rest, warns once" do
+      with_registered([ReservedKeysModule], fn ->
+        log =
+          capture_log(fn ->
+            widgets = ModuleRegistry.header_widgets_for(%{}) |> mine([ReservedKeysModule])
+            assert [%{"label" => "kept"} = session] = Enum.map(widgets, & &1.session)
+            assert Map.keys(session) == ["label"]
+          end)
+
+        assert log =~ ~s("hw-r-reserved" session keys dropped)
+        assert log =~ "user_token"
+        refute log =~ "forged"
+
         assert "" == capture_log(fn -> ModuleRegistry.header_widgets_for(%{}) end)
       end)
     end

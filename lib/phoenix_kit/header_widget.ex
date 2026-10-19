@@ -41,6 +41,12 @@ defmodule PhoenixKit.HeaderWidget do
   of an admin-layout page. The widget has to check the permission itself from the session
   (see `c:PhoenixKit.Module.header_widgets/0`).
 
+  The keys `user_token`, `pk_session_accounts`, `live_socket_id` and `phoenix_kit_session_uuid`
+  are reserved (`reserved_session_keys/0`): they belong to the cookie session, which LiveView
+  merges under the signed session of the nested LiveView, so a value here would hide the real
+  one from the session and impersonation checks. They are dropped from the session (one
+  warning per module and widget, without the values).
+
   `session_fun` receives the layout's assigns, **not** the cookie session and not the session
   token. A widget that needs the session reference or an impersonation check does it itself
   in its connected `mount/3`: LiveView merges the cookie session from `connect_info` into the
@@ -52,6 +58,16 @@ defmodule PhoenixKit.HeaderWidget do
   not a guarantee. Keep secrets out of the session map: a nested LiveView's session is
   signed, not encrypted.
   """
+
+  # Keys of the browser's cookie session that authentication reads. The signed session of a
+  # nested LiveView is merged OVER the cookie session (Phoenix.LiveView.Channel), so a widget
+  # session carrying one of them would replace what `SessionRef.from_session/1` and
+  # `MultiSession.impersonated?/1` read in the widget's `mount/3`.
+  @reserved_session_keys ~w(user_token pk_session_accounts live_socket_id phoenix_kit_session_uuid)
+
+  @doc "The session keys a widget's session function cannot set: they are dropped."
+  @spec reserved_session_keys() :: [String.t()]
+  def reserved_session_keys, do: @reserved_session_keys
 
   @type session_fun :: (map() -> map() | nil)
 
@@ -108,7 +124,8 @@ defmodule PhoenixKit.HeaderWidget do
   `nil` (no widget for this user), or `{:error, reason}` when the function raises or returns
   something `live_render/3` cannot take (not a map, or a key that is not a string).
   """
-  @spec resolve_session(t(), map()) :: {:ok, t()} | :skip | {:error, String.t()}
+  @spec resolve_session(t(), map()) ::
+          {:ok, t(), dropped_keys :: [String.t()]} | :skip | {:error, String.t()}
   def resolve_session(%__MODULE__{session_fun: fun} = widget, assigns) do
     case fun.(assigns) do
       nil ->
@@ -116,7 +133,8 @@ defmodule PhoenixKit.HeaderWidget do
 
       session when is_map(session) and not is_struct(session) ->
         if Enum.all?(session, fn {key, _} -> is_binary(key) end) do
-          {:ok, %{widget | session: session}}
+          {dropped, kept} = Map.split(session, @reserved_session_keys)
+          {:ok, %{widget | session: kept}, dropped |> Map.keys() |> Enum.sort()}
         else
           {:error, "the session has a key that is not a string"}
         end

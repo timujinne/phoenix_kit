@@ -991,13 +991,16 @@ defmodule PhoenixKit.ModuleRegistry do
 
   A widget whose session function returns `nil` is dropped without a word (no widget for
   this user); one whose session function raises, or returns something that is not a map with
-  string keys, is dropped with one warning.
+  string keys, is dropped with one warning. The keys the cookie session owns
+  (`PhoenixKit.HeaderWidget.reserved_session_keys/0`) are removed from the session, with one
+  warning per module and widget.
   """
   @spec header_widgets_for(map()) :: [HeaderWidget.t()]
   def header_widgets_for(assigns) when is_map(assigns) do
     Enum.flat_map(all_header_widgets(), fn widget ->
       case HeaderWidget.resolve_session(widget, assigns) do
-        {:ok, resolved} ->
+        {:ok, resolved, dropped} ->
+          warn_reserved_session_keys(widget, dropped)
           [resolved]
 
         :skip ->
@@ -1013,6 +1016,16 @@ defmodule PhoenixKit.ModuleRegistry do
           []
       end
     end)
+  end
+
+  defp warn_reserved_session_keys(_widget, []), do: :ok
+
+  defp warn_reserved_session_keys(widget, dropped) do
+    warn_once(
+      {:header_widget_reserved_keys, widget.module, widget.id},
+      "[ModuleRegistry] #{inspect(widget.module)} header widget #{inspect(widget.id)} " <>
+        "session keys dropped, they belong to the cookie session: #{Enum.join(dropped, ", ")}"
+    )
   end
 
   defp header_widgets_exported?(mod) do
