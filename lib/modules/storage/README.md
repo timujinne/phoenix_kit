@@ -891,7 +891,9 @@ when it is renamed (`Libraries.get_system_library_by_slug/1`).
   as before.
 - **Access:** `Storage.Libraries.can?(scope, file, :read | :edit)` is the
   single per-file check: the uploader, an Owner/Admin, the `"media"` key
-  (edit, system libraries only), and a user library's owner and members.
+  (edit, system libraries only), `media.view_all` (read) — neither opens a
+  hidden library (see "Hidden system libraries" below) — and a user library's
+  owner and members.
 - **Dedup is per library:** one copy per uploader per library. Media keeps
   the key it always had; any other library folds itself into
   `user_file_checksum` (`Storage.calculate_user_file_checksum/3`).
@@ -901,6 +903,37 @@ when it is renamed (`Libraries.get_system_library_by_slug/1`).
   records that merely hold the same bytes. The stored objects are still
   content-addressed, so the rows name the same keys and the last delete removes
   them.
+
+### Hidden system libraries
+
+A module that keeps files of its own (a chat's attachments, say) creates a
+**hidden** system library: `Libraries.create_system_library(%{"name" => …,
+"slug" => …}, hidden: true)`. No migration: it is a system library with
+`visibility: "private"` (`Libraries.hidden?/1`), which the `"visibility"` in
+`attrs` cannot ask for. Without one, nothing about Storage changes.
+
+- **Finding it again:** `Libraries.get_hidden_library_by_slug/1` (or
+  `get_library/1`). The slug is required and never derived — a taken one is an
+  error on `:slug`, not `"<slug>-2"`. Names and slugs of system libraries share
+  one namespace, so prefix both with the module's own name. Its creation is
+  in the Storage history by name unless `audit: false` is passed; its renames,
+  deletion, settings, profile and variant-set changes are never written there.
+- **Not shown:** not in `list_system_libraries/0` (Media's switcher, Settings
+  → Media → Libraries), not found by `get_system_library/1` /
+  `get_system_library_by_slug/1` (so `/admin/media/library/<slug>` is "Library
+  not found"), its files and folders out of every listing that names no library
+  (`exclude_user_libraries/1`: the media browser, the pickers, orphan cleanup).
+  Health's stale files, a bucket's contents, a profile's libraries and job
+  titles count it with the private libraries and never name it.
+- **Access:** its files are private (expiring URLs; the permanent token is
+  refused) and are read or edited by their uploader and an Owner/Admin only —
+  `"media"` + `"media.view_all"` opens none of them. Bytes reach anyone else
+  only through the module.
+- **Dedup:** inside it, as in any library. Outside it, the same bytes are a new
+  file: the dedup key folds the library in, so an upload to Media never comes
+  back as the hidden copy (and an upload to it never as a Media file).
+  `Storage.get_file_by_checksum/1` and `retrieve_file_by_hash/1` still look in
+  every library.
 
 ### User libraries (V203)
 

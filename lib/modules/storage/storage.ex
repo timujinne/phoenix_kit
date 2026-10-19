@@ -904,7 +904,8 @@ defmodule PhoenixKit.Modules.Storage do
   here (`%{uuid, name, files, objects, bytes}`, largest first). Shared keys
   count once in each library using them, but only once in the bucket totals.
   A user's libraries are private to them, so they are only counted in `personal`
-  (`%{libraries, files, objects, bytes}`), never named.
+  (`%{libraries, files, objects, bytes}`), never named; so is a hidden system
+  library (`Libraries.hidden?/1`).
 
   Reads every location row of the bucket: call it off the render path.
   """
@@ -970,14 +971,18 @@ defmodule PhoenixKit.Modules.Storage do
     libraries =
       from(l in Library,
         where: l.uuid in ^Enum.map(rows, & &1.library_uuid),
-        select: {l.uuid, %{name: l.name, kind: l.kind}}
+        select: {l.uuid, %{name: l.name, kind: l.kind, visibility: l.visibility}}
       )
       |> repo().all()
       |> Map.new(fn {uuid, info} -> {to_string(uuid), info} end)
 
     {personal, site} =
       Enum.split_with(rows, fn row ->
-        match?(%{kind: "user"}, Map.get(libraries, to_string(row.library_uuid)))
+        case Map.get(libraries, to_string(row.library_uuid)) do
+          %{kind: "user"} -> true
+          %{kind: "system", visibility: "private"} -> true
+          _ -> false
+        end
       end)
 
     sum = fn rows, key -> rows |> Enum.map(&Map.fetch!(&1, key)) |> Enum.sum() end
@@ -3378,9 +3383,10 @@ defmodule PhoenixKit.Modules.Storage do
   def viewer_can_see_folder?(viewer_uuid, folder_uuid, library_uuid),
     do: to_string(folder_uuid) in viewer_folder_uuids(viewer_uuid, library_uuid)
 
+  # User libraries and hidden ones: not the site's folders.
   defp in_library(folders, nil) do
-    user = folders |> Enum.map(& &1.library_uuid) |> Libraries.user_among()
-    Enum.reject(folders, &(to_string(&1.library_uuid) in user))
+    dropped = folders |> Enum.map(& &1.library_uuid) |> Libraries.user_or_hidden_among()
+    Enum.reject(folders, &(to_string(&1.library_uuid) in dropped))
   end
 
   defp in_library(folders, library_uuid) do
@@ -3468,7 +3474,9 @@ defmodule PhoenixKit.Modules.Storage do
   Gets a file by its original content checksum (file_checksum).
 
   This can find files uploaded by any user with the same content.
-  Useful for popularity queries.
+  Useful for popularity queries. It looks in every library, private ones (a
+  user's, a hidden one) included: what it finds is not yet a file the caller
+  may show (`Libraries.can?/3`).
   """
   def get_file_by_checksum(file_checksum) do
     repo().get_by(PhoenixKit.Modules.Storage.File, file_checksum: file_checksum)
@@ -4903,7 +4911,7 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   @doc """
-  Retrieves a file by its hash.
+  Retrieves a file by its hash, in any library (see `get_file_by_checksum/1`).
   """
   def retrieve_file_by_hash(hash) do
     case get_file_by_checksum(hash) do

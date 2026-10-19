@@ -45,9 +45,9 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
 
   @doc """
   The (canonical, unprefixed) path of the page that browses the library `file`
-  is in: Media for the default library, `/admin/media/library/<slug>` for
-  another site library, and for a user's library the page `scope` browses it
-  in (`Libraries.browse_path/2`).
+  is in: Media for the default library (and for a hidden one, which has no
+  page), `/admin/media/library/<slug>` for another site library, and for a
+  user's library the page `scope` browses it in (`Libraries.browse_path/2`).
   """
   @spec browse_path(StorageFile.t(), term()) :: String.t()
   def browse_path(%StorageFile{} = file, scope) do
@@ -57,6 +57,10 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
         if Libraries.can?(scope, file, :read),
           do: Libraries.browse_path(scope, library),
           else: "/admin/media"
+
+      # A hidden one has no page of its own (`Libraries.hidden?/1`): its slug stays out of the URL.
+      %{kind: "system", visibility: "private"} ->
+        "/admin/media"
 
       %{kind: "system", is_default: false, slug: slug} when is_binary(slug) ->
         "/admin/media/library/#{slug}"
@@ -84,6 +88,9 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
         index = Libraries.browse_index_path(scope)
         section = if index == "/admin/media", do: gettext("Media"), else: gettext("Libraries")
         {section, index, [crumb(library.name, Libraries.browse_path(scope, library))]}
+
+      %{kind: "system", visibility: "private"} ->
+        {gettext("Media"), "/admin/media", []}
 
       %{kind: "system", is_default: false, slug: slug, name: name} when is_binary(slug) ->
         {gettext("Media"), "/admin/media", [crumb(name, "/admin/media/library/#{slug}")]}

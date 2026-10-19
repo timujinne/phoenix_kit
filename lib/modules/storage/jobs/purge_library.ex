@@ -31,6 +31,8 @@ defmodule PhoenixKit.Modules.Storage.Jobs.PurgeLibrary do
   @impl true
   def title(_args, {"library", uuid}) do
     case Libraries.get_library(uuid) do
+      # A hidden one is a module's own and is not named either.
+      %{kind: "system", visibility: "private"} -> "Delete a library and its files"
       %{kind: "system", name: name} -> "Delete library \"#{name}\" and its files"
       # A user's library is theirs and private: its name stays out of the title.
       %{kind: "user"} -> "Delete a user's library and its files"
