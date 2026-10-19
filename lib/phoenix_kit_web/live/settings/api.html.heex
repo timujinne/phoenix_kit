@@ -11,6 +11,32 @@
   current_locale={@current_locale}
 >
   <div id="api-settings-page" class="px-4 py-6 space-y-6">
+    <%!-- Guide --%>
+    <div id="api-guide-card" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="card-title text-lg">
+              <.icon name="hero-book-open" class="w-5 h-5" /> {gettext("API guide")}
+            </h2>
+            <p class="text-sm text-base-content/70">
+              {gettext(
+                "How to connect a program or an AI agent with a key: addresses, setup for Claude Code, Cursor and VS Code, tools and errors."
+              )}
+            </p>
+          </div>
+          <.button
+            id="api-guide-link"
+            variant="outline"
+            size="sm"
+            navigate={Routes.path("/admin/settings/api/guide")}
+          >
+            {gettext("Open the guide")}
+          </.button>
+        </div>
+      </div>
+    </div>
+
     <%!-- Switches --%>
     <div id="api-switches" class="card bg-base-100 shadow-lg border border-base-200">
       <div class="card-body space-y-4">

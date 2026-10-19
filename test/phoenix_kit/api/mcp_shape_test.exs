@@ -386,6 +386,17 @@ defmodule PhoenixKit.API.MCP.ShapeTest do
       assert Shape.instructions(:admin) =~ "system_get_identity"
     end
 
+    test "the admin instructions name the control fields of a write tool in one sentence" do
+      sentence =
+        :admin
+        |> Shape.instructions()
+        |> String.split(~r/(?<=\.) /)
+        |> Enum.find(&(&1 =~ "dry_run"))
+
+      assert sentence =~ "confirm_token"
+      assert sentence =~ "idempotency_key"
+    end
+
     test "the public side" do
       info = Shape.server_info(:public, @new)
 

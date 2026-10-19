@@ -155,7 +155,9 @@ defmodule PhoenixKit.API.MCP.Shape do
       "is not run: it comes back as a normal result with executed false, status pending_approval and an " <>
       "approval_id, and runs only when an owner approves it; while that approval is still waiting, asking " <>
       "again for the same operation returns the same approval_id, unless the values it touches changed " <>
-      "meanwhile (the waiting approval is then closed and a new one is queued)."
+      "meanwhile (the waiting approval is then closed and a new one is queued). A write tool also takes " <>
+      "dry_run to preview without changing anything, confirm_token to confirm a dangerous operation with " <>
+      "the code its preview returned, and idempotency_key to make a retry safe."
   end
 
   def instructions(:public) do

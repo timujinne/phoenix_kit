@@ -631,6 +631,7 @@ defmodule PhoenixKitWeb.Integration do
       # API keys, service users and the shop API switches (gated by "api").
       live "/admin/settings/api", Live.Settings.Api, :index
       live "/admin/settings/api/approvals", Live.Settings.ApiApprovals, :index
+      live "/admin/settings/api/guide", Live.Settings.ApiGuide, :index
 
       # "email-sending", not "emails" — the optional emails module registers its
       # own routable "Emails" settings tab at /admin/settings/emails (via
