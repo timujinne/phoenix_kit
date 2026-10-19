@@ -23,8 +23,10 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
 
   ## The date picker
 
-  With `picker` (default `true`) a native date input sits between the
-  arrows. A date input only reaches the server inside a form, so it is
+  With `picker` (default `true`) a `date_input/1` (the site's date format, a
+  calendar button) sits between the arrows. It is `required`: clearing it
+  would only make `parse_param/2` answer today. A date input only reaches the
+  server inside a form, so it is
   wrapped in one that sends `pick_event` (default `"date_nav_pick"`) with
   `%{"date" => "YYYY-MM-DD"}`; handle it with a patch:
 
@@ -57,6 +59,7 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
   use Phoenix.Component
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  import PhoenixKitWeb.Components.Core.DateInput, only: [date_input: 1, site_format: 0]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
   alias PhoenixKit.Utils.Date, as: UtilsDate
@@ -120,8 +123,9 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
       |> assign(:next_label, if(step == 1, do: gettext("Next day"), else: gettext("Next")))
       |> assign(:today_word, assigns.today_label || gettext("Today"))
       # A label replaces the date between the arrows, and with it the picker:
-      # a native date input picks a day, which is not what a week is.
+      # a date input picks a day, which is not what a week is.
       |> assign(:show_picker?, assigns.picker and is_nil(assigns.label))
+      |> assign(:picker_width, picker_width(site_format()))
 
     ~H"""
     <div id={@id} class={["flex flex-wrap items-center gap-2", @class]} {@rest}>
@@ -143,14 +147,17 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
           class="join-item"
           onsubmit="return false"
         >
-          <input
-            type="date"
+          <.date_input
+            id={"#{@id}-date"}
             name="date"
-            value={Date.to_iso8601(@date)}
-            min={@min && Date.to_iso8601(@min)}
-            max={@max && Date.to_iso8601(@max)}
-            aria-label={gettext("Date")}
-            class="input input-sm join-item rounded-none w-38"
+            value={@date}
+            min={@min}
+            max={@max}
+            required
+            bare
+            size="sm"
+            label={gettext("Date")}
+            class={["join-item rounded-none", @picker_width]}
           />
         </form>
         <span :if={!@show_picker?} class="btn btn-sm join-item pointer-events-none font-normal">
@@ -257,6 +264,11 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
 
   defp clamp_max(date, nil), do: date
   defp clamp_max(date, max), do: if(Date.compare(date, max) == :gt, do: max, else: date)
+
+  # `w-38` fits "16.10.2026" next to the calendar button; "September 30, 2026"
+  # (format `F j, Y`) needs more room or it is clipped.
+  defp picker_width("F j, Y"), do: "w-52"
+  defp picker_width(_format), do: "w-38"
 
   defp before_min?(_date, nil), do: false
   defp before_min?(date, min), do: Date.compare(date, min) == :lt
