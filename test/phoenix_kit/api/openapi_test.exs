@@ -100,6 +100,7 @@ defmodule PhoenixKit.API.OpenAPITest do
       assert admin =~ "pending_approval"
       assert admin =~ "still waiting"
       assert admin =~ "same approval_id"
+      assert admin =~ "changed meanwhile"
       assert admin =~ "Idempotent-Replayed"
       refute public =~ "pending_approval"
     end

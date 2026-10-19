@@ -84,15 +84,24 @@ defmodule PhoenixKit.Modules.Storage.Library do
     |> unique_constraint(:slug, name: :phoenix_kit_storage_libraries_owner_slug_index)
   end
 
+  defp requested_visibility(attrs) when is_map(attrs),
+    do: Map.get(attrs, :visibility) || Map.get(attrs, "visibility")
+
   @doc """
   A new user library: a name, its owner, a URL slug (unique among the
-  owner's libraries) and an object-key prefix. Always `private`.
+  owner's libraries) and an object-key prefix. `private` unless the caller says
+  `visibility: "site"` (a public library, see `Libraries.create_user_library/3`,
+  which is where that is allowed or refused: this changeset trusts its attrs).
   """
   def create_user_changeset(library, attrs) do
+    # Read from the attrs, never from the changeset: the struct's own default is
+    # "site", so a changeset that was not asked for "site" would still say it.
+    visibility = if requested_visibility(attrs) == "site", do: "site", else: "private"
+
     library
     |> cast(attrs, [:name, :owner_uuid, :key_prefix, :slug, :is_default])
     |> put_change(:kind, "user")
-    |> put_change(:visibility, "private")
+    |> put_change(:visibility, visibility)
     |> validate_name()
     |> validate_required([:owner_uuid, :key_prefix, :slug])
     |> validate_format(:key_prefix, ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/)

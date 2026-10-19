@@ -328,6 +328,35 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
                List.duplicate({"flowkit.delete_items", "pending_approval", nil}, 4)
     end
 
+    test "changed values replace a held approval across REST and MCP without a replay header",
+         %{conn: conn, gated: gated} do
+      input = %{"ids" => ["a"], "idempotency_key" => idem()}
+      first = rest_call(conn, gated.token, "flowkit.delete_items", input)
+      assert first.status == 200
+      assert %{"approval_id" => first_id} = json(first)
+
+      ApiFlowStore.put("a", 999)
+      changed = admin_call(conn, gated.token, @delete, input)
+      assert changed.status == 200
+
+      assert %{
+               "executed" => false,
+               "status" => "pending_approval",
+               "approval_id" => changed_id,
+               "preview" => %{"rows" => [%{"from" => 999}]}
+             } = structured(changed)
+
+      refute changed_id == first_id
+      assert get_resp_header(changed, "idempotent-replayed") == []
+      assert Repo.get!(Confirmation, first_id).status == "expired"
+
+      again = rest_call(conn, gated.token, "flowkit.delete_items", input)
+      assert again.status == 200
+      assert json(again)["approval_id"] == changed_id
+      assert get_resp_header(again, "idempotent-replayed") == ["true"]
+      assert ApiFlowStore.items() == Map.put(@all_items, "a", 999)
+    end
+
     test "gets pending_approval over REST, and the same operation is one approval on both",
          %{conn: conn, gated: gated} do
       rest = rest_call(conn, gated.token, "flowkit.delete_items", %{"ids" => ["a"]})

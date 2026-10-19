@@ -730,7 +730,7 @@ defmodule PhoenixKit.Modules.Storage.ApplyImageEditJob do
   end
 
   defp after_publish(uuid, revision, {:published, file, dropped_keys, {how, moved?}}) do
-    _ = Storage.delete_stored_objects(dropped_keys)
+    _ = Storage.delete_stored_objects(dropped_keys, ignore_uploads_of: [file.uuid])
 
     # A revert brings the unedited variants back with the rows; only a new
     # render needs its variants generated.

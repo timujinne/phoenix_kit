@@ -548,7 +548,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       {:ok, uuid} when byte_size(file_uuid) == 36 ->
         from(f in File, where: f.uuid == ^uuid)
         |> where([f], f.status != "trashed" and f.system_managed == false)
-        |> Libraries.exclude_private()
+        |> Libraries.exclude_user_libraries()
         |> scope_files_by_user(socket.assigns[:user_uuid])
         |> scope_files_by_folder(socket.assigns[:scope_folder_id])
         |> scope_files_by_type(
@@ -737,7 +737,7 @@ defmodule PhoenixKitWeb.Live.Components.MediaSelectorModal do
       from(f in File)
       # Don't suggest trashed, system-managed, or private-library files.
       |> where([f], f.status != "trashed" and f.system_managed == false)
-      |> Libraries.exclude_private()
+      |> Libraries.exclude_user_libraries()
       |> scope_files_by_user(socket.assigns[:user_uuid])
       |> scope_files_by_folder(socket.assigns[:scope_folder_id])
       |> scope_files_by_type(socket.assigns.file_type_filter)

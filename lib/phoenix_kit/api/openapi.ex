@@ -144,7 +144,8 @@ defmodule PhoenixKit.API.OpenAPI do
       "and executed: false, status: pending_approval, an approval_id and a preview, and runs only " <>
       "when an owner approves it. While that approval is still waiting, asking again for the same " <>
       "operation (with or without an Idempotency-Key) answers with the same approval_id and the " <>
-      "Idempotent-Replayed header. " <>
+      "Idempotent-Replayed header, unless the values it touches changed meanwhile: the waiting approval is " <>
+      "then closed and a new one (another approval_id) is queued. " <>
       "Errors are application/problem+json."
   end
 

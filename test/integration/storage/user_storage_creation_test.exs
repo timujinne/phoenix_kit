@@ -64,9 +64,9 @@ defmodule PhoenixKit.Modules.Storage.UserStorageCreationTest do
 
   defp scope(user), do: Scope.for_user(Repo.get!(Auth.User, user.uuid))
 
-  defp connection!(user) do
+  defp connection!(user, name \\ "mine") do
     {:ok, %{uuid: uuid}} =
-      Integrations.add_connection("object_storage", "mine", nil, owner: {:user, user.uuid})
+      Integrations.add_connection("object_storage", name, nil, owner: {:user, user.uuid})
 
     {:ok, _} =
       Integrations.save_setup(uuid, %{"access_key" => "AKIA", "secret_key" => "s"}, nil,
@@ -252,6 +252,106 @@ defmodule PhoenixKit.Modules.Storage.UserStorageCreationTest do
 
       assert {:error, :limit_reached} = create(user, storage(user))
       assert Storage.list_owned_buckets(user.uuid) == []
+    end
+  end
+
+  describe "buckets from the integration" do
+    test "the provider, region and endpoint are the integration's, not asked again", %{role: role} do
+      user = user!(role)
+
+      {:ok, %{uuid: uuid}} =
+        Integrations.add_connection("object_storage", "tigris", nil, owner: {:user, user.uuid})
+
+      {:ok, _} =
+        Integrations.save_setup(
+          uuid,
+          %{"access_key" => "AKIA", "secret_key" => "s", "endpoint" => "t3.storage.dev"},
+          nil,
+          owner: {:user, user.uuid}
+        )
+
+      assert {:ok, library} =
+               create(user, %{
+                 "mode" => "only",
+                 "targets" => [%{"integration_uuid" => uuid, "bucket_name" => "my-photos"}]
+               })
+
+      assert %{bucket: bucket} = Profiles.user_storage_for([library])[to_string(library.uuid)]
+
+      assert {bucket.provider, bucket.endpoint, bucket.integration_uuid} ==
+               {"tigris", "t3.storage.dev", uuid}
+
+      assert_received {:probed, %{"provider" => "tigris", "endpoint" => "t3.storage.dev"}}
+    end
+
+    test "more integrations than the maximum are refused before anything is made", %{role: role} do
+      user = user!(role)
+
+      targets =
+        for n <- 1..(Profiles.max_user_buckets() + 1) do
+          %{"integration_uuid" => connection!(user, "int#{n}"), "bucket_name" => "bucket-#{n}"}
+        end
+
+      assert {:error, {:storage, message}} =
+               create(user, %{"mode" => "only", "targets" => targets})
+
+      assert message =~ "at most"
+      assert Storage.list_owned_buckets(user.uuid) == []
+    end
+
+    test "the same bucket twice is refused", %{role: role} do
+      user = user!(role)
+      uuid = connection!(user)
+      target = %{"integration_uuid" => uuid, "bucket_name" => "same"}
+
+      assert {:error, {:storage, message}} =
+               create(user, %{"mode" => "only", "targets" => [target, target]})
+
+      assert message =~ "same bucket"
+    end
+
+    test "list_own_buckets asks the integration, described without its keys", %{role: role} do
+      user = user!(role)
+      uuid = connection!(user)
+      test = self()
+
+      list = fn bucket ->
+        send(test, {:listed, bucket})
+        {:ok, ["b-two", "a-one"]}
+      end
+
+      assert {:ok, ["b-two", "a-one"]} = Libraries.list_own_buckets(scope(user), uuid, list: list)
+
+      assert_received {:listed, bucket}
+      assert bucket.integration_uuid == uuid
+      assert bucket.owner_uuid == user.uuid
+      assert bucket.provider == "s3"
+      assert is_nil(bucket.access_key_id) and is_nil(bucket.secret_access_key)
+    end
+
+    test "list_own_buckets is for a user who may use their own storage, and their own integration",
+         %{role: role, plain_role: plain_role} do
+      user = user!(role)
+      other = user!(role)
+      theirs = connection!(other)
+      list = fn _bucket -> flunk("must not be asked") end
+
+      assert {:error, :not_allowed} =
+               Libraries.list_own_buckets(scope(user!(plain_role)), connection!(user), list: list)
+
+      assert {:error, message} = Libraries.list_own_buckets(scope(user), theirs, list: list)
+      assert message =~ "not yours"
+    end
+
+    test "integration_summary names the service and never a secret", %{role: role} do
+      user = user!(role)
+      uuid = connection!(user)
+
+      summary = Libraries.integration_summary(user.uuid, uuid)
+
+      assert %{provider: "s3", service: "aws_s3"} = summary
+      refute inspect(summary) =~ "AKIA"
+      assert is_nil(Libraries.integration_summary(user!(role).uuid, uuid))
     end
   end
 

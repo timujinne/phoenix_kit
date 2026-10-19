@@ -66,6 +66,7 @@ defmodule PhoenixKit.API.MCPTransportTest do
       assert result["instructions"] =~ "executed false, status pending_approval"
       assert result["instructions"] =~ "still waiting"
       assert result["instructions"] =~ "same approval_id"
+      assert result["instructions"] =~ "changed meanwhile"
       refute result["instructions"] =~ "idempotent-replayed"
     end
 

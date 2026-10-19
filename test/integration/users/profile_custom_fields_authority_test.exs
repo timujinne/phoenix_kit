@@ -236,6 +236,26 @@ defmodule PhoenixKit.Integration.Users.ProfileCustomFieldsAuthorityTest do
   end
 
   describe "the settings page" do
+    test "saving a mounted form preserves newer system fields", %{conn: conn} do
+      phone = define!(unique("phone"), %{})
+      user = seeded_user()
+      {:ok, view, _html} = live(log_in_user(conn, user), Routes.path("/profile/settings"))
+
+      {:ok, current} =
+        Auth.merge_user_custom_fields(
+          user,
+          %{"notification_preferences" => %{"comment.created" => true}},
+          ensure_definitions: false,
+          broadcast: false
+        )
+
+      view
+      |> form(@form, %{"profile_form" => %{"user" => %{"custom_fields" => %{phone => "555"}}}})
+      |> render_submit()
+
+      assert reload(user).custom_fields == Map.put(current.custom_fields, phone, "555")
+    end
+
     test "a custom_fields payload that is not a map changes nothing", %{conn: conn} do
       define!(unique("phone"), %{})
       user = seeded_user()
@@ -297,6 +317,47 @@ defmodule PhoenixKit.Integration.Users.ProfileCustomFieldsAuthorityTest do
   end
 
   describe "flows that write system keys" do
+    test "a custom-field save for a deleted user still raises a stale-entry error" do
+      phone = define!(unique("phone"), %{})
+      user = seeded_user()
+      Repo.delete!(user)
+
+      assert_raise Ecto.StaleEntryError, fn ->
+        Auth.update_user_profile(user, %{"custom_fields" => %{phone => "555"}})
+      end
+    end
+
+    test "a profile save from a stale user preserves added keys and never restores deleted ones" do
+      phone = define!(unique("phone"), %{})
+      user = seeded_user()
+
+      {:ok, current} =
+        Auth.merge_user_custom_fields(user, %{"preferred_locale" => "et"},
+          ensure_definitions: false
+        )
+
+      {:ok, current} = Auth.delete_user_custom_field(current, "avatar_file_uuid")
+
+      assert {:ok, updated} =
+               Auth.update_user_profile(user, %{"custom_fields" => %{phone => "555"}})
+
+      assert updated.custom_fields == Map.put(current.custom_fields, phone, "555")
+      assert reload(user).custom_fields == updated.custom_fields
+    end
+
+    test "a stale profile cannot replace a field that has since become structured" do
+      phone = define!(unique("phone"), %{})
+      user = seeded_user(%{phone => "old"})
+
+      {:ok, current} = Auth.merge_user_custom_fields(user, %{phone => %{"managed" => true}})
+
+      assert {:ok, updated} =
+               Auth.update_user_profile(user, %{"custom_fields" => %{phone => "555"}})
+
+      assert updated.custom_fields == current.custom_fields
+      assert reload(user).custom_fields == current.custom_fields
+    end
+
     test "guest checkout stamps its source, and the account cannot restamp it" do
       {:ok, guest} = Auth.create_guest_user(%{email: "#{unique("guest")}@example.com"})
       assert guest.custom_fields["source"] == "guest_checkout"

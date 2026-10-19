@@ -1070,6 +1070,9 @@ defmodule PhoenixKitWeb.Components.Core.Chart do
     %{value: total, label: Map.get(datum, :label), class: Map.get(datum, :class), parts: parts}
   end
 
+  defp bar(%{"parts" => parts} = datum) when is_list(parts),
+    do: bar(%{parts: parts, label: datum["label"], class: datum["class"]})
+
   defp bar(%{value: value} = datum),
     do: build_bar(value, Map.get(datum, :label), Map.get(datum, :class))
 

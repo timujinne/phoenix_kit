@@ -53,9 +53,9 @@ defmodule PhoenixKit.Modules.Storage.UserProfilesTest do
     bucket
   end
 
-  defp owned_bucket!(owner) do
+  defp owned_bucket!(owner, name \\ "mine") do
     {:ok, %{uuid: connection}} =
-      Integrations.add_connection("object_storage", "mine", nil, owner: {:user, owner})
+      Integrations.add_connection("object_storage", name, nil, owner: {:user, owner})
 
     {:ok, _} =
       Integrations.save_setup(connection, %{"access_key" => "AKIA", "secret_key" => "s"}, nil,
@@ -168,6 +168,82 @@ defmodule PhoenixKit.Modules.Storage.UserProfilesTest do
       Repo.delete_all(PhoenixKit.Modules.Storage.ProfileBucket)
 
       assert {:error, :no_site_storage} = Profiles.create_user_profile(user.uuid, bucket, :backup)
+    end
+  end
+
+  describe "create_user_profile/3, several buckets" do
+    test "only mode: the first is the primary, the others backups that are never served", %{
+      user: user
+    } do
+      [main, copy] = [owned_bucket!(user.uuid, "a"), owned_bucket!(user.uuid, "b")]
+
+      assert {:ok, profile} = Profiles.create_user_profile(user.uuid, [main, copy], :only)
+
+      by_bucket = rows(profile)
+      assert %{role: "primary", serve_order: 1} = by_bucket[to_string(main.uuid)]
+      assert %{role: "backup", serve_order: 2} = by_bucket[to_string(copy.uuid)]
+
+      # A copy in each, one of them enough for an upload: the reconciler makes the rest.
+      assert profile.copies_local == 0
+      assert profile.copies_cloud == 2
+      assert profile.min_copies_on_write == 1
+    end
+
+    test "up to the maximum, and no more", %{user: user} do
+      max = Profiles.max_user_buckets()
+      buckets = for n <- 1..(max + 1), do: owned_bucket!(user.uuid, "b#{n}")
+
+      assert {:ok, _} = Profiles.create_user_profile(user.uuid, Enum.take(buckets, max), :only)
+      assert {:error, :too_many_buckets} = Profiles.create_user_profile(user.uuid, buckets, :only)
+    end
+
+    test "backup mode: every one is a backup of the snapshot of the site's buckets", %{user: user} do
+      _site = site_bucket!()
+      [one, two] = [owned_bucket!(user.uuid, "a"), owned_bucket!(user.uuid, "b")]
+
+      assert {:ok, profile} = Profiles.create_user_profile(user.uuid, [one, two], :backup)
+
+      by_bucket = rows(profile)
+      assert %{role: "backup"} = by_bucket[to_string(one.uuid)]
+      assert %{role: "backup"} = by_bucket[to_string(two.uuid)]
+      assert profile.copies_cloud == 2
+      # Never more than five copies in all.
+      assert profile.copies_originals <= 5
+    end
+
+    test "every bucket must be the user's own", %{user: user, other: other} do
+      mine = owned_bucket!(user.uuid, "a")
+      theirs = owned_bucket!(other.uuid, "b")
+
+      assert {:error, :foreign_bucket} =
+               Profiles.create_user_profile(user.uuid, [mine, theirs], :only)
+
+      assert {:error, :foreign_bucket} = Profiles.create_user_profile(user.uuid, [], :only)
+    end
+
+    test "user_storage_for lists them main first, and tells the mode from the primary", %{
+      user: user
+    } do
+      library = library!(user)
+      [main, copy] = [owned_bucket!(user.uuid, "a"), owned_bucket!(user.uuid, "b")]
+      {:ok, profile} = Profiles.create_user_profile(user.uuid, [main, copy], :only)
+      {:ok, library} = Profiles.assign_user_profile(library, profile)
+
+      assert %{mode: :only, bucket: first, buckets: [primary, backup]} =
+               Profiles.user_storage_for([library])[to_string(library.uuid)]
+
+      assert first.uuid == main.uuid
+      assert {primary.role, primary.bucket.uuid} == {"primary", main.uuid}
+      assert {backup.role, backup.bucket.uuid} == {"backup", copy.uuid}
+
+      _site = site_bucket!()
+      other_library = library!(user)
+      [a, b] = [owned_bucket!(user.uuid, "c"), owned_bucket!(user.uuid, "d")]
+      {:ok, backup_profile} = Profiles.create_user_profile(user.uuid, [a, b], :backup)
+      {:ok, other_library} = Profiles.assign_user_profile(other_library, backup_profile)
+
+      assert %{mode: :backup, buckets: [_, _]} =
+               Profiles.user_storage_for([other_library])[to_string(other_library.uuid)]
     end
   end
 

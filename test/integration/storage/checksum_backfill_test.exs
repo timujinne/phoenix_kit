@@ -44,14 +44,22 @@ defmodule PhoenixKit.Modules.Storage.ChecksumBackfillTest do
   defp md5(content), do: :md5 |> :crypto.hash(content) |> Base.encode16(case: :lower)
 
   # Stored the way the upload API used to: its checksum is the MD5.
-  defp stored!(user, content) do
+  defp stored!(user, content, opts \\ []) do
     source = Path.join(System.tmp_dir!(), "pk_checksum_src_#{System.unique_integer([:positive])}")
     File.write!(source, content)
     on_exit(fn -> File.rm(source) end)
 
     {result, _log} =
       ExUnit.CaptureLog.with_log(fn ->
-        Storage.store_file_in_buckets(source, "document", user.uuid, md5(content), "txt", "a.txt")
+        Storage.store_file_in_buckets(
+          source,
+          "document",
+          user.uuid,
+          md5(content),
+          "txt",
+          "a.txt",
+          opts
+        )
       end)
 
     {:ok, file} = result
@@ -91,6 +99,34 @@ defmodule PhoenixKit.Modules.Storage.ChecksumBackfillTest do
     # A pass marks it, so the next pass does not download it again.
     ChecksumBackfillJob.run_pass()
     assert Storage.get_file(old.uuid).metadata["checksum_backfill"] == "duplicate"
+  end
+
+  test "normalizing checksums preserves each upload's dedup opt-out", %{user: user} do
+    content = "independent #{System.unique_integer([:positive])}"
+    first = stored!(user, content, dedup: false)
+    second = stored!(user, content, dedup: false)
+
+    for file <- [first, second] do
+      assert ChecksumBackfillJob.recompute(file) == :updated
+      updated = Storage.get_file(file.uuid)
+      assert updated.file_checksum == sha(content)
+      assert updated.user_file_checksum == file.user_file_checksum
+    end
+
+    key = Storage.calculate_user_file_checksum(user.uuid, sha(content), first.library_uuid)
+    refute Storage.get_file_by_user_checksum(key)
+  end
+
+  test "a dedup key changed while reading the original is not overwritten", %{user: user} do
+    content = "changed key #{System.unique_integer([:positive])}"
+    file = stored!(user, content)
+    independent_key = "nodedup:#{file.uuid}"
+    {:ok, _} = Storage.update_file(file, %{user_file_checksum: independent_key})
+
+    assert ChecksumBackfillJob.recompute(file) == :changed
+    updated = Storage.get_file(file.uuid)
+    assert updated.file_checksum == md5(content)
+    assert updated.user_file_checksum == independent_key
   end
 
   describe "as a job run (storage.checksum_backfill)" do

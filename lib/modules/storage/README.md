@@ -852,14 +852,21 @@ when it is renamed (`Libraries.get_system_library_by_slug/1`).
 - **Dedup is per library:** one copy per uploader per library. Media keeps
   the key it always had; any other library folds itself into
   `user_file_checksum` (`Storage.calculate_user_file_checksum/3`).
+  `store_file_in_buckets(..., dedup: false)` opts one upload out: it is always
+  a row of its own (`{:ok, file}`, never `:duplicate`, no cross-user clone) with
+  a `user_file_checksum` no upload can match (`"nodedup:<file uuid>"`), for
+  records that merely hold the same bytes. The stored objects are still
+  content-addressed, so the rows name the same keys and the last delete removes
+  them.
 
 ### User libraries (V203)
 
 Off until the install turns them on (`storage_user_libraries_enabled`,
 Settings → Media → Libraries). A user with the `"storage"` permission uses
 the libraries they own or are a member of; `"storage.create_library"`
-creates them, up to `storage_user_library_limit`. Each is `private`, and its
-members are `manager`, `contributor` or `viewer` (`Libraries.allows?/2`).
+creates them, up to `storage_user_library_limit`. Each is `private` unless its
+owner makes it **public** when creating it (below), and its members are `manager`,
+`contributor` or `viewer` (`Libraries.allows?/2`).
 
 - **API:** `Libraries.create_user_library/2`, `list_user_libraries/1`,
   `get_user_library/2` (by uuid, or the owner's own slug), `add_member/4`,
@@ -869,6 +876,27 @@ members are `manager`, `contributor` or `viewer` (`Libraries.allows?/2`).
 - **Pages:** users manage their libraries on the profile's Media tab
   (`/profile/settings/media`); `/admin/libraries` browses them (moderation
   and testing). `phoenix_kit_photos` is the end-user surface.
+- **Public libraries:** a holder of `"storage.public_library"` (nobody, until the site
+  grants it) may create a library with `"visibility" => "public"`
+  (`Libraries.create_user_library/3`; stored as `visibility: "site"`). It is chosen once,
+  at creation, and cannot be changed; writing it to the history (`storage.library_published`).
+  **Anyone, signed in or not, may read what is in it**: `Libraries.can?(scope_or_nil, file,
+  :read)` and `Libraries.can_read_library?/2` say yes, and every feature built on a library
+  asks them, never its own check. Editing stays with the owner and managers. Its files get
+  ordinary (permanent) links, like Media's. It never appears in the site's media
+  (`Libraries.exclude_user_libraries/1`, which replaced `exclude_private/1` for the media
+  browser, the pickers, the folder listing and the orphan cleanup; the old name still works).
+  An Owner or Admin can **suspend** one (`suspend_library/3`, `unsuspend_library/2`, the
+  Suspend button on Settings → Media → Libraries): it then answers as private (expiring links,
+  no anonymous reading) with nothing deleted, and the history records who and why. Plan:
+  `dev_docs/plans/2026-10-18-public-user-libraries.md`.
+- **A personal library, if the host wants one:** `Libraries.ensure_personal_library/2`
+  gives a user a private library on the site's storage, made by the system (no
+  permission, no room under the limit; refused while user libraries are off), marked so it is never made twice, not even
+  after the user trashed theirs; `backfill_personal_libraries/1` does it for every
+  existing active account. **Nothing in PhoenixKit calls them**: whether accounts get
+  one is the host's call (Fotki makes one for every new account, from the
+  `:user_created` event).
 - **Trash and deletion:** a trashed library frees its name at once and is
   purged, bytes included, after `trash_retention_days` (`PurgeLibraryJob`,
   queued by the daily prune). Deleting a user trashes the libraries they own
@@ -890,16 +918,23 @@ picker only while the setting is on).
 
 - **Created with the library**, on the profile's Media tab, in one transaction:
   `Libraries.create_user_library/3` with a `"storage"` map (`mode` `only` or
-  `backup`, the user's connection, provider, bucket, region/endpoint). The bucket
-  is probed first (list, write, delete); a failure creates nothing. **The choice
-  is final**: `Profiles.set_library_profile/2` refuses to move a library off or
-  onto user storage.
-- **`only`**: the user's bucket is the profile's one `primary`. **`backup`**: the
+  `backup`, and `targets`: up to three buckets, each one of the user's
+  `object_storage` integrations plus a bucket name). The provider, region and
+  endpoint are the integration's own (`Libraries.integration_summary/2`) and are
+  not asked for. Every bucket is probed first (list, write, delete); a failure
+  creates nothing. The form lists an integration's buckets on request
+  (`Libraries.list_own_buckets/3`, S3 `ListBuckets`; a key limited to one bucket
+  is refused and the user types the name). **The choice is final**:
+  `Profiles.set_library_profile/2` refuses to move a library off or onto user
+  storage.
+- **`only`**: the user's first bucket is the profile's one `primary`; any further
+  bucket is a `backup` (a copy of every file, never served, made by the
+  reconciler). **`backup`**: the
   site's buckets keep their roles (a **snapshot of the Default profile at
   creation**; a site bucket added later is not used) and the user's bucket holds a
   `backup` of every file, including sizes and tiles. Every file gets a copy on
   each writable snapshotted site bucket, counted per kind, plus a cloud copy on
-  the backup (at most 5 copies, so four site buckets, active first). Uploads
+  the backup, one per bucket of the user's (at most 5 copies in all, so four site buckets for one backup bucket, active first). Uploads
   succeed on the Default's terms counting the site's
   copies only (`min_copies_on_write` ignores a backup: it is never served); the
   reconciler makes a backup the write missed.
@@ -1052,10 +1087,14 @@ made from is still the file's (`Storage.original_key?/2`).
 
 **Deleting stored objects.** An object is deleted exactly when no instance
 row references its key any more (an edited file and its backup share a
-directory; cross-user copies share keys). `Storage.delete_stored_objects/2`
-re-checks the references under the directory's advisory lock and deletes
-inside it; publishing a new object takes the same lock and checks the object
-still exists. Never delete a stored object any other way.
+directory; cross-user copies share keys) and no upload is still writing it: a
+`processing` row of the directory younger than the reconciler's grace period
+(`Reconciler.processing_grace_seconds/0`) with no instance for the key yet holds
+the key, because an upload writes the object before it records it. A caller
+that is that file passes `ignore_uploads_of:`. `Storage.delete_stored_objects/2`
+re-checks both under the directory's advisory lock and deletes inside it;
+publishing a new object takes the same lock and checks the object still exists.
+Never delete a stored object any other way.
 
 **Annotations** are drawn in pixel space, so an image with annotations
 refuses edits that change its geometry (crop, turn, mirror, straighten);

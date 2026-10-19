@@ -542,13 +542,13 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
     end)
     |> case do
       {:ok, {instance, stale_keys}} ->
-        _ = Storage.delete_stored_objects(stale_keys)
+        _ = Storage.delete_stored_objects(stale_keys, ignore_uploads_of: [file.uuid])
         {:ok, instance}
 
       {:error, :stale_source} ->
         Logger.info("Variant #{variant_name} of #{file.uuid} dropped: the original changed")
 
-        _ = Storage.delete_stored_objects([storage_path])
+        _ = Storage.delete_stored_objects([storage_path], ignore_uploads_of: [file.uuid])
 
         {:error, :stale_source}
 

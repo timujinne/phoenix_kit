@@ -42,10 +42,13 @@ defmodule PhoenixKitWeb.Users.MultiSession do
     stale mirror stay valid until they expire — so on a shared computer the next
     person to sign in would otherwise inherit the previous user's accounts.
 
-  The restored account becomes the root; the account that happened to be active
-  when the browser closed is not remembered. Coming back as the identity you
-  logged in as is the predictable outcome — and the safe one, since the
-  alternative is resuming inside a borrowed account.
+  The same cookie remembers which of those accounts was ACTIVE, so a lost
+  session (Safari dropping a backgrounded tab's cookie, a browser restart) comes
+  back on the account the user was using rather than silently on the root. Only
+  an account the user added themselves can be remembered as active: an
+  impersonation is never in the mirror, so switching into one clears the marker
+  and a lost session falls back to the root instead of resuming inside a
+  borrowed account.
   """
 
   import Plug.Conn
@@ -299,7 +302,10 @@ defmodule PhoenixKitWeb.Users.MultiSession do
 
   def add_authenticated_user(_conn, %Auth.User{}, _opts), do: {:error, :inactive}
 
-  defp maybe_persist_account(conn, _token, false), do: conn
+  # Not mirrored, but it IS now the active account — clear the remembered one so
+  # a lost session does not resume inside the borrowed account's predecessor
+  # looking like a choice the user made after the impersonation ended.
+  defp maybe_persist_account(conn, _token, false), do: remember_active(conn, nil)
   defp maybe_persist_account(conn, token, true), do: persist_account(conn, token)
 
   @doc """
@@ -559,7 +565,7 @@ defmodule PhoenixKitWeb.Users.MultiSession do
             {:error, :inactive}
 
           user ->
-            conn = renew_and_put_active_token(conn, token)
+            conn = conn |> renew_and_put_active_token(token) |> remember_active(token)
             log_event("session.switched", root_user(session), user)
             {:ok, conn, user}
         end
@@ -658,7 +664,25 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   def persist_account(conn, token) do
     case remembered_root(conn) do
       nil -> conn
-      root -> write_persisted(conn, root, read_persisted(conn, root) ++ [token])
+      root -> write_persisted(conn, root, read_persisted(conn, root) ++ [token], token)
+    end
+  end
+
+  # Records which mirrored account is active (nil = the root, or an account that
+  # is not mirrored). Skips the write when nothing changes, so a switch back to
+  # the root does not put a `Set-Cookie` on the response for no reason.
+  defp remember_active(conn, token) do
+    case remembered_root(conn) do
+      nil ->
+        conn
+
+      root ->
+        {tokens, current} = read_state(conn, root)
+        active = if token in tokens, do: token
+
+        if tokens == [] or active == current,
+          do: conn,
+          else: write_persisted(conn, root, tokens, active)
     end
   end
 
@@ -677,14 +701,19 @@ defmodule PhoenixKitWeb.Users.MultiSession do
         conn
 
       root ->
-        tokens = read_persisted(conn, root)
+        {tokens, active} = read_state(conn, root)
 
         # An impersonation is in the session stack but never in the mirror, so
         # removing one reaches here with nothing to drop — rewriting the cookie
         # with an unchanged list would put a pointless `Set-Cookie` on that
         # response.
         if token in tokens do
-          write_persisted(conn, root, List.delete(tokens, token))
+          write_persisted(
+            conn,
+            root,
+            List.delete(tokens, token),
+            if(active != token, do: active)
+          )
         else
           conn
         end
@@ -731,6 +760,8 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   Tokens that no longer resolve to an active user are dropped *and* pruned from
   the cookie: this is the only pass that ever looks at them, so without it a
   revoked account would be re-offered for the cookie's full life.
+  The root must still resolve too: an added account cannot revive a remembered
+  identity whose session expired, was revoked, or belongs to an inactive user.
 
   Restores nothing while `multi_session_enabled` is off, and takes the cookie
   with it — turning the feature off should not leave a browser quietly holding
@@ -746,30 +777,39 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   end
 
   defp do_restore(conn, root_token) do
-    case read_persisted(conn, root_token) do
+    case read_state(conn, root_token) do
       # Nothing usable: no mirror, or one built under a different login. Either
       # way this browser should stop carrying it.
-      [] ->
+      {[], _active} ->
         forget_persisted_accounts(conn)
 
-      tokens ->
-        live = Enum.filter(tokens, &resolves_to_active_user?/1)
+      {tokens, active} ->
+        live =
+          if resolves_to_active_user?(root_token),
+            do: Enum.filter(tokens, &resolves_to_active_user?/1),
+            else: []
+
+        active = if active in live, do: active
 
         conn
         |> restore_stack(root_token, live)
-        |> prune_persisted(root_token, tokens, live)
+        |> restore_active(active)
+        |> prune_persisted(root_token, tokens, live, active)
     end
   end
+
+  defp restore_active(conn, nil), do: conn
+  defp restore_active(conn, token), do: put_active_token(conn, token)
 
   defp restore_stack(conn, _root_token, []), do: conn
 
   defp restore_stack(conn, root_token, live),
     do: put_session(conn, @stack_key, [root_token | live])
 
-  defp prune_persisted(conn, _root_token, tokens, tokens), do: conn
+  defp prune_persisted(conn, _root_token, tokens, tokens, _active), do: conn
 
-  defp prune_persisted(conn, root_token, _tokens, live),
-    do: write_persisted(conn, root_token, live)
+  defp prune_persisted(conn, root_token, _tokens, live, active),
+    do: write_persisted(conn, root_token, live, active)
 
   # The identity a mirror may be written under, or nil. Gated on the site-wide
   # switch as well as the cookie, so `remember_me_enabled: false` blocks the
@@ -781,25 +821,32 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   defp resolves_to_active_user?(token), do: match?(%Auth.User{}, root_user_from_token(token))
 
   # The `root` match is the binding check — see `restore_persisted_accounts/2`.
-  defp read_persisted(conn, expected_root) do
+  defp read_persisted(conn, expected_root), do: conn |> read_state(expected_root) |> elem(0)
+
+  # `{accounts, active}`. A cookie written before the active marker existed has
+  # none and reads as nil (the root), which is what it always restored to.
+  defp read_state(conn, expected_root) do
     conn = fetch_cookies(conn, signed: [@accounts_cookie])
 
     case conn.cookies[@accounts_cookie] do
-      %{root: ^expected_root, accounts: tokens} when is_list(tokens) ->
-        Enum.filter(tokens, &is_binary/1)
+      %{root: ^expected_root, accounts: tokens} = value when is_list(tokens) ->
+        tokens = Enum.filter(tokens, &is_binary/1)
+        active = Map.get(value, :active)
+        {tokens, if(active in tokens, do: active)}
 
       _ ->
-        []
+        {[], nil}
     end
   end
 
-  defp write_persisted(conn, _root, []), do: forget_persisted_accounts(conn)
+  defp write_persisted(conn, _root, [], _active), do: forget_persisted_accounts(conn)
 
-  defp write_persisted(conn, root, tokens) do
+  defp write_persisted(conn, root, tokens, active) do
     # A signed cookie is read back from the REQUEST, so a read after this write
     # still sees the old value within the same request. Every caller reads once
     # and writes once; keep it that way.
-    value = %{root: root, accounts: Enum.take(tokens, -(@max_accounts - 1))}
+    kept = Enum.take(tokens, -(@max_accounts - 1))
+    value = %{root: root, accounts: kept, active: if(active in kept, do: active)}
 
     put_resp_cookie(conn, @accounts_cookie, value, accounts_cookie_options())
   end

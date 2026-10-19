@@ -1,3 +1,122 @@
+## Unreleased
+
+### Changed
+
+- **The profile's Media tab is rebuilt on core's own components.** The libraries are a `table_default` (name with its
+  Default badge, where it is stored, visibility: Public or Private) with the usual toolbar (count, **Create library**) and a ⋮ row
+  menu (Open, Rename, Make default, Members, Renditions, Trash; Leave for a shared one), as the Integrations tab. Rename,
+  members, renditions and the new-library form are `<.modal>` dialogs with `<.input>` / `<.select>`; an empty list is an
+  `<.empty_state>` with the create button; the trash is a small table with Restore. With own storage the form asks for what
+  the integration does not already know: an **integration** (the word is used throughout; the form said "connection") and a
+  **bucket**. The provider, region and endpoint fields are gone: the bucket takes them from the integration, and the
+  integration's service and endpoint are shown under its select. With one integration it is already chosen; with none the
+  form sends the user to add one (new tab) and picks the list up again when the window regains focus.
+- **`Libraries.create_user_library/3` / `probe_own_storage/3`:** the `"storage"` map takes `"targets"` (a list, or the
+  `targets[0]` map a form posts); a single bucket given flat (`integration_uuid`, `bucket_name`, …) still works, and a
+  provider, region or endpoint sent anyway wins over the integration's.
+- **`Profiles.user_storage_for/1`** adds `buckets` (every one of the user's buckets, main first) beside `bucket`; `mode` is
+  `:only` when one of them is the primary. **`Profiles.create_user_profile/3`** takes a bucket or a list.
+
+### Added
+
+- **A library can use several of the user's integrations (V206 storage).** In "only here" the first is the main storage and
+  the others hold a copy of every file (never served); in "the site's storage, backed up here" each is a backup. Up to
+  `Profiles.max_user_buckets/0` (3), five copies in all. The library row says `Your bucket: a (+1 copy)`; purge and the
+  object clean-up already covered every bucket of a library's profile.
+- **Public user libraries (phase 1 of `dev_docs/plans/2026-10-18-public-user-libraries.md`).** A user with the new
+  `storage.public_library` sub-permission (granted to nobody by default) can create a library as **Public** (a Private or
+  Public choice in the create dialog, with a warning; final once made). Anyone, signed in or not, can read what is in it
+  (`Libraries.can?/3` with a `nil` scope, `can_read_library?/2`, `public?/1`); editing is unchanged. Its files get ordinary
+  links; it never appears in site media (`Libraries.exclude_user_libraries/1` replaces `exclude_private/1`, which still
+  works, in the media browser, the pickers, the folder listing and the orphan cleanup). An Owner or Admin can suspend one
+  (`suspend_library/3`, `unsuspend_library/2`, a Suspend/Restore button in the admin list): it answers as private until
+  restored. Publishing and suspending are in the history. Nothing is public unless a user with the permission makes it so.
+- **`Libraries.ensure_personal_library/2` and `backfill_personal_libraries/1`** — for a host that wants every account to
+  have a private library of its own. The system makes it (no permission, no room under the per-user limit), marked so a
+  user who trashed theirs is not given another. **Nothing in PhoenixKit calls them**, they make nothing while "Allow user libraries" is off
+  (`{:error, :user_libraries_off}`), and registration is unchanged; the host decides whether, when and what to call it.
+- **A "List buckets" button** on the create form: `Libraries.list_own_buckets/3` asks the integration's key for its buckets
+  (S3 `ListBuckets`, under the integration check's deadline, via `S3.list_remote_buckets/1`) and the bucket field becomes a
+  dropdown. A key limited to one bucket is usually refused; the text field stays and the message says to type the name.
+- `Libraries.integration_summary/2`: what a user's integration says about itself (service, bucket provider, region,
+  endpoint), never a secret.
+
+## 2.63.0 - 2026-10-17
+
+**Migrations V218, V219 and V220** (run `mix phoenix_kit.update`). Ships PR #932 (profile-form hardening), #933 (chart and
+picker options), #934 (the machine API: REST, MCP, keys, confirmations, approvals), #935 (real-pixel zoom and burned copies
+that keep what the picture is) and #937 (held approval answers), plus the fixes from the reviews of all five.
+
+### Added
+
+- **A machine API for modules to plug tools into (#934).** A closed admin API at `/api/admin/v1` (bearer keys owned by a
+  user or a service user, scoped per tool) and an open public API at `/api/shop/v1` (no key, rate-limited per cart token and
+  client network), the same tools over MCP at `/mcp/admin` and `/mcp/shop` (Streamable HTTP, tools only, stateless), and
+  OpenAPI 3.1 documents generated from the tool registry. Dangerous operations go through dry runs, confirmation codes, an
+  approval queue and `Idempotency-Key`, shared by REST and MCP. **Both sides are off by default** (`api_admin_enabled`,
+  `api_public_enabled`; an off side answers `404`). Core ships `system.get_identity` and `system.get_approval`; the real
+  tools come from modules. Guide: `dev_docs/guides/2026-10-11-shop-api.md`.
+  - **Module callbacks:** `PhoenixKit.Module.api_tools/0` and `oban_crons/0`, both optional (default `[]`); install and
+    update write module cron entries into the host's Oban crontab, never overwriting host edits.
+  - **`api` permission** (Settings → API): opt-in for Admin, so an upgrade does not let every Admin mint bearer keys. Owner
+    has it by construction. Service users (`users.api_only`) get no web session on any door.
+  - **Settings → API** and an approvals page; strings in the template and the nine locales.
+  - **`Activity.log_many/2`** for batch audit writes.
+  - **V219** adds `users.api_only` and `phoenix_kit_api_keys`; **V220** adds `phoenix_kit_api_confirmations` and
+    `phoenix_kit_api_idempotency` (with a partial index for the stuck-operation sweep). No row is created.
+  - **`mix phoenix_kit.update`** inserts `plug PhoenixKit.API.BodyGuard` before `Plug.Parsers` in the host endpoint (2 MB
+    body limit, JSON errors; the body is always read as JSON, whatever its `Content-Type` says) and adds the
+    `Idempotency.PruneWorker`, `Confirm.ExpiryWorker` and `Confirm.PruneWorker` cron entries. `mcp` is now a reserved path
+    segment.
+- **Real-pixel zoom in the media viewer (#935).** 100% is one image pixel per screen pixel; a picture opens at fit or 100%,
+  whichever is smaller, with a fit/actual toggle and a zoom control.
+- **Stacked bars, a week-stepping `date_nav`, a chosen state for `search_picker` (#933).** `bar_chart` takes
+  `parts: [%{value, class, label}]` per datum and `y_max`; `date_nav` takes `step`, `label`, `today_label` and
+  `event` + `target` for a nested LiveView; `search_picker` takes `chosen` / `clear_event` / `clear_label`. All additive.
+- **Viewer libraries are minified in production (#935).** `ViewerLibraries.vendor!/1` runs Etcher, Fresco, Tessera and Leaf
+  through the host's esbuild (Etcher 1.3 MB → about 450 KB); without esbuild the readable copy is served.
+  `config :phoenix_kit, minify_libraries:` overrides either way.
+
+### Changed
+
+- **V218: the sync per-minute rate-limit default goes from 60 to 600** for `phoenix_kit_sync`; rows still at exactly 60 are
+  raised.
+- **Burned copies keep what the picture is (#935).** A see-through picture burns as a PNG with its transparency; a photo as
+  WebP with see-through margins; an animated GIF stays animated (`ImageProcessor.composite_animation/5`, a still PNG past
+  the budget); the server-baked `thumbnail_annotated` no longer flattens onto white; a burn is never composed bigger than
+  the picture.
+- **The media viewer's arrow tool snaps to shapes (#935).** `connectors={:off}` is gone.
+- **The media browser is split into modules (#935)**, taking a full compile from about 18.5 s to 13.3 s; rendered HTML is
+  unchanged.
+- **Dependencies:** `:fresco ~> 0.14.0`, `:tessera ~> 0.3.9`, `:etcher ~> 0.22.0` (floors, reasons in `mix.exs`) and
+  `:beamlab_countries ~> 2.0`.
+- **Behaviour change:** a host that calls `update_user_profile(user, %{custom_fields: …})` from server code to write
+  arbitrary keys now has them dropped; use `Auth.merge_user_custom_fields/3`.
+
+### Fixed
+
+- **The profile form no longer lets a user forge system `custom_fields` or change their email (#932).**
+  `CustomFields.cast_user_input/2` keeps only keys with an enabled, user-accessible definition (never an internal key),
+  scalar values of at most 10,000 characters that pass the definition's rules; the profile events drop `"email"`. Forged
+  keys had admitted an account past invite-only, minted avatar URLs, planted an `<img src>` beacon and redirected the
+  user's own notifications.
+- **A stale profile save no longer overwrites newer system fields.** `update_user_profile/2` re-reads the row under
+  `FOR NO KEY UPDATE` and validates the custom-field changes against it.
+- **An approval no longer runs after the admin API is switched off**, a re-request after the values changed supersedes the
+  stale pending approval, `Approvals.finish/3` no longer raises after the write, `Keys.create_key/3` only accepts a service
+  user the creator made, and the validator does the cheap bounds checks first (#934 review).
+- **Machine API gates and credentials:** admin calls refused before the rate limiter cost one unit over REST as over MCP,
+  the limiter's own refusal is not charged twice, CIDR parsing refuses a signed prefix length, `/mcp` reserves a whole path
+  segment, and a public tool with a danger must require `cart_token` (`ToolLint`).
+- **A repeat of an operation that already waits for approval carries `Idempotent-Replayed: true` (#937)** and returns the
+  same `approval_id`; if the values it touches changed meanwhile, the waiting approval is closed and a new one is queued.
+  The OpenAPI description, MCP instructions and the guide say so.
+- **JSON-decoded stacked bar data renders**: string-keyed `"parts"` no longer draws a blank chart.
+- **Rubbing out the last shape restores the clean burned copy**, a selected text's selection box no longer lands in the
+  burned copy, burns of transparent pictures keep their transparency, and the viewer's Edit image button works after the
+  media browser split.
+- **`date_nav`'s day picker honours `phx-target`.**
+
 ## 2.62.2 - 2026-10-13
 
 **No migration** (still V217). Ships PR #931 (avatar-menu module tabs, no more dead dashboard links), plus one crash fix from Claude's review of it.

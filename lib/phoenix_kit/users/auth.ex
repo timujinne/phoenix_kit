@@ -2093,6 +2093,9 @@ defmodule PhoenixKit.Users.Auth do
   @doc """
   Updates a user's profile information.
 
+  Custom-field changes are validated and merged against the current row under
+  a lock, so a form holding an older user cannot overwrite newer system fields.
+
   ## Examples
 
       iex> update_user_profile(user, %{first_name: "John", last_name: "Doe"})
@@ -2104,8 +2107,8 @@ defmodule PhoenixKit.Users.Auth do
   def update_user_profile(%User{} = user, attrs) do
     changeset = User.profile_changeset(user, attrs)
 
-    case Repo.update(changeset) do
-      {:ok, updated_user} ->
+    case persist_user_profile(changeset, attrs) do
+      {:ok, {updated_user, changeset}} ->
         Events.broadcast_user_updated(updated_user)
 
         PhoenixKit.Activity.log_user_change("user.profile_updated", user, changeset,
@@ -2117,6 +2120,38 @@ defmodule PhoenixKit.Users.Auth do
       {:error, changeset} ->
         {:error, changeset}
     end
+  end
+
+  defp persist_user_profile(
+         %Ecto.Changeset{data: user, changes: %{custom_fields: _}} = changeset,
+         attrs
+       ) do
+    # System writers update this same row atomically. Keep its lock from the
+    # fresh read through the profile update, including a second validation:
+    # a previously editable scalar may now be a system-managed object.
+    Ecto.Multi.new()
+    |> Ecto.Multi.run(:changeset, fn repo, _changes ->
+      current =
+        repo.one(from(u in User, where: u.uuid == ^user.uuid, lock: "FOR NO KEY UPDATE"))
+
+      case current do
+        nil ->
+          raise Ecto.StaleEntryError, changeset: changeset, action: :update
+
+        current ->
+          {:ok, User.profile_changeset(%{user | custom_fields: current.custom_fields}, attrs)}
+      end
+    end)
+    |> Ecto.Multi.update(:user, fn %{changeset: changeset} -> changeset end)
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{user: updated_user, changeset: changeset}} -> {:ok, {updated_user, changeset}}
+      {:error, _step, changeset, _changes} -> {:error, changeset}
+    end
+  end
+
+  defp persist_user_profile(changeset, _attrs) do
+    with {:ok, updated_user} <- Repo.update(changeset), do: {:ok, {updated_user, changeset}}
   end
 
   @doc """

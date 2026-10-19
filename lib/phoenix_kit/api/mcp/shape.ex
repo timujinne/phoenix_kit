@@ -154,7 +154,8 @@ defmodule PhoenixKit.API.MCP.Shape do
       "the second text item is the full problem document. A dangerous call from a key that needs approval " <>
       "is not run: it comes back as a normal result with executed false, status pending_approval and an " <>
       "approval_id, and runs only when an owner approves it; while that approval is still waiting, asking " <>
-      "again for the same operation returns the same approval_id."
+      "again for the same operation returns the same approval_id, unless the values it touches changed " <>
+      "meanwhile (the waiting approval is then closed and a new one is queued)."
   end
 
   def instructions(:public) do

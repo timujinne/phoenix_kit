@@ -310,7 +310,7 @@ defmodule PhoenixKitWeb.Live.Users.MediaSelector do
     query =
       from(f in File, order_by: [desc: f.inserted_at])
       |> where([f], f.status != "trashed" and f.system_managed == false)
-      |> Libraries.exclude_private()
+      |> Libraries.exclude_user_libraries()
 
     # Apply file type filter
     query =

@@ -69,6 +69,15 @@ defmodule PhoenixKit.Modules.Storage.Reconciler do
   @processing_grace_seconds 3600
 
   @doc """
+  How long a file may stay `"processing"` after its last change before it
+  counts as no longer being processed. `Storage` uses it for the same
+  question about an upload: a processing row older than this holds no object
+  key.
+  """
+  @spec processing_grace_seconds() :: pos_integer()
+  def processing_grace_seconds, do: @processing_grace_seconds
+
+  @doc """
   The files that are not where, or not what, their library's profile and
   variant set want — **and that the reconciler may work on now**: not a file
   an upload is still processing, nor one with an image edit pending, nor one

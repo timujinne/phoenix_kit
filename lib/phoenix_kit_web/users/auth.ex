@@ -591,10 +591,14 @@ defmodule PhoenixKitWeb.Users.Auth do
             # had added — the session copy of the stack dies with the host's
             # session cookie, which on a stock `mix phx.new` endpoint means at
             # browser restart.
-            {token,
-             conn
-             |> put_token_in_session(token)
-             |> MultiSession.restore_persisted_accounts(token)}
+            conn =
+              conn
+              |> put_token_in_session(token)
+              |> MultiSession.restore_persisted_accounts(token)
+
+            # The restore may have made a mirrored account the active one, so
+            # resolve against what the session now holds, not the remembered root.
+            {get_session(conn, :user_token), conn}
           else
             {nil,
              conn
@@ -3513,11 +3517,7 @@ defmodule PhoenixKitWeb.Users.Auth do
           DialectMapper.valid_base_code?(locale) and locale_allowed?(locale) ->
             process_valid_locale(conn, locale)
 
-          # Valid predefined but not enabled → redirect to default
-          DialectMapper.valid_base_code?(locale) ->
-            redirect_invalid_locale(conn, locale)
-
-          # Invalid base code → redirect to default
+          # Disabled or invalid base code → redirect to default
           true ->
             redirect_invalid_locale(conn, locale)
         end

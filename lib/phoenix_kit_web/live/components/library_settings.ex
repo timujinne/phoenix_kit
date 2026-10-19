@@ -9,10 +9,17 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
     * leave a library someone else shared
     * pick the variant set of a library they own, among the ones an admin
       made selectable (V205): which sizes its uploads get
-    * keep a new library on their own S3-compatible bucket instead of the
-      site's storage (V206; `storage.own_storage`, when the site allows it):
-      only there, or the site's storage plus a backup copy there. The choice is
-      made here, once, and cannot be changed afterwards.
+    * keep a new library on their own S3-compatible storage instead of the
+      site's (V206; `storage.own_storage`, when the site allows it): pick one of
+      their Object Storage integrations and a bucket on it (listed from the
+      integration when its key may list buckets), only there or with the site's
+      storage plus a backup copy there, and optionally copies on further
+      integrations. The choice is made here, once, and cannot be changed
+      afterwards.
+
+  The create form is closed until "Create library" is pressed, so the page is
+  first of all the list of the user's libraries. What an integration already
+  knows (its service, region, endpoint) is not asked again.
 
   Browsing and uploading are `/admin/libraries`. Every action goes through
   `PhoenixKit.Modules.Storage.Libraries`, which re-checks who may do it;
@@ -23,7 +30,10 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
   """
   use PhoenixKitWeb, :live_component
 
+  import PhoenixKitWeb.Components.Core.RowLink, only: [row_link: 1]
+
   alias PhoenixKit.Integrations
+  alias PhoenixKit.Integrations.ObjectStorageServices
   alias PhoenixKit.Modules.Storage.{Libraries, Library, LibraryMember, Profiles, VariantSets}
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.Routes
@@ -35,11 +45,13 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
       |> assign(:id, assigns.id)
       |> assign(:scope, assigns.scope)
       |> assign(:probe, assigns[:probe])
+      |> assign(:list, assigns[:list])
       |> assign_new(:message, fn -> nil end)
-      |> assign_new(:open_members, fn -> nil end)
+      |> assign_new(:dialog, fn -> nil end)
       |> assign_new(:form, fn -> new_form() end)
       |> assign_new(:testing, fn -> false end)
       |> assign_new(:creating, fn -> false end)
+      |> assign_new(:bucket_lists, fn -> %{} end)
       |> assign_new(:pending_create, fn -> nil end)
       |> assign_new(:test_result, fn -> nil end)
       |> load()
@@ -55,13 +67,15 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
     managed =
       Enum.filter(shared, &Libraries.allows?(&1.role, :members))
 
-    open = socket.assigns.open_members
+    open = members_uuid(socket.assigns.dialog)
 
     socket
     |> assign(:trashed, Libraries.list_trashed_user_libraries(Scope.user_uuid(scope)))
     |> assign(:owned, owned)
     |> assign(:shared, shared)
+    |> assign(:media, media_row(scope))
     |> assign(:can_create, Libraries.may_create_library?(scope))
+    |> assign(:can_public, Libraries.may_create_public_library?(scope))
     |> assign(:can_own_storage, Libraries.may_use_own_storage?(scope))
     |> assign(:connections, connections(scope))
     |> assign(:own_storage, Profiles.user_storage_for(Enum.map(owned, & &1.library)))
@@ -74,6 +88,26 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
     )
   end
 
+  # The site's own library, Media, shown read-only beside the user's: they keep
+  # files in it too, but it belongs to the site, so nothing here renames, shares
+  # or trashes it. It can be opened only where there is a page for it (the media
+  # browser needs the `media` permission).
+  defp media_row(scope) do
+    case Libraries.get_library(Libraries.media_uuid()) do
+      %Library{trashed_at: nil} = library ->
+        %{
+          library: library,
+          path: if(Scope.has_module_access?(scope, "media"), do: Routes.path("/admin/media"))
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp members_uuid({:members, uuid}), do: uuid
+  defp members_uuid(_dialog), do: nil
+
   defp library_of(uuid, entries) do
     Enum.find_value(entries, fn %{library: library} -> library.uuid == uuid && library end)
   end
@@ -84,19 +118,132 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
   defp entry(socket, uuid),
     do: Enum.find(socket.assigns.owned ++ socket.assigns.shared, &(&1.library.uuid == uuid))
 
+  # Who may open which dialog: the owner all of them, a manager rename and members.
+  defp dialog_allowed?("rename", role), do: Libraries.allows?(role, :rename)
+  defp dialog_allowed?("members", role), do: Libraries.allows?(role, :members)
+  defp dialog_allowed?("sizes", role), do: role == :owner
+  defp dialog_allowed?(_kind, _role), do: false
+
   defp reply(socket, kind, text),
     do: {:noreply, socket |> assign(:message, {kind, text}) |> load()}
 
   @impl true
-  def handle_event("form_change", %{"library" => params}, socket) do
-    {:noreply, assign(socket, form: merge_form(socket, params), test_result: nil)}
+  def handle_event("open_create", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(dialog: :create, form: new_form(), bucket_lists: %{}, test_result: nil)
+     |> assign(:message, nil)
+     |> preselect_integration()}
   end
 
-  def handle_event("refresh_connections", _params, socket), do: {:noreply, load(socket)}
+  # Rename, members and renditions are asked of one library; the check is made
+  # again on the row as it is now, and again by `Libraries` when it is acted on.
+  def handle_event("open_dialog", %{"kind" => kind, "uuid" => uuid}, socket) do
+    with %{role: role} <- entry(socket, uuid),
+         true <- dialog_allowed?(kind, role) do
+      {:noreply, socket |> assign(:dialog, {String.to_existing_atom(kind), uuid}) |> load()}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close_dialog", _params, socket) do
+    {:noreply,
+     socket
+     |> assign(dialog: nil, form: new_form(), bucket_lists: %{}, test_result: nil)
+     |> load()}
+  end
+
+  def handle_event("form_change", %{"library" => params}, socket) do
+    {:noreply,
+     socket
+     |> merge_form(params)
+     |> assign(:test_result, nil)
+     |> preselect_integration()}
+  end
+
+  # The window gained focus: the user may be back from adding an integration in
+  # another tab.
+  def handle_event("refresh_connections", _params, socket) do
+    {:noreply, socket |> load() |> preselect_integration()}
+  end
+
+  def handle_event("add_target", _params, socket) do
+    form = socket.assigns.form
+
+    if length(form["targets"]) < Profiles.max_user_buckets() do
+      {:noreply, assign(socket, form: %{form | "targets" => form["targets"] ++ [blank_target()]})}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("remove_target", %{"index" => index}, socket) do
+    form = socket.assigns.form
+    index = to_index(index)
+
+    if length(form["targets"]) > 1 and index in 0..(length(form["targets"]) - 1) do
+      # The bucket lists are keyed by position: every one after the removed row
+      # moves up with it.
+      lists =
+        socket.assigns.bucket_lists
+        |> Map.delete(index)
+        |> Map.new(fn {i, list} -> {if(i > index, do: i - 1, else: i), list} end)
+
+      {:noreply,
+       assign(socket,
+         form: %{form | "targets" => List.delete_at(form["targets"], index)},
+         bucket_lists: lists,
+         test_result: nil
+       )}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("list_buckets", %{"index" => index}, socket) do
+    index = to_index(index)
+    uuid = socket.assigns.form["targets"] |> Enum.at(index, %{}) |> Map.get("integration_uuid")
+
+    if uuid in [nil, ""] do
+      {:noreply,
+       put_bucket_list(socket, index, uuid, {:error, gettext("Choose an integration first")})}
+    else
+      scope = socket.assigns.scope
+
+      case socket.assigns[:list] do
+        # `:list` (an assign, unset in production) replaces the network call, and
+        # with it the wait.
+        list when is_function(list) ->
+          {:noreply,
+           put_bucket_list(
+             socket,
+             index,
+             uuid,
+             list_result(Libraries.list_own_buckets(scope, uuid, list: list))
+           )}
+
+        _ ->
+          # Off the page's process, and under the integration check's own
+          # deadline: a stalled endpoint must not hold the page.
+          {:noreply,
+           socket
+           |> put_bucket_list(index, uuid, :loading)
+           |> start_async({:list_buckets, index}, fn ->
+             {uuid, Libraries.list_own_buckets(scope, uuid)}
+           end)}
+      end
+    end
+  end
+
+  def handle_event("type_bucket", %{"index" => index}, socket) do
+    {:noreply,
+     assign(socket, bucket_lists: Map.delete(socket.assigns.bucket_lists, to_index(index)))}
+  end
 
   def handle_event("test_storage", _params, socket) do
     scope = socket.assigns.scope
-    params = socket.assigns.form
+    storage = storage_params(socket.assigns.form)
     probe_opts = probe_opts(socket)
 
     # Through `Libraries.probe_own_storage/3`, which asks again whether this user
@@ -109,13 +256,20 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
      |> assign(:testing, true)
      |> assign(:test_result, nil)
      |> start_async(:test_storage, fn ->
-       Libraries.probe_own_storage(scope, params, probe_opts)
+       Libraries.probe_own_storage(scope, storage, probe_opts)
      end)}
   end
 
   def handle_event("create", %{"library" => params}, socket) do
-    form = merge_form(socket, params)
+    socket = merge_form(socket, params)
+    form = socket.assigns.form
     attrs = %{"name" => form["name"]}
+
+    # Asked for only by someone who may; `Libraries` refuses it to anyone else.
+    attrs =
+      if socket.assigns.can_public and form["visibility"] == "public",
+        do: Map.put(attrs, "visibility", "public"),
+        else: attrs
 
     if form["kind"] == "own" and socket.assigns.can_own_storage do
       create_on_own_storage(socket, form, attrs)
@@ -127,7 +281,7 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
   def handle_event("rename", %{"uuid" => uuid, "name" => name}, socket) do
     with %{library: library} <- entry(socket, uuid),
          {:ok, _} <- Libraries.rename_user_library(socket.assigns.scope, library, name) do
-      reply(socket, :success, gettext("Library renamed"))
+      reply(assign(socket, :dialog, nil), :success, gettext("Library renamed"))
     else
       {:error, %Ecto.Changeset{} = changeset} ->
         reply(socket, :error, changeset_message(changeset))
@@ -167,8 +321,8 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
     with %{library: library} <- entry(socket, uuid),
          {:ok, _} <- Libraries.trash_library(socket.assigns.scope, library) do
       socket =
-        if socket.assigns.open_members == uuid,
-          do: assign(socket, :open_members, nil),
+        if match?({_, ^uuid}, socket.assigns.dialog),
+          do: assign(socket, :dialog, nil),
           else: socket
 
       reply(socket, :success, gettext("Library moved to the trash"))
@@ -191,21 +345,6 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
       _ ->
         reply(socket, :error, gettext("The library could not be restored"))
     end
-  end
-
-  def handle_event("toggle_members", %{"uuid" => uuid}, socket) do
-    allowed? =
-      Enum.any?(socket.assigns.owned, &(&1.library.uuid == uuid)) or
-        uuid in socket.assigns.managed_uuids
-
-    open =
-      cond do
-        not allowed? -> nil
-        socket.assigns.open_members == uuid -> nil
-        true -> uuid
-      end
-
-    {:noreply, socket |> assign(:open_members, open) |> load()}
   end
 
   def handle_event(
@@ -276,6 +415,23 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
      )}
   end
 
+  def handle_async({:list_buckets, index}, {:ok, {uuid, result}}, socket) do
+    {:noreply, put_bucket_list(socket, index, uuid, list_result(result))}
+  end
+
+  def handle_async({:list_buckets, index}, {:exit, _reason}, socket) do
+    uuid = socket.assigns.form["targets"] |> Enum.at(index, %{}) |> Map.get("integration_uuid")
+
+    {:noreply,
+     put_bucket_list(
+       socket,
+       index,
+       uuid,
+       {:error,
+        gettext("Listing the buckets stopped unexpectedly. Type the bucket name instead.")}
+     )}
+  end
+
   # The bucket was checked off the page's process; now the library is created
   # (database only) without checking it again.
   def handle_async(:probe_storage, {:ok, :ok}, socket) do
@@ -307,12 +463,8 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
   defp probe_opts(socket), do: if(probe = socket.assigns[:probe], do: [probe: probe], else: [])
 
   defp create_on_own_storage(socket, form, attrs) do
-    attrs =
-      Map.put(
-        attrs,
-        "storage",
-        Map.take(form, ~w(mode integration_uuid provider bucket_name region endpoint))
-      )
+    storage = storage_params(form)
+    attrs = Map.put(attrs, "storage", storage)
 
     case socket.assigns[:probe] do
       nil ->
@@ -324,17 +476,35 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
          socket
          |> assign(:creating, true)
          |> assign(:pending_create, attrs)
-         |> start_async(:probe_storage, fn -> Libraries.probe_own_storage(scope, form) end)}
+         |> start_async(:probe_storage, fn -> Libraries.probe_own_storage(scope, storage) end)}
 
       probe ->
         finish_create(socket, attrs, probe: probe)
     end
   end
 
+  # What `Libraries.create_user_library/3` takes under "storage": the strategy
+  # and the buckets, an empty row of the form left out.
+  defp storage_params(form) do
+    targets =
+      form["targets"]
+      |> Enum.map(&Map.take(&1, ~w(integration_uuid bucket_name)))
+      |> Enum.reject(&(&1["integration_uuid"] in [nil, ""] and &1["bucket_name"] in [nil, ""]))
+
+    %{"mode" => form["mode"], "targets" => targets}
+  end
+
   defp finish_create(socket, attrs, opts) do
     case Libraries.create_user_library(socket.assigns.scope, attrs, opts) do
       {:ok, library} ->
-        socket = assign(socket, form: new_form(), test_result: nil)
+        socket =
+          assign(socket,
+            form: new_form(),
+            test_result: nil,
+            dialog: nil,
+            bucket_lists: %{}
+          )
+
         reply(socket, :success, gettext("Library “%{name}” created", name: library.name))
 
       {:error, :limit_reached} ->
@@ -378,56 +548,154 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
 
   defp probe_message({:error, message}) when is_binary(message), do: {:error, message}
 
-  @storage_fields ~w(kind mode integration_uuid provider bucket_name region endpoint)
-
   defp new_form,
-    do: %{"name" => "", "kind" => "site", "mode" => "only", "provider" => "s3"}
+    do: %{
+      "name" => "",
+      "visibility" => "private",
+      "kind" => "site",
+      "mode" => "only",
+      "targets" => [blank_target()]
+    }
 
-  # The form as the user has it: what they typed over what was there. A newly
-  # picked connection fills a blank region and endpoint from its own settings.
+  defp blank_target, do: %{"integration_uuid" => "", "bucket_name" => ""}
+
+  defp to_index(index) when is_integer(index), do: index
+
+  defp to_index(index) do
+    case Integer.parse(to_string(index)) do
+      {n, ""} when n >= 0 -> n
+      _ -> -1
+    end
+  end
+
+  # The form as the user has it: what they typed over what was there. The rows
+  # of buckets arrive as `targets[0]`, `targets[1]`…; a row whose integration
+  # changed loses its bucket (it named a bucket of the other account) and its
+  # bucket list.
   defp merge_form(socket, params) do
     storage = params["storage"] || %{}
     old = socket.assigns.form
 
+    {targets, lists} =
+      case storage["targets"] do
+        %{} = posted -> merge_targets(old["targets"], posted, socket.assigns.bucket_lists)
+        _ -> {old["targets"], socket.assigns.bucket_lists}
+      end
+
     form =
       old
       |> Map.put("name", params["name"] || old["name"] || "")
-      |> Map.merge(Map.take(storage, @storage_fields))
+      |> Map.put("visibility", pick(params["visibility"], ~w(private public), old["visibility"]))
+      |> Map.put("kind", pick(storage["kind"], ~w(site own), old["kind"]))
+      |> Map.put("mode", pick(storage["mode"], ~w(only backup), old["mode"]))
+      |> Map.put("targets", targets)
 
-    if form["integration_uuid"] in [nil, "", old["integration_uuid"]],
-      do: form,
-      else: prefill_from_connection(form, socket.assigns.connections)
+    assign(socket, form: form, bucket_lists: lists)
   end
 
-  defp prefill_from_connection(form, connections) do
-    case Enum.find(connections, &(&1.uuid == form["integration_uuid"])) do
-      nil ->
-        form
+  defp merge_targets(old_targets, posted, lists) do
+    rows =
+      posted
+      |> Map.keys()
+      |> Enum.map(&(to_index(&1) + 1))
+      |> Enum.max(fn -> 0 end)
+      |> max(length(old_targets))
+      |> min(Profiles.max_user_buckets())
 
-      connection ->
-        form
-        |> put_if_blank("region", connection.region)
-        |> put_if_blank("endpoint", connection.endpoint)
+    Enum.reduce(0..(rows - 1)//1, {[], lists}, fn index, {acc, lists} ->
+      old = Enum.at(old_targets, index, blank_target())
+      new = Map.get(posted, to_string(index), %{})
+      uuid = new["integration_uuid"] || old["integration_uuid"]
+      bucket = new["bucket_name"] || old["bucket_name"] || ""
+
+      # Switching from one integration to another: the bucket still in the form
+      # named one of the other account. (A first choice, or a bucket typed in the
+      # same change, is kept.)
+      switched? = old["integration_uuid"] not in [nil, ""] and uuid != old["integration_uuid"]
+      bucket = if switched? and bucket == old["bucket_name"], do: "", else: bucket
+
+      {acc ++ [%{"integration_uuid" => uuid || "", "bucket_name" => bucket}],
+       if(switched?, do: Map.delete(lists, index), else: lists)}
+    end)
+  end
+
+  defp pick(value, allowed, default), do: if(value in allowed, do: value, else: default)
+
+  # With exactly one integration there is nothing to choose: it is already
+  # chosen for an empty first row.
+  defp preselect_integration(socket) do
+    case {socket.assigns.connections, socket.assigns.form["targets"]} do
+      {[%{uuid: uuid}], [%{"integration_uuid" => ""} = first | rest]} ->
+        form = %{
+          socket.assigns.form
+          | "targets" => [%{first | "integration_uuid" => uuid} | rest]
+        }
+
+        assign(socket, :form, form)
+
+      _ ->
+        socket
     end
   end
 
-  defp put_if_blank(form, key, value) do
-    if form[key] in [nil, ""] and value not in [nil, ""],
-      do: Map.put(form, key, value),
-      else: form
+  # What the row shows for the answer of `Libraries.list_own_buckets/3`.
+  defp list_result({:ok, []}) do
+    {:error,
+     gettext(
+       "No buckets found on this integration. Create one at your provider, or type its name."
+     )}
   end
 
-  # The user's own Object Storage connections, reduced to what the form shows
-  # (the list holds decrypted data; none of it is kept in assigns).
+  defp list_result({:ok, names}), do: {:ok, names}
+
+  defp list_result({:error, :not_allowed}),
+    do: {:error, gettext("You may not use your own storage")}
+
+  defp list_result({:error, message}) when is_binary(message), do: {:error, message}
+
+  # The bucket list of one row, kept with the integration it was asked of: the
+  # answer of a request that was overtaken by another choice is not shown.
+  defp put_bucket_list(socket, index, uuid, result) do
+    assign(socket, :bucket_lists, Map.put(socket.assigns.bucket_lists, index, {uuid, result}))
+  end
+
+  defp bucket_list(lists, index, uuid) do
+    case lists[index] do
+      {^uuid, result} -> result
+      _ -> nil
+    end
+  end
+
+  # The user's own Object Storage integrations, reduced to what the form shows
+  # (the list holds decrypted data; none of it is kept in assigns): the name, and
+  # which service and endpoint it is, so nobody has to type those again.
   defp connections(scope) do
     if Libraries.may_use_own_storage?(scope) do
       "object_storage"
       |> Integrations.list_connections(owner: {:user, Scope.user_uuid(scope)})
       |> Enum.map(fn %{uuid: uuid, name: name, data: data} ->
-        %{uuid: uuid, name: name, region: data["region"], endpoint: data["endpoint"]}
+        %{
+          uuid: uuid,
+          name: name,
+          service: ObjectStorageServices.label(data),
+          where: data["endpoint"] |> blank_to_nil() || data["region"] |> blank_to_nil()
+        }
       end)
     else
       []
+    end
+  end
+
+  defp blank_to_nil(value) when is_binary(value),
+    do: if(String.trim(value) == "", do: nil, else: value)
+
+  defp blank_to_nil(_value), do: nil
+
+  # "Tigris · t3.storage.dev": what the picked integration is, under its select.
+  defp integration_line(connections, uuid) do
+    case Enum.find(connections, &(&1.uuid == uuid)) do
+      nil -> nil
+      c -> Enum.join(Enum.reject([c.service, c.where], &is_nil/1), " · ")
     end
   end
 
@@ -462,20 +730,26 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
       else: sets ++ List.wrap(VariantSets.get_variant_set(current))
   end
 
-  defp provider_options do
-    [
-      {"AWS S3", "s3"},
-      {"Backblaze B2", "b2"},
-      {"Cloudflare R2", "r2"},
-      {"Tigris", "tigris"}
-    ]
+  defp own_storage_label(%{mode: :only, buckets: [first | copies]}) do
+    case length(copies) do
+      0 ->
+        gettext("Your bucket: %{name}", name: first.bucket.bucket_name)
+
+      n ->
+        ngettext(
+          "Your bucket: %{name} (+%{count} copy)",
+          "Your bucket: %{name} (+%{count} copies)",
+          n,
+          name: first.bucket.bucket_name
+        )
+    end
   end
 
-  defp own_storage_label(%{mode: :only, bucket: bucket}),
-    do: gettext("Your bucket: %{name}", name: bucket.bucket_name)
-
-  defp own_storage_label(%{mode: :backup, bucket: bucket}),
-    do: gettext("Backed up to: %{name}", name: bucket.bucket_name)
+  defp own_storage_label(%{mode: :backup, buckets: buckets}) do
+    gettext("Backed up to: %{names}",
+      names: Enum.map_join(buckets, ", ", & &1.bucket.bucket_name)
+    )
+  end
 
   defp trash_confirm(library, own_storage) do
     if Map.has_key?(own_storage, to_string(library.uuid)) do
@@ -492,22 +766,41 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
   end
 
   @doc false
+  def role_label("owner"), do: gettext("Owner")
   def role_label("manager"), do: gettext("Manager")
   def role_label("contributor"), do: gettext("Contributor")
   def role_label("viewer"), do: gettext("Viewer")
   def role_label(role) when is_atom(role), do: role |> to_string() |> role_label()
   def role_label(_role), do: ""
 
+  # The library a rename / members / renditions dialog is about, as the lists
+  # hold it now.
+  defp dialog_library(%{dialog: {_kind, uuid}} = assigns) do
+    Enum.find_value(assigns.owned ++ assigns.shared, fn %{library: library} ->
+      library.uuid == uuid && library
+    end)
+  end
+
+  defp dialog_library(_assigns), do: nil
+
+  # Where a row opens its library. `Libraries.browse_path/2` is the path inside
+  # the app; the link components used in a table take it as it is, so the
+  # install's URL prefix is added here (`pk_link` used to).
+  defp open_href(scope, library), do: Routes.path(Libraries.browse_path(scope, library))
+
   @impl true
   def render(assigns) do
-    assigns = assign(assigns, :roles, LibraryMember.roles())
+    assigns =
+      assigns
+      |> assign(:roles, LibraryMember.roles())
+      |> assign(:dialog_library, dialog_library(assigns))
 
     ~H"""
     <div id={@id} class="flex flex-col gap-6">
       <div
         :if={@message}
         class={[
-          "alert",
+          "alert text-sm",
           elem(@message, 0) == :success && "alert-success",
           elem(@message, 0) == :error && "alert-error"
         ]}
@@ -515,65 +808,508 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
         {elem(@message, 1)}
       </div>
 
-      <div class="flex items-center justify-between gap-3">
-        <div>
-          <h2 class="text-lg font-semibold flex items-center gap-2">
-            <.icon name="hero-rectangle-stack" class="w-5 h-5 text-primary" /> {gettext(
-              "My libraries"
-            )}
-          </h2>
-          <p class="text-sm text-base-content/60">
-            {gettext(
-              "Libraries keep your files apart from the site's media. Only you and the members you add can see them."
-            )}
-          </p>
-        </div>
-        <.pk_link navigate={Libraries.browse_index_path(@scope)} class="btn btn-sm btn-outline">
-          {gettext("Open libraries")}
-        </.pk_link>
+      <div :if={@owned != [] or @shared != [] or @media}>
+        <.table_default id={"#{@id}-table"}>
+          <:toolbar_title>
+            <div>
+              <h2 class="text-lg font-semibold flex items-center gap-2">
+                <.icon name="hero-rectangle-stack" class="w-5 h-5 text-primary" />
+                {gettext("My libraries")}
+              </h2>
+              <p class="text-sm text-base-content/60">
+                {gettext("%{count} of %{limit} libraries", count: length(@owned), limit: @limit)}
+              </p>
+            </div>
+          </:toolbar_title>
+          <:toolbar_primary>
+            <button
+              :if={@can_create}
+              id={"#{@id}-open-create"}
+              type="button"
+              phx-click="open_create"
+              phx-target={@myself}
+              disabled={length(@owned) >= @limit}
+              title={
+                if length(@owned) >= @limit,
+                  do:
+                    gettext("You have reached the number of libraries you may own (%{limit}).",
+                      limit: @limit
+                    )
+              }
+              class="btn btn-primary btn-sm"
+            >
+              <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Create library")}
+            </button>
+          </:toolbar_primary>
+
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Stored in")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Visibility")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Actions")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
+
+          <.table_default_body>
+            <.table_default_row
+              :for={%{library: library} <- @owned}
+              id={"library-row-#{library.uuid}"}
+              class="relative transform-gpu cursor-pointer"
+            >
+              <.table_default_cell>
+                <.row_link navigate={open_href(@scope, library)} label={library.name} />
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-rectangle-stack" class="w-4 h-4 text-base-content/60" />
+                  <span class="font-medium">{library.name}</span>
+                  <span :if={library.is_default} class="badge badge-primary badge-sm">
+                    {gettext("Default")}
+                  </span>
+                </div>
+              </.table_default_cell>
+              <.table_default_cell>
+                <span
+                  :if={storage = @own_storage[to_string(library.uuid)]}
+                  class="badge badge-outline badge-sm"
+                  title={gettext("Where this library keeps its files")}
+                >
+                  {own_storage_label(storage)}
+                </span>
+                <span
+                  :if={!@own_storage[to_string(library.uuid)]}
+                  class="text-sm text-base-content/60"
+                >
+                  {gettext("The site's storage")}
+                </span>
+              </.table_default_cell>
+              <.table_default_cell>
+                <.visibility_badge library={library} />
+              </.table_default_cell>
+              <.table_default_cell class="relative z-10">
+                <.table_row_menu id={"library-menu-#{library.uuid}"} label={gettext("Actions")}>
+                  <.table_row_menu_link
+                    navigate={open_href(@scope, library)}
+                    icon="hero-photo"
+                    label={gettext("Open")}
+                  />
+                  <.table_row_menu_button
+                    phx-click="open_dialog"
+                    phx-target={@myself}
+                    phx-value-kind="rename"
+                    phx-value-uuid={library.uuid}
+                    icon="hero-pencil"
+                    label={gettext("Rename")}
+                  />
+                  <.table_row_menu_button
+                    :if={not library.is_default}
+                    phx-click="make_default"
+                    phx-target={@myself}
+                    phx-value-uuid={library.uuid}
+                    icon="hero-star"
+                    label={gettext("Make default")}
+                  />
+                  <.table_row_menu_button
+                    phx-click="open_dialog"
+                    phx-target={@myself}
+                    phx-value-kind="members"
+                    phx-value-uuid={library.uuid}
+                    icon="hero-users"
+                    label={gettext("Members")}
+                  />
+                  <.table_row_menu_button
+                    :if={length(set_options(library, @variant_sets)) > 1}
+                    phx-click="open_dialog"
+                    phx-target={@myself}
+                    phx-value-kind="sizes"
+                    phx-value-uuid={library.uuid}
+                    icon="hero-adjustments-horizontal"
+                    label={gettext("Renditions")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="trash"
+                    phx-target={@myself}
+                    phx-value-uuid={library.uuid}
+                    data-confirm={trash_confirm(library, @own_storage)}
+                    icon="hero-trash"
+                    label={gettext("Trash")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+
+            <.table_default_row
+              :for={%{library: library, role: role} <- @shared}
+              id={"library-row-#{library.uuid}"}
+              class="relative transform-gpu cursor-pointer"
+            >
+              <.table_default_cell>
+                <.row_link navigate={open_href(@scope, library)} label={library.name} />
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-users" class="w-4 h-4 text-base-content/60" />
+                  <span class="font-medium">{library.name}</span>
+                  <span class="badge badge-ghost badge-sm">{role_label(role)}</span>
+                </div>
+              </.table_default_cell>
+              <.table_default_cell>
+                <span class="text-sm text-base-content/60">{gettext("Shared with me")}</span>
+              </.table_default_cell>
+              <.table_default_cell>
+                <.visibility_badge library={library} />
+              </.table_default_cell>
+              <.table_default_cell class="relative z-10">
+                <.table_row_menu id={"library-menu-#{library.uuid}"} label={gettext("Actions")}>
+                  <.table_row_menu_link
+                    navigate={open_href(@scope, library)}
+                    icon="hero-photo"
+                    label={gettext("Open")}
+                  />
+                  <.table_row_menu_button
+                    :if={library.uuid in @managed_uuids}
+                    phx-click="open_dialog"
+                    phx-target={@myself}
+                    phx-value-kind="members"
+                    phx-value-uuid={library.uuid}
+                    icon="hero-users"
+                    label={gettext("Members")}
+                  />
+                  <.table_row_menu_divider />
+                  <.table_row_menu_button
+                    phx-click="leave"
+                    phx-target={@myself}
+                    phx-value-uuid={library.uuid}
+                    data-confirm={gettext("Leave “%{name}”?", name: library.name)}
+                    icon="hero-arrow-right-on-rectangle"
+                    label={gettext("Leave")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+            <.table_default_row
+              :if={@media}
+              id={"library-row-#{@media.library.uuid}"}
+              class="relative transform-gpu"
+            >
+              <.table_default_cell>
+                <.row_link
+                  :if={@media.path}
+                  navigate={@media.path}
+                  label={@media.library.name}
+                />
+                <div class="flex items-center gap-2">
+                  <.icon name="hero-globe-alt" class="w-4 h-4 text-base-content/60" />
+                  <span class="font-medium">{@media.library.name}</span>
+                  <span
+                    class="badge badge-ghost badge-sm"
+                    title={gettext("The site's own library, managed by the site's administrators")}
+                  >
+                    {gettext("System")}
+                  </span>
+                </div>
+              </.table_default_cell>
+              <.table_default_cell>
+                <span class="text-sm text-base-content/60">{gettext("The site's storage")}</span>
+              </.table_default_cell>
+              <.table_default_cell>
+                <.visibility_badge library={@media.library} />
+              </.table_default_cell>
+              <.table_default_cell class="relative z-10">
+                <.table_row_menu
+                  :if={@media.path}
+                  id={"library-menu-#{@media.library.uuid}"}
+                  label={gettext("Actions")}
+                >
+                  <.table_row_menu_link
+                    navigate={@media.path}
+                    icon="hero-photo"
+                    label={gettext("Open")}
+                  />
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+        </.table_default>
+
+        <p
+          :if={@owned == [] and @shared == []}
+          class="mt-3 text-sm text-base-content/60"
+        >
+          {gettext(
+            "You have no libraries of your own yet. Create one to keep your files apart from the site's media."
+          )}
+        </p>
       </div>
 
+      <div :if={@trashed != []} id={"#{@id}-trash"} class="flex flex-col gap-2">
+        <.section_header icon="hero-trash" title={gettext("Trash")} />
+        <p class="text-sm text-base-content/60">
+          {gettext(
+            "A library in the trash is deleted for good, with its files, after the trash period."
+          )}
+        </p>
+        <.table_default id={"#{@id}-trash-table"} size="sm">
+          <.table_default_body>
+            <.table_default_row :for={library <- @trashed} id={"trashed-library-#{library.uuid}"}>
+              <.table_default_cell class="text-base-content/70">{library.name}</.table_default_cell>
+              <.table_default_cell class="text-right">
+                <button
+                  type="button"
+                  phx-click="restore"
+                  phx-value-uuid={library.uuid}
+                  phx-target={@myself}
+                  class="btn btn-ghost btn-xs"
+                >
+                  <.icon name="hero-arrow-uturn-left" class="w-4 h-4" /> {gettext("Restore")}
+                </button>
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+        </.table_default>
+      </div>
+
+      <.create_dialog :if={@dialog == :create} {assigns} />
+
+      <.modal
+        :if={match?({:rename, _}, @dialog) and @dialog_library}
+        show
+        on_close="close_dialog"
+        id={"#{@id}-rename-modal"}
+        max_width="md"
+      >
+        <:title>
+          <.icon name="hero-pencil" class="w-5 h-5 text-primary" /> {gettext("Rename library")}
+        </:title>
+        <form
+          id={"#{@id}-rename-#{@dialog_library.uuid}"}
+          phx-submit="rename"
+          phx-target={@myself}
+        >
+          <input type="hidden" name="uuid" value={@dialog_library.uuid} />
+          <.input
+            type="text"
+            name="name"
+            id={"#{@id}-rename-name"}
+            value={@dialog_library.name}
+            label={gettext("Name")}
+            required
+            maxlength="255"
+            autocomplete="off"
+          />
+        </form>
+        <:actions>
+          <button type="button" class="btn btn-ghost" phx-click="close_dialog" phx-target={@myself}>
+            {gettext("Cancel")}
+          </button>
+          <button
+            type="submit"
+            form={"#{@id}-rename-#{@dialog_library.uuid}"}
+            class="btn btn-primary"
+            phx-disable-with={gettext("Saving…")}
+          >
+            {gettext("Rename")}
+          </button>
+        </:actions>
+      </.modal>
+
+      <.modal
+        :if={match?({:sizes, _}, @dialog) and @dialog_library}
+        show
+        on_close="close_dialog"
+        id={"#{@id}-sizes-modal"}
+        max_width="md"
+      >
+        <:title>
+          <.icon name="hero-adjustments-horizontal" class="w-5 h-5 text-primary" />
+          {gettext("Renditions")}
+        </:title>
+        <form
+          id={"#{@id}-sizes-#{@dialog_library.uuid}"}
+          phx-change="set_variant_set"
+          phx-target={@myself}
+          class="flex flex-col gap-2"
+        >
+          <input type="hidden" name="uuid" value={@dialog_library.uuid} />
+          <.select
+            id={"#{@id}-sizes-set"}
+            name="set"
+            label={@dialog_library.name}
+            value={VariantSets.set_uuid_for(@dialog_library)}
+            options={
+              for set <- set_options(@dialog_library, @variant_sets),
+                  do: {set.name, set.uuid}
+            }
+          />
+          <p class="text-sm text-base-content/60">
+            {gettext(
+              "Which sizes this library's uploads get. Existing files are updated in the background."
+            )}
+          </p>
+        </form>
+        <:actions>
+          <button type="button" class="btn btn-primary" phx-click="close_dialog" phx-target={@myself}>
+            {gettext("Done")}
+          </button>
+        </:actions>
+      </.modal>
+
+      <.modal
+        :if={match?({:members, _}, @dialog) and @dialog_library}
+        show
+        on_close="close_dialog"
+        id={"#{@id}-members-modal"}
+        max_width="lg"
+      >
+        <:title>
+          <.icon name="hero-users" class="w-5 h-5 text-primary" />
+          {gettext("Members of “%{name}”", name: @dialog_library.name)}
+        </:title>
+        <.members_panel
+          id={@id}
+          library={@dialog_library}
+          members={@members}
+          roles={@roles}
+          myself={@myself}
+        />
+        <:actions>
+          <button type="button" class="btn btn-primary" phx-click="close_dialog" phx-target={@myself}>
+            {gettext("Done")}
+          </button>
+        </:actions>
+      </.modal>
+    </div>
+    """
+  end
+
+  attr :library, :map, required: true
+
+  # Who a library's files are open to, from its `visibility`: a `site` library
+  # (Media) is served like the site's media, with ordinary links; a `private` one
+  # only to its owner and members, through links that expire.
+  defp visibility_badge(%{library: %{settings: %{"suspended" => true}}} = assigns) do
+    ~H"""
+    <span
+      class="badge badge-warning badge-soft badge-sm gap-1"
+      title={
+        gettext(
+          "The site's administrators have taken this library offline. Only you and its members can open it."
+        )
+      }
+    >
+      <.icon name="hero-no-symbol" class="w-3 h-3" /> {gettext("Suspended")}
+    </span>
+    """
+  end
+
+  defp visibility_badge(%{library: %{visibility: "private"}} = assigns) do
+    ~H"""
+    <span
+      class="badge badge-ghost badge-sm gap-1"
+      title={gettext("Only you and the members you add can open the files; their links expire.")}
+    >
+      <.icon name="hero-lock-closed" class="w-3 h-3" /> {gettext("Private")}
+    </span>
+    """
+  end
+
+  defp visibility_badge(assigns) do
+    ~H"""
+    <span
+      class="badge badge-info badge-soft badge-sm gap-1"
+      title={gettext("Served like the site's media, with ordinary links.")}
+    >
+      <.icon name="hero-globe-alt" class="w-3 h-3" /> {gettext("Public")}
+    </span>
+    """
+  end
+
+  # The create form, in a dialog: a name, where the files are kept and, for
+  # their own storage, which integration and bucket.
+  defp create_dialog(assigns) do
+    ~H"""
+    <.modal show on_close="close_dialog" id={"#{@id}-create-modal"} max_width="2xl">
+      <:title>
+        <.icon name="hero-plus" class="w-5 h-5 text-primary" /> {gettext("New library")}
+      </:title>
+
       <form
-        :if={@can_create}
         id={"#{@id}-create"}
         phx-change="form_change"
         phx-submit="create"
         phx-target={@myself}
-        class="flex flex-col gap-3"
+        class="flex flex-col gap-5"
       >
-        <div class="flex flex-wrap items-end gap-2">
-          <label class="form-control grow">
-            <span class="label-text text-sm">{gettext("New library")}</span>
+        <.input
+          type="text"
+          name="library[name]"
+          id={"#{@id}-name"}
+          value={@form["name"]}
+          label={gettext("Name")}
+          required
+          maxlength="255"
+          autofocus
+          autocomplete="off"
+          placeholder={gettext("Family photos")}
+        />
+
+        <fieldset :if={@can_public} class="flex flex-col gap-2">
+          <legend class="font-semibold mb-1">{gettext("Who can see it")}</legend>
+          <label class={[
+            "flex items-start gap-3 rounded-lg border p-3 cursor-pointer",
+            (@form["visibility"] != "public" && "border-primary bg-primary/5") || "border-base-300"
+          ]}>
             <input
-              type="text"
-              name="library[name]"
-              value={@form["name"]}
-              required
-              maxlength="255"
-              placeholder={gettext("Name")}
-              class="input input-sm input-bordered w-full"
+              type="radio"
+              name="library[visibility]"
+              value="private"
+              checked={@form["visibility"] != "public"}
+              class="radio radio-sm radio-primary mt-0.5"
             />
+            <span class="text-sm">
+              <.icon name="hero-lock-closed" class="w-4 h-4 inline" /> {gettext("Private")}
+              <span class="block text-xs text-base-content/60">
+                {gettext("Only you and the members you add.")}
+              </span>
+            </span>
           </label>
-          <button
-            type="submit"
-            class="btn btn-sm btn-primary"
-            disabled={@creating}
-            phx-disable-with={gettext("Creating…")}
-          >
-            <span :if={@creating} class="loading loading-spinner loading-xs"></span>
-            {gettext("Create")}
-          </button>
-        </div>
+          <label class={[
+            "flex items-start gap-3 rounded-lg border p-3 cursor-pointer",
+            (@form["visibility"] == "public" && "border-primary bg-primary/5") || "border-base-300"
+          ]}>
+            <input
+              type="radio"
+              name="library[visibility]"
+              value="public"
+              checked={@form["visibility"] == "public"}
+              class="radio radio-sm radio-primary mt-0.5"
+            />
+            <span class="text-sm">
+              <.icon name="hero-globe-alt" class="w-4 h-4 inline" /> {gettext("Public")}
+              <span class="block text-xs text-base-content/60">
+                {gettext("Anyone in the world can browse everything in it, without signing in.")}
+              </span>
+            </span>
+          </label>
+          <p :if={@form["visibility"] == "public"} class="text-xs text-warning">
+            {gettext(
+              "Whatever you add to a public library is public at once. This cannot be changed once the library is created."
+            )}
+          </p>
+        </fieldset>
 
         <fieldset :if={@can_own_storage} class="flex flex-col gap-2">
-          <legend class="label-text text-sm">{gettext("Where its files are kept")}</legend>
-          <label class="flex items-start gap-2 cursor-pointer">
+          <legend class="font-semibold mb-1">{gettext("Where its files are kept")}</legend>
+          <label class={[
+            "flex items-start gap-3 rounded-lg border p-3 cursor-pointer",
+            (@form["kind"] != "own" && "border-primary bg-primary/5") || "border-base-300"
+          ]}>
             <input
               type="radio"
               name="library[storage][kind]"
               value="site"
               checked={@form["kind"] != "own"}
-              class="radio radio-sm mt-0.5"
+              class="radio radio-sm radio-primary mt-0.5"
             />
             <span class="text-sm">
               {gettext("The site's storage")}
@@ -582,157 +1318,140 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
               </span>
             </span>
           </label>
-          <label class="flex items-start gap-2 cursor-pointer">
+          <label class={[
+            "flex items-start gap-3 rounded-lg border p-3 cursor-pointer",
+            (@form["kind"] == "own" && "border-primary bg-primary/5") || "border-base-300"
+          ]}>
             <input
               type="radio"
               name="library[storage][kind]"
               value="own"
               checked={@form["kind"] == "own"}
-              class="radio radio-sm mt-0.5"
+              class="radio radio-sm radio-primary mt-0.5"
             />
             <span class="text-sm">
               {gettext("My own storage")}
               <span class="block text-xs text-base-content/60">
                 {gettext(
-                  "An S3-compatible bucket you own: AWS S3, Backblaze B2, Cloudflare R2 or Tigris."
+                  "A bucket of yours on AWS S3, Cloudflare R2, Backblaze B2, Tigris or another S3-compatible service, through one of your integrations."
                 )}
               </span>
             </span>
           </label>
+        </fieldset>
 
-          <div
-            :if={@form["kind"] == "own"}
-            id={"#{@id}-own-storage"}
-            class="rounded-lg border border-base-300 p-3 flex flex-col gap-3"
-          >
-            <div class="flex flex-col gap-1">
-              <label class="label-text text-sm" for={"#{@id}-connection"}>
-                {gettext("Connection")}
-              </label>
-              <div class="flex flex-wrap items-center gap-2">
-                <select
-                  id={"#{@id}-connection"}
-                  name="library[storage][integration_uuid]"
-                  class="select select-sm select-bordered grow"
-                >
-                  <option value="">{gettext("Select a connection...")}</option>
-                  <option
-                    :for={connection <- @connections}
-                    value={connection.uuid}
-                    selected={@form["integration_uuid"] == connection.uuid}
-                  >
-                    {connection.name}
-                  </option>
-                </select>
-                <a
-                  href={Routes.path("/profile/settings/integrations/new?provider=object_storage")}
-                  target="_blank"
-                  rel="noopener"
-                  class="btn btn-sm btn-ghost"
-                >
-                  {gettext("Add a connection")}
-                </a>
-                <button
-                  type="button"
-                  phx-click="refresh_connections"
-                  phx-target={@myself}
-                  class="btn btn-sm btn-ghost"
-                >
-                  {gettext("Refresh")}
-                </button>
-              </div>
+        <div
+          :if={@can_own_storage and @form["kind"] == "own"}
+          id={"#{@id}-own-storage"}
+          phx-window-focus="refresh_connections"
+          phx-target={@myself}
+          class="flex flex-col gap-4"
+        >
+          <div :if={@connections == []} class="rounded-lg bg-info/10 p-4 flex flex-col gap-2">
+            <p class="text-sm font-medium">{gettext("Connect your storage first")}</p>
+            <p class="text-sm text-base-content/70">
+              {gettext(
+                "Add your S3-compatible storage as an integration. You do it once: the access keys stay in the integration, and every library can use it."
+              )}
+            </p>
+            <div class="flex flex-wrap items-center gap-3">
+              <a
+                href={Routes.path("/profile/settings/integrations/new?provider=object_storage")}
+                target="_blank"
+                rel="noopener"
+                class="btn btn-sm btn-primary"
+              >
+                <.icon name="hero-plus" class="w-4 h-4" /> {gettext("Add an integration")}
+              </a>
               <span class="text-xs text-base-content/60">
-                {gettext("The access keys stay in your connection; the library only uses them.")}
-              </span>
-              <span :if={@connections == []} class="text-xs text-warning">
-                {gettext("You have no Object Storage connection yet.")}
+                {gettext("It opens in a new tab. Come back here and it will be in the list.")}
               </span>
             </div>
+          </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label class="form-control">
-                <span class="label-text text-sm">{gettext("Provider")}</span>
-                <select name="library[storage][provider]" class="select select-sm select-bordered">
-                  <option
-                    :for={{label, value} <- provider_options()}
-                    value={value}
-                    selected={@form["provider"] == value}
-                  >
-                    {label}
-                  </option>
-                </select>
-              </label>
-              <label class="form-control">
-                <span class="label-text text-sm">{gettext("Bucket name")}</span>
-                <input
-                  type="text"
-                  name="library[storage][bucket_name]"
-                  value={@form["bucket_name"]}
-                  placeholder="my-photos"
-                  class="input input-sm input-bordered"
-                />
-              </label>
-              <label class="form-control">
-                <span class="label-text text-sm">{gettext("Region")}</span>
-                <input
-                  type="text"
-                  name="library[storage][region]"
-                  value={@form["region"]}
-                  placeholder="eu-central-1"
-                  class="input input-sm input-bordered"
-                />
-              </label>
-              <label class="form-control">
-                <span class="label-text text-sm">
-                  {gettext("Endpoint")}
-                  <span :if={@form["provider"] in ["b2", "r2", "tigris"]}>*</span>
-                </span>
-                <input
-                  type="text"
-                  name="library[storage][endpoint]"
-                  value={@form["endpoint"]}
-                  placeholder="https://s3.example.com"
-                  class="input input-sm input-bordered"
-                />
-              </label>
+          <div :if={@connections != []} class="flex flex-col gap-3">
+            <.target_row
+              :for={{target, index} <- Enum.with_index(@form["targets"])}
+              id={@id}
+              index={index}
+              count={length(@form["targets"])}
+              target={target}
+              connections={@connections}
+              list={bucket_list(@bucket_lists, index, target["integration_uuid"])}
+              myself={@myself}
+            />
+
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                :if={length(@form["targets"]) < Profiles.max_user_buckets()}
+                type="button"
+                phx-click="add_target"
+                phx-target={@myself}
+                class="btn btn-sm btn-ghost"
+              >
+                <.icon name="hero-plus" class="w-4 h-4" />
+                {gettext("Also keep a copy on another integration")}
+              </button>
+              <a
+                href={Routes.path("/profile/settings/integrations/new?provider=object_storage")}
+                target="_blank"
+                rel="noopener"
+                class="btn btn-sm btn-ghost"
+              >
+                {gettext("Add an integration")}
+              </a>
             </div>
+          </div>
 
-            <fieldset class="flex flex-col gap-2">
-              <legend class="label-text text-sm">{gettext("How it is used")}</legend>
-              <label class="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="library[storage][mode]"
-                  value="only"
-                  checked={@form["mode"] != "backup"}
-                  class="radio radio-sm mt-0.5"
-                />
-                <span class="text-sm">
-                  {gettext("Only here")}
-                  <span class="block text-xs text-base-content/60">
+          <fieldset :if={@connections != []} class="flex flex-col gap-2">
+            <legend class="font-semibold mb-1">{gettext("How it is used")}</legend>
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="library[storage][mode]"
+                value="only"
+                checked={@form["mode"] != "backup"}
+                class="radio radio-sm radio-primary mt-0.5"
+              />
+              <span class="text-sm">
+                {gettext("Only here")}
+                <span class="block text-xs text-base-content/60">
+                  <%= if length(@form["targets"]) > 1 do %>
+                    {gettext(
+                      "Everything lives on the main integration, and the others keep a copy of every file."
+                    )}
+                  <% else %>
                     {gettext("Everything this library stores lives in your bucket.")}
-                  </span>
+                  <% end %>
                 </span>
-              </label>
-              <label class="flex items-start gap-2 cursor-pointer">
-                <input
-                  type="radio"
-                  name="library[storage][mode]"
-                  value="backup"
-                  checked={@form["mode"] == "backup"}
-                  class="radio radio-sm mt-0.5"
-                />
-                <span class="text-sm">
-                  {gettext("The site's storage, backed up here")}
-                  <span class="block text-xs text-base-content/60">
+              </span>
+            </label>
+            <label class="flex items-start gap-3 cursor-pointer">
+              <input
+                type="radio"
+                name="library[storage][mode]"
+                value="backup"
+                checked={@form["mode"] == "backup"}
+                class="radio radio-sm radio-primary mt-0.5"
+              />
+              <span class="text-sm">
+                {gettext("The site's storage, backed up here")}
+                <span class="block text-xs text-base-content/60">
+                  <%= if length(@form["targets"]) > 1 do %>
+                    {gettext(
+                      "Files are kept by the site as usual, and the originals are copied to each of your buckets."
+                    )}
+                  <% else %>
                     {gettext(
                       "Files are kept by the site as usual, and the originals are copied to your bucket."
                     )}
-                  </span>
+                  <% end %>
                 </span>
-              </label>
-            </fieldset>
+              </span>
+            </label>
+          </fieldset>
 
+          <div :if={@connections != []} class="flex flex-col gap-2">
             <div class="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -742,202 +1461,156 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
                 class="btn btn-sm btn-outline"
               >
                 <span :if={@testing} class="loading loading-spinner loading-xs"></span>
-                {if @testing, do: gettext("Testing..."), else: gettext("Test the bucket")}
+                {if @testing, do: gettext("Testing..."), else: gettext("Test")}
               </button>
               <span :if={@test_result == :ok} class="text-sm text-success">
-                {gettext("The bucket can be read, written to and deleted from")}
+                {gettext("Works: a file can be written, read and deleted.")}
               </span>
               <span :if={match?({:error, _}, @test_result)} class="text-sm text-error">
                 {elem(@test_result, 1)}
               </span>
             </div>
-
             <p class="text-xs text-base-content/60">
               {gettext(
-                "This cannot be changed once the library is created. The bucket is tested when you create the library. Deleting the library deletes the files it stored in your bucket."
+                "Where a library keeps its files cannot be changed once it is created. It is tested again when you create it. Deleting the library deletes the files it stored in your buckets."
               )}
             </p>
           </div>
-        </fieldset>
-
-        <span class="text-xs text-base-content/60">
-          {gettext("%{count} of %{limit} libraries", count: length(@owned), limit: @limit)}
-        </span>
+        </div>
       </form>
 
-      <div :if={@owned == [] and @shared == []} class="text-sm text-base-content/60">
-        {gettext("You have no libraries yet.")}
+      <:actions>
+        <button type="button" class="btn btn-ghost" phx-click="close_dialog" phx-target={@myself}>
+          {gettext("Cancel")}
+        </button>
+        <button
+          type="submit"
+          form={"#{@id}-create"}
+          class="btn btn-primary"
+          disabled={@creating or (@form["kind"] == "own" and @connections == [])}
+          phx-disable-with={gettext("Creating…")}
+        >
+          <span :if={@creating} class="loading loading-spinner loading-xs"></span>
+          {gettext("Create library")}
+        </button>
+      </:actions>
+    </.modal>
+    """
+  end
+
+  attr :id, :string, required: true
+  attr :index, :integer, required: true
+  attr :count, :integer, required: true
+  attr :target, :map, required: true
+  attr :connections, :list, required: true
+  attr :list, :any, default: nil
+  attr :myself, :any, required: true
+
+  # One bucket of the new library: an integration of the user's, and a bucket on
+  # it. What the integration already knows is shown under it, not asked again.
+  defp target_row(assigns) do
+    assigns =
+      assigns
+      |> assign(:uuid, assigns.target["integration_uuid"])
+      |> assign(:bucket, assigns.target["bucket_name"])
+      |> assign(:line, integration_line(assigns.connections, assigns.target["integration_uuid"]))
+
+    ~H"""
+    <div
+      id={"#{@id}-target-#{@index}"}
+      class="rounded-lg border border-base-300 p-3 flex flex-col gap-3"
+    >
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-sm font-semibold">{target_title(@index, @count)}</span>
+        <button
+          :if={@count > 1}
+          type="button"
+          phx-click="remove_target"
+          phx-value-index={@index}
+          phx-target={@myself}
+          class="btn btn-ghost btn-xs"
+        >
+          {gettext("Remove")}
+        </button>
       </div>
 
-      <div
-        :for={%{library: library} <- @owned}
-        id={"library-row-#{library.uuid}"}
-        class="rounded-lg border border-base-300 p-3 flex flex-col gap-3"
-      >
-        <div class="flex flex-wrap items-center gap-2">
-          <form
-            id={"#{@id}-rename-#{library.uuid}"}
-            phx-submit="rename"
-            phx-target={@myself}
-            class="flex items-center gap-2 grow"
-          >
-            <input type="hidden" name="uuid" value={library.uuid} />
-            <input
-              type="text"
-              name="name"
-              value={library.name}
-              required
-              maxlength="255"
-              aria-label={gettext("Name")}
-              class="input input-sm input-bordered grow"
-            />
-            <button type="submit" class="btn btn-sm btn-ghost">{gettext("Rename")}</button>
-          </form>
-          <span :if={library.is_default} class="badge badge-primary badge-sm">{gettext("Default")}</span>
-          <span
-            :if={storage = @own_storage[to_string(library.uuid)]}
-            class="badge badge-outline badge-sm"
-            title={gettext("Where this library keeps its files")}
-          >
-            {own_storage_label(storage)}
-          </span>
-          <form
-            :if={length(set_options(library, @variant_sets)) > 1}
-            id={"#{@id}-sizes-#{library.uuid}"}
-            phx-change="set_variant_set"
-            phx-target={@myself}
-          >
-            <input type="hidden" name="uuid" value={library.uuid} />
-            <select
-              name="set"
-              class="select select-sm select-bordered"
-              aria-label={gettext("Renditions")}
-              title={gettext("Which renditions this library's uploads get")}
-            >
-              <option
-                :for={set <- set_options(library, @variant_sets)}
-                value={set.uuid}
-                selected={VariantSets.set_uuid_for(library) == to_string(set.uuid)}
-                disabled={not set.selectable and not set.is_default}
-              >
-                {set.name}
-              </option>
-            </select>
-          </form>
-          <button
-            :if={not library.is_default}
-            type="button"
-            phx-click="make_default"
-            phx-value-uuid={library.uuid}
-            phx-target={@myself}
-            class="btn btn-sm btn-ghost"
-          >
-            {gettext("Make default")}
-          </button>
-          <.pk_link navigate={Libraries.browse_path(@scope, library)} class="btn btn-sm btn-ghost">
-            <.icon name="hero-photo" class="w-4 h-4" /> {gettext("Open")}
-          </.pk_link>
-          <button
-            type="button"
-            phx-click="toggle_members"
-            phx-value-uuid={library.uuid}
-            phx-target={@myself}
-            class="btn btn-sm btn-ghost"
-          >
-            <.icon name="hero-users" class="w-4 h-4" /> {gettext("Members")}
-          </button>
-          <button
-            type="button"
-            phx-click="trash"
-            phx-value-uuid={library.uuid}
-            phx-target={@myself}
-            data-confirm={trash_confirm(library, @own_storage)}
-            class="btn btn-sm btn-ghost text-error"
-          >
-            <.icon name="hero-trash" class="w-4 h-4" /> {gettext("Trash")}
-          </button>
-        </div>
-        <.members_panel
-          :if={@open_members == library.uuid}
-          id={@id}
-          library={library}
-          members={@members}
-          roles={@roles}
-          myself={@myself}
+      <div class="flex flex-col gap-1">
+        <.select
+          id={"#{@id}-integration-#{@index}"}
+          name={"library[storage][targets][#{@index}][integration_uuid]"}
+          label={gettext("Integration")}
+          value={@uuid}
+          prompt={gettext("Select an integration...")}
+          options={for connection <- @connections, do: {connection.name, connection.uuid}}
         />
+        <span :if={@line} class="text-xs text-base-content/60">{@line}</span>
       </div>
 
-      <div :if={@shared != []} class="flex flex-col gap-2">
-        <h3 class="font-semibold">{gettext("Shared with me")}</h3>
-        <div
-          :for={%{library: library, role: role} <- @shared}
-          id={"library-row-#{library.uuid}"}
-          class="rounded-lg border border-base-300 p-3 flex flex-col gap-3"
-        >
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="font-medium grow">{library.name}</span>
-            <span class="badge badge-ghost badge-sm">{role_label(role)}</span>
-            <.pk_link navigate={Libraries.browse_path(@scope, library)} class="btn btn-sm btn-ghost">
-              <.icon name="hero-photo" class="w-4 h-4" /> {gettext("Open")}
-            </.pk_link>
-            <button
-              :if={library.uuid in @managed_uuids}
-              type="button"
-              phx-click="toggle_members"
-              phx-value-uuid={library.uuid}
-              phx-target={@myself}
-              class="btn btn-sm btn-ghost"
-            >
-              <.icon name="hero-users" class="w-4 h-4" /> {gettext("Members")}
-            </button>
-            <button
-              type="button"
-              phx-click="leave"
-              phx-value-uuid={library.uuid}
-              phx-target={@myself}
-              data-confirm={gettext("Leave “%{name}”?", name: library.name)}
-              class="btn btn-sm btn-ghost"
-            >
-              {gettext("Leave")}
-            </button>
+      <div class="flex flex-col gap-1">
+        <div :if={match?({:ok, _}, @list)} class="flex items-end gap-2">
+          <div class="grow">
+            <.select
+              id={"#{@id}-bucket-#{@index}"}
+              name={"library[storage][targets][#{@index}][bucket_name]"}
+              label={gettext("Bucket")}
+              value={@bucket}
+              prompt={gettext("Choose a bucket...")}
+              options={bucket_choices(@list, @bucket)}
+            />
           </div>
-          <.members_panel
-            :if={@open_members == library.uuid and library.uuid in @managed_uuids}
-            id={@id}
-            library={library}
-            members={@members}
-            roles={@roles}
-            myself={@myself}
-          />
-        </div>
-      </div>
-
-      <div :if={@trashed != []} id={"#{@id}-trash"} class="flex flex-col gap-2">
-        <h3 class="font-semibold">{gettext("Trash")}</h3>
-        <p class="text-sm text-base-content/60">
-          {gettext(
-            "A library in the trash is deleted for good, with its files, after the trash period."
-          )}
-        </p>
-        <div
-          :for={library <- @trashed}
-          id={"trashed-library-#{library.uuid}"}
-          class="rounded-lg border border-base-300 p-3 flex flex-wrap items-center gap-2"
-        >
-          <span class="grow truncate text-base-content/70">{library.name}</span>
           <button
             type="button"
-            phx-click="restore"
-            phx-value-uuid={library.uuid}
+            phx-click="type_bucket"
+            phx-value-index={@index}
             phx-target={@myself}
-            class="btn btn-sm btn-ghost"
+            class="btn btn-ghost mb-px"
           >
-            <.icon name="hero-arrow-uturn-left" class="w-4 h-4" /> {gettext("Restore")}
+            {gettext("Type a name")}
           </button>
         </div>
+        <div :if={not match?({:ok, _}, @list)} class="flex items-end gap-2">
+          <div class="grow">
+            <.input
+              type="text"
+              id={"#{@id}-bucket-#{@index}"}
+              name={"library[storage][targets][#{@index}][bucket_name]"}
+              label={gettext("Bucket")}
+              value={@bucket}
+              placeholder="my-photos"
+              autocomplete="off"
+            />
+          </div>
+          <button
+            type="button"
+            phx-click="list_buckets"
+            phx-value-index={@index}
+            phx-target={@myself}
+            disabled={@uuid == "" or @list == :loading}
+            class="btn btn-outline mb-px"
+          >
+            <span :if={@list == :loading} class="loading loading-spinner loading-xs"></span>
+            {gettext("List buckets")}
+          </button>
+        </div>
+        <span :if={match?({:error, _}, @list)} class="text-xs text-warning">
+          {elem(@list, 1)}
+        </span>
+        <span :if={match?({:ok, _}, @list)} class="text-xs text-base-content/60">
+          {ngettext("%{count} bucket found.", "%{count} buckets found.", length(elem(@list, 1)))}
+        </span>
       </div>
     </div>
     """
+  end
+
+  defp target_title(0, 1), do: gettext("Storage")
+  defp target_title(0, _count), do: gettext("Main storage")
+  defp target_title(index, _count), do: gettext("Copy %{n}", n: index)
+
+  # The listed buckets, and the one already typed or chosen when the list does
+  # not hold it (a key that lists fewer buckets than it can use).
+  defp bucket_choices({:ok, names}, current) do
+    if current in [nil, ""] or current in names, do: names, else: names ++ [current]
   end
 
   attr :id, :string, required: true
@@ -948,10 +1621,7 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
 
   defp members_panel(assigns) do
     ~H"""
-    <div
-      id={"#{@id}-members-#{@library.uuid}"}
-      class="flex flex-col gap-2 border-t border-base-300 pt-3"
-    >
+    <div id={"#{@id}-members-#{@library.uuid}"} class="flex flex-col gap-4">
       <div :if={@members == []} class="text-sm text-base-content/60">
         {gettext("No members yet: only the owner can see this library.")}
       </div>
@@ -964,11 +1634,13 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
         >
           <input type="hidden" name="uuid" value={@library.uuid} />
           <input type="hidden" name="user" value={member.user_uuid} />
-          <select name="role" class="select select-sm" aria-label={gettext("Role")}>
-            <option :for={role <- @roles} value={role} selected={role == member.role}>
-              {role_label(role)}
-            </option>
-          </select>
+          <.select
+            id={"#{@id}-role-select-#{@library.uuid}-#{member.user_uuid}"}
+            name="role"
+            value={member.role}
+            options={for role <- @roles, do: {role_label(role), role}}
+            aria-label={gettext("Role")}
+          />
         </form>
         <button
           type="button"
@@ -982,27 +1654,35 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
           <.icon name="hero-x-mark" class="w-4 h-4" />
         </button>
       </div>
+
+      <.section_header icon="hero-user-plus" title={gettext("Add a member")} />
       <form
         id={"#{@id}-add-member-#{@library.uuid}"}
         phx-submit="add_member"
         phx-target={@myself}
-        class="flex flex-wrap items-center gap-2"
+        class="flex flex-wrap items-end gap-2"
       >
         <input type="hidden" name="uuid" value={@library.uuid} />
-        <input
-          type="email"
-          name="member[email]"
-          required
-          placeholder={gettext("Email")}
-          aria-label={gettext("Email")}
-          class="input input-sm input-bordered grow"
-        />
-        <select name="member[role]" class="select select-sm" aria-label={gettext("Role")}>
-          <option :for={role <- @roles} value={role} selected={role == "viewer"}>
-            {role_label(role)}
-          </option>
-        </select>
-        <button type="submit" class="btn btn-sm">{gettext("Add")}</button>
+        <div class="grow">
+          <.input
+            type="email"
+            id={"#{@id}-member-email-#{@library.uuid}"}
+            name="member[email]"
+            value=""
+            label={gettext("Email")}
+            required
+          />
+        </div>
+        <div>
+          <.select
+            id={"#{@id}-member-role-#{@library.uuid}"}
+            name="member[role]"
+            label={gettext("Role")}
+            value="viewer"
+            options={for role <- @roles, do: {role_label(role), role}}
+          />
+        </div>
+        <button type="submit" class="btn btn-primary mb-px">{gettext("Add")}</button>
       </form>
     </div>
     """

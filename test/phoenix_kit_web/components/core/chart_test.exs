@@ -906,6 +906,24 @@ defmodule PhoenixKitWeb.Components.Core.ChartTest do
   end
 
   describe "stacked bars" do
+    test "JSON-decoded stacked data renders the same bars and tooltips" do
+      data = [
+        %{
+          label: "Mon",
+          parts: [
+            %{label: "Ada", value: 3, class: "text-primary"},
+            %{label: "Bot", value: 1, class: "text-secondary"}
+          ]
+        }
+      ]
+
+      assigns = %{data: data}
+      expected = render(~H|<.bar_chart id="json-stack" data={@data} />|)
+      assigns = %{data: data |> JSON.encode!() |> JSON.decode!()}
+
+      assert render(~H|<.bar_chart id="json-stack" data={@data} />|) == expected
+    end
+
     test "a datum with parts is one bar of a rect per part, under one tooltip" do
       assigns = %{
         data: [
