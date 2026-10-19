@@ -414,22 +414,34 @@ defmodule PhoenixKit.API.Approvals do
     |> Enum.take(limit)
   end
 
-  @doc "How many pending approvals `scope` may decide."
+  @doc """
+  How many pending approvals `scope` may decide: what `list_pending/2` would list, counted
+  without reading the rows (the menu draws it on every render). An Owner's is one count;
+  anyone else's is a count per tool of the approvals of their keys, kept for the tools they
+  hold the permission of.
+  """
   @spec pending_count(Scope.t()) :: non_neg_integer()
   def pending_count(%Scope{} = scope) do
-    if Scope.can?(scope, "api") and Scope.owner?(scope) do
-      now = second(DateTime.utc_now())
+    now = second(DateTime.utc_now())
 
-      repo().aggregate(
-        from(c in Confirmation,
-          join: k in Key,
-          on: k.uuid == c.actor_key_uuid,
-          where: c.kind == "approval" and c.status == "pending" and c.expires_at > ^now
-        ),
-        :count
+    pending =
+      from(c in Confirmation,
+        join: k in Key,
+        on: k.uuid == c.actor_key_uuid,
+        where: c.kind == "approval" and c.status == "pending" and c.expires_at > ^now
       )
+
+    if Scope.can?(scope, "api") and Scope.owner?(scope) do
+      repo().aggregate(pending, :count)
     else
-      scope |> list_pending() |> length()
+      pending
+      |> visible_to(scope)
+      |> group_by([c], c.tool)
+      |> select([c], {c.tool, count(c.uuid)})
+      |> repo().all()
+      |> Enum.filter(fn {tool, _count} -> tool_permission?(scope, tool) end)
+      |> Enum.map(fn {_tool, count} -> count end)
+      |> Enum.sum()
     end
   end
 

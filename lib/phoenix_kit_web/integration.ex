@@ -638,6 +638,10 @@ defmodule PhoenixKitWeb.Integration do
       live "/admin/settings/api/approvals", Live.Settings.ApiApprovals, :index
       live "/admin/settings/api/guide", Live.Settings.ApiGuide, :index
 
+      # The approvals queue of API keys: a menu entry of its own (gated by "api"); the old
+      # Settings path above redirects here.
+      live "/admin/approvals", Live.Approvals, :index
+
       # "email-sending", not "emails" — the optional emails module registers its
       # own routable "Emails" settings tab at /admin/settings/emails (via
       # settings_tabs/0 + the module route generator below). A5 will collapse

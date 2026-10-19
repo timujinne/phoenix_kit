@@ -1,0 +1,275 @@
+<PhoenixKitWeb.Components.LayoutWrapper.app_layout
+  socket={@socket}
+  flash={@flash}
+  phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+  page_title={@page_title}
+  page_subtitle={@page_subtitle}
+  current_path={@current_path}
+  project_title={@project_title}
+  current_locale={@current_locale}
+>
+  <div id="approvals-page" class="px-4 py-6 space-y-6" phx-hook="PkHashHighlight">
+    <div id="approvals-pending" class="space-y-4">
+      <div
+        :for={%{approval: approval, key: key, view: preview} = card <- @cards}
+        id={"approval-#{approval.uuid}"}
+        phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["data-highlight"])}
+        class="card bg-base-100 shadow-lg border border-base-200 scroll-mt-24 target:ring-2 target:ring-primary data-[highlight]:ring-2 data-[highlight]:ring-primary"
+      >
+        <div class="card-body space-y-3">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="space-y-1">
+              <h2
+                id={"approval-title-#{approval.uuid}"}
+                class="card-title text-base flex flex-wrap items-center gap-2"
+              >
+                <span title={approval.tool}>{card.title}</span>
+                <span
+                  :if={preview.count}
+                  id={"approval-count-#{approval.uuid}"}
+                  class="badge badge-ghost badge-sm font-normal"
+                >
+                  {gettext("Rows: %{count}", count: preview.count)}
+                </span>
+                <span
+                  :if={card.state == :decided}
+                  id={"approval-status-#{approval.uuid}"}
+                  class={["badge badge-sm", status_class(approval.status)]}
+                >
+                  {status_label(approval.status)}
+                </span>
+              </h2>
+              <div id={"approval-requester-#{approval.uuid}"} class="text-sm text-base-content/70">
+                <%= if card.owner do %>
+                  {gettext("Requested by key %{key} (owner: %{owner})",
+                    key: key.name,
+                    owner: card.owner
+                  )}
+                <% else %>
+                  {gettext("Requested by key %{key}", key: key.name)}
+                <% end %>
+                <span
+                  id={"approval-key-#{approval.uuid}"}
+                  class="font-mono text-xs text-base-content/60"
+                >
+                  pk_{key.prefix}_…
+                </span>
+              </div>
+              <div class="text-xs text-base-content/60">
+                {gettext("Requested")}
+                <.time_ago datetime={approval.inserted_at} id={"approval-asked-#{approval.uuid}"} />
+                <span :if={card.state == :pending} id={"approval-expires-#{approval.uuid}"}>
+                  · {expires_in(approval.expires_at)}
+                </span>
+              </div>
+            </div>
+
+            <div :if={card.state == :pending} class="flex gap-2">
+              <.button
+                id={"reject-#{approval.uuid}"}
+                type="button"
+                variant="outline"
+                size="sm"
+                phx-click="reject"
+                phx-value-uuid={approval.uuid}
+                disabled={@busy != nil}
+              >
+                {gettext("Reject")}
+              </.button>
+              <.button
+                id={"approve-#{approval.uuid}"}
+                type="button"
+                size="sm"
+                phx-click="approve"
+                phx-value-uuid={approval.uuid}
+                data-confirm={
+                  preview.hidden > 0 &&
+                    gettext("Approve the whole operation? Only part of its preview is shown.")
+                }
+                disabled={@busy != nil}
+              >
+                <span :if={@busy == approval.uuid} class="loading loading-spinner loading-xs"></span>
+                {gettext("Approve")}
+              </.button>
+            </div>
+          </div>
+
+          <div
+            :if={card.outcome}
+            id={"approval-outcome-#{approval.uuid}"}
+            role="status"
+            class={["alert text-sm", card.outcome.class]}
+          >
+            <span :if={card.state == :running} class="loading loading-spinner loading-sm"></span>
+            <div>
+              <div class="font-medium">{card.outcome.text}</div>
+              <div :if={card.outcome.detail} class="text-xs opacity-80">
+                {card.outcome.detail}
+              </div>
+              <div :if={card.decider} class="text-xs opacity-80">
+                {gettext("Decided by %{name}", name: card.decider)}
+              </div>
+            </div>
+          </div>
+
+          <div id={"approval-preview-#{approval.uuid}"} class="space-y-2">
+            <div class="text-sm font-medium">{gettext("What would change")}</div>
+
+            <p
+              :if={preview.summary != []}
+              id={"approval-totals-#{approval.uuid}"}
+              class="text-sm"
+            >
+              {gettext("Summary: %{summary}.", summary: sentence(preview.summary))}
+            </p>
+
+            <div
+              :for={warning <- preview.warnings}
+              class="flex items-start gap-2 text-sm text-warning"
+            >
+              <.icon name="hero-exclamation-triangle" class="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{warning}</span>
+            </div>
+
+            <div
+              :if={preview.rows != []}
+              class="max-h-96 overflow-auto rounded border border-base-200"
+            >
+              <table id={"approval-rows-#{approval.uuid}"} class="table table-sm table-pin-rows">
+                <thead>
+                  <tr>
+                    <th>{gettext("Item")}</th>
+                    <th>{gettext("Field")}</th>
+                    <th>{gettext("Was")}</th>
+                    <th>{gettext("Becomes")}</th>
+                    <th class="text-right">{gettext("Change, %")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <%= for {row, n} <- Enum.with_index(preview.rows) do %>
+                    <tr
+                      :for={{change, index} <- Enum.with_index(row.changes)}
+                      class="align-top"
+                    >
+                      <td :if={index == 0} rowspan={length(row.changes)}>
+                        <.preview_item row={row} id={"approval-row-#{approval.uuid}-#{n}"} />
+                      </td>
+                      <td class="font-mono text-xs">{change.field}</td>
+                      <td class="tabular-nums">{show(change.from)}</td>
+                      <td class="tabular-nums">{show(change.to)}</td>
+                      <td class="text-right tabular-nums">
+                        {if change.pct, do: change.pct <> "%", else: "—"}
+                      </td>
+                    </tr>
+                    <tr :if={row.changes == []} class="align-top">
+                      <td colspan="5">
+                        <.preview_item row={row} id={"approval-row-#{approval.uuid}-#{n}"} />
+                      </td>
+                    </tr>
+                  <% end %>
+                </tbody>
+              </table>
+            </div>
+
+            <div
+              :if={preview.hidden > 0}
+              id={"approval-truncated-#{approval.uuid}"}
+              role="alert"
+              class="alert alert-warning text-sm"
+            >
+              <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
+              <span>
+                {gettext(
+                  "The preview is cut: %{count} rows are not shown. Approving runs the whole operation, not only the rows shown.",
+                  count: preview.hidden
+                )}
+              </span>
+            </div>
+
+            <details
+              :if={preview.technical}
+              id={"approval-technical-#{approval.uuid}"}
+              phx-mounted={Phoenix.LiveView.JS.ignore_attributes(["open"])}
+              class="rounded bg-base-200 p-3"
+            >
+              <summary class="cursor-pointer text-sm font-medium">
+                {gettext("Technical details (JSON)")}
+              </summary>
+              <div class="mt-2 font-mono text-xs text-base-content/70">{approval.tool}</div>
+              <pre class="mt-1 max-h-72 overflow-auto whitespace-pre-wrap text-xs">{json_text(preview.technical)}</pre>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <div :if={@cards == []} id="approvals-empty">
+        <.empty_state
+          variant="compact"
+          icon="hero-shield-check"
+          title={gettext("Nothing is waiting for approval.")}
+          description={gettext("Operations that need your approval will show up here.")}
+        />
+      </div>
+    </div>
+
+    <div
+      :if={@recent != []}
+      id="approvals-recent"
+      class="card bg-base-100 shadow-lg border border-base-200"
+    >
+      <div class="card-body space-y-3">
+        <h2 class="card-title text-lg">
+          <.icon name="hero-clock" class="w-5 h-5" /> {gettext("Recently decided")}
+        </h2>
+
+        <.table_default>
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell>{gettext("Operation")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Key")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Result")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Decided")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
+
+          <.table_default_body>
+            <.table_default_row
+              :for={
+                %{
+                  approval: approval,
+                  key: key,
+                  title: title,
+                  decider: decider,
+                  view: preview,
+                  outcome: %{text: outcome_text, detail: outcome_detail}
+                } <- @recent
+              }
+              id={"recent-#{approval.uuid}"}
+            >
+              <.table_default_cell class="text-sm">
+                <span title={approval.tool}>{title}</span>
+                <span :if={preview.count} class="text-xs text-base-content/60">
+                  · {gettext("Rows: %{count}", count: preview.count)}
+                </span>
+              </.table_default_cell>
+              <.table_default_cell class="text-sm">{key.name}</.table_default_cell>
+              <.table_default_cell class="text-sm">
+                <span class={["badge badge-sm", status_class(approval.status)]}>
+                  {status_label(approval.status)}
+                </span>
+                <div id={"recent-outcome-#{approval.uuid}"}>{outcome_text}</div>
+                <div :if={outcome_detail} class="text-xs text-base-content/60">
+                  {outcome_detail}
+                </div>
+              </.table_default_cell>
+              <.table_default_cell>
+                <.time_ago datetime={approval.updated_at} id={"recent-when-#{approval.uuid}"} />
+                <div :if={decider} class="text-xs text-base-content/60">{decider}</div>
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+        </.table_default>
+      </div>
+    </div>
+  </div>
+</PhoenixKitWeb.Components.LayoutWrapper.app_layout>

@@ -90,7 +90,7 @@ defmodule PhoenixKit.API.Approvals.Notifier do
       Notifications.upsert_inapp(user.uuid, "api:approvals:" <> key_uuid, %{
         text: text(key, waiting),
         icon: "hero-shield-check",
-        link: Routes.path("/admin/settings/api/approvals")
+        link: Routes.path("/admin/approvals") <> "#approval-" <> approval.uuid
       })
     end
 

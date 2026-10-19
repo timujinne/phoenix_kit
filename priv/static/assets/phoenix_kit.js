@@ -3137,6 +3137,48 @@ if (typeof window.Chart === "undefined") {
   };
 
   // ---------------------------------------------------------------------------
+  // PkHashHighlight — lights the element the URL fragment names.
+  //
+  // The CSS `:target` variant only follows a fragment the browser itself
+  // navigated to: a page reached through `push_navigate` (a bell notice, for
+  // one) is entered by `history.pushState`, which leaves `:target` unset. The
+  // hook sets `data-highlight` on the element inside its root whose id the
+  // fragment names, on mount, after every patch and on `hashchange`; the
+  // markup styles it (`data-[highlight]:ring-2`) next to `target:ring-2` for
+  // pages loaded directly.
+  //
+  //   <div id="page" phx-hook="PkHashHighlight"> <div id="item-1" …> </div>
+  // ---------------------------------------------------------------------------
+  function hashTargetId(hash) {
+    if (typeof hash !== "string" || hash.length < 2 || hash.charAt(0) !== "#") return null;
+    try { return decodeURIComponent(hash.slice(1)); } catch (_e) { return null; }
+  }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.hashTargetId = hashTargetId;
+  }
+
+  window.PhoenixKitHooks.PkHashHighlight = {
+    mounted() {
+      const self = this;
+      self._onHashChange = function() { self._mark(); };
+      window.addEventListener("hashchange", self._onHashChange);
+      self._mark();
+    },
+    updated() { this._mark(); },
+    destroyed() { window.removeEventListener("hashchange", this._onHashChange); },
+    _mark() {
+      const id = hashTargetId(window.location.hash);
+      this.el.querySelectorAll("[data-highlight]").forEach(function(el) {
+        if (el.id !== id) el.removeAttribute("data-highlight");
+      });
+      if (id === null) return;
+      const target = document.getElementById(id);
+      if (target && this.el.contains(target)) target.setAttribute("data-highlight", "");
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // PkDateInput — the hook behind `<.date_input>` (core/date_input.ex): a
   // visible text input in the site's date format plus a real
   // `<input type="date" data-date-value>` that carries the caller's name and
