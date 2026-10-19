@@ -203,6 +203,34 @@ defmodule PhoenixKit.API.ExecutorTest do
       assert 200 == call(token, "testkit.write_item", %{}).status
     end
 
+    test "a module whose API is switched off answers 404 not_found, like a hidden tool; back on it works",
+         %{token: token} do
+      put_setting("api_disabled_modules", "api_test_tools")
+
+      for name <- ["testkit.read_items", "testkit.write_item"] do
+        conn = call(token, name, %{})
+        assert conn.status == 404, name
+        assert json(conn)["code"] == "not_found", name
+      end
+
+      refute_received {:read_items, _, _}
+
+      # Core's own tools belong to no module, so no module switch reaches them.
+      assert 200 == call(token, "system.get_identity", %{}).status
+
+      put_setting("api_disabled_modules", "")
+      assert 200 == call(token, "testkit.read_items", %{}).status
+    end
+
+    test "a module that is both disabled and API-off answers not_found, not module_disabled",
+         %{token: token} do
+      ApiTools.set_enabled(false)
+      assert json(call(token, "testkit.read_items", %{}))["code"] == "module_disabled"
+
+      put_setting("api_disabled_modules", "api_test_tools")
+      assert json(call(token, "testkit.read_items", %{}))["code"] == "not_found"
+    end
+
     test "a key without the scope is 403 forbidden and the handler does not run", %{owner: owner} do
       {_key, token} = issue_key(owner, [@read])
 

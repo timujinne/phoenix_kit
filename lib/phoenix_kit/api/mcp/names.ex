@@ -33,8 +33,9 @@ defmodule PhoenixKit.API.MCP.Names do
   is switched off (so that `PhoenixKit.API.Executor` can say `module_disabled`
   instead of `not_found`). That is decided by `PhoenixKit.API.Registry.find/2`,
   which looks at the audience, so the answer for a tool of the other audience,
-  a tool hidden by `api_disabled_tools` and a name nobody has is the same: the
-  name comes back unchanged. An anonymous caller of the public endpoint can
+  a tool hidden by `api_disabled_tools`, a tool of a module switched off in
+  `api_disabled_modules` and a name nobody has is the same: the name comes
+  back unchanged. An anonymous caller of the public endpoint can
   therefore not learn the dotted name of an admin tool, or that it exists.
 
   Whether the tool is visible to the caller, permitted or enabled is the
@@ -62,8 +63,9 @@ defmodule PhoenixKit.API.MCP.Names do
     (live ++ registered) |> Enum.uniq() |> Enum.filter(&(to_mcp(&1) == mcp_name))
   end
 
-  # `Registry.find/2` looks at the audience: a tool of the other audience, one
-  # hidden by `api_disabled_tools` and an unknown name are all `:not_found`.
+  # `Registry.find/2` looks at the audience: a tool of the other audience, a hidden
+  # one (`api_disabled_tools` or `api_disabled_modules`) and an unknown name are all
+  # `:not_found`.
   defp known?(dotted, audience) do
     case Registry.find(dotted, audience) do
       {:ok, _tool} -> true

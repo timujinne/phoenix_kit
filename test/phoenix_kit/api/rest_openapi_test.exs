@@ -176,6 +176,19 @@ defmodule PhoenixKit.API.RESTOpenAPITest do
       refute Enum.any?(listed, &String.starts_with?(&1, "/testkit."))
     end
 
+    test "a module whose API is switched off is absent, and back on it returns", %{
+      token: token
+    } do
+      put_setting("api_disabled_modules", "api_test_tools")
+      listed = paths(fetch(token))
+
+      assert "/system.get_identity" in listed
+      refute Enum.any?(listed, &String.starts_with?(&1, "/testkit."))
+
+      put_setting("api_disabled_modules", "")
+      assert "/testkit.read_items" in paths(fetch(token))
+    end
+
     test "every $ref resolves and every schema passes the lint", %{token: token} do
       document = fetch(token) |> json()
 

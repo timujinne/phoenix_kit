@@ -2085,6 +2085,80 @@ defmodule PhoenixKit.Settings do
   end
 
   @doc """
+  Changes a setting from the value it has now, for a value that is a list kept in one
+  string, where the new value depends on the old one.
+
+  `fun` gets the value as stored (`nil` when the key does not exist), read from the
+  database under a row lock held until the write is committed, never from the cache. It
+  returns the new value, or `:unchanged` to write nothing. Two writers (two admins, or two
+  nodes with different cache contents) are taken in turn, so neither one's change is lost.
+  When the key does not exist yet, two writers racing to create it can both read `nil`; the
+  second insert is refused (`{:error, changeset}`) rather than overwriting the first.
+
+  Returns `{:ok, setting}`, `{:ok, :unchanged}` or `{:error, changeset}` (a history entry
+  that cannot be written comes back as an error on the setting's changeset, and nothing is
+  written). `fun` returning anything but a binary or `:unchanged` raises `ArgumentError`
+  and rolls the transaction back. The history entry, the cache and the change broadcast are
+  as for `update_setting_with_module/4`, and are announced only after the commit.
+
+  ## Examples
+
+      iex> PhoenixKit.Settings.modify_setting_with_module("api_disabled_modules", "api",
+      ...>   fn stored -> (stored || "") <> "\\nshop" end)
+      {:ok, %Setting{key: "api_disabled_modules", module: "api"}}
+  """
+  def modify_setting_with_module(key, module, fun, opts \\ [])
+      when is_binary(key) and is_binary(module) and is_function(fun, 1) and is_list(opts) do
+    :ok = History.check_options!(opts)
+
+    multi =
+      Ecto.Multi.run(Ecto.Multi.new(), :modify, fn repo, _changes ->
+        modify_locked(repo, History.lock_current(key), key, module, fun, opts)
+      end)
+
+    case Queries.transaction(multi) do
+      {:ok, %{modify: {:unchanged, _recorded}}} ->
+        {:ok, :unchanged}
+
+      {:ok, %{modify: {setting, recorded}}} ->
+        Queries.announce_committed([{setting, recorded}])
+        {:ok, setting}
+
+      {:error, :modify, changeset, _changes} ->
+        {:error, changeset}
+    end
+  end
+
+  defp modify_locked(repo, before, key, module, fun, opts) do
+    case fun.(before && before.value) do
+      :unchanged ->
+        {:ok, {:unchanged, :unchanged}}
+
+      value when is_binary(value) ->
+        changeset = modified_changeset(before, key, module, value)
+
+        with {:ok, setting} <- write_modified(repo, before, changeset),
+             {:ok, recorded} <- Queries.record_or_error(before, setting, changeset, opts) do
+          {:ok, {setting, recorded}}
+        end
+
+      other ->
+        raise ArgumentError,
+              "the function given to modify_setting_with_module/4 must return a binary " <>
+                "or :unchanged, got: #{inspect(other)}"
+    end
+  end
+
+  defp modified_changeset(%Setting{} = before, _key, module, value),
+    do: Setting.update_changeset(before, %{value: value, module: module})
+
+  defp modified_changeset(nil, key, module, value),
+    do: Setting.changeset(%Setting{}, %{key: key, value: value, module: module})
+
+  defp write_modified(repo, %Setting{}, changeset), do: repo.update(changeset, log: false)
+  defp write_modified(repo, nil, changeset), do: repo.insert(changeset, log: false)
+
+  @doc """
   Updates or creates a boolean setting with module association.
 
   Combines boolean handling with module organization.

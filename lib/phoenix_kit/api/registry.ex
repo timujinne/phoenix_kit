@@ -3,10 +3,11 @@ defmodule PhoenixKit.API.Registry do
   The tools the API can serve right now.
 
   A tool is callable when its module is enabled, it is not hidden by the
-  `api_disabled_tools` setting, and it passed `PhoenixKit.API.Tool.validate/1`. The list is
-  the enabled modules' `c:PhoenixKit.Module.api_tools/0` (through
-  `PhoenixKit.ModuleRegistry.all_api_tools/0`) plus core's own
-  `PhoenixKit.API.CoreTools.tools/0`.
+  `api_disabled_tools` setting, its module's API is not switched off in
+  `api_disabled_modules` (a module key; every module is on until listed), and it passed
+  `PhoenixKit.API.Tool.validate/1`. The list is the enabled modules'
+  `c:PhoenixKit.Module.api_tools/0` (through `PhoenixKit.ModuleRegistry.all_api_tools/0`)
+  plus core's own `PhoenixKit.API.CoreTools.tools/0`.
 
   Nothing here is cached: modules can be enabled and disabled at runtime, and a settings
   change must take effect on the next request. A caller that serves a request should ask
@@ -28,15 +29,17 @@ defmodule PhoenixKit.API.Registry do
 
   @doc """
   Every callable tool: the enabled modules' tools (tagged with `:module`) followed by
-  core's, minus the names in `api_disabled_tools` (newline separated). A module cannot
-  declare a `system.*` tool (`PhoenixKit.ModuleRegistry.all_api_tools/0` drops it), so it
-  cannot shadow one of core's. When the list cannot be read at all, nothing is callable.
+  core's, minus the names in `api_disabled_tools` (newline separated) and minus every tool
+  of a module listed in `api_disabled_modules`. A module cannot declare a `system.*` tool
+  (`PhoenixKit.ModuleRegistry.all_api_tools/1` drops it), so it cannot shadow one of core's,
+  and core's tools belong to no module, so no module switch reaches them. When either list
+  cannot be read at all, nothing is callable.
   """
   @spec all_tools() :: [Tool.t()]
   def all_tools do
-    case Config.fetch_disabled_tools() do
+    case hidden() do
       :unreadable -> []
-      {:ok, names} -> callable_tools(MapSet.new(names))
+      {:ok, names, modules} -> callable_tools(names, modules)
     end
   end
 
@@ -45,15 +48,16 @@ defmodule PhoenixKit.API.Registry do
 
   Answers `{:error, :module_disabled}` when a registered module that is switched off
   declares a tool of that name, and `{:error, :not_found}` for every other miss: an unknown
-  name, a tool of the other audience, a tool hidden by `api_disabled_tools` (even when its
-  module is also off), and every name when the hidden list cannot be read.
+  name, a tool of the other audience, a tool hidden by `api_disabled_tools` or by a module
+  switched off in `api_disabled_modules` (even when its module is also disabled), and every
+  name when a hidden list cannot be read.
   """
   @spec find(String.t(), Tool.audience()) ::
           {:ok, Tool.t()} | {:error, :not_found | :module_disabled}
   def find(name, audience) when is_binary(name) do
-    case Config.fetch_disabled_tools() do
+    case hidden() do
       :unreadable -> {:error, :not_found}
-      {:ok, names} -> find_callable(name, audience, MapSet.new(names))
+      {:ok, names, modules} -> find_callable(name, audience, names, modules)
     end
   end
 
@@ -80,22 +84,33 @@ defmodule PhoenixKit.API.Registry do
     end
   end
 
-  defp callable_tools(hidden) do
-    (ModuleRegistry.all_api_tools() ++ CoreTools.tools())
-    |> Enum.reject(&MapSet.member?(hidden, &1.name))
-  end
-
-  defp find_callable(name, audience, hidden) do
-    case Enum.find(callable_tools(hidden), &(&1.name == name and &1.audience == audience)) do
-      %Tool{} = tool -> {:ok, tool}
-      nil -> {:error, miss_reason(name, audience, hidden)}
+  # Both lists are read through the settings cache; either one unreadable fails closed.
+  defp hidden do
+    with {:ok, names} <- Config.fetch_disabled_tools(),
+         {:ok, modules} <- Config.fetch_disabled_modules() do
+      {:ok, MapSet.new(names), modules}
     end
   end
 
-  defp miss_reason(name, audience, hidden) do
+  defp callable_tools(hidden, hidden_modules) do
+    (ModuleRegistry.all_api_tools(hidden_modules) ++ CoreTools.tools())
+    |> Enum.reject(&MapSet.member?(hidden, &1.name))
+  end
+
+  defp find_callable(name, audience, hidden, hidden_modules) do
+    case Enum.find(
+           callable_tools(hidden, hidden_modules),
+           &(&1.name == name and &1.audience == audience)
+         ) do
+      %Tool{} = tool -> {:ok, tool}
+      nil -> {:error, miss_reason(name, audience, hidden, hidden_modules)}
+    end
+  end
+
+  defp miss_reason(name, audience, hidden, hidden_modules) do
     cond do
       MapSet.member?(hidden, name) -> :not_found
-      ModuleRegistry.disabled_api_tool?(name, audience) -> :module_disabled
+      ModuleRegistry.disabled_api_tool?(name, audience, hidden_modules) -> :module_disabled
       true -> :not_found
     end
   end

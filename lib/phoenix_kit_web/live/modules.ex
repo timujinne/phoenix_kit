@@ -10,12 +10,14 @@ defmodule PhoenixKitWeb.Live.Modules do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   alias PhoenixKit.Admin.Events
+  alias PhoenixKit.API.Config, as: APIConfig
   alias PhoenixKit.Dashboard.Tab
   alias PhoenixKit.ModuleDiscovery
   alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.Date, as: UtilsDate
+  alias PhoenixKit.Utils.Routes
 
   # ============================================================================
   # Mount
@@ -61,10 +63,74 @@ defmodule PhoenixKitWeb.Live.Modules do
       |> assign(:catalog_status, catalog_status)
       |> assign(:hex_browse_url, PhoenixKit.KnownPackages.browse_url())
       |> assign(:modules_tab, if(params["tab"] in @tabs, do: params["tab"], else: "active"))
+      |> assign_api_modules()
       |> refresh_tab_counts()
 
     {:ok, socket}
   end
+
+  # Module key -> the state of its API, for the modules that declare API tools:
+  # `:off` its switch in Settings -> API is off, `:idle` the switch is on but nothing can
+  # call it now (the module is disabled, or every audience it serves is switched off), `:on`
+  # it can be called. The state depends on whether the module is enabled, so it is
+  # recomputed wherever the page changes that, not only at mount.
+  defp assign_api_modules(socket) do
+    sides = %{admin: APIConfig.admin_enabled?(), public: APIConfig.public_enabled?()}
+    disabled = APIConfig.disabled_modules()
+
+    api_modules =
+      Map.new(ModuleRegistry.api_modules(), &{&1.key, api_state(&1, disabled, sides)})
+
+    assign(socket, :api_modules, api_modules)
+  end
+
+  defp api_state(mod, disabled, sides) do
+    cond do
+      mod.key in disabled -> :off
+      not mod.enabled? or not Enum.any?(mod.audiences, &Map.fetch!(sides, &1)) -> :idle
+      true -> :on
+    end
+  end
+
+  attr :id, :string, required: true
+  attr :state, :atom, values: [:on, :off, :idle], required: true
+  attr :link?, :boolean, required: true
+
+  defp api_badge(assigns) do
+    assigns =
+      assigns
+      |> assign(:class, [
+        "badge",
+        case assigns.state do
+          :on -> "badge-success"
+          :off -> "badge-warning"
+          :idle -> "badge-ghost"
+        end
+      ])
+      |> assign(:text, api_badge_text(assigns.state))
+      |> assign(:title, api_badge_title(assigns.state))
+      |> assign(:href, Routes.path("/admin/settings/api") <> "#api-modules-card")
+
+    ~H"""
+    <.link :if={@link?} id={@id} navigate={@href} class={@class} title={@title}>{@text}</.link>
+    <span :if={not @link?} id={@id} class={@class} title={@title}>{@text}</span>
+    """
+  end
+
+  defp api_badge_text(:on), do: gettext("API on")
+  defp api_badge_text(:off), do: gettext("API off")
+  defp api_badge_text(:idle), do: gettext("API idle")
+
+  defp api_badge_title(:on), do: gettext("The module's tools can be called through the API.")
+
+  defp api_badge_title(:off),
+    do: gettext("The module's API is switched off in Settings -> API.")
+
+  defp api_badge_title(:idle),
+    do:
+      gettext(
+        "The module's API is on, but nothing can call it now: the module is disabled or the API it serves is switched off."
+      )
 
   # ============================================================================
   # Tab Switching
@@ -348,6 +414,7 @@ defmodule PhoenixKitWeb.Live.Modules do
             socket
             |> assign(:module_configs, configs)
             |> assign(:external_modules, load_external_modules(configs))
+            |> assign_api_modules()
             |> refresh_tab_counts()
             |> put_flash(
               :info,
@@ -401,6 +468,7 @@ defmodule PhoenixKitWeb.Live.Modules do
              socket
              |> assign(:module_configs, configs)
              |> assign(:external_modules, load_external_modules(configs))
+             |> assign_api_modules()
              |> refresh_tab_counts()
              |> put_flash(:info, label)}
 
@@ -463,6 +531,7 @@ defmodule PhoenixKitWeb.Live.Modules do
       socket
       |> assign(:module_configs, configs)
       |> assign(:external_modules, load_external_modules(configs))
+      |> assign_api_modules()
     else
       socket
     end

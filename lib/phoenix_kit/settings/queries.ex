@@ -293,7 +293,9 @@ defmodule PhoenixKit.Settings.Queries do
   defp committed_value(%Setting{value_json: json}) when not is_nil(json), do: json
   defp committed_value(%Setting{value: value}), do: value
 
-  defp record_or_error(before, setting, changeset, opts) do
+  @doc false
+  # The history entry of a write, or the write's own changeset with the reason added.
+  def record_or_error(before, setting, changeset, opts) do
     case History.record(before, setting, opts) do
       {:ok, _} = ok ->
         ok

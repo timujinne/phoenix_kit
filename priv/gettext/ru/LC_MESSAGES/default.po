@@ -20707,3 +20707,80 @@ msgstr "Выберите дату не раньше %{min}"
 #, elixir-autogen, elixir-format
 msgid "Pick a date on or before %{max}"
 msgstr "Выберите дату не позже %{max}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:800
+#, elixir-autogen, elixir-format
+msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
+msgstr "Эти области доступа неактивны, потому что владелец больше не может их использовать или API их модуля выключен. При сохранении они остаются у ключа."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#, elixir-autogen, elixir-format
+msgid "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
+msgstr "Каждый модуль ниже предоставляет инструменты для API. Если выключить модуль, все его инструменты отвечают так, будто их нет, для любого ключа. Модули включены, пока вы их не выключите."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:87
+#, elixir-autogen, elixir-format
+msgid "No installed module offers tools to the API."
+msgstr "Ни один установленный модуль не предоставляет инструменты для API."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:98
+#, elixir-autogen, elixir-format
+msgid "Tools: %{count}"
+msgstr "Инструментов: %{count}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:100
+#, elixir-autogen, elixir-format
+msgid "Module disabled"
+msgstr "Модуль отключён"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:424
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is on."
+msgstr "API модуля %{module} включён."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:427
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is off."
+msgstr "API модуля %{module} выключен."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:113
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} off"
+msgstr "Выключить API модуля %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:114
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} on"
+msgstr "Включить API модуля %{module}"
+
+#: lib/phoenix_kit_web/live/modules.ex:120
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API on"
+msgstr "API включён"
+
+#: lib/phoenix_kit_web/live/modules.ex:121
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API off"
+msgstr "API выключен"
+
+#: lib/phoenix_kit_web/live/modules.ex:122
+#, elixir-autogen, elixir-format
+msgid "API idle"
+msgstr "API неактивен"
+
+#: lib/phoenix_kit_web/live/modules.ex:124
+#, elixir-autogen, elixir-format
+msgid "The module's tools can be called through the API."
+msgstr "Инструменты модуля можно вызывать через API."
+
+#: lib/phoenix_kit_web/live/modules.ex:127
+#, elixir-autogen, elixir-format
+msgid "The module's API is switched off in Settings -> API."
+msgstr "API модуля выключен в разделе Настройки -> API."
+
+#: lib/phoenix_kit_web/live/modules.ex:131
+#, elixir-autogen, elixir-format
+msgid "The module's API is on, but nothing can call it now: the module is disabled or the API it serves is switched off."
+msgstr "API модуля включён, но сейчас его никто не может вызвать: модуль отключён или API, который он обслуживает, выключен."
