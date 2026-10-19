@@ -31,6 +31,7 @@ defmodule PhoenixKit.ModuleRegistry do
       ModuleRegistry.all_email_settings_sections() # Collect Emails Transactional page sections
       ModuleRegistry.all_email_templates()   # Collect emails for the admin email preview
       ModuleRegistry.all_api_tools()         # Collect API tools of enabled modules
+      ModuleRegistry.all_header_widgets()    # Collect admin header widgets of enabled modules
       ModuleRegistry.all_user_dashboard_tabs() # Collect user dashboard tabs
       ModuleRegistry.all_children()          # Collect supervisor child specs
       ModuleRegistry.all_permission_metadata() # Collect permission metadata
@@ -44,6 +45,7 @@ defmodule PhoenixKit.ModuleRegistry do
 
   alias PhoenixKit.API.Tool
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKit.HeaderWidget
   alias PhoenixKit.Integrations.Providers
 
   require Logger
@@ -963,6 +965,123 @@ defmodule PhoenixKit.ModuleRegistry do
       end
     end)
     |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc """
+  Collect the admin header widgets (`c:PhoenixKit.Module.header_widgets/0`) of the
+  **enabled** modules, as `PhoenixKit.HeaderWidget` structs tagged with `:module`.
+
+  Only a module that defines `header_widgets/0` is asked (and only then is its `enabled?/0`
+  called), so an install without such modules pays nothing for this on the layout's render
+  path. An entry that is not a valid widget is dropped with one warning per module, a widget
+  whose id was already taken by an earlier one is dropped with one warning, and a module
+  whose `header_widgets/0` raises contributes nothing and is reported once.
+  """
+  @spec all_header_widgets() :: [HeaderWidget.t()]
+  def all_header_widgets do
+    all_modules()
+    |> Enum.filter(&(header_widgets_exported?(&1) and header_widgets_enabled?(&1)))
+    |> Enum.flat_map(&module_header_widgets/1)
+    |> drop_duplicate_header_widgets()
+  end
+
+  @doc """
+  The header widgets to render for one layout render: `all_header_widgets/0`, each with
+  `:session` computed by its session function from `assigns` (the layout's assigns).
+
+  A widget whose session function returns `nil` is dropped without a word (no widget for
+  this user); one whose session function raises, or returns something that is not a map with
+  string keys, is dropped with one warning.
+  """
+  @spec header_widgets_for(map()) :: [HeaderWidget.t()]
+  def header_widgets_for(assigns) when is_map(assigns) do
+    Enum.flat_map(all_header_widgets(), fn widget ->
+      case HeaderWidget.resolve_session(widget, assigns) do
+        {:ok, resolved} ->
+          [resolved]
+
+        :skip ->
+          []
+
+        {:error, reason} ->
+          warn_once(
+            {:header_widget_session, widget.module, widget.id},
+            "[ModuleRegistry] #{inspect(widget.module)} header widget #{inspect(widget.id)} " <>
+              "skipped: #{reason}"
+          )
+
+          []
+      end
+    end)
+  end
+
+  defp header_widgets_exported?(mod) do
+    Code.ensure_loaded?(mod) and function_exported?(mod, :header_widgets, 0)
+  end
+
+  defp header_widgets_enabled?(mod) do
+    function_exported?(mod, :enabled?, 0) and safe_enabled?(mod)
+  end
+
+  defp module_header_widgets(mod) do
+    mod
+    |> call_header_widgets()
+    |> List.wrap()
+    |> Enum.flat_map(fn entry ->
+      case HeaderWidget.new(entry) do
+        {:ok, widget} ->
+          [%{widget | module: mod}]
+
+        {:error, reason} ->
+          warn_once(
+            {:bad_header_widget, mod},
+            "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 returned an invalid " <>
+              "widget, ignored: #{reason}"
+          )
+
+          []
+      end
+    end)
+  end
+
+  # Like `call_api_tools/1`: this runs on every render of the admin layout, so a failing
+  # callback is reported once per module.
+  defp call_header_widgets(mod) do
+    mod.header_widgets()
+  rescue
+    error ->
+      warn_header_widgets_failed(mod, Exception.message(error))
+  catch
+    kind, reason ->
+      warn_header_widgets_failed(mod, inspect({kind, reason}))
+  end
+
+  defp warn_header_widgets_failed(mod, detail) do
+    warn_once(
+      {:header_widgets_failed, mod},
+      "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 failed: #{detail}"
+    )
+
+    []
+  end
+
+  defp drop_duplicate_header_widgets(widgets) do
+    {kept, _seen} =
+      Enum.reduce(widgets, {[], MapSet.new()}, fn widget, {kept, seen} ->
+        if MapSet.member?(seen, widget.id) do
+          warn_once(
+            {:duplicate_header_widget, widget.id},
+            "[ModuleRegistry] #{inspect(widget.module)} declares the header widget " <>
+              "#{inspect(widget.id)} that another module already declared, ignored"
+          )
+
+          {kept, seen}
+        else
+          {[widget | kept], MapSet.put(seen, widget.id)}
+        end
+      end)
+
+    Enum.reverse(kept)
   end
 
   defp api_module_name(mod) do

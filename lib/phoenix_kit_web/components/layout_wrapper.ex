@@ -48,6 +48,8 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
   alias Phoenix.HTML
   alias Phoenix.LiveView.TagEngine
   alias PhoenixKit.Config
+  alias PhoenixKit.HeaderWidget
+  alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Modules.Crawlers
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Languages.DialectMapper
@@ -884,6 +886,9 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
           assigns[:phoenix_kit_current_scope],
           PhoenixKitWeb.Live.Notifications.Inbox
         ),
+      # Sticky LiveViews of the enabled modules, rendered before the bell; `[]`
+      # (the usual case) leaves the header and the drawer exactly as they were.
+      header_widgets: header_widgets(assigns),
       phoenix_kit_session_accounts:
         (assigns[:phoenix_kit_current_scope] &&
            assigns[:phoenix_kit_current_scope].multi_session_accounts) || [],
@@ -926,6 +931,36 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
         }
       ])
     end
+  end
+
+  # The header widgets of the enabled modules (`PhoenixKit.Module.header_widgets/0`),
+  # each with its session built from this render's assigns. Like the bell, they need
+  # the parent socket to embed a nested LiveView and a signed-in user; without either
+  # there are none, and so no dock column either.
+  defp header_widgets(assigns) do
+    user = widget_user(assigns)
+
+    if assigns[:socket] && user do
+      assigns
+      |> Map.put(:phoenix_kit_current_user, user)
+      # The same locale the bell gets: `current_locale_base` is computed after this call.
+      |> Map.put_new(
+        :current_locale_base,
+        assigns[:current_locale] && DialectMapper.extract_base(assigns[:current_locale])
+      )
+      |> Map.put(
+        :impersonating?,
+        HeaderWidget.impersonating?(assigns[:phoenix_kit_current_scope])
+      )
+      |> ModuleRegistry.header_widgets_for()
+    else
+      []
+    end
+  end
+
+  defp widget_user(assigns) do
+    assigns[:phoenix_kit_current_user] ||
+      (assigns[:phoenix_kit_current_scope] && assigns[:phoenix_kit_current_scope].user)
   end
 
   defp wrap_inner_block_with_admin_nav_if_needed(assigns) do
@@ -1197,6 +1232,16 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                     assigns[:phoenix_kit_current_user] ||
                       (assigns[:phoenix_kit_current_scope] &&
                          assigns[:phoenix_kit_current_scope].user) %>
+                  <%!-- Header widgets of the enabled modules, before the bell: sticky
+                       nested LiveViews from `PhoenixKit.Module.header_widgets/0`.
+                       `@header_widgets` is `[]` without a socket and a user. --%>
+                  <%= for widget <- @header_widgets do %>
+                    {Phoenix.Component.live_render(@socket, widget.live_view,
+                      id: widget.id,
+                      sticky: true,
+                      session: widget.session
+                    )}
+                  <% end %>
                   <%= if @socket && bell_user && PhoenixKit.Notifications.enabled?() do %>
                     {Phoenix.Component.live_render(@socket, PhoenixKitWeb.Live.NotificationsBell,
                       id: "pk-notifications-bell",
@@ -1318,6 +1363,31 @@ defmodule PhoenixKitWeb.Components.LayoutWrapper do
                   </div>
                 </aside>
               </div>
+
+              <%!-- Dock column: rendered only while a rendered header widget declares
+                   `dock: true`, so a layout without one has no trace of it. Hidden until
+                   `pk-dock-open` is on <body> or on any element inside it, the widget in
+                   the header included (<header> and #admin-drawer are siblings, so <body>
+                   is the nearest element above both; it is also never patched, so the
+                   class survives a live redirect). See
+                   `PhoenixKitWeb.Components.AdminDock`. From `lg` it is the drawer grid's
+                   third column and the work area narrows by its width
+                   (`--pk-dock-width`, 25rem by default); below `lg` it covers the screen
+                   under the header. --%>
+              <aside
+                :if={Enum.any?(@header_widgets, & &1.dock)}
+                id="pk-dock"
+                phx-update="ignore"
+                class={[
+                  "hidden [.pk-dock-open_&]:block [body:has(.pk-dock-open)_&]:block",
+                  "col-start-3 row-start-1 self-start sticky top-16 z-30",
+                  "h-[calc(100dvh-4rem)] w-[var(--pk-dock-width,25rem)] overflow-y-auto",
+                  "border-l border-base-300 bg-base-100",
+                  "max-lg:fixed max-lg:inset-x-0 max-lg:top-16 max-lg:bottom-0 max-lg:z-40",
+                  "max-lg:h-auto max-lg:w-auto max-lg:self-auto max-lg:border-l-0"
+                ]}
+              >
+              </aside>
             </div>
 
             <%!-- Auto-close mobile drawer on navigation --%>
