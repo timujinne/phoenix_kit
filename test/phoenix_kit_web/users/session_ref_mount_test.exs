@@ -5,10 +5,11 @@ defmodule PhoenixKitWeb.Users.SessionRefMountTest do
   reads the session map, where LiveView merges the cookie session's `"user_token"`, and
   keeps only the id of the token row and its user (`SessionRef.from_session/1`), plus
   whether the active account is borrowed (`MultiSession.impersonated?/1`). The host page
-  does not take part: it has no cookie session to pass on and hands the nested LiveView
-  a session without any token. Neither value is a secret; the raw token never leaves the
-  cookie session. In a static render there is no cookie session, so there is no
-  reference.
+  does not take part: it hands the nested LiveView a session without any token. Neither
+  value is a secret; the raw token never leaves the cookie session. LiveView merges the
+  cookie session into the nested LiveView's session in the static render too (the
+  parent's conn session), so the reference is there as well; callers still act on it
+  only in the connected mount.
   """
   use PhoenixKitWeb.ConnCase, async: false
 
@@ -86,6 +87,14 @@ defmodule PhoenixKitWeb.Users.SessionRefMountTest do
           {:ok, {token_uuid, user_uuid}} -> {token_uuid, user_uuid}
           :error -> {"none", "none"}
         end
+
+      # Lets a test see the static mount, whose result no rendered page keeps.
+      if pid = Process.whereis(:session_ref_mount_test_probe) do
+        send(
+          pid,
+          {:sticky_mount, connected?(socket), token_uuid, MultiSession.impersonated?(session)}
+        )
+      end
 
       {:ok,
        Phoenix.Component.assign(socket,
@@ -185,14 +194,22 @@ defmodule PhoenixKitWeb.Users.SessionRefMountTest do
     assert has_element?(sticky, "#sticky-probe[data-impersonated='true']")
   end
 
-  test "a static render has no cookie session, so no reference" do
-    # What a static render hands the LiveView: the session the host gave, no cookie session.
-    socket = %Phoenix.LiveView.Socket{}
-    {:ok, socket} = Sticky.mount(%{}, %{"x" => "1"}, socket)
-    assert socket.assigns.token_uuid == "none"
-    assert socket.assigns.user_uuid == "none"
-    assert socket.assigns.impersonated == false
-    assert socket.assigns.connected == false
+  test "a static render of a sticky LiveView carries the reference too", %{conn: conn} do
+    Process.register(self(), :session_ref_mount_test_probe)
+    operator = user!()
+    target = user!()
+    root = Auth.generate_user_session_token(operator)
+    borrowed = Auth.generate_user_session_token(target)
+    borrowed_uuid = Auth.get_session_token_record(borrowed).uuid
+
+    {:ok, _host, _html} =
+      conn
+      |> init_test_session(%{"user_token" => borrowed, "pk_session_accounts" => [root, borrowed]})
+      |> live_isolated(Host)
+
+    # live_isolated renders the page statically first, then connects.
+    assert_receive {:sticky_mount, false, ^borrowed_uuid, true}
+    assert_receive {:sticky_mount, true, ^borrowed_uuid, true}
   end
 
   test "an anonymous or logged-out session gives no reference", %{conn: conn} do

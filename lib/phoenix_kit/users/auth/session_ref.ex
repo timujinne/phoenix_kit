@@ -75,9 +75,11 @@ defmodule PhoenixKit.Users.Auth.SessionRef do
   `:error` when there is no token or it is not a live session.
 
   Call it in the nested LiveView itself (a sticky `live_render` beside the page, e.g. a
-  widget in the layout), in its connected mount: LiveView merges the cookie session from
-  the socket's `connect_info: [session: ...]` into the session of every LiveView, nested
-  ones included. A static render has no cookie session, so there the answer is `:error`.
+  widget in the layout): LiveView merges the cookie session into the session of every
+  LiveView, nested ones included, both in the connected mount (the socket's
+  `connect_info: [session: ...]`) and in the static render (the parent's conn session).
+  The reference read in a static render is the same one, but act on it (call the
+  executor) only in the connected mount.
   Do not have a host page read the reference and pass it in the nested LiveView's
   `:session`: a widget rendered by the core layout has no host that holds the cookie
   session. Like `PhoenixKitWeb.Users.MultiSession.impersonated?/1`, call it where the
