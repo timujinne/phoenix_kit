@@ -86,6 +86,30 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   end
 
   @doc """
+  True when the session's active account is not the root of its stack: the browser is
+  acting inside an account that joined the session after the original login.
+
+  An impersonation is always such an account (`impersonate/2` appends to the stack and
+  makes the borrowed account active). The stack does not record how an account joined
+  it, so an account added with its own password answers `true` as well: a caller that
+  must never act inside a borrowed account (an assistant spending the account's limits,
+  reading its history) errs on the safe side. Takes the string-keyed session map, so
+  it works in a plug and in a LiveView mount alike; reads no database.
+
+  A nested (sticky) LiveView calls it itself, in its connected mount, with the session
+  LiveView hands it: the cookie session is merged into the session of every LiveView
+  (`SessionRef.from_session/1` follows the same rule). In a static render the cookie
+  session is absent, so the answer is `false` there.
+  """
+  @spec impersonated?(map()) :: boolean()
+  def impersonated?(session) when is_map(session) do
+    case {session["user_token"], stack_tokens(session)} do
+      {active, [root | _]} when is_binary(active) -> active != root
+      _no_active_account -> false
+    end
+  end
+
+  @doc """
   True when the root session belongs to ANY authenticated user AND the
   `multi_session_enabled` setting is on. Evaluated against the root so the
   switcher stays visible even when a secondary account is active.

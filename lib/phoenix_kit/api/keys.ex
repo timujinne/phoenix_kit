@@ -249,13 +249,27 @@ defmodule PhoenixKit.API.Keys do
   end
 
   # A scope is held when the owner holds the permission of EVERY enabled admin tool that
-  # declares it. The Executor trusts `actor.scopes` and checks nothing else, so a scope that
+  # declares it. The Executor checks a key's tool against `actor.scopes` only (for a live
+  # session it also checks the tool's own permission, `Scope.can?/2`), so a scope that
   # two tools share with different permissions must not reach an owner who holds only one of
   # them: that would let the key call the tool whose permission the owner lacks. A scope no
   # enabled tool declares (its module is disabled, or the tool is hidden) is never held.
-  defp held_scopes(owner), do: owner |> scope_of() |> held_scopes_of()
+  defp held_scopes(owner), do: owner |> scope_of() |> held_scope_set()
 
-  defp held_scopes_of(%Scope{} = scope) do
+  @doc """
+  The scopes `scope` holds: those of the enabled admin tools, provided `scope` holds the
+  permission of every one of those tools that declares it (the rule of
+  `allowed_scopes_for/1`), sorted.
+
+  `allowed_scopes_for/1` asks it of the owner's full scope (`narrow: false`); a caller
+  acting through a live session (`PhoenixKit.API.Executor.execute_as/5`) asks it of the
+  session's scope, which is narrowed to the session's active role.
+  """
+  @spec held_scopes_of(Scope.t()) :: [String.t()]
+  def held_scopes_of(%Scope{} = scope),
+    do: scope |> held_scope_set() |> MapSet.to_list() |> Enum.sort()
+
+  defp held_scope_set(%Scope{} = scope) do
     ToolRegistry.all_tools()
     |> Enum.filter(&scoped_admin_tool?/1)
     |> Enum.group_by(& &1.scope, & &1.permission)
@@ -275,7 +289,7 @@ defmodule PhoenixKit.API.Keys do
     if editor?(editor_scope, owner.uuid) do
       owner_scopes
     else
-      held = held_scopes_of(editor_scope)
+      held = held_scope_set(editor_scope)
       Enum.filter(owner_scopes, &MapSet.member?(held, &1))
     end
   end
@@ -382,12 +396,15 @@ defmodule PhoenixKit.API.Keys do
   """
   @spec actor(Key.t(), User.t(), String.t() | nil) :: Actor.t()
   def actor(%Key{} = key, %User{} = owner, ip) do
+    scope = scope_of(owner)
+
     %Actor{
       kind: :key,
       key_uuid: key.uuid,
       key_prefix: key.prefix,
       user_uuid: owner.uuid,
-      scopes: scopes_held_by(key.scopes, owner),
+      scopes: scopes_held_by(key.scopes, scope),
+      scope: scope,
       requires_approval: key.requires_approval,
       ip: ip
     }
@@ -433,13 +450,13 @@ defmodule PhoenixKit.API.Keys do
 
   defp live_scopes(scopes, user_uuid) do
     case user_uuid |> Auth.get_user() |> Auth.ensure_active_user() do
-      %User{} = owner -> scopes_held_by(scopes, owner)
+      %User{} = owner -> scopes_held_by(scopes, scope_of(owner))
       nil -> []
     end
   end
 
-  defp scopes_held_by(scopes, owner) do
-    held = held_scopes(owner)
+  defp scopes_held_by(scopes, %Scope{} = scope) do
+    held = held_scope_set(scope)
     scopes |> Enum.filter(&MapSet.member?(held, &1)) |> Enum.uniq() |> Enum.sort()
   end
 
@@ -684,7 +701,7 @@ defmodule PhoenixKit.API.Keys do
     if editor?(editor_scope, owner_uuid) do
       allowed
     else
-      held = held_scopes_of(editor_scope)
+      held = held_scope_set(editor_scope)
       MapSet.filter(allowed, &MapSet.member?(held, &1))
     end
   end
