@@ -352,16 +352,14 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
                token |> call("testkit_read_items") |> error()
     end
 
-    test "a tool of a module whose API is switched off is not_found in either form", %{
+    test "a tool of a module whose API is switched off is an unknown tool in either form", %{
       token: token
     } do
       put_setting("api_disabled_modules", "api_test_tools")
 
       for name <- ["testkit_read_items", "testkit.read_items"] do
-        result = token |> call(name) |> result()
-
-        assert result["isError"] == true, name
-        assert text(result) =~ "[not_found] ", name
+        assert %{"code" => -32_602, "message" => "Unknown tool: " <> _} =
+                 token |> call(name) |> error()
       end
 
       refute_received {:read_items, _, _}
