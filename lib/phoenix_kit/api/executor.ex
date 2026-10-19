@@ -66,11 +66,11 @@ defmodule PhoenixKit.API.Executor do
   in `execute/4`. A step may also end the request with `{:done, state}`: the
   body is already set (a preview, a replay) and the handler does not run.
   The executor adds the control fields `dry_run`, `confirm_token` and
-  `idempotency_key` to the schema of every write tool
-  (`PhoenixKit.API.ControlFields`) and closes every schema; a read tool has
-  none of them, so a client that sends one gets `422 validation_failed`: a
-  field that would change what a write does is refused, never silently
-  ignored.
+  `idempotency_key` to the schema of every write tool and closes every schema
+  (`PhoenixKit.API.ControlFields`; a write tool with `replay: false` gets no
+  `idempotency_key`). A read tool has none of them, so a client that sends one
+  gets `422 validation_failed`: a field that would change what a write does is
+  refused, never silently ignored.
 
   ## Scopes and work per request
 

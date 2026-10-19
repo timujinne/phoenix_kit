@@ -150,7 +150,7 @@ defmodule PhoenixKit.API.MCP.Shape do
   @spec instructions(Tool.audience()) :: String.t()
   def instructions(:admin) do
     "Call system_get_identity first: it lists the scopes this key holds right now and the tools they unlock. " <>
-      "A failed call comes back as a result with isError set; the code in square brackets is stable and " <>
+      "A failed call of a tool comes back as a result with isError set (an unknown tool name is a JSON-RPC error, -32602); the code in square brackets is stable and " <>
       "the second text item is the full problem document. A dangerous call from a key that needs approval " <>
       "is not run: it comes back as a normal result with executed false, status pending_approval and an " <>
       "approval_id, and runs only when an owner approves it; while that approval is still waiting, asking " <>
@@ -159,7 +159,8 @@ defmodule PhoenixKit.API.MCP.Shape do
   end
 
   def instructions(:public) do
-    "This endpoint needs no key. List the tools with tools/list. A failed call comes back as a result " <>
-      "with isError set; the code in square brackets is stable and the second text item is the full problem document."
+    "This endpoint needs no key. List the tools with tools/list. A failed call of a tool comes back as a result " <>
+      "with isError set (an unknown tool name is a JSON-RPC error, -32602); the code in square brackets is stable " <>
+      "and the second text item is the full problem document."
   end
 end

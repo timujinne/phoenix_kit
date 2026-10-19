@@ -16,7 +16,8 @@ defmodule PhoenixKit.API.OpenAPI do
       schema the validator enforces; the `200` schema is
       `PhoenixKit.API.OutputShape.for_tool/1`, the same as MCP's
       `outputSchema` (a write tool may answer with a preview instead);
-    * a write tool (`PhoenixKit.API.ControlFields.write_tool?/1`) also takes the
+    * a write tool (`PhoenixKit.API.ControlFields.write_tool?/1`) that can replay
+      (`PhoenixKit.API.ControlFields.replay_tool?/1`) also takes the
       optional `Idempotency-Key` request header, can answer with the
       `Idempotent-Replayed` header on a replay (for the admin API also on the
       held answer of an operation that already waits for approval), and lists
@@ -200,11 +201,31 @@ defmodule PhoenixKit.API.OpenAPI do
     do: Map.put(operation, "x-required-scope", scope)
 
   # The control fields of a write tool: the header form of `idempotency_key`, the replay
-  # header and the conflicts the flow answers (a read tool has none of them).
+  # header and the conflicts the flow answers (a read tool has none of them; a tool that
+  # cannot replay has the conflicts only when a confirmation is possible).
   defp put_write_extras(operation, tool) do
     if ControlFields.write_tool?(tool) do
-      {status, name, _text} = @conflict
+      operation
+      |> put_replay(tool)
+      |> put_conflict(tool)
+    else
+      operation
+    end
+  end
 
+  # Without a replay the only conflict left is a confirmation code: a tool with a `danger`,
+  # and every admin write tool (the batch-size rule).
+  defp put_conflict(operation, tool) do
+    if ControlFields.replay_tool?(tool) or tool.danger != nil or tool.audience == :admin do
+      {status, name, _text} = @conflict
+      put_in(operation, ["responses", status], %{"$ref" => "#/components/responses/" <> name})
+    else
+      operation
+    end
+  end
+
+  defp put_replay(operation, tool) do
+    if ControlFields.replay_tool?(tool) do
       operation
       |> Map.put("parameters", [idempotency_parameter(tool)])
       |> update_in(["responses", "200"], fn ok ->
@@ -212,7 +233,6 @@ defmodule PhoenixKit.API.OpenAPI do
           "Idempotent-Replayed" => %{"$ref" => "#/components/headers/IdempotentReplayed"}
         })
       end)
-      |> put_in(["responses", status], %{"$ref" => "#/components/responses/" <> name})
     else
       operation
     end

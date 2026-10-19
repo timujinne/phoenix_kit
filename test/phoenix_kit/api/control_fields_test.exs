@@ -38,6 +38,17 @@ defmodule PhoenixKit.API.ControlFieldsTest do
     refute ControlFields.write_tool?(tool(@read))
   end
 
+  test "a write tool that cannot replay gets no idempotency_key" do
+    no_replay = %{tool(@write) | replay: false}
+
+    assert ControlFields.properties(no_replay) |> Map.keys() |> Enum.sort() ==
+             ["confirm_token", "dry_run"]
+
+    assert ControlFields.replay_tool?(tool(@write))
+    refute ControlFields.replay_tool?(no_replay)
+    refute ControlFields.replay_tool?(tool(@read))
+  end
+
   test "a write tool gets the three properties, a read tool none" do
     assert ControlFields.properties(tool(@write)) |> Map.keys() |> Enum.sort() ==
              ["confirm_token", "dry_run", "idempotency_key"]
