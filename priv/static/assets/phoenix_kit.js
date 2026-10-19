@@ -3140,7 +3140,9 @@ if (typeof window.Chart === "undefined") {
   // PkDateInput — the hook behind `<.date_input>` (core/date_input.ex): a
   // visible text input in the site's date format plus a real
   // `<input type="date" data-date-value>` that carries the caller's name and
-  // the ISO value. See the component's moduledoc for the contract.
+  // the ISO value. The server renders the native date input as the visible
+  // control (what a page with no LiveView keeps); `enhance` swaps the roles.
+  // See the component's moduledoc for the contract.
   //
   // The pure parts (format table, parser, formatter) are exported for
   // test/js/date_input.test.cjs.
@@ -3212,6 +3214,13 @@ if (typeof window.Chart === "undefined") {
     if (order === "ymd") return { y: parts[0], m: parts[1], d: parts[2] };
     if (order === "mdy") return { m: parts[0], d: parts[1], y: parts[2] };
     return { d: parts[0], m: parts[1], y: parts[2] };
+  }
+
+  // What a date input's `value` is for an attribute text: the date itself when
+  // it is a real `YYYY-MM-DD`, else "" (the browser's sanitising).
+  function isoOrEmpty(text) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text || ""));
+    return m ? validYmd(+m[1], +m[2], +m[3]) || "" : "";
   }
 
   // Text → "YYYY-MM-DD", or null when it is not a date (or lies outside
@@ -3302,7 +3311,15 @@ if (typeof window.Chart === "undefined") {
     return { top: top, left: left };
   }
 
+  // The grid is Gregorian whatever the language's default calendar is (`th`,
+  // `ar-SA`, `fa`): without it the month and year headings would not match.
+  function calendarLocale(tag) {
+    tag = tag || "en";
+    return /-u-/i.test(tag) ? tag : tag + "-u-ca-gregory";
+  }
+
   if (typeof module === "object" && module.exports) {
+    module.exports.calendarLocale = calendarLocale;
     module.exports.popupPlacement = popupPlacement;
     module.exports.dateOrder = dateOrder;
     module.exports.parseDateText = parseDateText;
@@ -3319,6 +3336,7 @@ if (typeof window.Chart === "undefined") {
       this.rejected = null;
       this.pendingSync = false;
       this.gone = false;
+      this.enhance();
 
       this.onEvent = function(e) { self.handle(e); };
       ["input", "change", "click", "mousedown", "keydown", "focusin", "focusout"].forEach(function(type) {
@@ -3333,14 +3351,36 @@ if (typeof window.Chart === "undefined") {
       };
       if (this.form) this.form.addEventListener("reset", this.onReset);
 
-      // Text that differs from what the server rendered was typed before the
-      // socket connected. Still typing in it: leave it to blur/Enter (a
-      // partial `16.10.20` must not be committed under the caret).
-      if (t.value !== t.defaultValue) {
+      // A date picked in the native input before the socket connected: the
+      // server has not heard of it, the text is still the old date. A browser
+      // sanitises a non-ISO `value` to "", so the default to compare with is
+      // the sanitised one: a value the server echoed as given (`03.05.2024`)
+      // is not a pick.
+      var v = this.valueEl();
+      if (v.value !== isoOrEmpty(v.defaultValue)) {
+        this.syncText();
+        v.dispatchEvent(new Event("input", { bubbles: true }));
+      } else if (t.value !== t.defaultValue) {
+        // Text that differs from what the server rendered was typed before the
+        // socket connected. Still typing in it: leave it to blur/Enter (a
+        // partial `16.10.20` must not be committed under the caret).
         if (document.activeElement === t) this.baseText = t.defaultValue;
         else this.commit();
+      } else if (v.value === "" && t.value.trim() !== "") {
+        // The server echoed a date the browser cannot hold (`03.05.2024`): the
+        // text shows it, the date input is empty, and a save would erase it
+        // without a word. Mark the field so the person corrects or clears it.
+        this.reject("format");
       }
       this.refresh();
+
+      // `autofocus` sits on the text field, which was `hidden` when the
+      // browser looked for something to focus. The socket connects after the
+      // person may have started typing elsewhere: take the focus only when
+      // nothing holds it (the date input's own focus went to the text field in
+      // `enhance`).
+      var active = document.activeElement;
+      if (t.hasAttribute("autofocus") && (!active || active === document.body)) t.focus();
     },
 
     updated() {
@@ -3369,6 +3409,26 @@ if (typeof window.Chart === "undefined") {
       this.gone = true;
       this.closePopup(false);
       if (this.form) this.form.removeEventListener("reset", this.onReset);
+    },
+
+    // The server renders the native date input as the visible control and the
+    // text field `hidden`. From here on the text field is the control and the
+    // date input is its invisible value element: the wrapper's `data-enhanced`
+    // flips the classes, and `required` moves to the text field (a `required`
+    // control that is not displayed would block the form's submit). A patch
+    // puts the server's markup back, so `refresh` does this again.
+    enhance() {
+      var t = this.textEl();
+      var v = this.valueEl();
+      if (!t || !v) return;
+      this.el.setAttribute("data-enhanced", "");
+      v.setAttribute("tabindex", "-1");
+      v.setAttribute("aria-hidden", "true");
+      v.removeAttribute("required");
+      t.required = this.el.dataset.required === "true";
+      // The date input that was displayed (and focused) until now is invisible
+      // from here on: the keystrokes go to the field the person sees.
+      if (document.activeElement === v) t.focus();
     },
 
     textEl() { return this.el.querySelector("[data-date-text]"); },
@@ -3621,7 +3681,7 @@ if (typeof window.Chart === "undefined") {
       popup.appendChild(tpl.content.cloneNode(true));
       var cal = popup.querySelector("calendar-date");
       if (!cal) return false;
-      cal.setAttribute("locale", this.el.dataset.locale || "en");
+      cal.setAttribute("locale", calendarLocale(this.el.dataset.locale));
       cal.setAttribute("first-day-of-week", this.el.dataset.weekStart || "1");
       if (this.el.dataset.today) cal.setAttribute("today", this.el.dataset.today);
       // `change` does not bubble out of Cally: listen on the element.
@@ -3646,6 +3706,7 @@ if (typeof window.Chart === "undefined") {
       else cal.removeAttribute("min");
       if (d.max) cal.setAttribute("max", d.max);
       else cal.removeAttribute("max");
+      this.syncFooter(popup);
       // Cally pins the month it was last paged to; start on the date's.
       cal.focusedDate = v || d.today || undefined;
 
@@ -3664,6 +3725,17 @@ if (typeof window.Chart === "undefined") {
           if (typeof cal.focus === "function") cal.focus();
         });
       });
+    },
+
+    // The footer buttons live in a <template> LiveView never patches, so they
+    // follow the wrapper's `data-*` each time the calendar opens: "Today" is
+    // off when today lies outside min/max, "Clear" shows for a clearable field.
+    syncFooter(popup) {
+      var d = this.el.dataset;
+      var today = popup.querySelector("[data-popup-today]");
+      var clear = popup.querySelector("[data-popup-clear]");
+      if (today) today.disabled = parseDateText(d.today, "Y-m-d", d.min, d.max) === null;
+      if (clear) clear.classList.toggle("hidden", d.clearable !== "true");
     },
 
     position() {
@@ -3697,8 +3769,13 @@ if (typeof window.Chart === "undefined") {
           if (e.target.closest && e.target.closest("[data-open]") && self.el.contains(e.target)) return;
           self.closePopup(false);
         }, true],
-        // A scroll of any ancestor moves the field away from the popup.
-        [window, "scroll", function(e) { if (!popup.contains(e.target)) close(); }, true],
+        // A scroll of the page or of an ancestor of the field moves the field
+        // away from the popup; an unrelated panel scrolling does not.
+        [window, "scroll", function(e) {
+          var t = e.target;
+          if (popup.contains(t)) return;
+          if (t === document || t === document.documentElement || (t.contains && t.contains(self.el))) close();
+        }, true],
         [window, "resize", close, false],
         [window, "pagehide", close, false]
       ];
@@ -3764,6 +3841,14 @@ if (typeof window.Chart === "undefined") {
       t.setAttribute("aria-invalid", "true");
       t.classList.add("input-error");
       if (expected) t.setAttribute("title", expected);
+      this.say(expected);
+    },
+
+    // The rejection hint is a live region: a screen reader announces the text
+    // that appears in it, and the text input points at it (aria-describedby).
+    say(message) {
+      var hint = this.el.querySelector("[data-date-hint]");
+      if (hint && hint.textContent !== message) hint.textContent = message;
     },
 
     markValid() {
@@ -3771,6 +3856,7 @@ if (typeof window.Chart === "undefined") {
       if (!t) return;
       t.setCustomValidity("");
       t.removeAttribute("title");
+      this.say("");
       // Errors the server rendered stay.
       if (!t.hasAttribute("data-has-errors")) {
         t.removeAttribute("aria-invalid");
@@ -3782,6 +3868,7 @@ if (typeof window.Chart === "undefined") {
     refresh() {
       var t = this.textEl();
       if (!t) return;
+      this.enhance();
       if (this.rejected) this.markInvalid();
       else this.markValid();
       this.toggleClear();

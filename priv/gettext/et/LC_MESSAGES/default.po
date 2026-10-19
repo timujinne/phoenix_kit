@@ -20593,8 +20593,18 @@ msgstr "Tühjenda kuupäev"
 
 #: lib/phoenix_kit_web/components/core/date_input.ex
 #, elixir-autogen, elixir-format
+msgid "Clear date for %{name}"
+msgstr "Tühjenda kuupäev: %{name}"
+
+#: lib/phoenix_kit_web/components/core/date_input.ex
+#, elixir-autogen, elixir-format
 msgid "Open calendar"
 msgstr "Ava kalender"
+
+#: lib/phoenix_kit_web/components/core/date_input.ex
+#, elixir-autogen, elixir-format
+msgid "Open calendar for %{name}"
+msgstr "Ava kalender: %{name}"
 
 #: lib/phoenix_kit_web/components/core/date_input.ex
 #, elixir-autogen, elixir-format

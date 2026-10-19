@@ -123,4 +123,50 @@ defmodule PhoenixKit.Integration.Utils.DateSiteZoneTest do
       end)
     end
   end
+
+  describe "to_site_date/1 and site_today/0" do
+    test "a DateTime is the date in the site zone, which can be the next day" do
+      assert UtilsDate.to_site_date(@winter_late) == ~D[2027-01-01]
+      assert UtilsDate.to_site_date(@summer) == ~D[2026-10-07]
+    end
+
+    test "a NaiveDateTime is read as UTC, then shown in the site zone" do
+      assert UtilsDate.to_site_date(~N[2026-12-31 22:30:00]) == ~D[2027-01-01]
+    end
+
+    test "a zone west of UTC can give the previous day" do
+      put_zone("America/New_York")
+      assert UtilsDate.to_site_date(~U[2026-10-08 02:00:00Z]) == ~D[2026-10-07]
+      assert UtilsDate.to_site_date(~N[2026-10-08 02:00:00]) == ~D[2026-10-07]
+    end
+
+    test "no zone is UTC and a Date is returned as it is" do
+      put_zone("0")
+      assert UtilsDate.to_site_date(@winter_late) == ~D[2026-12-31]
+      assert UtilsDate.to_site_date(~D[2026-12-31]) == ~D[2026-12-31]
+    end
+
+    test "site_today/0 is the current UTC instant seen in the site zone" do
+      put_zone("0")
+      assert UtilsDate.site_today() == Date.utc_today()
+
+      # The zone is applied, not ignored: the same instant converted by hand,
+      # taken before and after the call so midnight cannot flake it. UTC+14 and
+      # UTC-11 are over a day apart, so at least one differs from the UTC date
+      # whatever the hour the suite runs at.
+      for zone <- ["Pacific/Kiritimati", "Pacific/Pago_Pago"] do
+        put_zone(zone)
+
+        local_today = fn ->
+          DateTime.utc_now()
+          |> DateTime.shift_zone!(zone, TimeZone.database())
+          |> DateTime.to_date()
+        end
+
+        before_call = local_today.()
+        today = UtilsDate.site_today()
+        assert today in [before_call, local_today.()], zone
+      end
+    end
+  end
 end

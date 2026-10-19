@@ -26,31 +26,72 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
     * The **visible text input carries the caller's `id`** (so `<label for>`
       and selectors hit the field people type into) and has no `name`.
     * The **value element is a real `<input type="date">`** with the caller's
-      `name`, id `<id>-value` and the ISO `YYYY-MM-DD` value (or `""`). It is
-      rendered but invisible (`absolute inset-0 opacity-0 pointer-events-none`,
-      `tabindex="-1"`), not `display:none`: LiveViewTest can set it with
-      `form/3`, every receiver (`Date.from_iso8601/1`, Ecto `:date`) keeps
-      working, and `showPicker()` works on it.
+      `name`, id `<id>-value` and the ISO `YYYY-MM-DD` value (or `""`). Once
+      the hook runs it is invisible (`absolute inset-0 opacity-0
+      pointer-events-none`, `tabindex="-1"`, `aria-hidden`), not
+      `display:none`: LiveViewTest can set it with `form/3`, every receiver
+      (`Date.from_iso8601/1`, Ecto `:date`) keeps working, and `showPicker()`
+      works on it.
     * `id` should be passed. Without one it is derived from `name`; callers
       whose names repeat on a page (filter chips, table rows) must pass
       distinct ids.
 
-  The visible text is formatted on the server, so the first paint is right.
-  A value that is not a date (a changeset echoing bad input) is shown as
-  given; the value element is rendered with it, but a browser sanitises a
-  non-ISO `value` of a date input to `""`.
+  ## Without LiveView
+
+  The server renders the field as a plain native date input: the value
+  element is visible, the text field, ✕ and calendar button are `hidden`, and
+  `required` sits on the value element. A page where no hook runs (a
+  controller template, a host that does not register `phx-hook`s) therefore
+  submits the date correctly, as `<input type="date">` always did. When the
+  hook mounts it sets `data-enhanced` on the wrapper (daisyUI/Tailwind
+  `group-data-[enhanced]/pk-date:` classes swap the two roles) and moves
+  `required` to the text field. In a LiveView page that means the browser's
+  date input shows for the moment between the first paint and the socket
+  connecting. Pass `native` to skip the widget altogether.
+
+  A date picked in the browser's input during that moment is carried over
+  only while that input still has the focus when the socket connects: the
+  join patch resets every other form control to the server's value. The hook
+  then moves the focus to the text field, the control that is displayed from
+  then on. A host stylesheet that predates these classes lacks the
+  `group-data-[enhanced]` utilities: rebuild the CSS, until then the page
+  keeps the browser's date input.
+
+  `<label for>` points at the text field (it carries the `id`), which is
+  `hidden` on a page where no hook runs, so a click on the label does nothing
+  there; the date input is named by its `aria-label`.
+
+  The text shown first is formatted on the server. A value that is not a date
+  (a changeset echoing bad input) is shown as given in the text field; the
+  value element is rendered with it, but a browser sanitises a non-ISO
+  `value` of a date input to `""`, which the hook does not take for a pick.
+  The hook marks such a field rejected at mount (the hint, `input-error`,
+  `setCustomValidity`), so a submit from a button or Enter, `phx-submit`
+  included (the browser fires no `submit` event on an invalid form), waits
+  until the person corrects or clears it. A `phx-click` save, `novalidate` or a
+  dispatched `submit` still save the empty date input.
 
   ## Attributes: where `rest` goes
 
-    * Everything in `rest` lands on the value element (`form`, `phx-change`,
-      `data-*`, …) **except**:
-      `phx-debounce` — dropped: commits are discrete (a `"blur"` debounce on a
-      never-focused element would swallow the change);
-      `phx-blur`, `phx-focus`, `phx-keydown`, `phx-keyup`, `phx-key`,
-      `onkeydown`/`onkeyup`/`onfocus`/`onblur`/`oninput`, `style`, `title`,
-      `autofocus`, `aria-*` — go to the visible input. Anything else sits on
-      the invisible value element.
-    * `required` and `readonly` go to the visible input only; `disabled` to both.
+    * The value element gets what describes the submitted value or the
+      form: `form`, `step`, `list`, `phx-change`, `phx-target`,
+      `phx-value-*` and `data-*`.
+    * Everything else goes to the visible input: `tabindex`, `phx-click`,
+      `phx-blur`, `phx-focus`, `phx-keydown`, `phx-keyup`, `phx-key`, `lang`,
+      `spellcheck`, `onkeydown`/`onkeyup`/`onfocus`/`onblur`/`oninput`,
+      `style`, `title`, `autofocus` (the hook focuses the field on mount, the
+      browser cannot: the field is `hidden` when it is inserted; not when the
+      person already focused another field),
+      `autocomplete` and `inputmode` (which replace the defaults `off` and
+      `numeric`/`text`), `aria-*`, … (the value element cannot be clicked or
+      focused by a person).
+    * Dropped: `phx-debounce` (commits are discrete: a `"blur"` debounce on a
+      never-focused element would swallow the change) and the attributes that
+      mean nothing for a date (`pattern`, `maxlength`, `minlength`, `size`,
+      `accept`, `capture`, `multiple`, `cols`, `rows`): on the text field a
+      `pattern` would reject every formatted date.
+    * `required` sits on the value element until the hook runs, then on the
+      visible input; `readonly` and `disabled` go to both.
     * `class` styles the visible input, `wrapper_class` the outer `<div>`.
     * `format`, `locale`, `week_start` (ISO `1..7`, Monday = 1) and `today`
       default from Settings (`date_format`, `week_start_day`), the UI language
@@ -59,7 +100,11 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
       site time zone.
     * The ✕ is not rendered for `required`, `disabled` or `readonly` fields
       (clearing a required field only produces an error) and is hidden while
-      the field is empty.
+      the field is empty. It is not a tab stop (`tabindex="-1"`): the
+      keyboard has the calendar's "Clear" button and an emptied text field.
+    * The `:icon` slot of `<.input>` has no place here (the buttons occupy the
+      inside of the field): `<.input type="date">` given an icon renders the
+      browser's date input instead. `inner_block` is not used by either.
     * `bare` renders the control alone (no label, outer wrapper or error list)
       for a table cell or a filter chip; a `label` becomes its `aria-label`.
 
@@ -79,11 +124,18 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
   and calls `setCustomValidity` (blocks a native submit): a half-typed date
   never reaches the server; the rejected text stays in the field (it is put
   back after a server update) until the next commit. On a `required` field
-  empty text is rejected too instead of clearing the value. Enter commits synchronously and is prevented only
-  when the text is invalid or the form has no `phx-submit`.
+  empty text is rejected too instead of clearing the value. Enter commits
+  synchronously and is prevented only when the text is invalid or the form
+  has no `phx-submit`.
 
-  The hook runs only in a LiveView. In a dead render (a controller template)
-  pass `native`, or the field cannot be edited.
+  A rejected entry is announced: the message (the expected format, or the
+  `min`/`max` range) goes into a `role="status"` hint under the field, which
+  the text input references with `aria-describedby`, and into `title`.
+
+  The rejection blocks a native `submit` (through `setCustomValidity`). It
+  does not block a `phx-click` save button, a form with `novalidate` or a
+  `requestSubmit` from a hook: there the old value is saved while the field
+  still shows the rejected text.
 
   ## Calendar popup
 
@@ -109,8 +161,9 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   ## `<.input type="date">`
 
-  `input/1` renders a `date_input` for `type="date"` (without `size`). Opt out
-  per call with `<.input type="date" native>`, or for the whole host with
+  `input/1` renders a `date_input` for `type="date"` (without `size`; the
+  other native-only attributes are dropped, see above). Opt out per call with
+  `<.input type="date" native>`, or for the whole host with
   `config :phoenix_kit, native_date_inputs: true`. `datetime-local`, `time`,
   `month`, `week` are untouched.
   """
@@ -127,25 +180,37 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   @formats ["Y-m-d", "m/d/Y", "d/m/Y", "d.m.Y", "d-m-Y", "F j, Y"]
 
-  # `rest` keys that belong to the visible text input, not the value element.
-  @text_rest [
-    :"phx-blur",
-    :"phx-focus",
-    :"phx-keydown",
-    :"phx-keyup",
-    :"phx-key",
-    :onkeydown,
-    :autofocus,
-    :readonly,
-    :required,
-    :style,
-    :title,
-    :onfocus,
-    :onblur,
-    :onkeyup,
-    :oninput
+  # `rest` keys the value element takes (it is the submitted control): the
+  # form it belongs to, its date step and datalist, and the LiveView change
+  # wiring. `data-*` and `phx-value-*` are matched by prefix. Everything else
+  # goes to the visible input, the only element a person can click or focus.
+  @value_rest [:form, :step, :list, :"phx-change", :"phx-target"]
+
+  # Meaningless for a date (and harmful on the text field: a `pattern` would
+  # reject every formatted date), or dropped on purpose (`phx-debounce`).
+  @dropped_rest [
+    :"phx-debounce",
+    :pattern,
+    :maxlength,
+    :minlength,
+    :size,
+    :accept,
+    :capture,
+    :multiple,
+    :cols,
+    :rows
   ]
-  @dropped_rest [:"phx-debounce"]
+
+  # Classes that turn the server-rendered native date input into the invisible
+  # value element once the hook has set `data-enhanced` on the wrapper.
+  @value_enhanced [
+    "group-data-[enhanced]/pk-date:absolute",
+    "group-data-[enhanced]/pk-date:inset-0",
+    "group-data-[enhanced]/pk-date:h-full",
+    "group-data-[enhanced]/pk-date:w-full",
+    "group-data-[enhanced]/pk-date:opacity-0",
+    "group-data-[enhanced]/pk-date:pointer-events-none"
+  ]
 
   attr :id, :any, default: nil
   attr :name, :any, default: nil
@@ -194,7 +259,7 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   attr :rest, :global,
     include:
-      ~w(autofocus disabled form readonly required onkeydown style title onfocus onblur onkeyup oninput)
+      ~w(autofocus disabled form readonly required step list onkeydown style title onfocus onblur onkeyup oninput)
 
   def date_input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     assigns
@@ -265,7 +330,9 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
     {iso, text} = value_and_text(assigns.value, format)
     rest = Map.merge(assigns.rest, assigns.html)
     {value_rest, text_rest} = split_rest(rest)
-    text_rest = bare_label(text_rest, assigns)
+    text_rest = text_rest |> text_defaults(format) |> bare_label(assigns)
+    field_name = text_rest[:"aria-label"] || blank_to_nil(assigns.label)
+    text_rest = describe_by(text_rest, id)
 
     assigns =
       assigns
@@ -285,19 +352,18 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
         gettext("Expected %{example}", example: UtilsDate.format_date(today, format))
       )
       |> assign(:range_message, range_message(assigns.min, assigns.max, format))
-      |> assign(:today_ok, in_range?(today, assigns.min, assigns.max))
       |> assign(:placeholder, assigns.placeholder || pattern(format))
       |> assign(:disabled?, truthy?(rest[:disabled]))
       |> assign(:required?, truthy?(rest[:required]))
+      |> assign(:field_name, field_name)
       |> assign(:readonly?, truthy?(rest[:readonly]))
 
     assigns =
       assigns
       |> assign(:show_clear?, show_clear?(assigns))
-      |> assign(
-        :aria_label,
-        assigns.text_rest[:"aria-label"] || blank_to_nil(assigns.label) || gettext("Calendar")
-      )
+      |> assign(:aria_label, assigns.field_name || gettext("Calendar"))
+      |> assign(:open_label, open_label(assigns.field_name))
+      |> assign(:clear_label, clear_label(assigns.field_name))
 
     ~H"""
     <div :if={!@bare} phx-feedback-for={@name} class={@wrapper_class}>
@@ -318,7 +384,6 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
         today_iso={@today_iso}
         expected={@expected}
         range_message={@range_message}
-        today_ok={@today_ok}
         placeholder={@placeholder}
         errors={@errors}
         size={@size}
@@ -332,6 +397,9 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
         required={@required?}
         show_clear={@show_clear?}
         aria_label={@aria_label}
+        field_name={@field_name}
+        open_label={@open_label}
+        clear_label={@clear_label}
       />
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
@@ -349,7 +417,6 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
       today_iso={@today_iso}
       expected={@expected}
       range_message={@range_message}
-      today_ok={@today_ok}
       placeholder={@placeholder}
       errors={@errors}
       size={@size}
@@ -363,15 +430,25 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
       required={@required?}
       show_clear={@show_clear?}
       aria_label={@aria_label}
+      field_name={@field_name}
+      open_label={@open_label}
+      clear_label={@clear_label}
     />
     """
   end
 
   # The hook element: visible text, the value element, ✕ and the calendar button.
+  #
+  # As rendered it is a plain native date input (the value element, named, ISO
+  # value) with the rest `hidden`: that is what a page with no LiveView submits
+  # and shows. The hook sets `data-enhanced` on the wrapper, which flips the
+  # roles through the `group-data-[enhanced]/pk-date:` classes.
   defp control(assigns) do
+    assigns = assign(assigns, :value_enhanced, @value_enhanced)
+
     ~H"""
     <div
-      id={@id <> "-wrap"}
+      id={"#{@id}-wrap"}
       phx-hook="PkDateInput"
       data-format={@format}
       data-locale={@locale_tag}
@@ -381,21 +458,22 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
       data-today={@today_iso}
       data-expected={@expected}
       data-range-message={@range_message}
-      class={["pk-date-input relative", @bare && "inline-block", @bare && @wrapper_class]}
+      data-required={@required && "true"}
+      data-clearable={@show_clear && "true"}
+      class={["group/pk-date relative", @bare && "inline-block", @bare && @wrapper_class]}
     >
       <input
         type="text"
         id={@id}
         value={@text}
-        inputmode={if @format == "F j, Y", do: "text", else: "numeric"}
-        autocomplete="off"
         placeholder={@placeholder}
         data-date-text
         data-has-errors={@errors != [] && "true"}
         aria-invalid={@errors != [] && "true"}
+        readonly={@readonly}
         disabled={@disabled}
         class={[
-          "input transition-colors focus:input-primary",
+          "input hidden transition-colors focus:input-primary group-data-[enhanced]/pk-date:inline-flex",
           !@bare && "w-full",
           size_class(@size),
           buttons_padding(@size, @show_clear),
@@ -406,25 +484,33 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
       />
       <input
         type="date"
-        id={@id <> "-value"}
+        id={"#{@id}-value"}
         name={@name}
         value={@iso}
         min={@min_iso}
         max={@max_iso}
-        tabindex="-1"
-        aria-hidden="true"
-        data-date-value
+        required={@required}
+        readonly={@readonly}
         disabled={@disabled}
-        class="absolute inset-0 h-full w-full opacity-0 pointer-events-none"
+        aria-label={@field_name}
+        data-date-value
+        class={[
+          "input transition-colors focus:input-primary",
+          !@bare && "w-full",
+          size_class(@size),
+          @errors != [] && "input-error",
+          @class,
+          @value_enhanced
+        ]}
         {@value_rest}
       />
-      <div class="absolute inset-y-0 right-1 flex items-center gap-0.5">
+      <div class="absolute inset-y-0 right-1 hidden items-center gap-0.5 group-data-[enhanced]/pk-date:flex">
         <button
           :if={@show_clear}
           type="button"
           tabindex="-1"
           data-clear
-          aria-label={gettext("Clear date")}
+          aria-label={@clear_label}
           class={["btn btn-ghost btn-circle btn-xs", @text == "" && "hidden"]}
         >
           <.icon name="hero-x-mark" class="size-3.5" />
@@ -436,15 +522,28 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
           data-open
           aria-haspopup="dialog"
           aria-expanded="false"
-          aria-controls={@id <> "-popup"}
-          aria-label={gettext("Open calendar")}
+          aria-controls={"#{@id}-popup"}
+          aria-label={@open_label}
           class="btn btn-ghost btn-circle btn-xs"
         >
           <.icon name="hero-calendar" class="size-4" />
         </button>
       </div>
+      <%!-- Where a rejected entry is said: a live region the text input points
+           at. `phx-update="ignore"` keeps a patch from clearing and re-filling
+           it (a screen reader would announce it again); the hook owns its text. --%>
+      <span
+        id={"#{@id}-hint"}
+        role="status"
+        phx-update="ignore"
+        data-date-hint
+        class="pointer-events-none absolute left-0 top-full z-10 mt-1 w-max max-w-xs rounded text-xs text-error not-empty:bg-base-100 not-empty:px-1 not-empty:shadow-sm"
+      ></span>
       <%!-- The calendar. The template carries the server's strings; the hook
            clones it into the popup on the first open, after Cally has loaded.
+           LiveView does not patch inside a <template>, so nothing that changes
+           with the field (Today's `disabled`, whether Clear shows) is rendered
+           here: the hook decides both from the wrapper's `data-*` on each open.
            The popup is `phx-update="ignore"`: LiveView must not strip what the
            hook builds in it. daisyUI's `.cally` styles <calendar-date>. --%>
       <template :if={!@disabled and !@readonly} data-popup-template>
@@ -460,22 +559,17 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
           <calendar-month></calendar-month>
         </calendar-date>
         <div class="flex items-center justify-between gap-2 border-t border-base-300 pt-2">
-          <button
-            type="button"
-            data-popup-today
-            disabled={!@today_ok}
-            class="btn btn-ghost btn-xs"
-          >
+          <button type="button" data-popup-today class="btn btn-ghost btn-xs">
             {gettext("Today")}
           </button>
-          <button :if={@show_clear} type="button" data-popup-clear class="btn btn-ghost btn-xs">
+          <button type="button" data-popup-clear class="btn btn-ghost btn-xs hidden">
             {gettext("Clear")}
           </button>
         </div>
       </template>
       <div
         :if={!@disabled and !@readonly}
-        id={@id <> "-popup"}
+        id={"#{@id}-popup"}
         popover="manual"
         role="dialog"
         aria-label={@aria_label}
@@ -522,13 +616,17 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
     end
   end
 
-  defp in_range?(date, min, max) do
-    (is_nil(to_date(min)) or Date.compare(date, to_date(min)) != :lt) and
-      (is_nil(to_date(max)) or Date.compare(date, to_date(max)) != :gt)
-  end
-
   defp blank_to_nil(value) when value in [nil, ""], do: nil
   defp blank_to_nil(value), do: value
+
+  # What the visible input gets unless the caller says otherwise: written once,
+  # so a caller's `autocomplete`/`inputmode` is not a second attribute that the
+  # browser then ignores.
+  defp text_defaults(text_rest, format) do
+    text_rest
+    |> Map.put_new(:autocomplete, "off")
+    |> Map.put_new(:inputmode, if(format == "F j, Y", do: "text", else: "numeric"))
+  end
 
   defp bare_label(text_rest, %{bare: true, label: label})
        when is_binary(label) and label != "" do
@@ -537,23 +635,40 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   defp bare_label(text_rest, _assigns), do: text_rest
 
-  defp split_rest(rest) do
-    rest = Map.drop(rest, @dropped_rest)
+  defp open_label(nil), do: gettext("Open calendar")
+  defp open_label(name), do: gettext("Open calendar for %{name}", name: name)
 
-    {text, value} =
-      Enum.split_with(rest, fn {key, _} ->
-        key in @text_rest or aria?(key)
-      end)
+  defp clear_label(nil), do: gettext("Clear date")
+  defp clear_label(name), do: gettext("Clear date for %{name}", name: name)
 
-    # `disabled` belongs to both elements; the markup sets it on each itself.
-    # `form="…"` goes to both: the value element is the one submitted, the
-    # visible input is where Enter is pressed.
-    text = Map.new(text)
-    text = if rest[:form], do: Map.put(text, :form, rest[:form]), else: text
-    {value |> Map.new() |> Map.delete(:disabled), text}
+  # The visible input points at the rejection hint, after any description the
+  # caller already gave it.
+  defp describe_by(text_rest, id) do
+    hint = "#{id}-hint"
+
+    Map.update(text_rest, :"aria-describedby", hint, fn given ->
+      [given, hint] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join(" ")
+    end)
   end
 
-  defp aria?(key), do: key |> to_string() |> String.starts_with?("aria-")
+  defp split_rest(rest) do
+    rest = Map.drop(rest, @dropped_rest)
+    {value, text} = Enum.split_with(rest, fn {key, _} -> value_rest?(key) end)
+
+    # `form="…"` goes to both: the value element is the one submitted, the
+    # visible input is where Enter is pressed. `required` and `readonly` are
+    # set on the elements by the markup, `disabled` on both.
+    text = text |> Map.new() |> Map.drop([:disabled, :required, :readonly])
+    text = if rest[:form], do: Map.put(text, :form, rest[:form]), else: text
+    {Map.new(value), text}
+  end
+
+  defp value_rest?(key) when key in @value_rest, do: true
+
+  defp value_rest?(key) do
+    key = to_string(key)
+    String.starts_with?(key, "data-") or String.starts_with?(key, "phx-value-")
+  end
 
   defp truthy?(value), do: value not in [nil, false, "false"]
 
@@ -568,7 +683,8 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
   def normalize_format(format) when format in @formats, do: format
   def normalize_format(_format), do: "Y-m-d"
 
-  defp site_format, do: Settings.get_setting_cached("date_format", "Y-m-d")
+  @doc false
+  def site_format, do: Settings.get_setting_cached("date_format", "Y-m-d")
 
   defp pattern("Y-m-d"), do: "yyyy-mm-dd"
   defp pattern("m/d/Y"), do: "mm/dd/yyyy"

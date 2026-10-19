@@ -71,7 +71,7 @@ defmodule PhoenixKitWeb.Components.Core.Input do
 
   slot :icon,
     doc:
-      "an icon rendered *inside* the field (daisyUI 5 `<label class=\"input\">` wrapper). Size it with `h-[1em] w-[1em] opacity-50` to match daisyUI."
+      "an icon rendered *inside* the field (daisyUI 5 `<label class=\"input\">` wrapper). Size it with `h-[1em] w-[1em] opacity-50` to match daisyUI. A `type=\"date\"` input given an icon stays the browser's date input (the date widget's own buttons fill that place)."
 
   def input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     assigns
@@ -83,9 +83,11 @@ defmodule PhoenixKitWeb.Components.Core.Input do
   end
 
   # `type="date"` is a `date_input/1` (text in the site's date format, with a
-  # clear button and a calendar) unless the call or the host opts out.
+  # clear button and a calendar) unless the call or the host opts out, or the
+  # call gives an `:icon`, which the widget has no place for.
   def input(%{type: "date"} = assigns) do
-    if assigns[:native] || Application.get_env(:phoenix_kit, :native_date_inputs, false) do
+    if assigns[:native] || assigns[:icon] not in [nil, []] ||
+         Application.get_env(:phoenix_kit, :native_date_inputs, false) do
       native_input(assigns)
     else
       {own, rest} = Map.split(assigns.rest, [:min, :max, :placeholder])
