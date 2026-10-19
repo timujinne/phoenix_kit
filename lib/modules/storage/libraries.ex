@@ -622,6 +622,7 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
   defp check_type(_type, nil), do: :ok
   defp check_type(:boolean, value) when is_boolean(value), do: :ok
+
   defp check_type(_type, _value), do: {:error, :invalid_value}
 
   defp stored(settings, key) do
@@ -634,6 +635,181 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
       nil ->
         nil
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # A module's own per-library settings
+  #
+  # A module that is not core (a package: photos, say) has settings of its own for a
+  # library, and core must not have to name them. They live in the same `settings` map,
+  # under `"modules"` and the module's namespace: `settings["modules"]["photos"]["viewer"]`.
+  # Core keeps the namespacing, the update of only that key, the lock and the history; it
+  # knows no key and checks no value beyond being a plain scalar. Which keys exist, what
+  # they may be, and what none means is the module's to say.
+  # ---------------------------------------------------------------------------
+
+  @module_namespace ~r/\A[a-z][a-z0-9_]{0,31}\z/
+  @module_key ~r/\A[a-z][a-z0-9_]{0,63}\z/
+  @module_value_bytes 255
+
+  @typedoc "A module setting's value: a boolean, a number, or a string of at most 255 bytes."
+  @type module_value :: boolean() | number() | String.t()
+
+  @doc """
+  A module's own value of `key` for a library, or nil when it has none. `namespace` is
+  the module's (`"photos"`); a library, a library uuid, or nil for Media.
+  """
+  @spec module_setting(Library.t() | term(), String.t(), String.t()) :: module_value() | nil
+  def module_setting(%Library{settings: settings}, namespace, key),
+    do: stored_module_value(settings, namespace, key)
+
+  def module_setting(nil, namespace, key), do: module_setting(@media_uuid, namespace, key)
+
+  def module_setting(uuid, namespace, key) do
+    with {:ok, uuid} <- Ecto.UUID.cast(uuid),
+         %Library{} = library <- repo().get(Library, uuid) do
+      module_setting(library, namespace, key)
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Sets a module's own value of `key` for a library; nil removes it. Only that key
+  changes (another key of the module, or another module's, is not lost). The value is
+  a boolean, a number or a string of at most 255 bytes; the namespace and the key are
+  lowercase words (`[a-z][a-z0-9_]*`, up to 32 and 64 characters).
+
+  Returns `{:error, :invalid_namespace | :invalid_key | :invalid_value | :not_found}`
+  and changes nothing when refused.
+  """
+  @spec put_module_setting(Library.t(), String.t(), String.t(), module_value() | nil, keyword()) ::
+          {:ok, Library.t()}
+          | {:error, :invalid_namespace | :invalid_key | :invalid_value | :not_found}
+  def put_module_setting(%Library{} = library, namespace, key, value, opts \\ []) do
+    with :ok <- check_module_namespace(namespace),
+         :ok <- check_module_key(key),
+         :ok <- check_module_value(value) do
+      Audit.change(library, &do_put_module_setting(&1, namespace, key, value, opts))
+    end
+  end
+
+  defp do_put_module_setting(%Library{uuid: uuid} = library, namespace, key, value, opts) do
+    {count, _} =
+      if is_nil(value) do
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              settings:
+                fragment("? #- array['modules', ?::text, ?::text]", l.settings, ^namespace, ^key)
+            ]
+          ]
+        )
+        |> repo().update_all([])
+      else
+        patch = %{key => value}
+
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              # First make sure `modules` exists, then set the module's map to itself merged with the patch.
+              # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+              settings:
+                fragment(
+                  "jsonb_set(jsonb_set(?, '{modules}', coalesce(? -> 'modules', '{}'::jsonb)), array['modules', ?::text], coalesce(? #> array['modules', ?::text], '{}'::jsonb) || ?)",
+                  l.settings,
+                  l.settings,
+                  ^namespace,
+                  l.settings,
+                  ^namespace,
+                  type(^patch, :map)
+                )
+            ]
+          ]
+        )
+        |> repo().update_all([])
+      end
+
+    if count == 1 do
+      if is_nil(value), do: prune_module_namespace(uuid, namespace)
+      updated = get_library(uuid)
+      audit_module_setting(library, updated, namespace, key, opts)
+      {:ok, updated}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  # A module whose last key was removed leaves nothing behind.
+  defp prune_module_namespace(uuid, namespace) do
+    from(l in Library,
+      where: l.uuid == ^uuid,
+      where: fragment("(? #> array['modules', ?::text]) = '{}'::jsonb", l.settings, ^namespace),
+      update: [
+        set: [settings: fragment("? #- array['modules', ?::text]", l.settings, ^namespace)]
+      ]
+    )
+    |> repo().update_all([])
+
+    from(l in Library,
+      where: l.uuid == ^uuid,
+      where: fragment("(? -> 'modules') = '{}'::jsonb", l.settings),
+      update: [set: [settings: fragment("? - 'modules'", l.settings)]]
+    )
+    |> repo().update_all([])
+  end
+
+  defp audit_module_setting(%Library{} = before, %Library{} = updated, namespace, key, opts) do
+    old = module_setting(before, namespace, key)
+    new = module_setting(updated, namespace, key)
+
+    if old != new do
+      audit_library("storage.library.setting_changed", updated, opts, %{
+        "library" => updated.name,
+        PhoenixKit.Activity.changes_key() => %{
+          "#{namespace}.#{key}" => %{"from" => old || "not set", "to" => new || "not set"}
+        }
+      })
+    end
+
+    :ok
+  end
+
+  defp check_module_namespace(namespace) when is_binary(namespace),
+    do:
+      if(Regex.match?(@module_namespace, namespace), do: :ok, else: {:error, :invalid_namespace})
+
+  defp check_module_namespace(_namespace), do: {:error, :invalid_namespace}
+
+  defp check_module_key(key) when is_binary(key),
+    do: if(Regex.match?(@module_key, key), do: :ok, else: {:error, :invalid_key})
+
+  defp check_module_key(_key), do: {:error, :invalid_key}
+
+  defp check_module_value(nil), do: :ok
+  defp check_module_value(value) when is_boolean(value) or is_number(value), do: :ok
+
+  defp check_module_value(value) when is_binary(value) do
+    if byte_size(value) <= @module_value_bytes and String.valid?(value),
+      do: :ok,
+      else: {:error, :invalid_value}
+  end
+
+  defp check_module_value(_value), do: {:error, :invalid_value}
+
+  defp stored_module_value(settings, namespace, key) do
+    with :ok <- check_module_namespace(namespace),
+         :ok <- check_module_key(key),
+         %{} = modules <- Map.get(settings || %{}, "modules"),
+         %{} = own <- Map.get(modules, namespace),
+         value when not is_nil(value) <- Map.get(own, key),
+         :ok <- check_module_value(value) do
+      value
+    else
+      _ -> nil
     end
   end
 
