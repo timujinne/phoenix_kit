@@ -128,6 +128,8 @@ defmodule PhoenixKitWeb.Users.AuthSEOTest do
     end
 
     test "a configured resolver puts the language on its own host, prefix stripped" do
+      {:ok, _} = Settings.update_setting("site_url", "https://site.example.test")
+
       Application.put_env(
         :phoenix_kit,
         :canonical_host_resolver,
@@ -146,6 +148,19 @@ defmodule PhoenixKitWeb.Users.AuthSEOTest do
       es_link = Enum.find(seo.hreflang_links, &(&1.code == "es"))
       assert es_link.url == "https://es.example.test/phoenix_kit/users/register"
       refute es_link.url =~ "/es/"
+    end
+
+    test "the resolved host takes the scheme of the site base URL" do
+      {:ok, _} = Settings.update_setting("site_url", "http://site.example.test")
+
+      Application.put_env(
+        :phoenix_kit,
+        :canonical_host_resolver,
+        {PhoenixKitWeb.Users.AuthSEOTest.FakeResolver, :host_for}
+      )
+
+      assert AuthSEO.seo_assigns("/users/register").canonical_url ==
+               "http://en.example.test/phoenix_kit/users/register"
     end
 
     test "a resolver that raises falls back to the site base URL instead of crashing the mount" do
