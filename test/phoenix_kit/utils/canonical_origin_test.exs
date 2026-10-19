@@ -10,6 +10,18 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest.Resolver do
   defp answer("en-AU"), do: "en.example.test"
   defp answer("de"), do: "de.example.test"
   defp answer("de-DE"), do: "de.example.test"
+  defp answer("en-NZ"), do: "nz.example.test"
+  defp answer("empty_label"), do: "a..example.test"
+  defp answer("leading_dot"), do: ".example.test"
+  defp answer("hyphen_first"), do: "-a.example.test"
+  defp answer("hyphen_last"), do: "a-.example.test"
+  defp answer("port_zero"), do: "de.example.test:0"
+  defp answer("port_max"), do: "de.example.test:65535"
+  defp answer("port_over"), do: "de.example.test:65536"
+  defp answer("port_empty"), do: "de.example.test:"
+  defp answer("ipv6"), do: "[::1]:4000"
+  defp answer("bracket_name"), do: "[de.example.test"
+  defp answer("hyphen_inside"), do: "de-shop.example.test"
   defp answer("blank"), do: "   "
   defp answer("padded"), do: "  padded.example.test  "
   defp answer("upper"), do: "DE.Example.test"
@@ -53,6 +65,14 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
   defp resolver!,
     do: Application.put_env(:phoenix_kit, :canonical_host_resolver, {Resolver, :host_for})
 
+  defp ask_count do
+    receive do
+      {:resolver_asked, _code} -> 1 + ask_count()
+    after
+      0 -> 0
+    end
+  end
+
   defp warnings(log), do: log |> String.split("[warning]") |> length() |> Kernel.-(1)
 
   describe "canonical_host/1 without a usable resolver" do
@@ -62,7 +82,7 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
     end
 
     test "nil, and one warning, when the configured value is not an MFA pair" do
-      for nonsense <- [:nonsense, {Resolver, :host_for, []}, &Resolver.host_for/1] do
+      for nonsense <- [:nonsense, {Resolver, :host_for, []}, &Resolver.host_for/1, {"Mod", :fun}] do
         Application.put_env(:phoenix_kit, :canonical_host_resolver, nonsense)
 
         log =
@@ -116,11 +136,40 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
     test "trims and lower-cases the host; blank is nil" do
       assert Routes.canonical_host("padded") == "padded.example.test"
       assert Routes.canonical_host("upper") == "de.example.test"
-      assert Routes.canonical_host("blank") == nil
+    end
+
+    test "a blank answer is nil and silent" do
+      log = capture_log(fn -> assert Routes.canonical_host("blank") == nil end)
+      assert log == ""
     end
 
     test "keeps a port" do
       assert Routes.canonical_host("port") == "localhost:4000"
+    end
+
+    test "accepts a hyphen inside a label and an IP literal" do
+      assert Routes.canonical_host("hyphen_inside") == "de-shop.example.test"
+      assert Routes.canonical_host("ipv6") == "[::1]:4000"
+    end
+
+    test "the port runs from 1 to 65535" do
+      assert Routes.canonical_host("port_max") == "de.example.test:65535"
+
+      for code <- ~w(port_zero port_over port_empty) do
+        Process.delete({Routes, :warned, :bad_host})
+
+        log = capture_log(fn -> assert Routes.canonical_host(code) == nil end)
+        assert log =~ "not a bare host", "no warning for #{code}"
+      end
+    end
+
+    test "an empty label or a hyphen at the edge of a label is not a host" do
+      for code <- ~w(empty_label leading_dot hyphen_first hyphen_last bracket_name) do
+        Process.delete({Routes, :warned, :bad_host})
+
+        log = capture_log(fn -> assert Routes.canonical_host(code) == nil end)
+        assert log =~ "not a bare host", "no warning for #{code}"
+      end
     end
 
     test "a non-string answer is nil and is logged" do
@@ -192,7 +241,7 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
       assert Routes.canonical_origin("uk") == nil
     end
 
-    test "follows the scheme of the site's base URL" do
+    test "follows the scheme of an explicit site_url" do
       resolver!()
 
       Cache.put(:settings, "site_url", "http://staging.example.test")
@@ -200,6 +249,15 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
 
       Cache.put(:settings, "site_url", "ftp://staging.example.test")
       assert Routes.canonical_origin("de") == "https://de.example.test"
+    end
+
+    test "is https when site_url is unset, whatever scheme the endpoint URL has" do
+      resolver!()
+      Cache.put(:settings, "site_url", "")
+
+      assert Routes.base_url() =~ "http://"
+      assert Routes.canonical_origin("de") == "https://de.example.test"
+      assert Routes.canonical_absolute("/de/pages", "de") == "https://de.example.test/pages"
     end
   end
 
@@ -254,6 +312,39 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
     end
   end
 
+  describe "canonical_absolute_or_nil/2" do
+    test "nil without a host, the URL with one" do
+      assert Routes.canonical_absolute_or_nil("/de/pages", "de") == nil
+
+      resolver!()
+
+      assert Routes.canonical_absolute_or_nil("/de/pages", "de") ==
+               "https://de.example.test/pages"
+
+      assert Routes.canonical_absolute_or_nil("/uk/pages", "uk") == nil
+    end
+
+    test "asks the resolver once, answer or not" do
+      resolver!()
+
+      Routes.canonical_absolute_or_nil("/de/pages", "de")
+      assert ask_count() == 1
+
+      Routes.canonical_absolute_or_nil("/uk/pages", "uk")
+      assert ask_count() == 1
+    end
+
+    test "canonical_absolute/2 asks once too" do
+      resolver!()
+
+      Routes.canonical_absolute("/de/pages", "de")
+      assert ask_count() == 1
+
+      Routes.canonical_absolute("/uk/pages", "uk")
+      assert ask_count() == 1
+    end
+  end
+
   describe "canonical_absolute/2 without a host" do
     test "keeps the built path as it is behind the site base", %{base: base} do
       assert Routes.canonical_absolute("/de/pages/home", "de") ==
@@ -299,6 +390,14 @@ defmodule PhoenixKit.Utils.CanonicalOriginTest do
 
       assert Routes.canonical_absolute("/en/pages", "en-AU") ==
                "https://en.example.test/pages"
+    end
+
+    test "a dialect with a host of its own keeps its segment on that host" do
+      assert Routes.canonical_absolute("/en-nz/pages", "en-NZ") ==
+               "https://nz.example.test/en-nz/pages"
+
+      assert Routes.canonical_absolute("/en/pages", "en-NZ") ==
+               "https://nz.example.test/pages"
     end
 
     test "keeps the mount prefix and removes the segment after it" do

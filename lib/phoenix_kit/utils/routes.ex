@@ -1468,8 +1468,11 @@ defmodule PhoenixKit.Utils.Routes do
   per minute, not one per call.
 
   A usable answer is a bare `host` or `host:port` (a name or an IP literal),
-  lower-cased. Anything else (a scheme, a path or trailing slash, a query,
-  credentials, inner whitespace) is not a host and counts as no answer.
+  lower-cased: a name of non-empty labels that neither start nor end with a
+  hyphen, a port from 1 to 65535. Anything else (a scheme, a path or trailing
+  slash, a query, credentials, inner whitespace, an empty label) is not a host
+  and counts as no answer. A blank answer is no answer without a warning. An
+  internationalized name is not converted: answer it punycoded.
 
   ## Examples
 
@@ -1533,10 +1536,7 @@ defmodule PhoenixKit.Utils.Routes do
       host == "" ->
         nil
 
-      Regex.match?(
-        ~r/\A(?:[\p{L}\p{N}](?:[\p{L}\p{N}.-]*[\p{L}\p{N}])?|\[[0-9a-f:.]+\])(?::\d{1,5})?\z/u,
-        host
-      ) ->
+      bare_host?(host) ->
         host
 
       true ->
@@ -1557,6 +1557,26 @@ defmodule PhoenixKit.Utils.Routes do
     )
 
     nil
+  end
+
+  # A name of non-empty labels that neither start nor end with a hyphen, or an
+  # IP literal, then an optional port from 1 to 65535. Non-ASCII letters are
+  # let through as they are: an internationalized name has to come punycoded
+  # from the resolver to be a valid URL host.
+  defp bare_host?(host) do
+    case Regex.run(~r/\A(\[[0-9a-f:.]+\]|[^:\[]*)(?::(\d{1,5}))?\z/, host) do
+      [_, name] -> host_name?(name)
+      [_, name, port] -> host_name?(name) and String.to_integer(port) in 1..65_535
+      nil -> false
+    end
+  end
+
+  defp host_name?("[" <> _ip_literal), do: true
+
+  defp host_name?(name) do
+    name
+    |> String.split(".")
+    |> Enum.all?(&Regex.match?(~r/\A[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?\z/u, &1))
   end
 
   defp clean_language(language) when is_binary(language) do
@@ -1594,13 +1614,16 @@ defmodule PhoenixKit.Utils.Routes do
   @doc """
   `scheme <> "://" <> host` for the host `canonical_host/1` finds, or `nil`.
 
-  The scheme is the one of the site's `base_url/0` (`https` when that is not
-  `http` or `https`), so a plain-HTTP staging site does not get `https` links.
+  The scheme is the one of the explicit `site_url` setting when that is `http`
+  or `https`, and `https` otherwise (also when `site_url` is unset, whatever
+  scheme the endpoint URL has), so a plain-HTTP staging site that sets
+  `site_url` does not get `https` links.
 
   `nil` means the language has no host of its own: fall back to `base_url/0`
-  and keep the language segment in the path. `canonical_url/2` and
-  `canonical_absolute/3` do exactly that, so build URLs with them rather than
-  with the origin.
+  and keep the language segment in the path. `canonical_url/2`,
+  `canonical_absolute/2` and `canonical_absolute_or_nil/2` do exactly that, so
+  build URLs with them rather than with the origin, and do not call this to
+  probe for a host before calling them.
   """
   @spec canonical_origin(String.t() | nil) :: String.t() | nil
   def canonical_origin(language) do
@@ -1611,9 +1634,15 @@ defmodule PhoenixKit.Utils.Routes do
   end
 
   defp site_scheme do
-    case URI.parse(cached_base_url()).scheme do
-      scheme when scheme in ["http", "https"] -> scheme
-      _ -> "https"
+    case PhoenixKit.Settings.get_setting_cached("site_url", "") do
+      site_url when is_binary(site_url) ->
+        case URI.parse(site_url).scheme do
+          scheme when scheme in ["http", "https"] -> scheme
+          _ -> "https"
+        end
+
+      _unset ->
+        "https"
     end
   end
 
@@ -1626,7 +1655,7 @@ defmodule PhoenixKit.Utils.Routes do
   `https://de.example.com/phoenix_kit/users/register`. Otherwise it is the
   site's base URL plus the language-prefixed `path/2`.
 
-  Use `canonical_absolute/3` for a path that is already built. The site base
+  Use `canonical_absolute/2` for a path that is already built. The site base
   is read from the settings cache, so the call is cheap enough to make per URL.
   """
   @spec canonical_url(String.t(), String.t() | nil) :: String.t()
@@ -1651,14 +1680,17 @@ defmodule PhoenixKit.Utils.Routes do
 
   `language` goes to the host resolver as given (`canonical_host/1`). Where it
   answers a host, the language segment is removed and the host put in front.
-  Without a host the path is kept as it is behind the site's base URL.
+  Without a host the path is kept as it is behind the site's base URL. To
+  fall back to another base instead, use `canonical_absolute_or_nil/2`.
 
   Only the segment that equals the language's **base** code is removed, and
   only straight after the mount prefix, ignoring case: for `"de"` and `"de-DE"`
   `/de` goes, for `"en-GB"` `/en` goes. A dialect segment stays: `/en-gb/pages`
   for `"en-GB"` is `https://<en host>/en-gb/pages`, never the page of the
-  sibling dialect that owns `/en`. A page named like a language (`/pages/de`)
-  stays too.
+  sibling dialect that owns `/en`. This holds on a dialect's own host too:
+  when the resolver gives `"en-GB"` a host of its own, `/en-gb/pages` for
+  `"en-GB"` is `https://<en-GB host>/en-gb/pages`. A page named like a language
+  (`/pages/de`) stays too.
 
   The site base is read from the settings cache, so the call is cheap enough to
   make per URL.
@@ -1671,8 +1703,22 @@ defmodule PhoenixKit.Utils.Routes do
   """
   @spec canonical_absolute(String.t(), String.t() | nil) :: String.t()
   def canonical_absolute("/" <> _ = built_path, language) do
+    canonical_absolute_or_nil(built_path, language) || cached_base_url() <> built_path
+  end
+
+  @doc """
+  `canonical_absolute/2` for a language with a host, `nil` for one without.
+
+  One resolver call answers both, so this is the call for a presenter that has
+  a base of its own to fall back to: no `canonical_origin/1` probe first, which
+  would ask the resolver twice per URL.
+
+      Routes.canonical_absolute_or_nil("/de/pages/home", "de") || my_base <> "/de/pages/home"
+  """
+  @spec canonical_absolute_or_nil(String.t(), String.t() | nil) :: String.t() | nil
+  def canonical_absolute_or_nil("/" <> _ = built_path, language) do
     case canonical_origin(language) do
-      nil -> cached_base_url() <> built_path
+      nil -> nil
       origin -> origin <> strip_base_segment(built_path, language_base(language))
     end
   end
