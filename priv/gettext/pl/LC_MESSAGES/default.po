@@ -20347,10 +20347,10 @@ msgstr "Zapisz zakresy"
 msgid "The scopes were saved."
 msgstr "Zakresy zostały zapisane."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:751
+#: lib/phoenix_kit_web/live/settings/api.html.heex:800
 #, elixir-autogen, elixir-format
-msgid "These scopes are inactive because the owner can no longer use them. They stay on the key when you save."
-msgstr "Te zakresy są nieaktywne, ponieważ właściciel nie może już ich używać. Przy zapisie pozostają przypisane do klucza."
+msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
+msgstr "Te zakresy są nieaktywne, ponieważ właściciel nie może już ich używać lub API ich modułu jest wyłączone. Przy zapisie pozostają przypisane do klucza."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:325
 #, elixir-autogen, elixir-format
@@ -20694,3 +20694,75 @@ msgstr "Wybierz datę nie wcześniejszą niż %{min}"
 #, elixir-autogen, elixir-format
 msgid "Pick a date on or before %{max}"
 msgstr "Wybierz datę nie późniejszą niż %{max}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#, elixir-autogen, elixir-format
+msgid "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
+msgstr "Każdy moduł poniżej udostępnia narzędzia dla API. Po wyłączeniu modułu wszystkie jego narzędzia odpowiadają tak, jakby nie istniały, dla każdego klucza. Moduły są włączone, dopóki ich nie wyłączysz."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:87
+#, elixir-autogen, elixir-format
+msgid "No installed module offers tools to the API."
+msgstr "Żaden zainstalowany moduł nie udostępnia narzędzi dla API."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:98
+#, elixir-autogen, elixir-format
+msgid "Tools: %{count}"
+msgstr "Narzędzia: %{count}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:100
+#, elixir-autogen, elixir-format
+msgid "Module disabled"
+msgstr "Moduł wyłączony"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:424
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is on."
+msgstr "API modułu %{module} jest włączone."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:427
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is off."
+msgstr "API modułu %{module} jest wyłączone."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:113
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} off"
+msgstr "Wyłącz API modułu %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:114
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} on"
+msgstr "Włącz API modułu %{module}"
+
+#: lib/phoenix_kit_web/live/modules.ex:120
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API on"
+msgstr "API włączone"
+
+#: lib/phoenix_kit_web/live/modules.ex:121
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API off"
+msgstr "API wyłączone"
+
+#: lib/phoenix_kit_web/live/modules.ex:122
+#, elixir-autogen, elixir-format
+msgid "API idle"
+msgstr "API nieaktywne"
+
+#: lib/phoenix_kit_web/live/modules.ex:124
+#, elixir-autogen, elixir-format
+msgid "The module's tools can be called through the API."
+msgstr "Narzędzia modułu można wywoływać przez API."
+
+#: lib/phoenix_kit_web/live/modules.ex:127
+#, elixir-autogen, elixir-format
+msgid "The module's API is switched off in Settings -> API."
+msgstr "API modułu jest wyłączone w Ustawienia -> API."
+
+#: lib/phoenix_kit_web/live/modules.ex:131
+#, elixir-autogen, elixir-format
+msgid "The module's API is on, but nothing can call it now: the module is disabled or the API it serves is switched off."
+msgstr "API modułu jest włączone, ale teraz nikt nie może go wywołać: moduł jest wyłączony albo API, które obsługuje, jest wyłączone."

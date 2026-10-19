@@ -16,6 +16,14 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
       end
     end
 
+    def get_by(_schema, key: "api_disabled_modules") do
+      case Process.get(:modules_read) do
+        :exit -> exit(:database_unavailable)
+        :raise -> raise DBConnection.ConnectionError, message: "database unavailable"
+        _ -> nil
+      end
+    end
+
     def get_by(_schema, _clauses), do: nil
   end
 
@@ -72,5 +80,28 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
     assert Config.fetch_disabled_tools() == {:ok, ["system.get_identity"]}
     assert Registry.find("system.get_identity", :admin) == {:error, :not_found}
     assert Process.get(:settings_queries) == 2
+  end
+
+  @tag capture_log: true
+  test "a list of hidden modules that cannot be read hides everything, it never re-enables a module" do
+    PhoenixKit.Cache.put(:settings, "api_disabled_tools", "")
+    Process.put(:modules_read, :raise)
+
+    assert Config.fetch_disabled_modules() == :unreadable
+    assert Config.disabled_modules() == []
+    assert Registry.all_tools() == []
+    assert Registry.find("system.get_identity", :admin) == {:error, :not_found}
+
+    Process.put(:modules_read, :exit)
+    assert Config.fetch_disabled_modules() == :unreadable
+    assert Registry.all_tools() == []
+  end
+
+  test "an explicitly empty cached list of hidden modules is readable during a DB outage" do
+    PhoenixKit.Cache.put(:settings, "api_disabled_tools", "")
+    PhoenixKit.Cache.put(:settings, "api_disabled_modules", "")
+
+    assert Config.fetch_disabled_modules() == {:ok, []}
+    assert {:ok, _tool} = Registry.find("system.get_identity", :admin)
   end
 end

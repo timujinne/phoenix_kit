@@ -80,6 +80,20 @@ defmodule PhoenixKit.API.MCP.NamesTest do
     end
   end
 
+  describe "resolve/2 and api_disabled_modules" do
+    test "a tool of a module whose API is switched off is unknown: the name comes back as typed" do
+      put_setting("api_disabled_modules", "api_test_tools")
+
+      assert Names.resolve("testkit_read_items", :admin) == "testkit_read_items"
+      assert Names.resolve("testkit_public_echo", :public) == "testkit_public_echo"
+      # Core's tools belong to no module.
+      assert Names.resolve("system_get_identity", :admin) == "system.get_identity"
+
+      put_setting("api_disabled_modules", "")
+      assert Names.resolve("testkit_read_items", :admin) == "testkit.read_items"
+    end
+  end
+
   describe "dedupe/1" do
     test "keeps the first of the tools that share an MCP name, in order" do
       first = tool("a.b_c")

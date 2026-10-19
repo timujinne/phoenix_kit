@@ -293,6 +293,24 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
       assert text(token |> call("testkit_read_items") |> result()) =~ "[not_found] "
     end
 
+    test "a tool of a module whose API is switched off is not_found in either form", %{
+      token: token
+    } do
+      put_setting("api_disabled_modules", "api_test_tools")
+
+      for name <- ["testkit_read_items", "testkit.read_items"] do
+        result = token |> call(name) |> result()
+
+        assert result["isError"] == true, name
+        assert text(result) =~ "[not_found] ", name
+      end
+
+      refute_received {:read_items, _, _}
+
+      put_setting("api_disabled_modules", "")
+      refute token |> call("testkit_read_items") |> result() |> Map.get("isError")
+    end
+
     test "a handler that returns an error: its code and context", %{token: token} do
       result = token |> call("testkit_fail_write") |> result()
 

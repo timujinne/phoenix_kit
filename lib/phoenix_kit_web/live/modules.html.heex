@@ -224,6 +224,12 @@
             </span>
             <span class="badge badge-outline">v{ext.version}</span>
             <span class="badge badge-info badge-outline">{gettext("External")}</span>
+            <.api_badge
+              :if={Map.has_key?(@api_modules, ext.key)}
+              id={"module-api-badge-#{ext.key}"}
+              state={@api_modules[ext.key]}
+              link?={"api" in @accessible_modules}
+            />
             <%= for req_mod <- ext.required_modules do %>
               <%= unless module_enabled?(@module_configs[req_mod] || %{}) do %>
                 <span class="badge badge-warning">

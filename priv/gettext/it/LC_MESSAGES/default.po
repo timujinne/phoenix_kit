@@ -20284,10 +20284,10 @@ msgstr "Salva gli ambiti"
 msgid "The scopes were saved."
 msgstr "Gli ambiti sono stati salvati."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:751
+#: lib/phoenix_kit_web/live/settings/api.html.heex:800
 #, elixir-autogen, elixir-format
-msgid "These scopes are inactive because the owner can no longer use them. They stay on the key when you save."
-msgstr "Questi ambiti sono inattivi perché il proprietario non può più usarli. Restano sulla chiave al salvataggio."
+msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
+msgstr "Questi ambiti sono inattivi perché il proprietario non può più usarli o l'API del loro modulo è disattivata. Restano sulla chiave al salvataggio."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:325
 #, elixir-autogen, elixir-format
@@ -20631,3 +20631,75 @@ msgstr "Scegli una data a partire dal %{min}"
 #, elixir-autogen, elixir-format
 msgid "Pick a date on or before %{max}"
 msgstr "Scegli una data fino al %{max}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#, elixir-autogen, elixir-format
+msgid "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
+msgstr "Ogni modulo qui sotto offre strumenti all'API. Se disattivi un modulo, tutti i suoi strumenti rispondono come se non esistessero, per qualsiasi chiave. I moduli sono attivi finché non li disattivi."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:87
+#, elixir-autogen, elixir-format
+msgid "No installed module offers tools to the API."
+msgstr "Nessun modulo installato offre strumenti all'API."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:98
+#, elixir-autogen, elixir-format
+msgid "Tools: %{count}"
+msgstr "Strumenti: %{count}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:100
+#, elixir-autogen, elixir-format
+msgid "Module disabled"
+msgstr "Modulo disattivato"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:424
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is on."
+msgstr "L'API di %{module} è attiva."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:427
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is off."
+msgstr "L'API di %{module} è disattivata."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:113
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} off"
+msgstr "Disattiva l'API di %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:114
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} on"
+msgstr "Attiva l'API di %{module}"
+
+#: lib/phoenix_kit_web/live/modules.ex:120
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API on"
+msgstr "API attiva"
+
+#: lib/phoenix_kit_web/live/modules.ex:121
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API off"
+msgstr "API disattivata"
+
+#: lib/phoenix_kit_web/live/modules.ex:122
+#, elixir-autogen, elixir-format
+msgid "API idle"
+msgstr "API inattiva"
+
+#: lib/phoenix_kit_web/live/modules.ex:124
+#, elixir-autogen, elixir-format
+msgid "The module's tools can be called through the API."
+msgstr "Gli strumenti del modulo possono essere chiamati tramite l'API."
+
+#: lib/phoenix_kit_web/live/modules.ex:127
+#, elixir-autogen, elixir-format
+msgid "The module's API is switched off in Settings -> API."
+msgstr "L'API del modulo è disattivata in Impostazioni -> API."
+
+#: lib/phoenix_kit_web/live/modules.ex:131
+#, elixir-autogen, elixir-format
+msgid "The module's API is on, but nothing can call it now: the module is disabled or the API it serves is switched off."
+msgstr "L'API del modulo è attiva, ma al momento nessuno può chiamarla: il modulo è disattivato o l'API che serve è disattivata."

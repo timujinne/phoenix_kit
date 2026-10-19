@@ -365,6 +365,16 @@ defmodule PhoenixKit.API.ApprovalsDecideTest do
       assert_nothing_written(row)
     end
 
+    test "the tool's module switched off in api_disabled_modules since the request: failed with not_found, nothing written",
+         %{agent: agent, owner_scope: scope} do
+      row = pending!(agent)
+      :ok = ApiHarness.put_setting("api_disabled_modules", "api_flow_tools")
+
+      assert {:ok, %{status: "failed"}} = Approvals.approve(row.uuid, scope)
+      assert error_code(row) == "not_found"
+      assert_nothing_written(row)
+    end
+
     test "an input that no longer passes the schema: failed with validation_failed", %{
       agent: agent,
       owner_scope: scope

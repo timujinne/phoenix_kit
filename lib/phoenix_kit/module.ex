@@ -667,9 +667,10 @@ defmodule PhoenixKit.Module do
   from them, so validation, permission checks, rate limits and the shape of the response
   are done once, in core. Details: `PhoenixKit.API.Tool`, `PhoenixKit.API.Registry`.
 
-  Collected from **enabled** modules by `PhoenixKit.ModuleRegistry.all_api_tools/0`: a
-  disabled module's tools cannot be called.
-  `PhoenixKit.ModuleRegistry.disabled_api_tool?/2` asks the switched-off modules, so the API
+  Collected from **enabled** modules by `PhoenixKit.ModuleRegistry.all_api_tools/1`: a
+  disabled module's tools cannot be called, and neither can those of a module whose API the
+  install has switched off (its `module_key/0` in the `api_disabled_modules` setting).
+  `PhoenixKit.ModuleRegistry.disabled_api_tool?/3` asks the switched-off modules, so the API
   can answer "module disabled" instead of "no such tool".
 
   Build every tool with `PhoenixKit.API.Tool.new!/1`. A tool that fails

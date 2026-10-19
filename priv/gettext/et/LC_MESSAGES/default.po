@@ -20293,10 +20293,10 @@ msgstr "Salvesta ulatused"
 msgid "The scopes were saved."
 msgstr "Ulatused salvestati."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:751
+#: lib/phoenix_kit_web/live/settings/api.html.heex:800
 #, elixir-autogen, elixir-format
-msgid "These scopes are inactive because the owner can no longer use them. They stay on the key when you save."
-msgstr "Need ulatused on mitteaktiivsed, sest omanik ei saa neid enam kasutada. Need jäävad salvestamisel võtme külge alles."
+msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
+msgstr "Need ulatused on mitteaktiivsed, sest omanik ei saa neid enam kasutada või nende mooduli API on välja lülitatud. Need jäävad salvestamisel võtme külge alles."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:325
 #, elixir-autogen, elixir-format
@@ -20640,3 +20640,75 @@ msgstr "Vali kuupäev alates %{min}"
 #, elixir-autogen, elixir-format
 msgid "Pick a date on or before %{max}"
 msgstr "Vali kuupäev kuni %{max}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#, elixir-autogen, elixir-format
+msgid "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
+msgstr "Iga allpool olev moodul pakub API-le tööriistu. Kui lülitate mooduli välja, vastavad kõik selle tööriistad nii, nagu neid poleks, iga võtme puhul. Moodulid on sees, kuni need välja lülitate."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:87
+#, elixir-autogen, elixir-format
+msgid "No installed module offers tools to the API."
+msgstr "Ükski paigaldatud moodul ei paku API-le tööriistu."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:98
+#, elixir-autogen, elixir-format
+msgid "Tools: %{count}"
+msgstr "Tööriistu: %{count}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:100
+#, elixir-autogen, elixir-format
+msgid "Module disabled"
+msgstr "Moodul keelatud"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:424
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is on."
+msgstr "%{module} API on sees."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:427
+#, elixir-autogen, elixir-format
+msgid "The API of %{module} is off."
+msgstr "%{module} API on väljas."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:113
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} off"
+msgstr "Lülita %{module} API välja"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:114
+#, elixir-autogen, elixir-format
+msgid "Switch the API of %{module} on"
+msgstr "Lülita %{module} API sisse"
+
+#: lib/phoenix_kit_web/live/modules.ex:120
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API on"
+msgstr "API sees"
+
+#: lib/phoenix_kit_web/live/modules.ex:121
+#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "API off"
+msgstr "API väljas"
+
+#: lib/phoenix_kit_web/live/modules.ex:122
+#, elixir-autogen, elixir-format
+msgid "API idle"
+msgstr "API passiivne"
+
+#: lib/phoenix_kit_web/live/modules.ex:124
+#, elixir-autogen, elixir-format
+msgid "The module's tools can be called through the API."
+msgstr "Mooduli tööriistu saab API kaudu kutsuda."
+
+#: lib/phoenix_kit_web/live/modules.ex:127
+#, elixir-autogen, elixir-format
+msgid "The module's API is switched off in Settings -> API."
+msgstr "Mooduli API on seadetes (Seaded -> API) välja lülitatud."
+
+#: lib/phoenix_kit_web/live/modules.ex:131
+#, elixir-autogen, elixir-format
+msgid "The module's API is on, but nothing can call it now: the module is disabled or the API it serves is switched off."
+msgstr "Mooduli API on sees, kuid praegu ei saa seda keegi kutsuda: moodul on keelatud või API, mida see teenindab, on välja lülitatud."

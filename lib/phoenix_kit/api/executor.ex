@@ -11,8 +11,8 @@ defmodule PhoenixKit.API.Executor do
     4. **Tool visible.** The tool exists for this audience (`404 not_found`),
        its module is enabled (`404 module_disabled`), and the key's effective
        scopes include the tool's scope (`403 forbidden`). A tool listed in
-       `api_disabled_tools` does not exist for `PhoenixKit.API.Registry`, so
-       it is `not_found` too.
+       `api_disabled_tools`, or of a module listed in `api_disabled_modules`,
+       does not exist for `PhoenixKit.API.Registry`, so it is `not_found` too.
     5. **Rate limit**, cost weighted (`PhoenixKit.API.RateLimit`, `cost/2`):
        a call costs 1 unit; only a **write** tool of the admin audience (not
        read-only) costs 1 per 50 rows of its longest top-level list, counted

@@ -1,6 +1,7 @@
 defmodule PhoenixKitWeb.Live.Settings.Api do
   @moduledoc """
-  Settings -> API: the two switches of the shop API, the API keys (create,
+  Settings -> API: the two switches of the shop API, the API switch of each module
+  that declares tools, the API keys (create,
   rotate, edit the scopes, revoke), the service users that can own keys, the
   one-time dialog that shows a new key, and the "Limits and advanced" settings
   (rate limits, hidden tools, allowed MCP origins).
@@ -23,6 +24,14 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
 
   The dialog cannot be closed by Esc or a click outside, so the secret is not
   lost by accident; `dismiss_token` clears the assign.
+
+  ## Per-module switches
+
+  Every module that declares API tools (`PhoenixKit.ModuleRegistry.api_modules/0`) has an
+  on/off switch. Off adds the module's key to `api_disabled_modules`, and
+  `PhoenixKit.API.Registry` then withholds all its tools like hidden ones. The event names
+  the module by key and the state it wants; the key must be one of the listed modules and
+  the other keys of the setting are kept as they are.
 
   ## Rights are checked on the server
 
@@ -60,6 +69,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   alias PhoenixKit.API.Keys.DisplayToken
   alias PhoenixKit.API.Registry
   alias PhoenixKit.API.ServiceUsers
+  alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Utils.Routes
@@ -134,6 +144,18 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
 
         {:error, _changeset} ->
           put_flash(socket, :error, gettext("The switch could not be saved."))
+      end
+    end)
+  end
+
+  # The module must be one the page lists, and the new state is the one asked for (not
+  # a flip), so a replayed or double-clicked event does not undo itself.
+  def handle_event("set_module_api", %{"module" => key, "state" => state}, socket)
+      when is_binary(key) and state in ["on", "off"] do
+    with_access(socket, fn socket ->
+      case Enum.find(ModuleRegistry.api_modules(), &(&1.key == key)) do
+        nil -> refuse(socket)
+        mod -> set_module_api(socket, mod, state == "on")
       end
     end)
   end
@@ -365,12 +387,51 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     socket
     |> assign(:admin_enabled, Config.admin_enabled?())
     |> assign(:public_enabled, Config.public_enabled?())
+    |> assign(:api_modules, api_modules())
     |> assign(:keys, keys)
     |> assign(:service_users, service_users)
     |> assign(:pending_approvals, Approvals.pending_count(scope))
     |> assign(:allowed_roles, ServiceUsers.allowed_roles(scope))
     |> assign(:owner_labels, owner_labels(keys, service_users, scope))
     |> assign(:key_counts, Enum.frequencies_by(keys, & &1.user_uuid))
+  end
+
+  # Only this module's key changes; keys of modules that are not installed stay listed. The
+  # list is read from the database under a row lock inside the write, not from the settings
+  # cache, so another admin's change (or a stale cache on this node) is never overwritten.
+  defp set_module_api(socket, %{key: key} = mod, on?) do
+    change = fn stored ->
+      listed = Config.parse_list(stored)
+      wanted = if(on?, do: List.delete(listed, key), else: Enum.uniq(listed ++ [key]))
+      if wanted == listed, do: :unchanged, else: Config.encode_list(wanted)
+    end
+
+    case Settings.modify_setting_with_module(
+           "api_disabled_modules",
+           "api",
+           change,
+           history(socket)
+         ) do
+      {:ok, _setting} ->
+        socket |> assign_state() |> put_flash(:info, module_api_saved(mod, on?))
+
+      {:error, _changeset} ->
+        put_flash(socket, :error, gettext("The switch could not be saved."))
+    end
+  end
+
+  defp module_api_saved(mod, true),
+    do: gettext("The API of %{module} is on.", module: module_label(mod))
+
+  defp module_api_saved(mod, false),
+    do: gettext("The API of %{module} is off.", module: module_label(mod))
+
+  defp module_label(%{name: name}), do: Gettext.gettext(PhoenixKitWeb.Gettext, name)
+
+  # The modules with tools and whether their API is on right now.
+  defp api_modules do
+    disabled = Config.disabled_modules()
+    Enum.map(ModuleRegistry.api_modules(), &Map.put(&1, :api_on?, &1.key not in disabled))
   end
 
   defp switch_on?("admin"), do: Config.admin_enabled?()

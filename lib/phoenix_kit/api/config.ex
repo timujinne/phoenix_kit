@@ -14,6 +14,7 @@ defmodule PhoenixKit.API.Config do
   | `api_admin_enabled` | `false` |
   | `api_public_enabled` | `false` |
   | `api_disabled_tools` | `""` (newline separated tool names) |
+  | `api_disabled_modules` | `""` (newline separated module keys) |
   | `api_mcp_allowed_origins` | `""` (newline separated origins) |
   | `api_admin_preauth_fail_per_min` | `20` |
   | `api_admin_rate_per_min` | `600` |
@@ -70,6 +71,29 @@ defmodule PhoenixKit.API.Config do
   """
   @spec fetch_disabled_tools() :: {:ok, [String.t()]} | :unreadable
   def fetch_disabled_tools, do: fetch_list("api_disabled_tools")
+
+  @doc """
+  Module keys whose API tools the install has switched off (`api_disabled_modules`). For
+  display only, like `disabled_tools/0`: a list that cannot be read is `[]` here.
+  """
+  @spec disabled_modules() :: [String.t()]
+  def disabled_modules do
+    case fetch_disabled_modules() do
+      {:ok, keys} -> keys
+      :unreadable -> []
+    end
+  end
+
+  @doc """
+  Module keys whose API tools the install has switched off (`api_disabled_modules`), telling
+  an empty list from one that could not be read at all. A module that is not in the list has
+  its API on, so every install starts with all of them on.
+
+  The tool registry fails closed on `:unreadable`, as with `fetch_disabled_tools/0`. This is
+  the one reader of the setting.
+  """
+  @spec fetch_disabled_modules() :: {:ok, [String.t()]} | :unreadable
+  def fetch_disabled_modules, do: fetch_list("api_disabled_modules")
 
   @doc "Extra origins allowed to call the MCP endpoint (`api_mcp_allowed_origins`)."
   @spec mcp_allowed_origins() :: [String.t()]
