@@ -21143,3 +21143,214 @@ msgstr "Каталог API"
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr "Этот сайт"
+
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:218
+#: lib/phoenix_kit_web/live/approvals.ex:57
+#, elixir-autogen, elixir-format
+msgid "Approvals"
+msgstr "Одобрения"
+
+#: lib/phoenix_kit_web/live/approvals.ex:448
+#, elixir-autogen, elixir-format
+msgid "Done."
+msgstr "Готово."
+
+#: lib/phoenix_kit_web/live/approvals.ex:449
+#, elixir-autogen, elixir-format
+msgid "Done: %{summary}"
+msgstr "Готово: %{summary}"
+
+#: lib/phoenix_kit_web/live/approvals.ex:457
+#, elixir-autogen, elixir-format
+msgid "Not executed: the data changed since the request; nothing was written."
+msgstr "Не выполнено: данные изменились с момента запроса; ничего не записано."
+
+#: lib/phoenix_kit_web/live/approvals.ex:462
+#, elixir-autogen, elixir-format
+msgid "Failed: %{code}"
+msgstr "Ошибка: %{code}"
+
+#: lib/phoenix_kit_web/live/approvals.ex:466
+#, elixir-autogen, elixir-format
+msgid "Rejected: nothing was run."
+msgstr "Отклонено: ничего не выполнялось."
+
+#: lib/phoenix_kit_web/live/approvals.ex:469
+#, elixir-autogen, elixir-format
+msgid "Expired: nobody decided in time, nothing was run."
+msgstr "Истекло: никто не решил вовремя, ничего не выполнялось."
+
+#: lib/phoenix_kit_web/live/approvals.ex:471
+#, elixir-autogen, elixir-format
+msgid "Running."
+msgstr "Выполняется."
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:32
+#: lib/phoenix_kit_web/live/approvals.html.heex:252
+#, elixir-autogen, elixir-format
+msgid "Rows: %{count}"
+msgstr "Строк: %{count}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:44
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key} (owner: %{owner})"
+msgstr "Запрошено ключом %{key} (владелец: %{owner})"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:49
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key}"
+msgstr "Запрошено ключом %{key}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "Decided by %{name}"
+msgstr "Решение: %{name}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:123
+#, elixir-autogen, elixir-format
+msgid "Summary: %{summary}."
+msgstr "Сводка: %{summary}."
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:141
+#, elixir-autogen, elixir-format
+msgid "Item"
+msgstr "Позиция"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:143
+#, elixir-autogen, elixir-format
+msgid "Was"
+msgstr "Было"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:144
+#, elixir-autogen, elixir-format
+msgid "Becomes"
+msgstr "Станет"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:145
+#, elixir-autogen, elixir-format
+msgid "Change, %"
+msgstr "Изменение, %"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:196
+#, elixir-autogen, elixir-format
+msgid "Technical details (JSON)"
+msgstr "Технические детали (JSON)"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:228
+#, elixir-autogen, elixir-format
+msgid "Operation"
+msgstr "Операция"
+
+#: lib/phoenix_kit_web/live/approvals.ex:426
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} d"
+msgstr "Истекает через %{count} дн."
+
+#: lib/phoenix_kit_web/live/approvals.ex:425
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} h"
+msgstr "Истекает через %{count} ч"
+
+#: lib/phoenix_kit_web/live/approvals.ex:424
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} min"
+msgstr "Истекает через %{count} мин"
+
+#: lib/phoenix_kit_web/live/approvals.ex:423
+#, elixir-autogen, elixir-format
+msgid "Expires in less than a minute"
+msgstr "Истекает менее чем через минуту"
+
+#: lib/phoenix_kit_web/live/approvals.ex:401
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "create"
+msgstr "создать"
+
+#: lib/phoenix_kit_web/live/approvals.ex:407
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "delete"
+msgstr "удалить"
+
+#: lib/phoenix_kit_web/live/approvals.ex:416
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "error"
+msgstr "ошибка"
+
+#: lib/phoenix_kit_web/live/approvals.ex:410
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "remove"
+msgstr "убрать"
+
+#: lib/phoenix_kit_web/live/approvals.ex:413
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "skip"
+msgstr "пропустить"
+
+#: lib/phoenix_kit_web/live/approvals.ex:415
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "unchanged"
+msgstr "без изменений"
+
+#: lib/phoenix_kit_web/live/approvals.ex:404
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "update"
+msgstr "обновить"
+
+#: lib/phoenix_kit_web/live/approvals.ex:377
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "created"
+msgstr "создано"
+
+#: lib/phoenix_kit_web/live/approvals.ex:383
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "deleted"
+msgstr "удалено"
+
+#: lib/phoenix_kit_web/live/approvals.ex:393
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "error"
+msgstr "ошибки"
+
+#: lib/phoenix_kit_web/live/approvals.ex:386
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "removed"
+msgstr "убрано"
+
+#: lib/phoenix_kit_web/live/approvals.ex:391
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "skipped"
+msgstr "пропущено"
+
+#: lib/phoenix_kit_web/live/approvals.ex:388
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "unchanged"
+msgstr "без изменений"
+
+#: lib/phoenix_kit_web/live/approvals.ex:380
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "updated"
+msgstr "обновлено"
+
+#: lib/modules/storage/web/dimension_form.html.heex:257
+#, elixir-autogen, elixir-format
+msgid "HDR video poster"
+msgstr "Постер HDR-видео"
+
+#: lib/modules/storage/web/dimension_form.html.heex:270
+#, elixir-autogen, elixir-format
+msgid "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
+msgstr "Изображение, показываемое для HDR-видео (записи HLG с iPhone), создаётся как HDR-фото с картой усиления (gain map), поэтому яркие участки светятся на HDR-экране; на других экранах показывается обычное изображение. Без этой опции изображение обычное. Применяется к видео, обработанным с этого момента."

@@ -11,7 +11,9 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
 
   require Logger
 
-  alias PhoenixKit.Dashboard.{Group, Tab}
+  alias PhoenixKit.API.Approvals
+  alias PhoenixKit.API.LogSafe
+  alias PhoenixKit.Dashboard.{Badge, Group, Tab}
   alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Modules.Storage.Libraries
   alias PhoenixKit.Users.Auth.Scope
@@ -208,6 +210,21 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
         group: :admin_main,
         gettext_backend: PhoenixKitWeb.Gettext
       },
+      # Operations from API keys that wait for a person (the approvals of the shop API).
+      # Gated on the `api` key like Settings -> API, which is opt-in for Admin; the number
+      # on it is read per viewer (`with_scope_badges/2`).
+      %Tab{
+        id: :admin_approvals,
+        label: gettext_noop("Approvals"),
+        icon: "hero-shield-check",
+        path: "approvals",
+        priority: 255,
+        level: :admin,
+        permission: "api",
+        match: :prefix,
+        group: :admin_main,
+        gettext_backend: PhoenixKitWeb.Gettext
+      },
       # Jobs: always on (it was a module with a toggle; background work now runs through it)
       %Tab{
         id: :admin_jobs,
@@ -252,6 +269,33 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
     ]
 
     Enum.map(tabs, &Tab.resolve_path(&1, :admin))
+  end
+
+  @doc """
+  Puts the numbers that depend on who is looking onto the tabs that carry one.
+
+  The registry holds one `Tab` per id for everybody, so a count that differs per viewer
+  cannot live in it: the sidebar calls this on the tabs it is about to draw. Today that is
+  the Approvals entry, which shows how many pending approvals `scope` may decide; the
+  badge hides itself at zero. A failed count leaves the tab without a badge rather than
+  taking the menu down.
+  """
+  @spec with_scope_badges([Tab.t()], Scope.t() | nil) :: [Tab.t()]
+  def with_scope_badges(tabs, scope) do
+    Enum.map(tabs, fn
+      %Tab{id: :admin_approvals} = tab -> %{tab | badge: approvals_badge(scope)}
+      tab -> tab
+    end)
+  end
+
+  defp approvals_badge(scope) do
+    Badge.count(Approvals.pending_count(scope), color: :warning, max: 99)
+  rescue
+    error ->
+      Logger.warning("[AdminTabs] approvals badge failed: #{LogSafe.exception_label(error)}")
+      nil
+  catch
+    :exit, _reason -> nil
   end
 
   @doc """

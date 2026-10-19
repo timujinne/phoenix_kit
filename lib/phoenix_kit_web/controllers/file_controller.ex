@@ -18,6 +18,7 @@ defmodule PhoenixKitWeb.FileController do
     Libraries,
     Manager,
     TesseraAdapter,
+    TileSource,
     URLSigner,
     VariantSets
   }
@@ -997,14 +998,13 @@ defmodule PhoenixKitWeb.FileController do
         {:error, :not_found}
 
       instance ->
-        temp_path =
-          Path.join(System.tmp_dir!(), "tessera-src-#{System.unique_integer([:positive])}")
-
-        try do
-          case Manager.retrieve_file(instance.file_name, destination_path: temp_path) do
-            {:ok, _} ->
+        # The original, or for a type libvips cannot decode (an iPhone's HEIC) a
+        # full-resolution JPEG made of it once and kept beside the tiles.
+        case TileSource.prepare(source, instance) do
+          {:ok, path, cleanup} ->
+            try do
               Tessera.generate_tile(
-                temp_path,
+                path,
                 {level, col, row},
                 source.base,
                 image_width: source.width,
@@ -1017,15 +1017,15 @@ defmodule PhoenixKitWeb.FileController do
                   metadata: %{"level" => level, "col" => col, "row" => row}
                 ]
               )
+            after
+              # Cleanup runs even if Tessera.generate_tile/4 raises mid-flight.
+              # Without this, repeated failures leak files into
+              # `System.tmp_dir!()` until inode exhaustion.
+              cleanup.()
+            end
 
-            {:error, _} = err ->
-              err
-          end
-        after
-          # Cleanup runs even if Tessera.generate_tile/4 or Manager.retrieve_file/2
-          # raises mid-flight. Without this, repeated failures leak files into
-          # `System.tmp_dir!()` until inode exhaustion.
-          File.rm(temp_path)
+          {:error, _} = err ->
+            err
         end
     end
   end

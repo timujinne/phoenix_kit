@@ -244,7 +244,11 @@ function makeHook({ iso = "", text, format = "d.m.Y", required = false, submitFo
     setCustomValidity(m) { this.validity = m; },
     setAttribute(k, v) { attrs[k] = v; },
     removeAttribute(k) { delete attrs[k]; },
+    getAttribute(k) { return k in attrs ? attrs[k] : extra.attrs && k in extra.attrs ? extra.attrs[k] : null; },
     hasAttribute(k) { return k in attrs || (extra.attrs && k in extra.attrs); },
+    disabled: !!extra.textDisabled,
+    matches(sel) { return sel === ":disabled" && (this.disabled || !!extra.fieldsetDisabled); },
+    readOnly: !!extra.textReadOnly,
     focus() { global.document.activeElement = textEl; },
   };
   textEl.defaultValue = extra.defaultText !== undefined ? extra.defaultText : textEl.value;
@@ -264,6 +268,11 @@ function makeHook({ iso = "", text, format = "d.m.Y", required = false, submitFo
     attrs: valueAttrs,
     setAttribute(k, v) { valueAttrs[k] = v; },
     removeAttribute(k) { delete valueAttrs[k]; },
+    getAttribute(k) {
+      if (k === "value") return "serverValue" in extra ? extra.serverValue : this.defaultValue === "" ? null : this.defaultValue;
+      return k in valueAttrs ? valueAttrs[k] : null;
+    },
+    validity: extra.validity,
     form,
     dispatchEvent(e) { events.push([e.type, this.value]); dispatched.push(e); },
     showPicker() { this.picked = true; },
@@ -281,6 +290,7 @@ function makeHook({ iso = "", text, format = "d.m.Y", required = false, submitFo
     closest: () => null,
     contains: (node) => inside.has(node),
     isConnected: true,
+    removeAttribute(k) { delete elAttrs[k]; },
     querySelector(sel) {
       return {
         "[data-date-text]": textEl,
@@ -291,9 +301,11 @@ function makeHook({ iso = "", text, format = "d.m.Y", required = false, submitFo
     },
   };
   const hook = Object.assign(Object.create(hookDef), { el });
+  const jsCalls = [];
+  hook.js = () => ({ setAttribute(node, k, v) { jsCalls.push([node, k, v]); node.setAttribute(k, v); } });
   global.document.activeElement = extra.focusValue ? valueEl : extra.active || null;
   hook.mounted();
-  return { hook, el, textEl, valueEl, clearBtn, hintEl, events, attrs, dispatched, listeners, formListeners, inside };
+  return { jsCalls, hook, el, textEl, valueEl, clearBtn, hintEl, events, attrs, dispatched, listeners, formListeners, inside };
 }
 
 const keydown = (key) => ({ key, isComposing: false, prevented: false, preventDefault() { this.prevented = true; } });
@@ -755,7 +767,7 @@ test("a date picked in the native input before the socket connected is carried o
 test("a server value that is not an ISO date is left alone: no pick, no event, the echoed text stays", () => {
   // The browser sanitises such a `value` to "" while `defaultValue` keeps the
   // attribute text; "" differs from it, but nothing was picked.
-  for (const echoed of ["03.05.2024", "2026-10-16T10:00:00Z", "garbage", "2026-02-31"]) {
+  for (const echoed of ["2026-10-16T10:00:00Z", "garbage", "2026-02-31"]) {
     const h = makeHook({ iso: "", text: echoed, extra: { defaultIso: echoed, defaultText: echoed } });
     assert.deepEqual(h.events, [], `${echoed}: nothing is sent to the server`);
     assert.equal(h.textEl.value, echoed, `${echoed}: the text is shown as given`);
@@ -777,12 +789,6 @@ test("the native input focused at connect hands its focus to the text field", ()
   assert.equal(global.document.activeElement, h.textEl, "keystrokes must not go to the invisible control");
   assert.equal(h.textEl.value, "20.10.2026", "the carried-over pick is shown");
   assert.equal(h.dispatched.length, 1, "told to the server once");
-
-  // The same on a patch that finds the date input focused.
-  const g = makeHook({ iso: "2026-10-16" });
-  global.document.activeElement = g.valueEl;
-  g.hook.updated();
-  assert.equal(global.document.activeElement, g.textEl);
 
   // Focus anywhere else stays where it is.
   const other = {};
@@ -815,7 +821,7 @@ test("autofocus never takes the focus from a field the person is already using",
 });
 
 test("a stored value the date input cannot hold is marked at mount, not silently erased on save", () => {
-  for (const echoed of ["03.05.2024", "2024-5-3", "garbage"]) {
+  for (const echoed of ["2024-5-3x", "garbage"]) {
     const h = makeHook({ iso: "", text: echoed, extra: { defaultIso: echoed, defaultText: echoed } });
     assert.deepEqual(h.events, [], `${echoed}: nothing is sent`);
     assert.equal(h.textEl.value, echoed, `${echoed}: shown as given`);
@@ -827,9 +833,9 @@ test("a stored value the date input cannot hold is marked at mount, not silently
   }
 
   // Correcting it clears the mark; a patch before that keeps the shown text.
-  const h = makeHook({ iso: "", text: "03.05.2024", extra: { defaultIso: "03.05.2024", defaultText: "03.05.2024" } });
+  const h = makeHook({ iso: "", text: "garbage", extra: { defaultIso: "garbage", defaultText: "garbage" } });
   h.hook.updated();
-  assert.equal(h.textEl.value, "03.05.2024");
+  assert.equal(h.textEl.value, "garbage");
   assert.ok(h.textEl.classList.contains("input-error"));
   h.textEl.value = "04.05.2024";
   assert.equal(h.hook.commit(), true);
@@ -1005,4 +1011,134 @@ test("opening the calendar sets its footer from the wrapper's current data", () 
   assert.equal(calAttrs.max, "2026-10-10");
   assert.equal(f.today.disabled, true, "today is past max");
   assert.ok(!f.clear.classList.contains("hidden"), "a clearable field shows Clear");
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes (PR #936): sticky swap, hand-off at mount only, connect-time
+// picks, stored values, a stylesheet without the utilities, caller's title.
+// ---------------------------------------------------------------------------
+test("the enhanced flag is set through the DOM-patch-aware js() command, once, at mount", () => {
+  const h = makeHook({ iso: "2026-10-16" });
+  assert.equal(h.jsCalls.length, 1);
+  assert.equal(h.jsCalls[0][0], h.el);
+  assert.equal(h.jsCalls[0][1], "data-enhanced");
+  h.hook.updated();
+  h.hook.updated();
+  assert.equal(h.jsCalls.length, 1, "a patch does not queue another command");
+});
+
+test("the focus hand-off from the date input happens at mount only, not on a patch", () => {
+  const h = makeHook({ iso: "2026-10-16" });
+  global.document.activeElement = h.valueEl; // showPicker() focused it
+  h.hook.updated();
+  assert.equal(global.document.activeElement, h.valueEl);
+});
+
+test("a half-edited native date at connect is not a pick", () => {
+  const h = makeHook({ iso: "", text: "16.10.2026", extra: { defaultIso: "2026-10-16", defaultText: "16.10.2026", validity: { badInput: true } } });
+  assert.deepEqual(h.events, []);
+  assert.equal(h.textEl.value, "16.10.2026");
+});
+
+test("a native date emptied at connect on a required field keeps the server's date and is refused", () => {
+  const h = makeHook({ iso: "", text: "16.10.2026", required: true, extra: { defaultIso: "2026-10-16", defaultText: "16.10.2026" } });
+  assert.deepEqual(h.events, [], "no empty value reaches the server");
+  assert.equal(h.valueEl.value, "2026-10-16", "the date input holds the server's date again");
+  assert.equal(h.textEl.value, "16.10.2026");
+  assert.ok(h.hook.rejected);
+
+  // An optional field: emptying it is a real clear.
+  const g = makeHook({ iso: "", text: "16.10.2026", extra: { defaultIso: "2026-10-16", defaultText: "16.10.2026" } });
+  assert.deepEqual(g.events, [["input", ""]]);
+});
+
+test("a stored value in the site format is taken, not marked, and survives a patch", () => {
+  const h = makeHook({ iso: "", text: "03.05.2024", extra: { defaultIso: "03.05.2024", defaultText: "03.05.2024" } });
+  assert.equal(h.hook.rejected, null);
+  assert.ok(!h.textEl.classList.contains("input-error"));
+  assert.equal(h.valueEl.value, "2024-05-03", "the form submits the stored date");
+  assert.deepEqual(h.events, [], "the server already has it");
+
+  // A patch re-renders the same text; the browser sanitises the value again.
+  h.valueEl.value = "";
+  h.hook.updated();
+  assert.equal(h.valueEl.value, "2024-05-03");
+  assert.equal(h.textEl.value, "03.05.2024");
+});
+
+test("a server change of a stored value drops the remembered rejection", () => {
+  const h = makeHook({ iso: "", text: "garbage", extra: { defaultIso: "garbage", defaultText: "garbage" } });
+  assert.ok(h.hook.rejected);
+  // The server re-renders another record's value, then an empty one.
+  h.textEl.value = "another";
+  h.valueEl.defaultValue = "another";
+  h.hook.updated();
+  assert.deepEqual(h.hook.rejected, { text: "another", reason: "format" });
+  h.textEl.value = "";
+  h.valueEl.defaultValue = "";
+  h.hook.updated();
+  assert.equal(h.hook.rejected, null);
+  assert.equal(h.textEl.value, "");
+  assert.ok(!h.textEl.classList.contains("input-error"));
+});
+
+test("a stored value the date input cannot hold is not marked on a disabled or readonly field", () => {
+  for (const flag of ["textDisabled", "textReadOnly", "fieldsetDisabled"]) {
+    const h = makeHook({ iso: "", text: "garbage", extra: { defaultIso: "garbage", defaultText: "garbage", [flag]: true } });
+    assert.equal(h.hook.rejected, null, flag);
+    assert.ok(!h.textEl.classList.contains("input-error"), flag);
+  }
+});
+
+test("a stylesheet without the swap utilities leaves the browser's date input in charge", () => {
+  const saved = window.getComputedStyle;
+  const warn = console.warn;
+  const warnings = [];
+  console.warn = (m) => warnings.push(m);
+  window.getComputedStyle = () => ({ display: "none" });
+  try {
+    const h = makeHook({ iso: "2026-10-16", extra: { dataset: { required: "true" } } });
+    assert.ok(!("data-enhanced" in h.el.attrs), "flag removed");
+    assert.equal(h.jsCalls.length, 0, "no sticky flag");
+    assert.ok(!("tabindex" in h.valueEl.attrs));
+    assert.ok(!("aria-hidden" in h.valueEl.attrs));
+    assert.ok("required" in h.valueEl.attrs, "required stays on the displayed control");
+    assert.equal(h.textEl.required, false);
+    assert.equal(warnings.length, 1);
+    h.hook.updated();
+    assert.ok(!("data-enhanced" in h.el.attrs), "stays that way after a patch");
+    assert.equal(warnings.length, 1, "warned once");
+    makeHook({ iso: "2026-10-16" });
+    assert.equal(warnings.length, 1, "once per page, not per field");
+  } finally {
+    window.getComputedStyle = saved;
+    console.warn = warn;
+  }
+});
+
+test("a caller's title survives the rejection mark and comes back after it", () => {
+  const h = makeHook({ iso: "2026-10-16", extra: { attrs: {} } });
+  h.attrs.title = "Birthday";
+  h.hook.refresh();
+  assert.equal(h.attrs.title, "Birthday", "valid: untouched");
+  h.textEl.value = "99.99.9999";
+  h.hook.commit();
+  assert.equal(h.attrs.title, "Expected 16.10.2026");
+  h.textEl.value = "20.10.2026";
+  h.hook.commit();
+  assert.equal(h.attrs.title, "Birthday");
+});
+
+test("the echo of the value the hook sent does not wipe a rejection typed while the reply was in flight", () => {
+  const h = makeHook({ iso: "2026-10-16" });
+  h.textEl.value = "20.10.2026";
+  h.hook.commit();
+  assert.deepEqual(h.events, [["input", "2026-10-20"]]);
+  h.textEl.value = "99.99";
+  h.hook.commit();
+  assert.ok(h.hook.rejected);
+  h.valueEl.defaultValue = "2026-10-20";
+  h.hook.updated();
+  assert.deepEqual(h.hook.rejected, { text: "99.99", reason: "format" });
+  assert.equal(h.textEl.value, "99.99");
 });

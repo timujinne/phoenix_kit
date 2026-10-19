@@ -1,7 +1,24 @@
+defmodule PhoenixKitTest.UnreadableKeyStore do
+  @behaviour PhoenixKit.Integrations.KeyStore
+
+  @impl true
+  def read(_opts), do: {:error, :unreadable_for_test}
+
+  @impl true
+  def write(_secret, _opts), do: :ok
+
+  @impl true
+  def preflight(_opts), do: :ok
+
+  @impl true
+  def describe(_opts), do: "/unreadable/store.key"
+end
+
 defmodule PhoenixKitTest do
   use ExUnit.Case
 
   alias PhoenixKit.Integrations.Encryption
+  alias PhoenixKit.Integrations.KeyStore
   alias PhoenixKit.Migrations.Postgres, as: Migrations
 
   @moduledoc """
@@ -138,6 +155,69 @@ defmodule PhoenixKitTest do
       refute log =~ "[PhoenixKit.Integrations]"
     end
 
+    test "does not warn about the legacy key tier when warn_on_boot is explicitly false" do
+      Application.delete_env(:phoenix_kit, :integrations_encryption_key)
+      Application.put_env(:phoenix_kit, :secret_key_base, "legacy-secret-for-boot-test")
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, false)
+
+      log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+      refute log =~ "[PhoenixKit.Integrations]"
+    end
+
+    # The flag covers the boot REPORT for every state where encryption works,
+    # not only the legacy key: a dedicated key whose key store cannot be read is
+    # a warning too, and it is off by default for the same reason. It does not
+    # cover the one-time "key store could not be read" error: `boot/1` always
+    # resolves the key, and that error is logged by the resolution itself. The
+    # one-time flag and the key-store cache are reset before every boot so the
+    # assertions see what a fresh VM would log.
+    test "a key-store problem under a dedicated key: the report needs warn_on_boot, the read error does not" do
+      original_store = Application.get_env(:phoenix_kit, :integrations_key_store)
+
+      reset_once_state = fn ->
+        :persistent_term.erase({Encryption, :store_failure_logged})
+        KeyStore.invalidate_cache()
+      end
+
+      on_exit(fn ->
+        restore_env(:integrations_key_store, original_store)
+        reset_once_state.()
+      end)
+
+      Application.put_env(
+        :phoenix_kit,
+        :integrations_encryption_key,
+        "a-dedicated-key-well-over-the-minimum-length"
+      )
+
+      Application.put_env(
+        :phoenix_kit,
+        :integrations_key_store,
+        {PhoenixKitTest.UnreadableKeyStore, []}
+      )
+
+      reset_once_state.()
+      {report, _log} = with_log(fn -> Encryption.key_report() end)
+      assert report.diagnosis == {:dedicated, :store_unreadable}
+      report_line = Encryption.key_report_message(report)
+
+      # Flag off: no report line, but the one-time read error is there.
+      Application.delete_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+      reset_once_state.()
+      log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+      refute log =~ report_line
+      assert log =~ "A key store IS configured but its secret could not be read"
+
+      # Flag on: the report line as well.
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, true)
+      reset_once_state.()
+      log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+      assert log =~ report_line
+    end
+
     # This check used to run as a `Task` child of `PhoenixKit.Supervisor`,
     # which commonly starts BEFORE the host app's own Endpoint — at that
     # point `Encryption.status/0`'s Endpoint lookup can't resolve yet, so
@@ -166,6 +246,79 @@ defmodule PhoenixKitTest do
       assert report.diagnosis == {:legacy_secret_key_base, :no_dedicated_key}
       assert log =~ Encryption.key_report_message(report)
       refute log =~ "dedicated encryption key is in use"
+    end
+
+    # Plaintext states are reported on every boot unless the flag is an
+    # explicit `false`.
+    test "warns when no encryption key resolves and warn_on_boot is unset" do
+      Application.delete_env(:phoenix_kit, :integrations_encryption_key)
+      Application.delete_env(:phoenix_kit, :secret_key_base)
+      original_parent = Application.get_env(:phoenix_kit, :parent_module)
+      Application.put_env(:phoenix_kit, :parent_module, PhoenixKit.NoSuchApp)
+      on_exit(fn -> restore_env(:parent_module, original_parent) end)
+
+      assert Encryption.status() == :disabled_no_key
+
+      Application.delete_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+
+      log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+      assert log =~ Encryption.key_report_message(Encryption.key_report())
+    end
+
+    test "an explicit warn_on_boot: false silences the plaintext report at boot" do
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, false)
+
+      original_enabled = Application.get_env(:phoenix_kit, :integration_encryption_enabled)
+      on_exit(fn -> restore_env(:integration_encryption_enabled, original_enabled) end)
+
+      Application.delete_env(:phoenix_kit, :integrations_encryption_key)
+      Application.delete_env(:phoenix_kit, :secret_key_base)
+      original_parent = Application.get_env(:phoenix_kit, :parent_module)
+      Application.put_env(:phoenix_kit, :parent_module, PhoenixKit.NoSuchApp)
+      on_exit(fn -> restore_env(:parent_module, original_parent) end)
+
+      for {enabled, state} <- [{nil, :disabled_no_key}, {false, :disabled_explicit}] do
+        restore_env(:integration_encryption_enabled, enabled)
+        assert Encryption.status() == state
+
+        log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+        refute log =~ Encryption.key_report_message(Encryption.key_report())
+        refute log =~ "Failed to check integrations encryption status"
+      end
+    end
+
+    # A non-boolean config value (an unset `System.get_env/1` gives nil) must
+    # not turn the boot check into a "Failed to check ..." error.
+    test "still warns about plaintext storage when warn_on_boot is nil" do
+      Application.delete_env(:phoenix_kit, :integrations_encryption_key)
+      Application.delete_env(:phoenix_kit, :secret_key_base)
+      original_parent = Application.get_env(:phoenix_kit, :parent_module)
+      Application.put_env(:phoenix_kit, :parent_module, PhoenixKit.NoSuchApp)
+      on_exit(fn -> restore_env(:parent_module, original_parent) end)
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, nil)
+
+      assert Encryption.status() == :disabled_no_key
+
+      log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+      assert log =~ Encryption.key_report_message(Encryption.key_report())
+      refute log =~ "Failed to check integrations encryption status"
+    end
+
+    test "always warns when encryption is switched off explicitly, even with warn_on_boot unset" do
+      original_enabled = Application.get_env(:phoenix_kit, :integration_encryption_enabled)
+      Application.put_env(:phoenix_kit, :integration_encryption_enabled, false)
+      Application.delete_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+
+      on_exit(fn -> restore_env(:integration_encryption_enabled, original_enabled) end)
+
+      assert Encryption.status() == :disabled_explicit
+
+      log = capture_log(fn -> PhoenixKit.boot({:ok, self()}) end)
+
+      assert log =~ Encryption.key_report_message(Encryption.key_report())
     end
 
     test "PhoenixKit.Supervisor no longer runs this check itself" do

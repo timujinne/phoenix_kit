@@ -247,8 +247,16 @@
           </fieldset>
 
           <%!-- HDR photos --%>
-          <fieldset :if={@dimension_type != "video"} id="dimension-keep-hdr" class="fieldset">
-            <legend class="fieldset-legend font-semibold">{gettext("HDR photos")}</legend>
+          <fieldset
+            :if={@dimension_type != "video" or poster_size?(@changeset)}
+            id="dimension-keep-hdr"
+            class="fieldset"
+          >
+            <legend class="fieldset-legend font-semibold">
+              {if @dimension_type == "video",
+                do: gettext("HDR video poster"),
+                else: gettext("HDR photos")}
+            </legend>
             <.checkbox
               id="dimension-keep-hdr-input"
               name="dimension[keep_hdr]"
@@ -257,7 +265,12 @@
               label={gettext("Keep the HDR (gain map)")}
             />
             {render_error(@changeset, :keep_hdr)}
-            <p class="text-xs text-base-content/50 mt-1">
+            <p :if={@dimension_type == "video"} class="text-xs text-base-content/50 mt-1">
+              {gettext(
+                "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
+              )}
+            </p>
+            <p :if={@dimension_type != "video"} class="text-xs text-base-content/50 mt-1">
               {gettext(
                 "An iPhone or Pixel photo carries an HDR gain map, which lets bright areas glow on an HDR screen. A size with this on is made with the map kept; without it the size is an ordinary picture. It applies to JPEG sizes, whether they keep the photo's proportions or crop it to a box, and only to photos that have a map. It adds a few KB per picture, and applies to sizes made from now on."
               )}

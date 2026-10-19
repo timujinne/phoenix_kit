@@ -21063,3 +21063,214 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr ""
+
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:218
+#: lib/phoenix_kit_web/live/approvals.ex:57
+#, elixir-autogen, elixir-format
+msgid "Approvals"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:448
+#, elixir-autogen, elixir-format
+msgid "Done."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:449
+#, elixir-autogen, elixir-format
+msgid "Done: %{summary}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:457
+#, elixir-autogen, elixir-format
+msgid "Not executed: the data changed since the request; nothing was written."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:462
+#, elixir-autogen, elixir-format
+msgid "Failed: %{code}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:466
+#, elixir-autogen, elixir-format
+msgid "Rejected: nothing was run."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:469
+#, elixir-autogen, elixir-format
+msgid "Expired: nobody decided in time, nothing was run."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:471
+#, elixir-autogen, elixir-format
+msgid "Running."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:32
+#: lib/phoenix_kit_web/live/approvals.html.heex:252
+#, elixir-autogen, elixir-format
+msgid "Rows: %{count}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:44
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key} (owner: %{owner})"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:49
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "Decided by %{name}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:123
+#, elixir-autogen, elixir-format
+msgid "Summary: %{summary}."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:141
+#, elixir-autogen, elixir-format
+msgid "Item"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:143
+#, elixir-autogen, elixir-format
+msgid "Was"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:144
+#, elixir-autogen, elixir-format
+msgid "Becomes"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:145
+#, elixir-autogen, elixir-format
+msgid "Change, %"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:196
+#, elixir-autogen, elixir-format
+msgid "Technical details (JSON)"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:228
+#, elixir-autogen, elixir-format
+msgid "Operation"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:426
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} d"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:425
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} h"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:424
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} min"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:423
+#, elixir-autogen, elixir-format
+msgid "Expires in less than a minute"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:401
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "create"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:407
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "delete"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:416
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "error"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:410
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "remove"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:413
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "skip"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:415
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "unchanged"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:404
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "update"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:377
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "created"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:383
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "deleted"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:393
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "error"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:386
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "removed"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:391
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "skipped"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:388
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "unchanged"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/approvals.ex:380
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "updated"
+msgstr ""
+
+#: lib/modules/storage/web/dimension_form.html.heex:257
+#, elixir-autogen, elixir-format
+msgid "HDR video poster"
+msgstr ""
+
+#: lib/modules/storage/web/dimension_form.html.heex:270
+#, elixir-autogen, elixir-format
+msgid "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
+msgstr ""

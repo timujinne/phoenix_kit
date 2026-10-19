@@ -112,9 +112,9 @@ defmodule PhoenixKit.API.RequestContext do
   end
 
   # Behind a TLS-terminating proxy the connection itself is plain HTTP. The
-  # forwarded protocol is believed only from a local peer, the same rule
-  # `PhoenixKit.Utils.IpAddress.client_address/1` applies to forwarded
-  # addresses.
+  # forwarded protocol is believed only from a local peer, the default rule
+  # of `PhoenixKit.Utils.IpAddress.client_address/1`. It does not follow
+  # `config :phoenix_kit, :trusted_proxies`.
   defp scheme(conn) do
     forwarded =
       conn

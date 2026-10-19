@@ -481,6 +481,23 @@ stops serving them, and the ones made stay stored.
   now say 28, 25 and 23 so that new installs and "Reset to Defaults" keep that
   quality. Videos already made are not remade by this: a rendition is remade
   when its spec changes.
+- **HDR video is tone-mapped to SDR** (`VideoSource`). `ffprobe` reads the source
+  once per rendition: a transfer of HLG (`arib-std-b67`) or PQ (`smpte2084`)
+  makes it HDR, and its renditions and poster get `zscale`/`tonemap` (Hable, 203
+  nit reference white) to BT.709, after the resize so it runs on the small
+  picture. Every H.264 / VP9 rendition is `-pix_fmt yuv420p`, because a browser
+  plays 8-bit 4:2:0 and refuses "High 10". The original is untouched. Keeping the
+  HDR in a rendition (10-bit HEVC) is not done. A poster is taken one second in,
+  or halfway for a clip under two seconds (`VideoSource.poster_second/1`), and a
+  run of FFmpeg that wrote no file is an error rather than a later `:enoent`.
+  A tone-mapping that fails falls back to the ordinary rendition with a warning.
+- **The poster of an HLG video is an HDR photo** (`VideoHdrPoster`) when its size keeps
+  HDR (`keep_hdr`, on for the seeded `video_thumbnail`) and `hdr_renditions` is on:
+  `VariantGenerator.hdr_frame_args/4` has ffmpeg write one frame as linear light in
+  BT.709 (a PFM of floats, 1.0 = 1000 nits), and libvips' `uhdrsave` writes the JPEG
+  with its gain map (scaled so SDR white, 203 nits, is 1.0). Anything that fails, a
+  missing `vix` or `uhdrsave` (libvips 8.17+) included, makes the tone-mapped SDR poster
+  instead. PQ and Dolby Vision profile 5 sources keep the SDR poster.
 - **Cropping around the subject** (V210, `Storage.FocalPoint`). A fixed image
   rendition (a box the photo is scaled to fill and cropped to) has a
   `crop_mode`: `center` (the default: every existing rendition) or `focus`, which
@@ -704,6 +721,14 @@ stored under `_tiles/<uuid>/<v>/`. A version that is not the current one is
 a 404. The legacy `/tiles/<token>/<uuid>.dzi` resolves to the current version
 and is never cached.
 
+An iPhone's HEIC (and HEIF, AVIF) has no tiles cut from it directly: libvips as
+shipped with `vix` can read its size but has no HEVC decoder, so it cannot read a
+pixel. The first tile request makes one full-resolution JPEG of the original with
+ImageMagick (`ImageProcessor.full_jpeg/3`), stores it as `_tiles/<uuid>/<v>/<uuid>_source.jpg`
+(a system-managed file of the original) and cuts every tile from it
+(`PhoenixKit.Modules.Storage.TileSource`). A copy of a size other than the file's
+is refused, so tiles are never misplaced.
+
 ### HDR and camera metadata in renditions
 
 V217 stores each rendition's options in `Dimension.options` (`DimensionOptions`),
@@ -747,6 +772,24 @@ exists, is not system-managed or trashed, and a private file's time-window
 token is still valid). **That is not authorization**: check the viewer's
 rights to the uuid separately. Only the path is checked, never the scheme or
 host — act on the returned uuid, never fetch or render the string itself.
+
+## Large files are read from disk, never into memory
+
+A video can be gigabytes. Every checksum of a file on disk is taken in 1 MiB chunks
+(`PhoenixKit.Utils.FileHash`: `sha256/2`, `md5/2`, `hashes/3` for several digests in one
+pass, and the `!` forms that raise `File.Error` as `File.read!/1` did): the original's
+SHA-256 and MD5 at upload (`Storage.store_file_in_buckets/7`, `Auth.calculate_file_hash/1`),
+each rendition's, `Storage.store_from_url/2`, the dedup backfill and `POST /api/upload`.
+What a hash costs in memory is the chunk, not the file. Bytes move the same way: a bucket
+download is streamed to a file (`ExAws.S3.download_file`), a local bucket writes to a
+temporary name and renames, and S3 uploads of 5 MB or more are multipart streams. A test
+stores a 160 MiB file and fails if binary memory rises by more than 64 MiB.
+
+`POST /api/upload` takes the types the image pipeline renders (JPEG, PNG, WebP, GIF, HEIC,
+HEIF, AVIF, TIFF, BMP), MP4, WebM, QuickTime and PDF, and its size cap is the
+`storage_max_upload_size_mb` setting (default 500), like the media browser's uploads. A host
+endpoint's `Plug.Parsers` multipart `:length` still bounds the request body before the
+controller sees it.
 
 ## Storing a file from a URL
 

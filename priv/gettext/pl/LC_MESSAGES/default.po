@@ -21130,3 +21130,214 @@ msgstr "Katalog API"
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr "Ten serwis"
+
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:218
+#: lib/phoenix_kit_web/live/approvals.ex:57
+#, elixir-autogen, elixir-format
+msgid "Approvals"
+msgstr "Zatwierdzenia"
+
+#: lib/phoenix_kit_web/live/approvals.ex:448
+#, elixir-autogen, elixir-format
+msgid "Done."
+msgstr "Gotowe."
+
+#: lib/phoenix_kit_web/live/approvals.ex:449
+#, elixir-autogen, elixir-format
+msgid "Done: %{summary}"
+msgstr "Gotowe: %{summary}"
+
+#: lib/phoenix_kit_web/live/approvals.ex:457
+#, elixir-autogen, elixir-format
+msgid "Not executed: the data changed since the request; nothing was written."
+msgstr "Nie wykonano: dane zmieniły się od czasu żądania; nic nie zapisano."
+
+#: lib/phoenix_kit_web/live/approvals.ex:462
+#, elixir-autogen, elixir-format
+msgid "Failed: %{code}"
+msgstr "Niepowodzenie: %{code}"
+
+#: lib/phoenix_kit_web/live/approvals.ex:466
+#, elixir-autogen, elixir-format
+msgid "Rejected: nothing was run."
+msgstr "Odrzucono: nic nie uruchomiono."
+
+#: lib/phoenix_kit_web/live/approvals.ex:469
+#, elixir-autogen, elixir-format
+msgid "Expired: nobody decided in time, nothing was run."
+msgstr "Wygasło: nikt nie rozstrzygnął na czas, nic nie uruchomiono."
+
+#: lib/phoenix_kit_web/live/approvals.ex:471
+#, elixir-autogen, elixir-format
+msgid "Running."
+msgstr "W trakcie wykonywania."
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:32
+#: lib/phoenix_kit_web/live/approvals.html.heex:252
+#, elixir-autogen, elixir-format
+msgid "Rows: %{count}"
+msgstr "Wiersze: %{count}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:44
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key} (owner: %{owner})"
+msgstr "Zażądano kluczem %{key} (właściciel: %{owner})"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:49
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key}"
+msgstr "Zażądano kluczem %{key}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "Decided by %{name}"
+msgstr "Rozstrzygnięcie: %{name}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:123
+#, elixir-autogen, elixir-format
+msgid "Summary: %{summary}."
+msgstr "Podsumowanie: %{summary}."
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:141
+#, elixir-autogen, elixir-format
+msgid "Item"
+msgstr "Pozycja"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:143
+#, elixir-autogen, elixir-format
+msgid "Was"
+msgstr "Było"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:144
+#, elixir-autogen, elixir-format
+msgid "Becomes"
+msgstr "Będzie"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:145
+#, elixir-autogen, elixir-format
+msgid "Change, %"
+msgstr "Zmiana, %"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:196
+#, elixir-autogen, elixir-format
+msgid "Technical details (JSON)"
+msgstr "Szczegóły techniczne (JSON)"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:228
+#, elixir-autogen, elixir-format
+msgid "Operation"
+msgstr "Operacja"
+
+#: lib/phoenix_kit_web/live/approvals.ex:426
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} d"
+msgstr "Wygasa za %{count} dn."
+
+#: lib/phoenix_kit_web/live/approvals.ex:425
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} h"
+msgstr "Wygasa za %{count} godz."
+
+#: lib/phoenix_kit_web/live/approvals.ex:424
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} min"
+msgstr "Wygasa za %{count} min"
+
+#: lib/phoenix_kit_web/live/approvals.ex:423
+#, elixir-autogen, elixir-format
+msgid "Expires in less than a minute"
+msgstr "Wygasa za mniej niż minutę"
+
+#: lib/phoenix_kit_web/live/approvals.ex:401
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "create"
+msgstr "utworzyć"
+
+#: lib/phoenix_kit_web/live/approvals.ex:407
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "delete"
+msgstr "usunąć"
+
+#: lib/phoenix_kit_web/live/approvals.ex:416
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "error"
+msgstr "błąd"
+
+#: lib/phoenix_kit_web/live/approvals.ex:410
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "remove"
+msgstr "usunąć z listy"
+
+#: lib/phoenix_kit_web/live/approvals.ex:413
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "skip"
+msgstr "pominąć"
+
+#: lib/phoenix_kit_web/live/approvals.ex:415
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "unchanged"
+msgstr "bez zmian"
+
+#: lib/phoenix_kit_web/live/approvals.ex:404
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "update"
+msgstr "zaktualizować"
+
+#: lib/phoenix_kit_web/live/approvals.ex:377
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "created"
+msgstr "utworzone"
+
+#: lib/phoenix_kit_web/live/approvals.ex:383
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "deleted"
+msgstr "usunięte"
+
+#: lib/phoenix_kit_web/live/approvals.ex:393
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "error"
+msgstr "błędy"
+
+#: lib/phoenix_kit_web/live/approvals.ex:386
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "removed"
+msgstr "usunięte z listy"
+
+#: lib/phoenix_kit_web/live/approvals.ex:391
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "skipped"
+msgstr "pominięte"
+
+#: lib/phoenix_kit_web/live/approvals.ex:388
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "unchanged"
+msgstr "bez zmian"
+
+#: lib/phoenix_kit_web/live/approvals.ex:380
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "updated"
+msgstr "zaktualizowane"
+
+#: lib/modules/storage/web/dimension_form.html.heex:257
+#, elixir-autogen, elixir-format
+msgid "HDR video poster"
+msgstr "Miniatura filmu HDR"
+
+#: lib/modules/storage/web/dimension_form.html.heex:270
+#, elixir-autogen, elixir-format
+msgid "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
+msgstr "Obraz pokazywany dla filmu HDR (nagrania HLG z iPhone'a) jest tworzony jako zdjęcie HDR z mapą wzmocnienia (gain map), dzięki czemu jasne obszary świecą na ekranie HDR; inne ekrany pokazują zwykły obraz. Bez tej opcji obraz jest zwykły. Dotyczy filmów przetwarzanych od teraz."

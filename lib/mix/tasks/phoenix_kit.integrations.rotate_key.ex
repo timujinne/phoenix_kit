@@ -1,9 +1,10 @@
 defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
   @moduledoc """
-  Rotates the encryption key protecting stored integration credentials AND
+  Rotates the encryption key protecting stored integration credentials,
   restricted `PhoenixKit.Settings` values (`oauth_*_client_secret`,
-  `aws_*` — see `PhoenixKit.Settings.restricted_setting_keys/0`). Both are
-  encrypted under the same resolved key, so both must rotate together.
+  `aws_*` — see `PhoenixKit.Settings.restricted_setting_keys/0`) AND storage
+  buckets' `secret_access_key`. All are encrypted under the same resolved key,
+  so all must rotate together.
 
   ## Usage
 
@@ -17,8 +18,8 @@ defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
      be written to — BEFORE touching any data. Rotation is the dangerous
      moment: once rows are re-encrypted, a store that then refuses the write
      leaves you holding a database no key opens.
-  2. Reads every stored integration connection and every restricted setting
-     value.
+  2. Reads every stored integration connection, every restricted setting
+     value and every storage bucket secret.
   3. Decrypts each one under whichever key is CURRENTLY active (a
      dedicated `:integrations_encryption_key` if configured, then a
      configured key store, else the legacy `secret_key_base`-derived key —
@@ -72,7 +73,7 @@ defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
       a shell variable that resolved empty (`--new-key="$MAYBE_UNSET"`) and
       not something you meant to ask for.
 
-  ## Run this with nothing else writing to integration connections or restricted settings
+  ## Run this with nothing else writing to integration connections, restricted settings or bucket keys
 
   A real rotation's row lock only defends against ONE direction of a race
   with a concurrent writer (an OAuth token auto-refresh, a "Test
@@ -83,8 +84,10 @@ defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
   still silently overwrite the freshly rotated row with old-key content
   after rotation commits, and `rotate/2` will have already reported
   success by then. **Pause anything that could write to integration
-  connections or restricted settings (most concretely: an OAuth
-  token-refresh worker, or the Authorization settings page) before running
+  connections, restricted settings or a storage bucket's own keys (most
+  concretely: an OAuth token-refresh worker, the Authorization settings
+  page, the bucket edit form, or moving a bucket's keys into Integrations)
+  before running
   this for real, and do not resume it until you have restarted the app
   under the new key** — not just until this command returns. Treat the
   whole span, start to restart, as one maintenance window.
@@ -97,6 +100,11 @@ defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
   command returns, it ends when the app is running under the new key. In
   that window:
 
+    * A storage bucket that carries its own keys (not one on an Integrations
+      connection) stops working once the storage manager's bucket cache
+      (5-minute TTL) reloads the rotated row: its `secret_access_key` is now
+      under the new key, so the S3 credentials come back without a secret
+      until the app restarts onto the new key.
     * A READ of a rotated connection does not raise or crash — a field
       that can't be decrypted under the still-active old key is logged
       and silently dropped from whatever asked for it (see
@@ -336,7 +344,9 @@ defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
   end
 
   defp decrypt_failed_message(uuid, reason) do
-    "Row #{uuid} failed to decrypt under the CURRENTLY active key (#{inspect(reason)}). " <>
+    "Row #{uuid} (an integration connection or restricted setting in phoenix_kit_settings, " <>
+      "or a bucket in phoenix_kit_buckets) failed to decrypt under the CURRENTLY active key " <>
+      "(#{inspect(reason)}). " <>
       "Rotation aborted — NOTHING was written, not even for rows that decrypted fine. " <>
       "Investigate this row (it may already be encrypted under a different key from an " <>
       "earlier partial change, or genuinely corrupted) before retrying."
@@ -354,7 +364,7 @@ defmodule Mix.Tasks.PhoenixKit.Integrations.RotateKey do
   defp print_stored_success(count, location) do
     Mix.shell().info("""
 
-    Rotated #{count} row(s) (integration connections and/or restricted settings).
+    Rotated #{count} row(s) (integration connections, restricted settings and/or bucket secrets).
 
     The new secret was written to #{location} and read back to confirm it landed.
     On this host there is nothing else to copy: PhoenixKit reads the key from there.

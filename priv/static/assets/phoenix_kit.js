@@ -3137,6 +3137,48 @@ if (typeof window.Chart === "undefined") {
   };
 
   // ---------------------------------------------------------------------------
+  // PkHashHighlight — lights the element the URL fragment names.
+  //
+  // The CSS `:target` variant only follows a fragment the browser itself
+  // navigated to: a page reached through `push_navigate` (a bell notice, for
+  // one) is entered by `history.pushState`, which leaves `:target` unset. The
+  // hook sets `data-highlight` on the element inside its root whose id the
+  // fragment names, on mount, after every patch and on `hashchange`; the
+  // markup styles it (`data-[highlight]:ring-2`) next to `target:ring-2` for
+  // pages loaded directly.
+  //
+  //   <div id="page" phx-hook="PkHashHighlight"> <div id="item-1" …> </div>
+  // ---------------------------------------------------------------------------
+  function hashTargetId(hash) {
+    if (typeof hash !== "string" || hash.length < 2 || hash.charAt(0) !== "#") return null;
+    try { return decodeURIComponent(hash.slice(1)); } catch (_e) { return null; }
+  }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.hashTargetId = hashTargetId;
+  }
+
+  window.PhoenixKitHooks.PkHashHighlight = {
+    mounted() {
+      const self = this;
+      self._onHashChange = function() { self._mark(); };
+      window.addEventListener("hashchange", self._onHashChange);
+      self._mark();
+    },
+    updated() { this._mark(); },
+    destroyed() { window.removeEventListener("hashchange", this._onHashChange); },
+    _mark() {
+      const id = hashTargetId(window.location.hash);
+      this.el.querySelectorAll("[data-highlight]").forEach(function(el) {
+        if (el.id !== id) el.removeAttribute("data-highlight");
+      });
+      if (id === null) return;
+      const target = document.getElementById(id);
+      if (target && this.el.contains(target)) target.setAttribute("data-highlight", "");
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // PkDateInput — the hook behind `<.date_input>` (core/date_input.ex): a
   // visible text input in the site's date format plus a real
   // `<input type="date" data-date-value>` that carries the caller's name and
@@ -3327,6 +3369,8 @@ if (typeof window.Chart === "undefined") {
     module.exports.formatDateIso = formatDateIso;
   }
 
+  var warnedNoUtilities = false;
+
   window.PhoenixKitHooks.PkDateInput = {
     mounted() {
       var self = this;
@@ -3336,7 +3380,8 @@ if (typeof window.Chart === "undefined") {
       this.rejected = null;
       this.pendingSync = false;
       this.gone = false;
-      this.enhance();
+      this.serverAttr = this.valueEl().getAttribute("value");
+      this.enhance(true);
 
       this.onEvent = function(e) { self.handle(e); };
       ["input", "change", "click", "mousedown", "keydown", "focusin", "focusout"].forEach(function(type) {
@@ -3357,7 +3402,15 @@ if (typeof window.Chart === "undefined") {
       // the sanitised one: a value the server echoed as given (`03.05.2024`)
       // is not a pick.
       var v = this.valueEl();
-      if (v.value !== isoOrEmpty(v.defaultValue)) {
+      var pick = v.value !== isoOrEmpty(v.defaultValue);
+      // A half-edited native control (`badInput`) holds no date yet: not a pick.
+      if (pick && v.validity && v.validity.badInput) pick = false;
+      if (pick && v.value === "" && this.el.dataset.required === "true") {
+        // Emptied during the connect window, on a required field: that is not
+        // a value. Keep the server's date (put back into the date input) and say so.
+        v.value = isoOrEmpty(v.defaultValue);
+        this.reject("format");
+      } else if (pick) {
         this.syncText();
         v.dispatchEvent(new Event("input", { bubbles: true }));
       } else if (t.value !== t.defaultValue) {
@@ -3367,10 +3420,7 @@ if (typeof window.Chart === "undefined") {
         if (document.activeElement === t) this.baseText = t.defaultValue;
         else this.commit();
       } else if (v.value === "" && t.value.trim() !== "") {
-        // The server echoed a date the browser cannot hold (`03.05.2024`): the
-        // text shows it, the date input is empty, and a save would erase it
-        // without a word. Mark the field so the person corrects or clears it.
-        this.reject("format");
+        this.adoptStored();
       }
       this.refresh();
 
@@ -3383,18 +3433,47 @@ if (typeof window.Chart === "undefined") {
       if (t.hasAttribute("autofocus") && (!active || active === document.body)) t.focus();
     },
 
+    // The server echoed a stored value the date input cannot hold (`03.05.2024`,
+    // a changeset's bad input): the text shows it, the date input is empty, and
+    // a save would erase it without a word. A text that is a date in the site
+    // format is taken into the date input (no event: the server has it); any
+    // other is marked, so the person corrects or clears it. A field nobody can
+    // edit is not marked.
+    adoptStored() {
+      var t = this.textEl();
+      var v = this.valueEl();
+      var res = this.check(t.value);
+      if (!res.error) {
+        v.value = res.iso;
+        this.lastIso = res.iso;
+      } else if (!(t.matches && t.matches(":disabled")) && !t.readOnly) {
+        this.reject(res.error);
+      }
+    },
+
     updated() {
       var v = this.valueEl();
       var t = this.textEl();
       if (!v || !t) return;
       var focused = document.activeElement === t;
-      var changed = v.value !== this.lastIso;
+      // The server's own value (the attribute): a stored text the date input
+      // cannot hold sanitises to "" however the server moves it.
+      var attr = v.getAttribute("value");
+      var attrMoved = attr !== this.serverAttr;
+      this.serverAttr = attr;
+      // The echo of the value the hook itself sent is not the server moving it.
+      if (attrMoved && (attr || "") === this.sentIso) attrMoved = false;
+      var stored = !!attr && isoOrEmpty(attr) === "";
+      // The same stored text again: keep the date taken from it at mount.
+      if (stored && !attrMoved && v.value === "" && this.lastIso) v.value = this.lastIso;
+      var changed = v.value !== this.lastIso || attrMoved;
       this.lastIso = v.value;
 
       if (changed) {
         // The server moved the date: it wins over rejected text.
         this.rejected = null;
         if (focused) this.pendingSync = true;
+        else if (stored) this.adoptStored();
         else this.syncText();
       } else if (this.rejected && !focused) {
         // A patch rewrote the field from the server's (unchanged) date: the
@@ -3417,18 +3496,35 @@ if (typeof window.Chart === "undefined") {
     // flips the classes, and `required` moves to the text field (a `required`
     // control that is not displayed would block the form's submit). A patch
     // puts the server's markup back, so `refresh` does this again.
-    enhance() {
+    enhance(atMount) {
       var t = this.textEl();
       var v = this.valueEl();
-      if (!t || !v) return;
+      if (!t || !v || this.degraded) return;
       this.el.setAttribute("data-enhanced", "");
+      if (atMount) {
+        // A host stylesheet without the swap utilities leaves the text field
+        // undisplayed: keep the browser's date input (visible, focusable,
+        // `required`) instead of an invisible one.
+        var css = typeof window.getComputedStyle === "function" ? window.getComputedStyle(t) : null;
+        if (css && css.display === "none") {
+          this.el.removeAttribute("data-enhanced");
+          this.degraded = true;
+          if (!warnedNoUtilities && typeof console !== "undefined") console.warn("PkDateInput: the stylesheet lacks the group-data-[enhanced] utilities; rebuild the CSS. Using the browser's date input.");
+          warnedNoUtilities = true;
+          return;
+        }
+        // Sticky across patches: morphdom would strip a plain attribute the
+        // server does not render, and the text field would blink away.
+        if (typeof this.js === "function") this.js().setAttribute(this.el, "data-enhanced", "");
+      }
       v.setAttribute("tabindex", "-1");
       v.setAttribute("aria-hidden", "true");
       v.removeAttribute("required");
       t.required = this.el.dataset.required === "true";
       // The date input that was displayed (and focused) until now is invisible
-      // from here on: the keystrokes go to the field the person sees.
-      if (document.activeElement === v) t.focus();
+      // from here on: the keystrokes go to the field the person sees. Only at
+      // mount: later it holds the focus for its own picker.
+      if (atMount && document.activeElement === v) t.focus();
     },
 
     textEl() { return this.el.querySelector("[data-date-text]"); },
@@ -3564,6 +3660,7 @@ if (typeof window.Chart === "undefined") {
       if (!v || v.value === iso) return;
       v.value = iso;
       this.lastIso = iso;
+      this.sentIso = iso;
       v.dispatchEvent(new Event("input", { bubbles: true }));
     },
 
@@ -3840,8 +3937,18 @@ if (typeof window.Chart === "undefined") {
       t.setCustomValidity(expected || "invalid");
       t.setAttribute("aria-invalid", "true");
       t.classList.add("input-error");
-      if (expected) t.setAttribute("title", expected);
+      if (expected) {
+        var cur = t.getAttribute("title");
+        if (!this.ownTitle(cur)) this.callerTitle = cur;
+        t.setAttribute("title", expected);
+      }
       this.say(expected);
+    },
+
+    // Is this title one the hook wrote (rather than the caller's)?
+    ownTitle(title) {
+      var d = this.el.dataset;
+      return title == null || title === d.expected || title === d.rangeMessage;
     },
 
     // The rejection hint is a live region: a screen reader announces the text
@@ -3855,7 +3962,10 @@ if (typeof window.Chart === "undefined") {
       var t = this.textEl();
       if (!t) return;
       t.setCustomValidity("");
-      t.removeAttribute("title");
+      if (this.ownTitle(t.getAttribute("title"))) {
+        if (this.callerTitle != null) t.setAttribute("title", this.callerTitle);
+        else t.removeAttribute("title");
+      }
       this.say("");
       // Errors the server rendered stay.
       if (!t.hasAttribute("data-has-errors")) {

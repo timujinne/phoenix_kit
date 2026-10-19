@@ -30,12 +30,23 @@ defmodule PhoenixKit.Integrations.Encryption do
        and the admin-only system page always surface it; a boot-time log line
        is also available (see `warn_if_insecure/0`) but OFF by default — set
        `config :phoenix_kit, integration_encryption_warn_on_boot: true` to
-       have `PhoenixKit.boot/1` log it on every restart.
+       have `PhoenixKit.boot/1` log it on every restart. That flag governs
+       the boot report for every install where encryption works (the legacy
+       key above, and key-store problems under a dedicated key). When
+       credentials are stored as plaintext (`:disabled_no_key`,
+       `:disabled_explicit`) the report is logged unless the flag is set to
+       an explicit `false`, which also silences the one-time warning on the
+       first plaintext write. Unless the flag is an explicit `false`,
+       `boot/1` resolves the key to learn which state the install is in, so
+       the one-time error "a key store IS configured but its secret could not
+       be read" may appear at boot even when the report itself is off. Only
+       the boolean `false` silences: the string `"false"` (for example from
+       `System.get_env/1`) is truthy and turns the full report on.
 
   Set `config :phoenix_kit, integration_encryption_enabled: false` to turn
   encryption off entirely (new and existing writes store plaintext). This is
-  reported as `:disabled_explicit` by `status/0` and is also warned about at
-  boot — the setting takes effect silently, but its EFFECT is never silent.
+  reported as `:disabled_explicit` by `status/0` and is warned about at boot
+  unless `integration_encryption_warn_on_boot: false` is set as well.
 
   > #### Key rotation {: .warning}
   > Changing which secret produces the key — setting a dedicated key for the
@@ -110,12 +121,23 @@ defmodule PhoenixKit.Integrations.Encryption do
 
   Non-sensitive fields and nil/empty values are left unchanged.
   Already-encrypted values (with `enc:v1:` prefix) are not re-encrypted.
+
+  When no key resolves (encryption switched off, or no key material at all)
+  the data is returned as is and will be stored as plaintext; the first such
+  write on a VM logs one warning, so the state is visible in the log of the
+  node that is actually writing, not only at boot. An explicit
+  `config :phoenix_kit, integration_encryption_warn_on_boot: false` skips
+  that warning.
   """
   @spec encrypt_fields(map()) :: map()
   def encrypt_fields(data) when is_map(data) do
     case encryption_key() do
-      nil -> data
-      key -> do_encrypt_fields(data, key)
+      nil ->
+        warn_plaintext_write_once(data)
+        data
+
+      key ->
+        do_encrypt_fields(data, key)
     end
   end
 
@@ -934,13 +956,21 @@ defmodule PhoenixKit.Integrations.Encryption do
 
   This function itself is unconditional — every call evaluates `key_report/0`
   and logs if it isn't `:ok`. What's opt-in is *who calls it at boot*:
-  `PhoenixKit.boot/1` only invokes it when
+  `PhoenixKit.boot/1` invokes it when
   `config :phoenix_kit, integration_encryption_warn_on_boot: true` is set
-  (default `false`), since otherwise every install still on the legacy
+  (unset by default), since otherwise every install still on the legacy
   `secret_key_base` fallback would get this log line on every single restart
-  with no way to quiet it. `mix phoenix_kit.doctor` and the admin-only system
-  page render `key_report/0` directly, independent of this flag, so the
-  diagnosis is always available on demand even when the boot push is off.
+  with no way to quiet it. The exception is plaintext storage
+  (`status/0` is `:disabled_no_key` or `:disabled_explicit`): `boot/1` calls
+  this function in that case too, unless the flag is an explicit `false`.
+  Unless the flag is an explicit `false` (then `boot/1` skips the check
+  and does not resolve the key at all), `boot/1` resolves the key to learn
+  the state, so the one-time error "a key store IS configured but its
+  secret could not be read" may be logged at boot even when this report is
+  not. `mix phoenix_kit.doctor`
+  and the admin-only system page render `key_report/0` directly, independent
+  of this flag, so the diagnosis is always available on demand even when the
+  boot push is off.
 
   An `:integrations_encryption_key` shorter than the minimum length gets
   its OWN message rather than being folded into the "no dedicated key"
@@ -1020,6 +1050,49 @@ defmodule PhoenixKit.Integrations.Encryption do
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
+
+  # Logged only when a plaintext credential is actually about to be stored, and
+  # once per VM: this runs per save, so it would otherwise repeat per request.
+  # The message is the same rendered report the boot check uses — it names the
+  # state and the location of a key store, never a field value.
+  defp warn_plaintext_write_once(data) do
+    key = {__MODULE__, :plaintext_write_logged}
+
+    # An explicit `integration_encryption_warn_on_boot: false` is the
+    # operator saying "I know credentials are stored as plaintext".
+    silenced? = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot) == false
+
+    if not silenced? and plaintext_sensitive_value?(data) and
+         :persistent_term.get(key, false) == false do
+      report = key_report()
+
+      # The key can appear between the caller's lookup and this report; then
+      # the text would contradict itself ("no key is in use: a dedicated key
+      # is in use"), and there is nothing to warn about anyway.
+      if report.severity != :ok do
+        :persistent_term.put(key, true)
+
+        Logger.warning(
+          "[PhoenixKit.Integrations] Storing integration credentials as PLAINTEXT, " <>
+            "no encryption key is in use: " <> key_report_message(report)
+        )
+      end
+    end
+
+    :ok
+  end
+
+  defp plaintext_sensitive_value?(data) do
+    Enum.any?(@sensitive_fields, fn field ->
+      case Map.get(data, field) do
+        value when is_binary(value) and value != "" ->
+          not String.starts_with?(value, @encrypted_prefix)
+
+        _ ->
+          false
+      end
+    end)
+  end
 
   defp do_encrypt_fields(data, key) do
     Enum.reduce(@sensitive_fields, data, fn field, acc ->

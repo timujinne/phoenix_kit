@@ -27,6 +27,7 @@ defmodule PhoenixKit.Integrations.Events do
   reload from the owner-scoped context anyway).
   """
 
+  alias PhoenixKit.Integrations.Encryption
   alias PhoenixKit.PubSub.Manager
 
   @topic "phoenix_kit:integrations"
@@ -35,11 +36,13 @@ defmodule PhoenixKit.Integrations.Events do
   @typedoc "Owner scope for routing a broadcast (mirrors `t:PhoenixKit.Integrations.owner/0`)."
   @type owner :: :system | {atom(), String.t()}
 
-  # Mirror of PhoenixKit.Integrations.Encryption's sensitive fields — stripped
-  # from any broadcast payload so decrypted credentials never leave the context.
-  # `oauth_state` is the CSRF nonce for an in-flight OAuth handshake — not a
-  # stored credential, but still must never ride a broadcast.
-  @sensitive_fields ~w(access_token refresh_token client_secret api_key bot_token secret_key password oauth_state)
+  # Stripped from any broadcast payload, on top of
+  # `PhoenixKit.Integrations.Encryption.sensitive_fields/0` (the list is
+  # derived from `Encryption`, not copied here, so the two cannot drift), so
+  # decrypted credentials never leave the context. `oauth_state` is the CSRF
+  # nonce for an in-flight OAuth handshake — not a stored credential and so not
+  # in the encryption list, but still must never ride a broadcast.
+  @extra_redacted_fields ~w(oauth_state)
 
   @doc "The per-user personal-integrations topic."
   @spec topic_for_user(String.t()) :: String.t()
@@ -136,7 +139,9 @@ defmodule PhoenixKit.Integrations.Events do
     end
   end
 
-  defp redact(data) when is_map(data), do: Map.drop(data, @sensitive_fields)
+  defp redact(data) when is_map(data),
+    do: Map.drop(data, Encryption.sensitive_fields() ++ @extra_redacted_fields)
+
   defp redact(other), do: other
 
   # Route by owner. `:system` → global topic; a typed owner → its own topic

@@ -97,8 +97,9 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
         <.integration_picker id="p" connections={@conns} on_select="x" />
         """)
 
-      # first 8 + ellipsis + last 4
-      assert html =~ "sk-or-v1…abcd"
+      # only the last 4 characters
+      assert html =~ "••••abcd"
+      refute html =~ "sk-or-v1"
     end
 
     test "masks short credentials as `•••` (under 14 chars)" do
@@ -112,6 +113,8 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
         """)
 
       assert html =~ "•••"
+      # Short mask, not the 4-character tail one used for long keys.
+      refute html =~ "••••"
       # Doesn't leak the actual short value.
       refute html =~ "short-key"
     end
@@ -126,8 +129,9 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
         <.integration_picker id="p" connections={@conns} on_select="x" />
         """)
 
-      # first 8 + ellipsis + last 4
-      assert html =~ "12345678…KlMn"
+      # only the last 4 characters
+      assert html =~ "••••KlMn"
+      refute html =~ "12345678"
     end
 
     test "masks access_key like an api_key when present" do
@@ -140,7 +144,8 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
         <.integration_picker id="p" connections={@conns} on_select="x" />
         """)
 
-      assert html =~ "AKIA1234…DEFG"
+      assert html =~ "••••DEFG"
+      refute html =~ "AKIA1234"
     end
 
     test "external_account_id wins over a masked credential" do
@@ -161,7 +166,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
 
       assert html =~ "user@example.com"
       # api_key tail is NOT rendered as the subtitle.
-      refute html =~ "sk-or-v1…ored"
+      refute html =~ "••••ored"
     end
 
     test "renders no subtitle when neither account nor credential exists" do

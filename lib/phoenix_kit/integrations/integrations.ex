@@ -1636,8 +1636,9 @@ defmodule PhoenixKit.Integrations do
         {:ok, data}
 
       {:error, changeset} = error ->
+        # Errors only: the changeset itself carries the row's value_json.
         Logger.error(
-          "[Integrations] Failed to save integration #{setting.uuid}: #{inspect(changeset)}"
+          "[Integrations] Failed to save integration #{setting.uuid}: #{inspect(changeset.errors)}"
         )
 
         error

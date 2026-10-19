@@ -2004,17 +2004,21 @@ defmodule PhoenixKit.Settings do
       acc =
         Ecto.Multi.run(acc, {:before, key}, fn _repo, _ -> {:ok, History.lock_current(key)} end)
 
+      # `log: false` — same reason as `Queries.insert_setting/2`: this
+      # table's value column holds secrets too, and Ecto's SQL debug logger
+      # would print the bound value (the stored ciphertext of a restricted
+      # key) on every batch write.
       {write_name, acc} =
         case Map.get(existing_settings, key) do
           %Setting{} = setting ->
             # Update existing setting
             changeset = Setting.update_changeset(setting, %{value: stored_value})
-            {{:update, key}, Ecto.Multi.update(acc, {:update, key}, changeset)}
+            {{:update, key}, Ecto.Multi.update(acc, {:update, key}, changeset, log: false)}
 
           nil ->
             # Create new setting
             changeset = Setting.changeset(%Setting{}, %{key: key, value: stored_value})
-            {{:insert, key}, Ecto.Multi.insert(acc, {:insert, key}, changeset)}
+            {{:insert, key}, Ecto.Multi.insert(acc, {:insert, key}, changeset, log: false)}
         end
 
       # The history row rides in the same transaction as the write.
@@ -2112,7 +2116,8 @@ defmodule PhoenixKit.Settings do
     :ok = History.check_options!(opts)
 
     multi =
-      Ecto.Multi.run(Ecto.Multi.new(), :modify, fn repo, _changes ->
+      Ecto.Multi.new()
+      |> Ecto.Multi.run(:modify, fn repo, _changes ->
         modify_locked(repo, History.lock_current(key), key, module, fun, opts)
       end)
 

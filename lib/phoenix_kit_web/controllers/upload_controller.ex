@@ -8,16 +8,23 @@ defmodule PhoenixKitWeb.UploadController do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
+  alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.RateLimiter
+  alias PhoenixKit.Utils.FileHash
   alias PhoenixKit.Utils.Format
 
-  @upload_config %{
-    # 100MB max file size
-    max_size: 100 * 1024 * 1024,
-    allowed_types:
-      ~w(image/jpeg image/png image/webp image/gif video/mp4 video/webm video/quicktime application/pdf)
-  }
+  # What the endpoint takes: the raster images the image pipeline renders
+  # renditions of (an iPhone's HEIC/HEIF included; ImageMagick reads them), the
+  # video types it plays, and PDF.
+  @allowed_types ~w(image/jpeg image/png image/webp image/gif image/heic image/heif image/avif
+                    image/tiff image/bmp video/mp4 video/webm video/quicktime application/pdf)
+
+  # The size a file may be is the site's setting (Settings → Media), the same one
+  # the media browser's uploads follow, in megabytes.
+  @default_max_mb 500
+  defp max_size,
+    do: Settings.get_integer_setting("storage_max_upload_size_mb", @default_max_mb) * 1_048_576
 
   @doc """
   Upload a file via multipart form.
@@ -53,7 +60,7 @@ defmodule PhoenixKitWeb.UploadController do
   Error (413):
       {
         "error": "FILE_TOO_LARGE",
-        "message": "File size exceeds maximum allowed (100MB)"
+        "message": "File size exceeds maximum allowed (500MB)"
       }
   """
   def create(conn, params) do
@@ -106,7 +113,7 @@ defmodule PhoenixKitWeb.UploadController do
         |> put_status(:request_entity_too_large)
         |> json(%{
           error: "FILE_TOO_LARGE",
-          message: "File size exceeds maximum allowed (#{format_bytes(@upload_config.max_size)})"
+          message: "File size exceeds maximum allowed (#{format_bytes(max_size())})"
         })
 
       {:error, %Ecto.Changeset{} = changeset} ->
@@ -133,7 +140,7 @@ defmodule PhoenixKitWeb.UploadController do
   end
 
   defp validate_file_type(upload) do
-    if upload.content_type in @upload_config.allowed_types do
+    if upload.content_type in @allowed_types do
       :ok
     else
       {:error, :invalid_file_type}
@@ -143,7 +150,7 @@ defmodule PhoenixKitWeb.UploadController do
   defp validate_file_size(upload) do
     case File.stat(upload.path) do
       {:ok, stat} ->
-        if stat.size <= @upload_config.max_size do
+        if stat.size <= max_size() do
           :ok
         else
           {:error, :file_too_large}
@@ -221,13 +228,8 @@ defmodule PhoenixKitWeb.UploadController do
   # to be two files. Rows stored with the old MD5 are recomputed by
   # `Storage.Workers.ChecksumBackfillJob`.
   defp safe_calculate_file_hash(file_path) do
-    case File.read(file_path) do
-      {:ok, data} ->
-        hash =
-          data
-          |> then(&:crypto.hash(:sha256, &1))
-          |> Base.encode16(case: :lower)
-
+    case FileHash.sha256(file_path) do
+      {:ok, hash} ->
         {:ok, hash}
 
       {:error, reason} ->

@@ -13,7 +13,7 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
       <.date_input field={@form[:due_on]} label="Due" />
       <.date_input id="from" name="value[from]" value={@from} size="xs" bare aria-label="From" />
       <.date_input field={@form[:day]} min={~D[2026-01-01]} max={@today} required />
-      <.date_input name="d" value={@d} native />   <%!-- no LiveView on the page --%>
+      <.date_input name="d" value={@d} native />   <%!-- opt out of the widget --%>
 
   ## Markup
 
@@ -54,14 +54,16 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
   join patch resets every other form control to the server's value. The hook
   then moves the focus to the text field, the control that is displayed from
   then on. A host stylesheet that predates these classes lacks the
-  `group-data-[enhanced]` utilities: rebuild the CSS, until then the page
-  keeps the browser's date input.
+  `group-data-[enhanced]` utilities: the hook notices that the text field is
+  still not displayed, undoes the swap (the browser's date input stays
+  visible, focusable and `required`) and warns once in the console. Rebuild
+  the CSS to get the widget.
 
   `<label for>` points at the text field (it carries the `id`), which is
   `hidden` on a page where no hook runs, so a click on the label does nothing
   there; the date input is named by its `aria-label`.
 
-  The text shown first is formatted on the server. A value that is not a date
+  The text field's value is formatted on the server. A value that is not a date
   (a changeset echoing bad input) is shown as given in the text field; the
   value element is rendered with it, but a browser sanitises a non-ISO
   `value` of a date input to `""`, which the hook does not take for a pick.
@@ -74,14 +76,18 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
   ## Attributes: where `rest` goes
 
     * The value element gets what describes the submitted value or the
-      form: `form`, `step`, `list`, `phx-change`, `phx-target`,
-      `phx-value-*` and `data-*`.
+      form: `form`, `step`, `list`, `phx-change` and `data-*`. `phx-target`
+      and `phx-value-*` go to **both** elements: LiveView reads them from
+      the element that fires the event, and `phx-click`/`phx-blur`/key
+      bindings fire on the visible one. The `value` such a binding delivers
+      is the visible text in the site format, not ISO.
     * Everything else goes to the visible input: `tabindex`, `phx-click`,
       `phx-blur`, `phx-focus`, `phx-keydown`, `phx-keyup`, `phx-key`, `lang`,
       `spellcheck`, `onkeydown`/`onkeyup`/`onfocus`/`onblur`/`oninput`,
-      `style`, `title`, `autofocus` (the hook focuses the field on mount, the
-      browser cannot: the field is `hidden` when it is inserted; not when the
-      person already focused another field),
+      `style`, `title`, `autofocus` (on both inputs: the browser focuses the
+      native one on a page with no hook, and the hook then moves the focus to
+      the text field, which the browser cannot do itself because it is `hidden`
+      when inserted; not when the person already focused another field),
       `autocomplete` and `inputmode` (which replace the defaults `off` and
       `numeric`/`text`), `aria-*`, … (the value element cannot be clicked or
       focused by a person).
@@ -182,9 +188,11 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   # `rest` keys the value element takes (it is the submitted control): the
   # form it belongs to, its date step and datalist, and the LiveView change
-  # wiring. `data-*` and `phx-value-*` are matched by prefix. Everything else
+  # wiring. `data-*` is matched by prefix. `phx-target` and `phx-value-*` go to
+  # both elements: LiveView reads them from the element that fires the event,
+  # and click, blur and key events fire on the visible one. Everything else
   # goes to the visible input, the only element a person can click or focus.
-  @value_rest [:form, :step, :list, :"phx-change", :"phx-target"]
+  @value_rest [:form, :step, :list, :"phx-change"]
 
   # Meaningless for a date (and harmful on the text field: a `pattern` would
   # reject every formatted date), or dropped on purpose (`phx-debounce`).
@@ -241,7 +249,8 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   attr :native, :boolean,
     default: false,
-    doc: "render a plain `<input type=\"date\">`: for pages with no LiveView (no hook runs)"
+    doc:
+      "opt out of the widget: render a plain `<input type=\"date\">` (a page with no hook gets one anyway)"
 
   attr :format, :string, default: nil, doc: "PHP-style; default: Settings `date_format`"
   attr :locale, :string, default: nil, doc: "BCP 47 tag; default: the UI language"
@@ -259,7 +268,7 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
 
   attr :rest, :global,
     include:
-      ~w(autofocus disabled form readonly required step list onkeydown style title onfocus onblur onkeyup oninput)
+      ~w(autofocus autocomplete disabled form readonly required step list onkeydown style title onfocus onblur onkeyup oninput)
 
   def date_input(%{field: %Phoenix.HTML.FormField{} = field} = assigns) do
     assigns
@@ -660,15 +669,21 @@ defmodule PhoenixKitWeb.Components.Core.DateInput do
     # set on the elements by the markup, `disabled` on both.
     text = text |> Map.new() |> Map.drop([:disabled, :required, :readonly])
     text = if rest[:form], do: Map.put(text, :form, rest[:form]), else: text
-    {Map.new(value), text}
+
+    # `phx-target` and `phx-value-*` are read from the element that fires the
+    # event, so both elements carry them.
+    shared = Map.filter(rest, fn {key, _} -> shared_rest?(key) end)
+    # `autofocus` also sits on the value element: it is the one displayed on a
+    # page where no hook runs (the hook then moves the focus to the text).
+    value = if rest[:autofocus], do: [{:autofocus, rest[:autofocus]} | value], else: value
+    {Map.merge(Map.new(value), shared), Map.merge(text, shared)}
   end
+
+  defp shared_rest?(:"phx-target"), do: true
+  defp shared_rest?(key), do: String.starts_with?(to_string(key), "phx-value-")
 
   defp value_rest?(key) when key in @value_rest, do: true
-
-  defp value_rest?(key) do
-    key = to_string(key)
-    String.starts_with?(key, "data-") or String.starts_with?(key, "phx-value-")
-  end
+  defp value_rest?(key), do: String.starts_with?(to_string(key), "data-")
 
   defp truthy?(value), do: value not in [nil, false, "false"]
 

@@ -213,6 +213,13 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.DimensionForm do
 
   defp get_field_value(_changeset, _field), do: nil
 
+  # A video size whose output is a picture (the poster, `video_thumbnail`), the only
+  # kind of video size that can keep HDR.
+  defp poster_size?(changeset) do
+    format = changeset |> get_field_value(:format) |> to_string() |> String.downcase()
+    format in ~w(jpg jpeg)
+  end
+
   # Helper function to render error messages
   defp render_error(changeset, field) do
     if Keyword.has_key?(changeset.errors, field) do

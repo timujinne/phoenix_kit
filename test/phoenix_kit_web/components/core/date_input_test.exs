@@ -474,25 +474,44 @@ defmodule PhoenixKitWeb.Components.Core.DateInputTest do
       assert length(Regex.scan(~r/tabindex=/, text)) == 1
       refute value =~ "tabindex"
 
-      # The change wiring is the value element's.
+      # LiveView reads phx-target from the element that fires the event, and
+      # phx-click fires on the visible one: both carry it.
       assert value =~ ~s(phx-target="#t")
-      refute text =~ "phx-target"
+      assert text =~ ~s(phx-target="#t")
     end
 
-    test "form, step, list, phx-value-* and data-* go to the value element" do
-      html = date(step: "7", list: "days", "phx-value-id": "9", "data-x": "y", "phx-change": "c")
+    test "form, step, list, phx-change and data-* go to the value element" do
+      html = date(step: "7", list: "days", "data-x": "y", "phx-change": "c")
       value = value_tag(html)
 
-      for attr <- [
-            ~s(step="7"),
-            ~s(list="days"),
-            ~s(phx-value-id="9"),
-            ~s(data-x="y"),
-            ~s(phx-change="c")
-          ] do
+      for attr <- [~s(step="7"), ~s(list="days"), ~s(data-x="y"), ~s(phx-change="c")] do
         assert value =~ attr, attr
         refute text_tag(html) =~ attr, attr
       end
+    end
+
+    test "phx-value-* goes to both elements: click and blur events read it from the visible one" do
+      html = date("phx-value-id": "9", "phx-blur": "save")
+      assert text_tag(html) =~ ~s(phx-value-id="9")
+      assert value_tag(html) =~ ~s(phx-value-id="9")
+    end
+
+    test "autocomplete is accepted without a compile warning" do
+      warnings =
+        ExUnit.CaptureIO.capture_io(:stderr, fn ->
+          Code.compile_string("""
+          defmodule DateInputAutocompleteProbe do
+            use Phoenix.Component
+            import PhoenixKitWeb.Components.Core.DateInput
+
+            def render(assigns) do
+              ~H'<.date_input id="a" name="a" autocomplete="bday" />'
+            end
+          end
+          """)
+        end)
+
+      refute warnings =~ "undefined attribute"
     end
 
     test "attributes that mean nothing for a date are dropped, not sent to the text field" do
@@ -748,10 +767,10 @@ defmodule PhoenixKitWeb.Components.Core.DateInputTest do
       assert count_attr(text_tag(via_input), "autocomplete") == 1
     end
 
-    test "autofocus is on the visible input, where the hook focuses it" do
+    test "autofocus is on the visible input and on the native one a dead page shows" do
       html = date(autofocus: true)
       assert Map.has_key?(text_attrs(html), "autofocus")
-      refute value_tag(html) =~ "autofocus"
+      assert value_tag(html) =~ "autofocus"
     end
 
     test "size is the HTML size there, so it is not passed on" do

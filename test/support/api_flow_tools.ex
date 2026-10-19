@@ -97,7 +97,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
             }
           }
         },
-        danger: {__MODULE__, :set_values_danger}
+        danger: {__MODULE__, :set_values_danger},
+        title: "Change values"
       ),
       admin(
         "flowkit.delete_items",
@@ -107,7 +108,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         :delete_items,
         %{"ids" => %{"type" => "array", "minItems" => 1, "items" => %{"type" => "string"}}},
         danger: :always,
-        max_items: 500
+        max_items: 500,
+        title: "Delete items"
       ),
       admin(
         "flowkit.progress_write",
@@ -162,7 +164,7 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       audience: :admin,
       scope: scope,
       permission: permission,
-      title: name,
+      title: Keyword.get(opts, :title, name),
       description: "Test tool #{name}.",
       input_schema: %{
         "type" => "object",

@@ -40,6 +40,41 @@
   dropdown. A key limited to one bucket is usually refused; the text field stays and the message says to type the name.
 - `Libraries.integration_summary/2`: what a user's integration says about itself (service, bucket provider, region,
   endpoint), never a secret.
+- **The poster of an HDR video is an HDR photo.** For an HLG video (every iPhone recording) whose `video_thumbnail` size keeps
+  HDR, the poster is a JPEG with a gain map (Ultra HDR, ISO 21496-1): an HDR screen shows the highlights above white, any other
+  shows the ordinary picture. `VideoHdrPoster` makes it with libvips' `uhdrsave` (in the library `vix` ships; nothing to
+  install): ffmpeg writes the frame as linear-light floats, scaled so SDR white (203 nits) is 1.0, and libvips computes the map.
+  The switches are the photos' own: the size's `keep_hdr` option (now **on by default** for `video_thumbnail`, and offered in the
+  size form for a video JPEG size) and `config :phoenix_kit, hdr_renditions`. Without `vix`, with a libvips older than 8.17, or
+  if anything fails, the ordinary tone-mapped poster is made and a warning logged. PQ sources and Dolby Vision profile 5 keep the
+  ordinary poster. Existing sites keep what their size says until `keep_hdr` is turned on; videos already made are remade by
+  regenerating them.
+
+### Fixed
+
+- **An HDR video no longer makes renditions a browser cannot play, nor a washed-out poster.** A phone records HDR as 10-bit HEVC
+  (HLG or PQ, BT.2020). Its renditions were encoded as 10-bit H.264 ("High 10"), which most browsers refuse, and its poster was
+  a raw frame grab with the HDR signal squeezed into an SDR picture (flat colours, blown highlights). `VideoSource.probe/1`
+  reads the source once with `ffprobe`; an HDR source is **tone-mapped to SDR** (`zscale`/`tonemap`, Hable, 203 nit reference
+  white, BT.709, 8-bit) after the resize, for every rendition and the poster. Every H.264 and VP9 rendition is now `yuv420p`
+  whatever the source (a 10-bit video that is not HDR no longer comes out as High 10). If the tone-mapping fails the ordinary
+  rendition is made and a warning logged. The original is stored untouched. SDR sources are unchanged apart from `yuv420p`.
+  Keeping the HDR in a rendition (10-bit HEVC) is not done.
+- **A video thumbnail of a clip about a second long is made.** The poster was always taken at 1.000 s; a clip of exactly one
+  second (a Live Photo's) has no frame there, and FFmpeg answered success without writing a file, so the variant failed later
+  as a bare `:enoent`. It is taken one second in, or halfway for a clip under two seconds, and an FFmpeg run that wrote no file
+  is now an error that says so.
+- **Large files are no longer read into memory to be hashed.** Every checksum of a file on disk (the original's SHA-256 and MD5
+  at upload, each rendition's, a URL import, the dedup backfill, `POST /api/upload`) read the whole file with `File.read!/1`
+  and held it, twice over, while it hashed; a video of a few gigabytes cost a few gigabytes. They go through the new
+  `PhoenixKit.Utils.FileHash` (1 MiB chunks, several digests in one pass), so what a hash costs in memory is the chunk. A test
+  stores a 160 MiB file and fails if binary memory rises by more than 64 MiB (the old code rose by 293 MiB).
+- **An iPhone's HEIC (and HEIF, AVIF) zooms to the last pixel.** libvips as shipped with `vix` reads a HEIC's size but has no HEVC
+  decoder, so no deep-zoom tile could be cut from one and the viewer stopped at the 1920 px rendition. The first tile request
+  now makes one full-resolution JPEG of the original with ImageMagick (`ImageProcessor.full_jpeg/3`), keeps it beside the tiles
+  (`TileSource`), and cuts every tile from it.
+- **`POST /api/upload` takes HEIC, HEIF, AVIF, TIFF and BMP** (it turned them away as "not allowed"), and its size cap follows the
+  `storage_max_upload_size_mb` setting (default 500) instead of a fixed 100 MB.
 
 ## 2.63.0 - 2026-10-17
 

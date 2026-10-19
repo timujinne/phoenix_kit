@@ -197,6 +197,47 @@ config :phoenix_kit, PhoenixKit.Users.RateLimiter,
   registration_ip_window_ms: 3_600_000 # 1 hour window
 ```
 
+### Client IP behind a reverse proxy
+
+Rate limits, API key `allowed_ips`, login history and session checks all key on
+the client address from `PhoenixKit.Utils.IpAddress`. Behind a reverse proxy
+the TCP peer is the proxy, so PhoenixKit reads `X-Forwarded-For` (the last
+entry, the one your proxy appended) and then `X-Real-IP` — but only from a peer
+it trusts, because anyone else can send those headers with any value.
+
+```elixir
+# Believe the headers only from these peers (CIDR blocks or bare addresses)
+config :phoenix_kit, :trusted_proxies, ["172.18.0.7/32"]
+
+# Believe them from nobody: the client is always the connection's peer
+config :phoenix_kit, :trusted_proxies, []
+```
+
+One proxy hop is supported: the client is the last `X-Forwarded-For` entry, so a
+chain such as CDN -> Caddy -> app reports the CDN. A value that is not a list of
+CIDR text trusts nobody and logs one warning. In a list, an entry that does not
+parse matches nothing, while the valid entries still trust their peers (one
+warning names the bad ones). In Docker the proxy's address changes when its
+container is recreated, so a fixed `/32` like the one above silently stops
+matching and every client appears as the proxy. Pin the address (`ipv4_address`
+in compose), resolve the proxy by hostname at boot in `config/runtime.exs`, or
+trust the network's CIDR block instead. Trusting a whole Docker network makes
+every container on it a trusted header source, so prefer a network that holds
+only the proxy and the app.
+
+`:trusted_proxies` decides the client address only. `X-Forwarded-Proto` (the
+scheme used for URLs such as the API `base_url`) is still believed from any
+loopback or private peer.
+
+- **Not set (default, unchanged).** Any loopback or private peer is treated as a
+  proxy. The first request that relies on this logs one warning per VM.
+- **A list.** Headers are believed only when the peer is inside one of the
+  blocks, public or private. A malformed entry matches nothing.
+- **`[]`.** Nobody is trusted.
+
+Set it in production to the address(es) your proxy connects from. The same rule
+covers LiveView sockets (`client_address_from_socket/1`).
+
 ---
 
 ## Authentication Integration

@@ -1657,6 +1657,12 @@ defmodule PhoenixKit.Utils.Routes do
 
   Use `canonical_absolute/2` for a path that is already built. The site base
   is read from the settings cache, so the call is cheap enough to make per URL.
+
+  The language segment is the language's **base** code (`"en-GB"` gives `/en`),
+  unlike `canonical_absolute/2`, which keeps the segment of the path it is
+  given. A site that serves a dialect under its own segment (`/en-gb`) next to
+  its base language builds that dialect's pages with `path/2` and
+  `canonical_absolute/2`, not with this function.
   """
   @spec canonical_url(String.t(), String.t() | nil) :: String.t()
   def canonical_url("/" <> _ = url_path, language) do

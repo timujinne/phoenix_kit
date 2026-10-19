@@ -37,6 +37,7 @@ defmodule PhoenixKit.Modules.Storage.Workers.ChecksumBackfillJob do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
   alias PhoenixKit.Modules.Storage.Jobs.ChecksumBackfill
+  alias PhoenixKit.Utils.FileHash
 
   @batch_size 20
 
@@ -121,7 +122,7 @@ defmodule PhoenixKit.Modules.Storage.Workers.ChecksumBackfillJob do
     case Storage.retrieve_original(file.uuid) do
       {:ok, path, _file, _instance} ->
         try do
-          sha = :sha256 |> :crypto.hash(Elixir.File.read!(path)) |> Base.encode16(case: :lower)
+          sha = FileHash.sha256!(path)
           record(file, sha)
         after
           Elixir.File.rm(path)

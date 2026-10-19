@@ -184,6 +184,11 @@
   # Integrations — URI authority is opaque, cond guard false positive
   {"lib/phoenix_kit_web/live/settings/integration_form.ex", :opaque_guard},
 
+  # `Settings.modify_setting_with_module/4` starts its transaction with
+  # `Ecto.Multi.run(Ecto.Multi.new(), ...)`: dialyzer sees the fresh multi's
+  # `MapSet` through its opaque `names` field and flags the call. A regex on the
+  # called function, not file-wide, so another opaque misuse in settings.ex shows.
+  ~r{^lib/phoenix_kit/settings/settings\.ex:\d+(:\d+)?:call_without_opaque .* in run\.},
   # `Task.Supervisor.async_nolink/2` hands back a `%Task{}` whose fields
   # dialyzer knows structurally, and `Task.yield/2` declares `Task.t()`
   # opaque — so the call is flagged for peeking into the opacity it never
