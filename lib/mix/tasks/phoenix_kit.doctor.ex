@@ -2830,8 +2830,9 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
 
   # The root-level paths PhoenixKit's router macro declares (outside its URL
   # prefix). 1.7 told hosts to declare the sitemap routes themselves; the kit
-  # took that over, so an upgraded host can declare the same path twice.
-  @kit_root_paths ~w(/llms.txt /sitemap.xml /sitemap.html /sitemaps/:filename /sitemap.xsl)
+  # took that over, so an upgraded host can declare the same path twice. `/mcp`
+  # and the API catalog are new: a host route for either is shadowed or shadows.
+  @kit_root_paths ~w(/llms.txt /sitemap.xml /sitemap.html /sitemaps/:filename /sitemap.xsl /mcp /.well-known/api-catalog)
 
   @doc false
   # Pure: one finding per kit root path declared more than once WITH different
@@ -2848,17 +2849,65 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
   # job would break the route). Pipelines can differ between the two, which is
   # not worth a warning.
   def duplicate_root_route_findings(routes) do
-    routes
-    |> Enum.filter(&(&1.verb == :get and &1.path in @kit_root_paths))
-    |> Enum.group_by(& &1.path)
-    |> Enum.sort_by(fn {path, _} -> path end)
-    |> Enum.flat_map(fn {path, [winner | rest] = declared} ->
-      case Enum.reject(rest, &same_handler?(&1, winner)) do
-        [] -> []
-        dead -> [duplicate_finding(path, winner, dead, length(declared))]
-      end
-    end)
+    {routes, shadowed} = split_shadowed_mcp(routes)
+
+    get_findings =
+      routes
+      |> Enum.filter(&(&1.verb == :get and &1.path in @kit_root_paths))
+      |> Enum.group_by(& &1.path)
+      |> Enum.sort_by(fn {path, _} -> path end)
+      |> Enum.flat_map(fn {path, [winner | rest] = declared} ->
+        case Enum.reject(rest, &same_handler?(&1, winner)) do
+          [] -> []
+          dead -> [duplicate_finding(path, winner, dead, length(declared))]
+        end
+      end)
+
+    get_findings ++ shadowed_mcp_findings(shadowed)
   end
+
+  # `/mcp` is claimed for every method: the kit answers `GET` with the guide and
+  # the rest with a 405, so a host route at that path — whatever its verb, a
+  # `forward` included — declared after the kit's never runs. The GET-only
+  # comparison above cannot see `post "/mcp"` or `forward "/mcp"`, the shapes a
+  # host MCP server takes. Returns the routes without those, and those.
+  defp split_shadowed_mcp(routes) do
+    case Enum.find_index(routes, &kit_mcp_route?/1) do
+      nil ->
+        {routes, []}
+
+      kit_index ->
+        {through_kit, after_kit} = Enum.split(routes, kit_index + 1)
+
+        {shadowed, rest} =
+          Enum.split_with(after_kit, &(&1.path == "/mcp" and not kit_mcp_route?(&1)))
+
+        {through_kit ++ rest, shadowed}
+    end
+  end
+
+  defp kit_mcp_route?(route),
+    do: route.path == "/mcp" and route.plug == PhoenixKitWeb.Controllers.ApiDiscovery
+
+  defp shadowed_mcp_findings([]), do: []
+
+  defp shadowed_mcp_findings(shadowed) do
+    declarations =
+      shadowed
+      |> Enum.map(&"#{shadowed_label(&1)} (#{inspect(&1.plug)})")
+      |> Enum.uniq()
+      |> Enum.join(", ")
+
+    [
+      "PhoenixKit's routes answer /mcp (the guide on GET, a 405 on every other method) " <>
+        "and are declared first, so #{declarations} is unreachable. " <>
+        "Declare it before phoenix_kit_routes() or serve it from another path."
+    ]
+  end
+
+  defp shadowed_label(%{metadata: %{forward: _}}), do: "forward /mcp"
+  defp shadowed_label(%{verb: :*}), do: "any-method /mcp"
+  defp shadowed_label(%{verb: verb}), do: "#{verb |> to_string() |> String.upcase()} /mcp"
 
   defp same_handler?(a, b),
     do: a.plug == b.plug and Map.get(a, :plug_opts) == Map.get(b, :plug_opts)
@@ -2873,8 +2922,13 @@ defmodule Mix.Tasks.PhoenixKit.Doctor do
     "GET #{path} is declared #{count} times: #{route_label(winner, with_action?)} " <>
       "answers it (declared first), and the declaration by " <>
       "#{Enum.join(dead_names, ", ")} never runs. " <>
-      "Delete the one you no longer want — usually a pre-2.0 copy of PhoenixKit's route."
+      "Delete the one you no longer want#{pre_2_hint(path)}."
   end
+
+  # `/mcp` and the API catalog are new in 2.0; only the sitemap paths can be a
+  # copy of a route the kit did not yet declare.
+  defp pre_2_hint(path) when path in ["/mcp", "/.well-known/api-catalog"], do: ""
+  defp pre_2_hint(_path), do: " — usually a pre-2.0 copy of PhoenixKit's route"
 
   defp route_label(route, true) do
     case Map.get(route, :plug_opts) do

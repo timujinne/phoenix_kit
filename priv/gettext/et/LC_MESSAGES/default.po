@@ -20961,3 +20961,114 @@ msgstr "Kuidas ühendada programm või tehisintellekti agent võtmega: aadressid
 #, elixir-autogen, elixir-format
 msgid "Open the guide"
 msgstr "Ava juhend"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:49
+#, elixir-autogen, elixir-format
+msgid "%{title} — shop API and MCP server"
+msgstr "%{title} — poe API ja MCP-server"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:84
+#, elixir-autogen, elixir-format
+msgid "Connect with MCP"
+msgstr "Ühendu MCP kaudu"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:86
+#, elixir-autogen, elixir-format
+msgid "The MCP server speaks Streamable HTTP and needs no API key."
+msgstr "MCP-server kasutab Streamable HTTP-d ega vaja API-võtit."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:87
+#, elixir-autogen, elixir-format
+msgid "Server URL"
+msgstr "Serveri URL"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:91
+#, elixir-autogen, elixir-format
+msgid "Claude on the desktop and on the web: add a custom connector with the server URL above. The connection is made from Anthropic's servers, so this site must be reachable from the internet."
+msgstr "Claude töölauarakenduses ja veebis: lisa kohandatud ühendus (custom connector) ülaltoodud serveri URL-iga. Ühendus luuakse Anthropicu serveritest, seega peab see sait olema internetist kättesaadav."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:98
+#, elixir-autogen, elixir-format
+msgid "Any other client: use the server URL above as a Streamable HTTP endpoint."
+msgstr "Mis tahes muu klient: kasuta ülaltoodud serveri URL-i Streamable HTTP lõpp-punktina."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:106
+#, elixir-autogen, elixir-format
+msgid "Connect with REST"
+msgstr "Ühendu REST-i kaudu"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:112
+#, elixir-autogen, elixir-format
+msgid "List the tools"
+msgstr "Tööriistade loend"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:113
+#: lib/phoenix_kit/api/public_discovery/guide.ex:189
+#, elixir-autogen, elixir-format
+msgid "OpenAPI description"
+msgstr "OpenAPI kirjeldus"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:114
+#, elixir-autogen, elixir-format
+msgid "Call a tool with a JSON object as the body"
+msgstr "Tööriista kutsumine JSON-objektiga päringu kehana"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:128
+#, elixir-autogen, elixir-format
+msgid "Example"
+msgstr "Näide"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:151
+#, elixir-autogen, elixir-format
+msgid "REST name"
+msgstr "REST-nimi"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:153
+#, elixir-autogen, elixir-format
+msgid "MCP name"
+msgstr "MCP-nimi"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:155
+#, elixir-autogen, elixir-format
+msgid "May ask for confirmation first."
+msgstr "Võib enne täitmist kinnitust küsida."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:162
+#, elixir-autogen, elixir-format
+msgid "How answers work"
+msgstr "Kuidas vastused töötavad"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:166
+#, elixir-autogen, elixir-format
+msgid "Answers use the language and currency of the domain you call, unless a tool takes a language or currency field and the call sets it."
+msgstr "Vastused kasutavad kutsutava domeeni keelt ja valuutat, välja arvatud juhul, kui tööriistal on keele- või valuutaväli ja päring selle määrab."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:169
+#, elixir-autogen, elixir-format
+msgid "Errors are application/problem+json documents with a stable code; the codes are listed in the OpenAPI description."
+msgstr "Vead on application/problem+json dokumendid püsiva koodiga; koodid on loetletud OpenAPI kirjelduses."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:172
+#, elixir-autogen, elixir-format
+msgid "Calls are rate limited per client address; a limited call is answered with HTTP 429 and a Retry-After header."
+msgstr "Päringute arvu piiratakse kliendi aadressi kaupa; piiratud päringule vastatakse HTTP 429 ja Retry-After päisega."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:185
+#, elixir-autogen, elixir-format
+msgid "Links"
+msgstr "Lingid"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:190
+#, elixir-autogen, elixir-format
+msgid "This page as Markdown"
+msgstr "See leht Markdownina"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:191
+#, elixir-autogen, elixir-format
+msgid "API catalog"
+msgstr "API kataloog"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:63
+#, elixir-autogen, elixir-format
+msgid "This site"
+msgstr "See sait"

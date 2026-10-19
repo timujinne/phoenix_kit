@@ -18,6 +18,10 @@ defmodule PhoenixKit.API.REST do
   Any other method on those paths answers `405` with an `allow` header,
   and any other path `404`, both as `application/problem+json`.
 
+  The public tool list also carries a `Link` header to the OpenAPI document
+  and the guide while the guide is published
+  (`PhoenixKit.API.PublicDiscovery.put_list_links/1`).
+
   Everything else is done by `PhoenixKit.API.Auth` (API switch, key) and
   `PhoenixKit.API.Executor` (rights, limits, validation, the tool). The
   request body is `conn.body_params`, which `PhoenixKit.API.BodyGuard`
@@ -58,6 +62,7 @@ defmodule PhoenixKit.API.REST do
   alias PhoenixKit.API.Executor
   alias PhoenixKit.API.OpenAPI
   alias PhoenixKit.API.Problem
+  alias PhoenixKit.API.PublicDiscovery
 
   @impl Plug
   def init(opts) do
@@ -84,6 +89,9 @@ defmodule PhoenixKit.API.REST do
   defp dispatch(%Plug.Conn{method: "POST", path_info: [tool]} = conn, audience)
        when tool != "openapi.json",
        do: Executor.call(conn, audience, tool, body_input(conn))
+
+  defp dispatch(%Plug.Conn{method: "GET", path_info: []} = conn, :public),
+    do: conn |> PublicDiscovery.put_list_links() |> Executor.list(:public)
 
   defp dispatch(%Plug.Conn{method: "GET", path_info: []} = conn, audience),
     do: Executor.list(conn, audience)

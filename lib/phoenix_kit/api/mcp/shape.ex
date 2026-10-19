@@ -37,6 +37,8 @@ defmodule PhoenixKit.API.MCP.Shape do
     module_disabled:
       "The module behind this tool is switched off; use another tool or ask an administrator to enable it.",
     method_not_allowed: "Use the method named in the Allow header.",
+    not_acceptable:
+      "Ask for text/html or text/markdown, or use the endpoint named in the detail.",
     confirm_token_invalid:
       "Repeat the call without the confirmation token to get a fresh preview.",
     revision_mismatch: "Read the current state, then repeat the change on top of it.",
@@ -161,8 +163,10 @@ defmodule PhoenixKit.API.MCP.Shape do
   end
 
   def instructions(:public) do
-    "This endpoint needs no key. List the tools with tools/list. A failed call of a tool comes back as a result " <>
-      "with isError set (an unknown tool name is a JSON-RPC error, -32602); the code in square brackets is stable " <>
-      "and the second text item is the full problem document."
+    "This endpoint needs no key. List the tools with tools/list. Answers follow the language and currency " <>
+      "of the domain you call, unless a tool takes a language or currency field and the call sets it. " <>
+      "A failed call of a tool comes back as a result with isError set (an unknown tool name is a JSON-RPC " <>
+      "error, -32602); its text starts with the code in square brackets, which is stable, and the second " <>
+      "text item is the full problem document."
   end
 end

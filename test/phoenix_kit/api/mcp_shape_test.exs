@@ -405,6 +405,22 @@ defmodule PhoenixKit.API.MCP.ShapeTest do
       assert Shape.instructions(:public) != ""
     end
 
+    test "the public instructions are pinned: no key, the domain's language and currency, the error code" do
+      assert Shape.instructions(:public) ==
+               "This endpoint needs no key. List the tools with tools/list. Answers follow the language " <>
+                 "and currency of the domain you call, unless a tool takes a language or currency field and " <>
+                 "the call sets it. A failed call of a tool comes back as a result with isError set (an " <>
+                 "unknown tool name is a JSON-RPC error, -32602); its text starts with the code in square " <>
+                 "brackets, which is stable, and the second text item is the full problem document."
+    end
+
+    test "the public instructions name no URL, no admin tool and no approval" do
+      instructions = Shape.instructions(:public)
+
+      refute instructions =~ "http"
+      refute instructions =~ ~r/approval|admin|Bearer|scope/i
+    end
+
     test "an older revision gets no title" do
       refute Map.has_key?(Shape.server_info(:admin, @old), "title")
       assert Shape.server_info(:admin, @old)["name"] == "phoenix_kit"

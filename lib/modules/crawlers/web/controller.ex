@@ -11,8 +11,10 @@ defmodule PhoenixKit.Modules.Crawlers.Web.Controller do
   """
   use PhoenixKitWeb, :controller
 
+  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.Modules.Crawlers
   alias PhoenixKit.Modules.Crawlers.LlmsTxt
+  alias PhoenixKit.WebsiteAccess.Gate
 
   @cache_max_age 3600
 
@@ -21,9 +23,34 @@ defmodule PhoenixKit.Modules.Crawlers.Web.Controller do
       conn
       |> put_resp_content_type("text/markdown")
       |> put_resp_header("cache-control", "public, max-age=#{@cache_max_age}")
-      |> send_resp(200, LlmsTxt.build())
+      |> put_api_section()
     else
       send_resp(conn, 404, "Not Found")
     end
+  end
+
+  # While the public API is published (`PhoenixKit.API.PublicDiscovery.check/1`)
+  # the file ends with its section and points to the API catalog. With the
+  # website gate on that depends on the client address, so a shared cache must
+  # not keep the answer.
+  defp put_api_section(conn) do
+    case PublicDiscovery.check(conn) do
+      {:ok, _tools} ->
+        origin = PublicDiscovery.origin(conn)
+
+        conn
+        |> PublicDiscovery.put_link(PublicDiscovery.catalog_link(origin))
+        |> put_gate_cache_control()
+        |> send_resp(200, LlmsTxt.build(api_section: PublicDiscovery.llms_section(origin)))
+
+      :hidden ->
+        send_resp(conn, 200, LlmsTxt.build())
+    end
+  end
+
+  defp put_gate_cache_control(conn) do
+    if Gate.enabled?(),
+      do: put_resp_header(conn, "cache-control", "private, no-store"),
+      else: conn
   end
 end

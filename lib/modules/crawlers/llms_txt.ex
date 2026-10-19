@@ -26,10 +26,19 @@ defmodule PhoenixKit.Modules.Crawlers.LlmsTxt do
 
   @doc """
   Build the llms.txt contents from current settings.
+
+  `:api_section` is the section about the public API
+  (`PhoenixKit.API.PublicDiscovery.llms_section/1`), appended after the
+  operator's text; `nil` (the default) appends nothing.
   """
-  @spec build() :: String.t()
-  def build do
-    build_for(Settings.get_project_title(), Crawlers.llms_txt_extra())
+  @spec build(keyword()) :: String.t()
+  def build(opts \\ []) do
+    base = build_for(Settings.get_project_title(), Crawlers.llms_txt_extra())
+
+    case Keyword.get(opts, :api_section) do
+      section when is_binary(section) and section != "" -> base <> "\n" <> section
+      _none -> base
+    end
   end
 
   @doc """

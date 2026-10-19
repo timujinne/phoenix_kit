@@ -20952,3 +20952,114 @@ msgstr "So verbinden Sie ein Programm oder einen KI-Agenten mit einem Schlüssel
 #, elixir-autogen, elixir-format
 msgid "Open the guide"
 msgstr "Leitfaden öffnen"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:49
+#, elixir-autogen, elixir-format
+msgid "%{title} — shop API and MCP server"
+msgstr "%{title} — Shop-API und MCP-Server"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:84
+#, elixir-autogen, elixir-format
+msgid "Connect with MCP"
+msgstr "Per MCP verbinden"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:86
+#, elixir-autogen, elixir-format
+msgid "The MCP server speaks Streamable HTTP and needs no API key."
+msgstr "Der MCP-Server spricht Streamable HTTP und benötigt keinen API-Schlüssel."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:87
+#, elixir-autogen, elixir-format
+msgid "Server URL"
+msgstr "Server-URL"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:91
+#, elixir-autogen, elixir-format
+msgid "Claude on the desktop and on the web: add a custom connector with the server URL above. The connection is made from Anthropic's servers, so this site must be reachable from the internet."
+msgstr "Claude auf dem Desktop und im Web: Fügen Sie einen benutzerdefinierten Connector mit der obigen Server-URL hinzu. Die Verbindung wird von den Servern von Anthropic aufgebaut, daher muss diese Website aus dem Internet erreichbar sein."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:98
+#, elixir-autogen, elixir-format
+msgid "Any other client: use the server URL above as a Streamable HTTP endpoint."
+msgstr "Jeder andere Client: Verwenden Sie die obige Server-URL als Streamable-HTTP-Endpunkt."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:106
+#, elixir-autogen, elixir-format
+msgid "Connect with REST"
+msgstr "Per REST verbinden"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:112
+#, elixir-autogen, elixir-format
+msgid "List the tools"
+msgstr "Werkzeuge auflisten"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:113
+#: lib/phoenix_kit/api/public_discovery/guide.ex:189
+#, elixir-autogen, elixir-format
+msgid "OpenAPI description"
+msgstr "OpenAPI-Beschreibung"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:114
+#, elixir-autogen, elixir-format
+msgid "Call a tool with a JSON object as the body"
+msgstr "Ein Werkzeug aufrufen, mit einem JSON-Objekt als Body"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:128
+#, elixir-autogen, elixir-format
+msgid "Example"
+msgstr "Beispiel"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:151
+#, elixir-autogen, elixir-format
+msgid "REST name"
+msgstr "REST-Name"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:153
+#, elixir-autogen, elixir-format
+msgid "MCP name"
+msgstr "MCP-Name"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:155
+#, elixir-autogen, elixir-format
+msgid "May ask for confirmation first."
+msgstr "Fragt möglicherweise zuerst nach einer Bestätigung."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:162
+#, elixir-autogen, elixir-format
+msgid "How answers work"
+msgstr "So funktionieren die Antworten"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:166
+#, elixir-autogen, elixir-format
+msgid "Answers use the language and currency of the domain you call, unless a tool takes a language or currency field and the call sets it."
+msgstr "Antworten verwenden Sprache und Währung der aufgerufenen Domain, es sei denn, ein Werkzeug hat ein Sprach- oder Währungsfeld und der Aufruf setzt es."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:169
+#, elixir-autogen, elixir-format
+msgid "Errors are application/problem+json documents with a stable code; the codes are listed in the OpenAPI description."
+msgstr "Fehler sind application/problem+json-Dokumente mit einem stabilen Code; die Codes sind in der OpenAPI-Beschreibung aufgeführt."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:172
+#, elixir-autogen, elixir-format
+msgid "Calls are rate limited per client address; a limited call is answered with HTTP 429 and a Retry-After header."
+msgstr "Aufrufe werden pro Client-Adresse begrenzt; ein begrenzter Aufruf wird mit HTTP 429 und einem Retry-After-Header beantwortet."
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:185
+#, elixir-autogen, elixir-format
+msgid "Links"
+msgstr "Links"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:190
+#, elixir-autogen, elixir-format
+msgid "This page as Markdown"
+msgstr "Diese Seite als Markdown"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:191
+#, elixir-autogen, elixir-format
+msgid "API catalog"
+msgstr "API-Katalog"
+
+#: lib/phoenix_kit/api/public_discovery/guide.ex:63
+#, elixir-autogen, elixir-format
+msgid "This site"
+msgstr "Diese Website"

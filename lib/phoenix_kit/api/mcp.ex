@@ -27,7 +27,9 @@ defmodule PhoenixKit.API.MCP do
     * anything else: JSON-RPC `-32601`.
 
   `GET`, `DELETE` and every other method are `405` with `Allow: POST`: there
-  is no event stream and no session to close. No session id is issued; every
+  is no event stream and no session to close. The public endpoint's `405` also
+  carries `Link: <guide>; rel="service-doc"` while the guide is published
+  (`PhoenixKit.API.PublicDiscovery`). No session id is issued; every
   request carries its own key. No CORS headers are sent.
 
   ## Protocol revisions
@@ -83,6 +85,7 @@ defmodule PhoenixKit.API.MCP do
   alias PhoenixKit.API.MCP.Shape
   alias PhoenixKit.API.MCP.Versions
   alias PhoenixKit.API.Problem
+  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.API.RateLimit
   alias PhoenixKit.API.Registry
 
@@ -111,11 +114,14 @@ defmodule PhoenixKit.API.MCP do
   end
 
   defp route(%Plug.Conn{path_info: [], method: "POST"} = conn, audience), do: post(conn, audience)
-  defp route(%Plug.Conn{path_info: []} = conn, _audience), do: method_not_allowed(conn)
+  defp route(%Plug.Conn{path_info: []} = conn, audience), do: method_not_allowed(conn, audience)
   defp route(conn, _audience), do: Problem.send(conn, :not_found, "No such MCP path.", %{})
 
-  defp method_not_allowed(conn) do
+  # A client that GETs the server URL may be looking for how to connect: the
+  # public endpoint points to the guide while the guide is published.
+  defp method_not_allowed(conn, audience) do
     conn
+    |> put_service_doc(audience)
     |> put_resp_header("allow", "POST")
     |> Problem.send(
       :method_not_allowed,
@@ -123,6 +129,9 @@ defmodule PhoenixKit.API.MCP do
       %{allow: "POST"}
     )
   end
+
+  defp put_service_doc(conn, :public), do: PublicDiscovery.put_service_doc_link(conn)
+  defp put_service_doc(conn, :admin), do: conn
 
   # --- one POST ---------------------------------------------------------------
 

@@ -21,6 +21,8 @@ defmodule PhoenixKitWeb.Live.Settings.Crawlers do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  alias PhoenixKit.API.Config
+  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.Modules.Crawlers
   alias PhoenixKit.Modules.Crawlers.Bots
   alias PhoenixKit.Modules.Crawlers.LlmsTxt
@@ -203,11 +205,17 @@ defmodule PhoenixKitWeb.Live.Settings.Crawlers do
     |> assign(:google_verification, Crawlers.google_verification())
     |> assign(:bing_verification, Crawlers.bing_verification())
     |> assign(:llms_txt_extra, Crawlers.llms_txt_extra())
-    |> assign(:llms_txt_preview, LlmsTxt.build())
+    |> assign(:llms_txt_preview, LlmsTxt.build(api_section: api_section()))
     |> assign(
       :robots_txt,
       RobotsTxt.build(sitemap_url: Routes.base_url() <> "/sitemap.xml")
     )
+  end
+
+  # The file as the site serves it to a visitor: with the public API's section
+  # while that API is on (the website gate and the tool list are not asked).
+  defp api_section do
+    if Config.public_enabled?(), do: PublicDiscovery.llms_section(Routes.base_url())
   end
 
   defp get_current_path(locale) do
