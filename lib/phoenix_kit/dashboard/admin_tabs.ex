@@ -468,7 +468,7 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
         :admin_settings,
         "integrations_system"
       ),
-      # API keys and the switches of the shop API. Gated on its own `api` key,
+      # API keys and the switches of the machine API. Gated on its own `api` key,
       # which is opt-in for Admin (see `Permissions`), so an Admin without it
       # sees neither this tab nor the page.
       admin_subtab(

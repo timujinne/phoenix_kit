@@ -37,7 +37,7 @@ defmodule PhoenixKit.API.ExecutorSharedTest do
                Executor.authorize_tool("flowkit.nope", :admin, [])
 
       assert {:error, :not_found, _detail, _context} =
-               Executor.authorize_tool("flowkit.mint_cart", :admin, [])
+               Executor.authorize_tool("flowkit.mint_session", :admin, [])
     end
 
     test "a disabled module is module_disabled" do

@@ -1,6 +1,6 @@
 defmodule PhoenixKitWeb.Live.Settings.Api do
   @moduledoc """
-  Settings -> API: the two switches of the shop API, the API switch of each module
+  Settings -> API: the two switches of the machine API, the API switch of each module
   that declares tools, the API keys (create,
   rotate, edit the scopes, revoke), the service users that can own keys, the
   one-time dialog that shows a new key, and the "Limits and advanced" settings
@@ -57,6 +57,11 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   current ones are written, each through `PhoenixKit.Settings` with this admin as
   the actor (a permanent `setting.changed` entry in the Activity log, which is
   where the key events are read too: this page has no history card).
+
+  A limit that was renamed (`PhoenixKit.API.Legacy`) is compared with what its
+  new key alone gives (`PhoenixKit.API.Config.rate_limits_without_fallback/0`), so
+  the first save writes a value that was in effect through the old key under the
+  new one. The old row is left in place.
   """
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
@@ -82,10 +87,10 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   @limit_fields [
     {"preauth_fail_per_min", "api_admin_preauth_fail_per_min", :preauth_fail_per_min},
     {"admin_per_min", "api_admin_rate_per_min", :admin_per_min},
-    {"public_cart_per_min", "api_public_cart_rate_per_min", :public_cart_per_min},
+    {"public_token_per_min", "api_public_token_rate_per_min", :public_token_per_min},
     {"public_ip_per_min", "api_public_ip_rate_per_min", :public_ip_per_min},
-    {"cart_rows_ip_hour", "api_public_cart_rows_per_ip_hour", :cart_rows_ip_hour},
-    {"cart_rows_global_hour", "api_public_cart_rows_global_hour", :cart_rows_global_hour}
+    {"new_rows_ip_hour", "api_public_new_rows_per_ip_hour", :new_rows_ip_hour},
+    {"new_rows_global_hour", "api_public_new_rows_global_hour", :new_rows_global_hour}
   ]
 
   @impl true
@@ -95,7 +100,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
       |> assign(:page_title, gettext("API"))
       |> assign(
         :page_subtitle,
-        gettext("Switches and keys for the shop API that outside programs and AI agents use.")
+        gettext("Switches and keys for the API that outside programs and AI agents use.")
       )
       |> assign(:page_section, gettext("Settings"))
       |> assign(:page_section_path, Routes.path("/admin/settings"))
@@ -840,11 +845,18 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   end
 
   defp write_limits(socket, wanted) do
-    current = Config.rate_limits()
+    stored = Config.rate_limits_without_fallback()
+    effective = Config.rate_limits()
 
+    # A number is written when it differs from what its own key holds, or when its
+    # own key holds no valid number and a deprecated key is what is in effect: then
+    # even the default has to be written, to take over from the deprecated key.
     number_changes =
       Enum.map(wanted.numbers, fn {setting, name, number} ->
-        {setting, Integer.to_string(number), number != Map.fetch!(current, name)}
+        alone = Map.fetch!(stored, name)
+
+        {setting, Integer.to_string(number),
+         number != alone or alone != Map.fetch!(effective, name)}
       end)
 
     list_changes = [

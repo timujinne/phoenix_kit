@@ -325,7 +325,7 @@ defmodule PhoenixKit.API.MCP.Origin do
     end
   end
 
-  # "Shop.Test", "shop.test:4000" and "[::1]:4000" -> the lowercase hostname.
+  # "Example.Test", "example.test:4000" and "[::1]:4000" -> the lowercase hostname.
   # An entry written with a scheme is a misconfiguration; it matches nothing
   # (`nil` never equals a parsed host).
   defp hostname(entry) do

@@ -234,9 +234,9 @@ defmodule PhoenixKit.Utils.RoutesTest do
     test "the API and MCP paths stay where they are, whatever locale is asked for" do
       for path <- [
             "/api/admin/v1/system.get_identity",
-            "/api/shop/v1/openapi.json",
+            "/api/public/v1/openapi.json",
             "/mcp/admin",
-            "/mcp/shop"
+            "/mcp/public"
           ] do
         assert Routes.path(path, locale: "de") == Routes.prefix_base() <> path, path
         assert Routes.path(path, locale: "en") == Routes.prefix_base() <> path, path

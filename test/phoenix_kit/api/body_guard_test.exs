@@ -2,7 +2,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
   @moduledoc """
   `PhoenixKit.API.BodyGuard` as a plug: what it reads, what it sets, what it
   refuses and, as important, which requests it never touches: the paths
-  outside the shop API and every path while the API switch of its audience is
+  outside the machine API and every path while the API switch of its audience is
   off. The guard reads those switches (`api_admin_enabled`,
   `api_public_enabled`), so this is a database test; `setup` switches both on.
   The same plug in the real endpoint, ahead of `Plug.Parsers`, is in
@@ -16,6 +16,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
 
   alias PhoenixKit.API.BodyGuard
   alias PhoenixKit.API.KeyTestSupport
+  alias PhoenixKit.API.Paths
   alias PhoenixKit.Test.ApiReadProbeAdapter
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.WebsiteAccess.AllowedAddresses
@@ -38,10 +39,10 @@ defmodule PhoenixKit.API.BodyGuardTest do
   # (lookalikes and `/mcp`), never with a literal `/phoenix_kit`, so the tests
   # hold for whatever prefix the test configuration sets.
   defp tool_path, do: Routes.path("/api/admin/v1/system.get_identity")
-  defp shop_path, do: Routes.path("/api/shop/v1/shop.search_products")
+  defp public_path, do: Routes.path("/api/public/v1/shop.search_products")
   defp mcp_admin_path, do: Routes.prefix_base() <> "/mcp/admin"
-  defp mcp_shop_path, do: Routes.prefix_base() <> "/mcp/shop"
-  defp guarded_paths, do: [tool_path(), shop_path(), mcp_admin_path(), mcp_shop_path()]
+  defp mcp_public_path, do: Routes.prefix_base() <> "/mcp/public"
+  defp guarded_paths, do: [tool_path(), public_path(), mcp_admin_path(), mcp_public_path()]
 
   defp with_url_prefix(value, fun) do
     previous = Application.fetch_env(:phoenix_kit, :url_prefix)
@@ -76,7 +77,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
   end
 
   # The guard's 400 for a body that is not JSON: problem+json on the REST paths,
-  # a JSON-RPC parse error (code -32700, id null) on /mcp/admin and /mcp/shop.
+  # a JSON-RPC parse error (code -32700, id null) on /mcp/admin and /mcp/public.
   # Returns the human-readable detail either way.
   defp invalid_json_detail(conn, path) do
     if String.contains?(URI.decode(path), "/mcp/") do
@@ -248,7 +249,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
     test "the body is neither read nor judged" do
       base = Routes.prefix_base()
 
-      # Under the kit's prefix, but not the shop API.
+      # Under the kit's prefix, but not the machine API.
       paths =
         Enum.map(
           [
@@ -262,7 +263,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
             "/mcp",
             "/mcp/other",
             "/mcp/administrator",
-            "/mcp/shopping",
+            "/mcp/publicping",
             "/other/api/admin/v1/x",
             "/admin/settings",
             "/en/shop"
@@ -273,7 +274,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
       # Outside the kit's URL prefix (the test configuration has one; the
       # root-mounted case is "at a root-mounted kit" below).
       assert base != ""
-      paths = paths ++ ["/", "/api/admin/v1/x", "/mcp/admin", "/mcp/shop"]
+      paths = paths ++ ["/", "/api/admin/v1/x", "/mcp/admin", "/mcp/public"]
 
       for path <- paths do
         conn = run(:post, path, @oversized_and_broken)
@@ -297,10 +298,10 @@ defmodule PhoenixKit.API.BodyGuardTest do
         {base <> "/api/%61dmin/v1/x", ["api", "admin", "v1", "x"]},
         {base <> "/api/admin/%76%31/x", ["api", "admin", "v1", "x"]},
         {base <> "/api/a%64min/v1", ["api", "admin", "v1"]},
-        {base <> "/api/%73hop/v1/x", ["api", "shop", "v1", "x"]},
-        {base <> "/%61%70%69/%73%68%6F%70/%76%31", ["api", "shop", "v1"]},
+        {base <> "/api/%70ublic/v1/x", ["api", "public", "v1", "x"]},
+        {base <> "/%61%70%69/%70%75%62%6C%69%63/%76%31", ["api", "public", "v1"]},
         {base <> "/mcp/%61dmin", ["mcp", "admin"]},
-        {base <> "/%6Dcp/%73hop", ["mcp", "shop"]},
+        {base <> "/%6Dcp/%70ublic", ["mcp", "public"]},
         # The kit's own prefix, encoded.
         {encode_first_char(base) <> "/api/admin/v1/x", ["api", "admin", "v1", "x"]}
       ]
@@ -333,7 +334,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
             # Route matching is case-sensitive: this is `Admin`.
             base <> "/api/%41dmin/v1",
             base <> "/mcp/%61dministrator",
-            base <> "/mcp/%73hopping",
+            base <> "/mcp/%70ublicity",
             base <> "/%6Dcp",
             base <> "/api/admin/%2Fv1/x"
           ] do
@@ -431,11 +432,11 @@ defmodule PhoenixKit.API.BodyGuardTest do
         Routes.path("/api/admin/v1"),
         base <> "/api/admin/v1/",
         Routes.path("/api/admin/v1/ecommerce.set_prices"),
-        Routes.path("/api/shop/v1/openapi.json"),
+        Routes.path("/api/public/v1/openapi.json"),
         base <> "/mcp/admin",
         base <> "/mcp/admin/",
-        base <> "/mcp/shop",
-        base <> "//mcp//shop",
+        base <> "/mcp/public",
+        base <> "//mcp//public",
         # The router drops empty segments, so these reach the API too.
         base <> "//api//admin//v1/x",
         base <> "/api/admin/v1//x"
@@ -463,9 +464,9 @@ defmodule PhoenixKit.API.BodyGuardTest do
 
           for path <- [
                 "/api/admin/v1/x",
-                "/api/shop/v1",
+                "/api/public/v1",
                 "/mcp/admin",
-                "/mcp/shop",
+                "/mcp/public",
                 "/api//admin/v1"
               ] do
             assert BodyGuard.guarded?(conn(:post, path)), "#{inspect(prefix)} #{path}"
@@ -491,7 +492,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
 
     test "the guard bounds and parses the body there too" do
       with_url_prefix("/", fn ->
-        assert 413 == run(:post, "/api/shop/v1/x", json_of_size(@max + 1)).status
+        assert 413 == run(:post, "/api/public/v1/x", json_of_size(@max + 1)).status
         assert %{"a" => 1} == run(:post, "/api/admin/v1/x", ~s({"a":1})).body_params
         assert %Plug.Conn.Unfetched{} = run(:post, "/apiary/x", "{nope").body_params
       end)
@@ -521,22 +522,22 @@ defmodule PhoenixKit.API.BodyGuardTest do
       switch(:public, true)
 
       :post |> run(tool_path(), @oversized_and_broken) |> assert_left_alone(tool_path())
-      assert 413 == run(:post, shop_path(), @oversized_and_broken).status
+      assert 413 == run(:post, public_path(), @oversized_and_broken).status
 
       switch(:admin, true)
       switch(:public, false)
 
       assert 413 == run(:post, tool_path(), @oversized_and_broken).status
-      :post |> run(shop_path(), @oversized_and_broken) |> assert_left_alone(shop_path())
+      :post |> run(public_path(), @oversized_and_broken) |> assert_left_alone(public_path())
     end
 
-    test "/mcp/admin follows the admin switch and /mcp/shop the public switch" do
+    test "/mcp/admin follows the admin switch and /mcp/public the public switch" do
       for {admin?, public?} <- [{true, false}, {false, true}] do
         switch(:admin, admin?)
         switch(:public, public?)
 
         admin = run(:post, mcp_admin_path(), @oversized_and_broken)
-        shop = run(:post, mcp_shop_path(), @oversized_and_broken)
+        shop = run(:post, mcp_public_path(), @oversized_and_broken)
 
         if admin? do
           assert admin.status == 413
@@ -553,12 +554,12 @@ defmodule PhoenixKit.API.BodyGuardTest do
       switch(:admin, true)
       switch(:public, false)
       assert run(:post, mcp_admin_path(), ~s({"a":1})).body_params == %{"a" => 1}
-      assert run(:post, mcp_shop_path(), ~s({"a":1})).body_params == %{}
+      assert run(:post, mcp_public_path(), ~s({"a":1})).body_params == %{}
 
       switch(:admin, false)
       switch(:public, true)
       assert run(:post, mcp_admin_path(), ~s({"a":1})).body_params == %{}
-      assert run(:post, mcp_shop_path(), ~s({"a":1})).body_params == %{"a" => 1}
+      assert run(:post, mcp_public_path(), ~s({"a":1})).body_params == %{"a" => 1}
     end
 
     test "bare /mcp and /mcp/other are untouched in every switch combination" do
@@ -610,7 +611,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
     test "a body on a public path is neither read nor judged for a client the gate turns away" do
       ip = KeyTestSupport.unique_ip()
 
-      for path <- [shop_path(), mcp_shop_path()], body <- [@oversized_and_broken, "{nope"] do
+      for path <- [public_path(), mcp_public_path()], body <- [@oversized_and_broken, "{nope"] do
         conn =
           :post
           |> conn(path, body)
@@ -636,7 +637,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
       ip = KeyTestSupport.unique_ip()
       {:ok, _} = PhoenixKit.Settings.update_setting(AllowedAddresses.key(), ip)
 
-      for path <- [shop_path(), mcp_shop_path()] do
+      for path <- [public_path(), mcp_public_path()] do
         assert run(:post, path, "{nope", via(ip)).status == 400, path
         assert run(:post, path, @oversized_and_broken, via(ip)).status == 413, path
         assert run(:post, path, ~s({"a":1}), via(ip)).body_params == %{"a" => 1}, path
@@ -647,17 +648,17 @@ defmodule PhoenixKit.API.BodyGuardTest do
       ip = KeyTestSupport.unique_ip()
 
       {:ok, _} = Gate.set_password("")
-      assert run(:post, shop_path(), "{nope", via(ip)).status == 400
+      assert run(:post, public_path(), "{nope", via(ip)).status == 400
 
       {:ok, _} = Gate.set_password("Secret42")
       {:ok, _} = Gate.set_enabled(false)
-      assert run(:post, shop_path(), "{nope", via(ip)).status == 400
+      assert run(:post, public_path(), "{nope", via(ip)).status == 400
     end
 
     test "an encoded public path is hidden too" do
       ip = KeyTestSupport.unique_ip()
 
-      for {path, words} <- encoded_guarded_cases(), "shop" in words do
+      for {path, words} <- encoded_guarded_cases(), "public" in words do
         :post |> run(path, "{nope", via(ip)) |> assert_left_alone(path)
       end
     end
@@ -681,7 +682,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
     defp cors(conn), do: get_resp_header(conn, "access-control-allow-origin")
 
     test "the public REST audience gets the header on 413 and 400, as REST answers do" do
-      path = shop_path()
+      path = public_path()
 
       assert cors(run(:post, path, @oversized_and_broken)) == ["*"]
       assert cors(run(:post, path, "{nope")) == ["*"]
@@ -696,13 +697,13 @@ defmodule PhoenixKit.API.BodyGuardTest do
       assert unreadable.status == 400
       assert cors(unreadable) == ["*"]
 
-      assert cors(run(:post, Routes.prefix_base() <> "/api/%73hop/v1/x", "{nope")) == ["*"]
+      assert cors(run(:post, Routes.prefix_base() <> "/api/%70ublic/v1/x", "{nope")) == ["*"]
     end
 
     test "the public REST answers of the guard expose the rate-limit and request-id headers" do
       for conn <- [
-            run(:post, shop_path(), @oversized_and_broken),
-            run(:post, shop_path(), "{nope")
+            run(:post, public_path(), @oversized_and_broken),
+            run(:post, public_path(), "{nope")
           ] do
         assert [exposed] = get_resp_header(conn, "access-control-expose-headers")
 
@@ -712,7 +713,7 @@ defmodule PhoenixKit.API.BodyGuardTest do
     end
 
     test "the admin audience and MCP get no CORS header" do
-      for path <- [tool_path(), mcp_admin_path(), mcp_shop_path()],
+      for path <- [tool_path(), mcp_admin_path(), mcp_public_path()],
           body <- [@oversized_and_broken, "{nope"] do
         conn = run(:post, path, body)
         assert conn.halted, path
@@ -722,14 +723,14 @@ defmodule PhoenixKit.API.BodyGuardTest do
     end
 
     test "a request the guard accepts gets none from it" do
-      assert cors(run(:post, shop_path(), ~s({"a":1}))) == []
+      assert cors(run(:post, public_path(), ~s({"a":1}))) == []
     end
   end
 
   describe "the request id of the guard's own answers" do
     defp refused_with_id(id) do
       :post
-      |> conn(shop_path(), "{nope")
+      |> conn(public_path(), "{nope")
       |> put_resp_header("x-request-id", id)
       |> BodyGuard.call(BodyGuard.init([]))
     end
@@ -747,6 +748,75 @@ defmodule PhoenixKit.API.BodyGuardTest do
       assert id =~ ~r/\A[A-Za-z0-9_-]{20}\z/
       assert problem(conn)["request_id"] == id
       refute conn.resp_body =~ "script"
+    end
+  end
+
+  describe "the deprecated aliases (PhoenixKit.API.Legacy)" do
+    defp alias_rest_path, do: Routes.path("/api/shop/v1/shop.search_products")
+    defp alias_mcp_path, do: Routes.prefix_base() <> "/mcp/shop"
+
+    test "the guard guards every path of PhoenixKit.API.Paths.entries/0, aliases included" do
+      prefix = Routes.prefix_base()
+
+      for {segments, _audience, _cors?, _kind} <- Paths.entries() do
+        path = prefix <> "/" <> Enum.join(segments, "/")
+        assert BodyGuard.guarded?(conn(:post, path)), path
+        assert BodyGuard.guarded?(conn(:post, path <> "/x")), path
+      end
+    end
+
+    test "a body over 2 MB is a 413 and invalid JSON a 400 problem+json, with the public CORS header" do
+      big = run(:post, alias_rest_path(), @oversized_and_broken)
+      assert big.status == 413
+      assert %{"code" => "payload_too_large"} = problem(big)
+      assert cors(big) == ["*"]
+
+      broken = run(:post, alias_rest_path(), "{nope")
+      assert %{"code" => "invalid_json"} = problem(broken)
+      assert cors(broken) == ["*"]
+    end
+
+    test "a JSON body becomes body_params, as on the canonical path" do
+      assert run(:post, alias_rest_path(), ~s({"a":1})).body_params == %{"a" => 1}
+    end
+
+    test "a bad body on the MCP alias is a JSON-RPC parse error, without CORS" do
+      conn = run(:post, alias_mcp_path(), "{nope")
+
+      assert conn.status == 400
+      assert %{"error" => %{"code" => -32_700}} = JSON.decode!(conn.resp_body)
+      assert cors(conn) == []
+    end
+
+    test "the aliases follow the public switch and the admin switch has no say" do
+      switch(:admin, true)
+      switch(:public, false)
+
+      for path <- [alias_rest_path(), alias_mcp_path()] do
+        :post |> run(path, @oversized_and_broken) |> assert_left_alone(path)
+      end
+
+      switch(:admin, false)
+      switch(:public, true)
+
+      for path <- [alias_rest_path(), alias_mcp_path()] do
+        assert run(:post, path, @oversized_and_broken).status == 413, path
+      end
+    end
+
+    test "their percent-encoded prefix is decoded for the router, as the canonical one is" do
+      base = Routes.prefix_base()
+
+      for {encoded, decoded} <- [
+            {base <> "/api/%73hop/v1/x", ["api", "shop", "v1", "x"]},
+            {base <> "/%6Dcp/%73hop", ["mcp", "shop"]}
+          ] do
+        conn = run(:post, encoded, ~s({"a":1}))
+        prefix = String.split(base, "/", trim: true)
+
+        assert conn.path_info == prefix ++ decoded, encoded
+        assert conn.body_params == %{"a" => 1}
+      end
     end
   end
 end

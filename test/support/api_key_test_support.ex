@@ -207,7 +207,7 @@ defmodule PhoenixKit.API.KeyTestSupport do
   @doc "Sets an integer API setting such as `api_admin_rate_per_min`."
   def set_limit(setting, value) when is_integer(value), do: put_setting(setting, value)
 
-  @doc "A token-like string no other test uses (cart token hashes, key uuids)."
+  @doc "A token-like string no other test uses (client token hashes, key uuids)."
   def unique_token, do: "t#{System.unique_integer([:positive])}"
 
   @doc "The integer value of a response header from `PhoenixKit.API.RateLimit`."
@@ -217,7 +217,7 @@ defmodule PhoenixKit.API.KeyTestSupport do
 
   @doc """
   Lets a fixed-window rate limit test start with room left in the wall-clock
-  window of `scale_ms` (a minute by default, an hour for the cart rows). A test
+  window of `scale_ms` (a minute by default, an hour for the new rows). A test
   that counts several hits would otherwise see the counter reset when the window
   rolls over between two of them. Sleeps through the boundary when fewer than
   `min_left_ms` remain, so it costs a second or two once per window at most.

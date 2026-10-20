@@ -20134,10 +20134,10 @@ msgstr "Envoyez-la uniquement dans l'en-tête Authorization, sous la forme Beare
 msgid "Service users"
 msgstr "Utilisateurs de service"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:54
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
 #, elixir-autogen, elixir-format
-msgid "Shoppers' AI assistants search the shop and fill a cart, without a key."
-msgstr "Les assistants IA des acheteurs cherchent dans la boutique et remplissent un panier, sans clé."
+msgid "AI assistants and other programs use what the site offers, without a key."
+msgstr "Les assistants IA et d'autres programmes utilisent ce que propose le site, sans clé."
 
 #: lib/phoenix_kit_web/live/settings/api.ex:531
 #, elixir-autogen, elixir-format
@@ -20151,8 +20151,8 @@ msgstr "Interrupteurs"
 
 #: lib/phoenix_kit_web/live/settings/api.ex:87
 #, elixir-autogen, elixir-format
-msgid "Switches and keys for the shop API that outside programs and AI agents use."
-msgstr "Interrupteurs et clés de l'API de la boutique qu'utilisent les programmes externes et les agents IA."
+msgid "Switches and keys for the API that outside programs and AI agents use."
+msgstr "Interrupteurs et clés de l'API qu'utilisent les programmes externes et les agents IA."
 
 #: lib/phoenix_kit_web/live/approvals.ex:118
 #: lib/phoenix_kit_web/live/settings/api.ex:322
@@ -20312,8 +20312,8 @@ msgstr "Origines MCP autorisées (une par ligne)"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:370
 #, elixir-autogen, elixir-format
-msgid "Web origins that may call the MCP endpoint besides the shop itself, for example https://assistant.example.com"
-msgstr "Origines web autorisées à appeler le point d'accès MCP en plus de la boutique elle-même, par exemple https://assistant.example.com"
+msgid "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
+msgstr "Origines web autorisées à appeler le point d'accès MCP en plus du site lui-même, par exemple https://assistant.example.com"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:383
 #, elixir-autogen, elixir-format
@@ -20327,8 +20327,8 @@ msgstr "Appels par minute et par clé (API d'administration)"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:399
 #, elixir-autogen, elixir-format
-msgid "Calls per minute, per cart (public API)"
-msgstr "Appels par minute et par panier (API publique)"
+msgid "Calls per minute, per client token (public API)"
+msgstr "Appels par minute et par jeton client (API publique)"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:407
 #, elixir-autogen, elixir-format
@@ -20337,13 +20337,18 @@ msgstr "Appels par minute et par adresse (API publique)"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:415
 #, elixir-autogen, elixir-format
-msgid "New cart rows per hour, per address"
-msgstr "Nouvelles lignes de panier par heure et par adresse"
+msgid "New rows per hour, per address"
+msgstr "Nouvelles lignes par heure et par adresse"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:423
 #, elixir-autogen, elixir-format
-msgid "New cart rows per hour, all addresses"
-msgstr "Nouvelles lignes de panier par heure, toutes adresses confondues"
+msgid "New rows per hour, all addresses"
+msgstr "Nouvelles lignes par heure, toutes adresses confondues"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:511
+#, elixir-autogen, elixir-format
+msgid "Rows a module creates for callers without a key"
+msgstr "Lignes qu'un module crée pour les appelants sans clé"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:430
 #, elixir-autogen, elixir-format
@@ -21003,8 +21008,8 @@ msgstr "Remplacez <your key> par la clé. Ne validez jamais une clé dans un dé
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:131
 #, elixir-autogen, elixir-format
-msgid "The server name ends in -admin so that it does not clash with the public shop server of this site."
-msgstr "Le nom du serveur se termine par -admin afin de ne pas entrer en conflit avec le serveur public de la boutique de ce site."
+msgid "The server name ends in -admin so that it does not clash with the public server of this site."
+msgstr "Le nom du serveur se termine par -admin afin de ne pas entrer en conflit avec le serveur public de ce site."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:137
 #, elixir-autogen, elixir-format
@@ -21161,8 +21166,8 @@ msgstr "Ouvrir le guide"
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:49
 #, elixir-autogen, elixir-format
-msgid "%{title} — shop API and MCP server"
-msgstr "%{title} — API de la boutique et serveur MCP"
+msgid "%{title} — public API and MCP server"
+msgstr "%{title} — API publique et serveur MCP"
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:84
 #, elixir-autogen, elixir-format

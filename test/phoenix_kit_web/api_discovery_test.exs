@@ -121,9 +121,9 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       end
     end
 
-    test "/mcp/shop and /mcp/admin are still the MCP forwards" do
+    test "/mcp/public and /mcp/admin are still the MCP forwards" do
       assert %{plug: MCP, plug_opts: [audience: :public]} =
-               route_info("POST", Routes.path("/mcp/shop"))
+               route_info("POST", Routes.path("/mcp/public"))
 
       assert %{plug: MCP, plug_opts: [audience: :admin]} =
                route_info("POST", Routes.path("/mcp/admin"))
@@ -159,7 +159,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
     test "the 404 is the body of the public API's own 404", %{conn: conn} do
       switch(:public, false)
-      api = fetch(conn, Routes.path("/api/shop/v1"))
+      api = fetch(conn, Routes.path("/api/public/v1"))
       hidden = guide(conn)
 
       assert Map.delete(json(api), "request_id") == Map.delete(json(hidden), "request_id")
@@ -270,7 +270,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       conn = guide(conn, headers: [{"accept", "text/event-stream"}])
 
       assert %{"code" => "not_acceptable", "status" => 406, "detail" => detail} = json(conn)
-      assert detail =~ "https://shop.test" <> Routes.path("/mcp/shop")
+      assert detail =~ "https://shop.test" <> Routes.path("/mcp/public")
     end
 
     test "HEAD answers like GET, without a body", %{conn: conn} do
@@ -296,14 +296,14 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
         assert header(conn, "allow") == "GET, HEAD"
         assert ["application/problem+json" <> _] = get_resp_header(conn, "content-type")
         assert %{"code" => "method_not_allowed", "detail" => detail} = json(conn)
-        assert detail =~ "https://shop.test" <> Routes.path("/mcp/shop")
+        assert detail =~ "https://shop.test" <> Routes.path("/mcp/public")
       end
     end
 
     test "the guide is served at the site root as well", %{conn: conn} do
       conn = fetch(conn, "/mcp")
       assert conn.status == 200
-      assert conn.resp_body =~ "https://shop.test" <> Routes.path("/mcp/shop")
+      assert conn.resp_body =~ "https://shop.test" <> Routes.path("/mcp/public")
     end
   end
 
@@ -311,10 +311,10 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
     test "names the servers and lists the tools sorted, with both names", %{conn: conn} do
       body = fetch(conn, Routes.path("/mcp") <> "?format=md").resp_body
 
-      assert body =~ "# Acme Print — shop API and MCP server"
-      assert body =~ "https://shop.test" <> Routes.path("/mcp/shop")
-      assert body =~ "https://shop.test" <> Routes.path("/api/shop/v1")
-      assert body =~ "https://shop.test" <> Routes.path("/api/shop/v1/openapi.json")
+      assert body =~ "# Acme Print — public API and MCP server"
+      assert body =~ "https://shop.test" <> Routes.path("/mcp/public")
+      assert body =~ "https://shop.test" <> Routes.path("/api/public/v1")
+      assert body =~ "https://shop.test" <> Routes.path("/api/public/v1/openapi.json")
 
       names = Regex.scan(~r/REST name: `(zzdisc\.[a-z_]+)`/, body, capture: :all_but_first)
       names = Enum.map(names, &hd/1)
@@ -339,7 +339,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       body = fetch(conn, Routes.path("/mcp") <> "?format=md").resp_body
 
       assert body =~
-               "curl -X POST 'https://shop.test#{Routes.path("/api/shop/v1")}/zzdisc.markup_tool' -H 'content-type: application/json' -d '{}'"
+               "curl -X POST 'https://shop.test#{Routes.path("/api/public/v1")}/zzdisc.markup_tool' -H 'content-type: application/json' -d '{}'"
     end
 
     test "no read-only tool without required input: no example", %{conn: conn} do
@@ -352,7 +352,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
     test "the JSON snippets decode and the shell snippet single-quotes the URL", %{conn: conn} do
       body = fetch(conn, Routes.path("/mcp") <> "?format=md").resp_body
-      mcp_url = "https://shop.test" <> Routes.path("/mcp/shop")
+      mcp_url = "https://shop.test" <> Routes.path("/mcp/public")
 
       [cursor] = Regex.run(~r/```json\n(\{"mcpServers".*)\n```/, body, capture: :all_but_first)
       assert JSON.decode!(cursor) == %{"mcpServers" => %{"acme-print" => %{"url" => mcp_url}}}
@@ -367,7 +367,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
     test "the curl example passes the validator of its tool", %{conn: conn} do
       body = fetch(conn, Routes.path("/mcp") <> "?format=md").resp_body
-      [_, name, payload] = Regex.run(~r{/api/shop/v1/([a-z_.]+)' -H '[^']+' -d '([^']*)'}, body)
+      [_, name, payload] = Regex.run(~r{/api/public/v1/([a-z_.]+)' -H '[^']+' -d '([^']*)'}, body)
 
       {:ok, tool} = Registry.find(name, :public)
 
@@ -393,7 +393,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
     } do
       body = fetch(conn, Routes.path("/mcp") <> "?format=md").resp_body
 
-      assert body =~ "(https://shop.test#{Routes.path("/api/shop/v1/openapi.json")})"
+      assert body =~ "(https://shop.test#{Routes.path("/api/public/v1/openapi.json")})"
       assert body =~ "(https://shop.test#{Routes.path("/mcp")}?format=md)"
       assert body =~ "(https://shop.test/llms.txt)"
       assert body =~ "(https://shop.test/.well-known/api-catalog)"
@@ -413,7 +413,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       conn: conn
     } do
       body = guide(conn, host: "www.example.com").resp_body
-      assert body =~ "https://shop.test" <> Routes.path("/mcp/shop")
+      assert body =~ "https://shop.test" <> Routes.path("/mcp/public")
       refute body =~ "www.example.com"
     end
 
@@ -424,8 +424,8 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       a = fetch(conn, Routes.path("/mcp") <> "?format=md", host: "a.test").resp_body
       b = fetch(conn, Routes.path("/mcp") <> "?format=md", host: "b.test", port: 4000).resp_body
 
-      assert a =~ "https://a.test" <> Routes.path("/mcp/shop")
-      assert b =~ "https://b.test" <> Routes.path("/mcp/shop")
+      assert a =~ "https://a.test" <> Routes.path("/mcp/public")
+      assert b =~ "https://b.test" <> Routes.path("/mcp/public")
       refute b =~ "b.test:4000"
     end
 
@@ -436,7 +436,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
         response =
           fetch(conn, Routes.path("/mcp") <> "?format=md", host: host, port: 1337)
 
-        assert response.resp_body =~ "https://#{host}" <> Routes.path("/mcp/shop"), host
+        assert response.resp_body =~ "https://#{host}" <> Routes.path("/mcp/public"), host
         refute response.resp_body =~ "1337", host
         refute response.resp_body =~ "http://#{host}", host
 
@@ -454,7 +454,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       for host <- ["shop.test", "a.test"] do
         body = fetch(conn, Routes.path("/mcp") <> "?format=md", host: host, port: 1337).resp_body
 
-        assert body =~ "http://#{host}:8443" <> Routes.path("/mcp/shop"), host
+        assert body =~ "http://#{host}:8443" <> Routes.path("/mcp/public"), host
         refute body =~ "1337", host
       end
     end
@@ -467,7 +467,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
         capture_log(fn ->
           body = fetch(conn, Routes.path("/mcp") <> "?format=md", host: "a.test").resp_body
-          assert body =~ "https://shop.test" <> Routes.path("/mcp/shop"), "#{fun}"
+          assert body =~ "https://shop.test" <> Routes.path("/mcp/public"), "#{fun}"
           refute body =~ "a.test", "#{fun}"
         end)
       end
@@ -488,7 +488,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
             "[::1]"
           ] do
         body = fetch(conn, Routes.path("/mcp") <> "?format=md", host: host).resp_body
-        assert body =~ "https://shop.test" <> Routes.path("/mcp/shop"), inspect(host)
+        assert body =~ "https://shop.test" <> Routes.path("/mcp/public"), inspect(host)
         refute body =~ "evil", inspect(host)
         refute body =~ "id #", inspect(host)
       end
@@ -501,13 +501,13 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
       for host <- ["x.com;id", "Bad_Host.test"] do
         body = fetch(conn, Routes.path("/mcp") <> "?format=md", host: host).resp_body
-        assert body =~ "https://shop.test" <> Routes.path("/mcp/shop"), host
+        assert body =~ "https://shop.test" <> Routes.path("/mcp/public"), host
         refute body =~ ";id", host
         refute body =~ "bad_host", host
       end
 
       body = fetch(conn, Routes.path("/mcp") <> "?format=md", host: "a.test").resp_body
-      assert body =~ "https://a.test" <> Routes.path("/mcp/shop")
+      assert body =~ "https://a.test" <> Routes.path("/mcp/public")
     end
 
     test "X-Forwarded-Proto is believed from nobody: the scheme is the canonical one", %{
@@ -522,8 +522,8 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       stranger =
         fetch(conn, path, host: "a.test", headers: forwarded, peer: {203, 0, 113, 9}).resp_body
 
-      assert local =~ "https://a.test" <> Routes.path("/mcp/shop")
-      assert stranger =~ "https://a.test" <> Routes.path("/mcp/shop")
+      assert local =~ "https://a.test" <> Routes.path("/mcp/public")
+      assert stranger =~ "https://a.test" <> Routes.path("/mcp/public")
     end
 
     test "the fallback reads no database row once the settings are cached" do
@@ -541,8 +541,8 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       body = fetch(conn, Routes.path("/mcp") <> "?format=md").resp_body
       prefix = Routes.prefix_base()
 
-      assert body =~ "https://shop.test#{prefix}/mcp/shop"
-      assert body =~ "https://shop.test#{prefix}/api/shop/v1"
+      assert body =~ "https://shop.test#{prefix}/mcp/public"
+      assert body =~ "https://shop.test#{prefix}/api/public/v1"
       assert body =~ "(https://shop.test/llms.txt)"
       assert body =~ "(https://shop.test/.well-known/api-catalog)"
     end
@@ -557,12 +557,12 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
       assert header(a, "content-language") == "de"
       assert a.resp_body =~ ~s(<html lang="de">)
-      assert a.resp_body =~ "Acme Print — Shop-API und MCP-Server"
+      assert a.resp_body =~ "Acme Print — öffentliche API und MCP-Server"
       assert a.resp_body =~ "Per MCP verbinden"
 
       assert header(b, "content-language") == "fr"
       assert b.resp_body =~ ~s(<html lang="fr">)
-      assert b.resp_body =~ "Acme Print — API de la boutique et serveur MCP"
+      assert b.resp_body =~ "Acme Print — API publique et serveur MCP"
     end
 
     test "a dialect is reduced to the base catalogue; an unknown language is English", %{
@@ -648,7 +648,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
   describe "the API catalog" do
     test "RFC 9727 content type, linkset, CORS, Link and cache", %{conn: conn} do
       conn = fetch(conn, "/.well-known/api-catalog")
-      api = "https://shop.test" <> Routes.path("/api/shop/v1")
+      api = "https://shop.test" <> Routes.path("/api/public/v1")
 
       assert conn.status == 200
 
@@ -703,18 +703,18 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       assert header(fetch(conn, "/llms.txt"), "link") == @catalog
     end
 
-    test "GET /api/shop/v1 points to the OpenAPI document and the guide", %{conn: conn} do
-      conn = fetch(conn, Routes.path("/api/shop/v1"))
+    test "GET /api/public/v1 points to the OpenAPI document and the guide", %{conn: conn} do
+      conn = fetch(conn, Routes.path("/api/public/v1"))
       assert conn.status == 200
 
       assert header(conn, "link") ==
-               ~s(<https://shop.test#{Routes.path("/api/shop/v1/openapi.json")}>; rel="service-desc", ) <>
+               ~s(<https://shop.test#{Routes.path("/api/public/v1/openapi.json")}>; rel="service-desc", ) <>
                  ~s(<https://shop.test#{Routes.path("/mcp")}>; rel="service-doc")
     end
 
     test "the REST list answers 200 with no Link when no public tool is visible", %{conn: conn} do
       DiscoveryTools.set_enabled(false)
-      conn = fetch(conn, Routes.path("/api/shop/v1"))
+      conn = fetch(conn, Routes.path("/api/public/v1"))
 
       assert conn.status == 200
       assert header(conn, "link") == nil
@@ -723,15 +723,15 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
     test "the REST list has no Link on an error answer", %{conn: conn} do
       KeyTestSupport.set_limit("api_public_ip_rate_per_min", 1)
       ip = unique_ip()
-      assert fetch(conn, Routes.path("/api/shop/v1"), ip: ip).status == 200
-      limited = fetch(conn, Routes.path("/api/shop/v1"), ip: ip)
+      assert fetch(conn, Routes.path("/api/public/v1"), ip: ip).status == 200
+      limited = fetch(conn, Routes.path("/api/public/v1"), ip: ip)
 
       assert limited.status == 429
       assert header(limited, "link") == nil
     end
 
-    test "the 405 of GET /mcp/shop points to the guide; the admin one does not", %{conn: conn} do
-      conn = fetch(conn, Routes.path("/mcp/shop"))
+    test "the 405 of GET /mcp/public points to the guide; the admin one does not", %{conn: conn} do
+      conn = fetch(conn, Routes.path("/mcp/public"))
       assert conn.status == 405
 
       assert header(conn, "link") ==
@@ -740,7 +740,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
 
     test "a Link header an earlier plug set is kept: ours is appended to it" do
       earlier = ~s(<https://host.test/preload>; rel="preload")
-      base = Plug.Test.conn(:get, Routes.path("/mcp/shop"))
+      base = Plug.Test.conn(:get, Routes.path("/mcp/public"))
       base = %{base | host: "shop.test"} |> put_resp_header("link", earlier)
 
       assert base |> PublicDiscovery.put_service_doc_link() |> header("link") ==
@@ -765,9 +765,9 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       assert header(llms, "link") == earlier <> ", " <> @catalog
     end
 
-    test "the 405 of GET /mcp/shop has no Link when no tool is visible", %{conn: conn} do
+    test "the 405 of GET /mcp/public has no Link when no tool is visible", %{conn: conn} do
       DiscoveryTools.set_enabled(false)
-      conn = fetch(conn, Routes.path("/mcp/shop"))
+      conn = fetch(conn, Routes.path("/mcp/public"))
 
       assert conn.status == 405
       assert header(conn, "link") == nil
@@ -790,11 +790,11 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       assert conn.resp_body =~
                """
 
-               ## Shop API and MCP
+               ## Public API and MCP
 
-               - [How to connect](https://shop.test#{Routes.path("/mcp")}): MCP server and REST API for the shop, no key needed
-               - [MCP server](https://shop.test#{Routes.path("/mcp/shop")}): Streamable HTTP
-               - [OpenAPI](https://shop.test#{Routes.path("/api/shop/v1/openapi.json")})
+               - [How to connect](https://shop.test#{Routes.path("/mcp")}): MCP server and REST API, no key needed
+               - [MCP server](https://shop.test#{Routes.path("/mcp/public")}): Streamable HTTP
+               - [OpenAPI](https://shop.test#{Routes.path("/api/public/v1/openapi.json")})
                """
 
       assert String.ends_with?(conn.resp_body, ")\n")
@@ -805,7 +805,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       Crawlers.update_llms_txt_extra("> About us.")
       body = fetch(conn, "/llms.txt").resp_body
 
-      assert body =~ "# Acme Print\n\n> About us.\n\n## Shop API and MCP\n"
+      assert body =~ "# Acme Print\n\n> About us.\n\n## Public API and MCP\n"
     end
 
     test "no section while the API is hidden", %{conn: conn} do
@@ -822,11 +822,11 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       turn_gate_on(allowed)
 
       with_section = fetch(conn, "/llms.txt", ip: allowed)
-      assert with_section.resp_body =~ "## Shop API and MCP"
+      assert with_section.resp_body =~ "## Public API and MCP"
       assert header(with_section, "cache-control") == "private, no-store"
 
       without = fetch(conn, "/llms.txt")
-      refute without.resp_body =~ "## Shop API and MCP"
+      refute without.resp_body =~ "## Public API and MCP"
       assert header(without, "cache-control") == "public, max-age=3600"
     end
 
@@ -851,9 +851,9 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
         {"catalog", fetch(conn, "/.well-known/api-catalog", ip: ip)},
         {"405", guide(conn, ip: ip, method: :post)},
         {"406", guide(conn, ip: ip, headers: [{"accept", "text/event-stream"}])},
-        {"rest list", fetch(conn, Routes.path("/api/shop/v1"), ip: ip)},
-        {"openapi", fetch(conn, Routes.path("/api/shop/v1/openapi.json"), ip: ip)},
-        {"mcp 405", fetch(conn, Routes.path("/mcp/shop"), ip: ip)},
+        {"rest list", fetch(conn, Routes.path("/api/public/v1"), ip: ip)},
+        {"openapi", fetch(conn, Routes.path("/api/public/v1/openapi.json"), ip: ip)},
+        {"mcp 405", fetch(conn, Routes.path("/mcp/public"), ip: ip)},
         {"mcp tools/list", mcp_list(conn, ip)},
         {"mcp initialize", mcp_initialize(conn, ip)}
       ]
@@ -879,7 +879,7 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       |> with_client_ip(ip)
       |> put_req_header("content-type", "application/json")
       |> put_req_header("accept", "application/json")
-      |> post(Routes.path("/mcp/shop"), JSON.encode!(request))
+      |> post(Routes.path("/mcp/public"), JSON.encode!(request))
     end
 
     # The admin side as the registry has it right now.
@@ -990,6 +990,45 @@ defmodule PhoenixKitWeb.APIDiscoveryTest do
       {result, :counters.get(counter, 1)}
     after
       :telemetry.detach(handler)
+    end
+  end
+
+  describe "nothing advertises a deprecated alias" do
+    @alias_path ~r{/api/shop|/mcp/shop}
+
+    defp everything_said(conn) do
+      headers =
+        Enum.map_join(conn.resp_headers, "\n", fn {name, value} -> name <> ": " <> value end)
+
+      headers <> "\n" <> conn.resp_body
+    end
+
+    test "no document, error or header of the public API names an alias", %{conn: conn} do
+      for {name, answer} <- public_responses(conn) do
+        refute everything_said(answer) =~ @alias_path, name
+      end
+    end
+
+    test "the documents served through the alias name the canonical paths too", %{conn: conn} do
+      ip = unique_ip()
+
+      for {name, answer} <- [
+            {"rest list", fetch(conn, Routes.path("/api/shop/v1"), ip: ip)},
+            {"openapi", fetch(conn, Routes.path("/api/shop/v1/openapi.json"), ip: ip)},
+            {"mcp 405", fetch(conn, Routes.path("/mcp/shop"), ip: ip)}
+          ] do
+        refute everything_said(answer) =~ @alias_path, name
+      end
+    end
+
+    test "the URL builders return the canonical path only" do
+      origin = "https://shop.test"
+
+      assert PublicDiscovery.mcp_url(origin) == origin <> Routes.path("/mcp/public")
+      assert PublicDiscovery.api_url(origin) == origin <> Routes.path("/api/public/v1")
+
+      assert PublicDiscovery.openapi_url(origin) ==
+               origin <> Routes.path("/api/public/v1/openapi.json")
     end
   end
 end

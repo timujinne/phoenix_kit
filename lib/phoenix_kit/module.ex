@@ -120,7 +120,9 @@ defmodule PhoenixKit.Module do
     implementing `PhoenixKit.Jobs.Kind`), for the admin Jobs page
     (default: `[]`).
   - `api_tools/0` - `PhoenixKit.API.Tool` structs this module offers through the
-    shop/admin API (default: `[]`).
+    public and admin machine API (default: `[]`).
+  - `api_problems/0` - Error codes this module's API tools answer with beyond core's own
+    (default: `%{}`).
   - `header_widgets/0` - Sticky LiveViews this module puts into the admin header, before
     the notifications bell. No default: it is called only on a module that defines it.
   """
@@ -704,6 +706,48 @@ defmodule PhoenixKit.Module do
   @callback api_tools() :: [PhoenixKit.API.Tool.t()]
 
   @doc """
+  Returns the error codes this module's API tools answer with, beyond the ones core defines.
+
+  A tool handler fails with `{:error, code, message, context}` (`PhoenixKit.API.Executor`),
+  and `code` is what an agent branches on. Core knows its own codes (`not_found`,
+  `validation_failed`, ...); a code of the module's own, such as `quota_spent`, answers
+  `500` and is logged unless the module declares it here, with the HTTP `status` (400..599),
+  a `title` for the problem document, and the `advice` an MCP client reads after the error
+  (`nil` for the generic sentence). The values on the wire (`code`, `status`, `title`) are a
+  contract with clients: change them like an API.
+
+  Collected from **enabled** modules by `PhoenixKit.ModuleRegistry.all_api_problems/0`, and
+  only when an error is answered, so a successful call pays nothing. A code of core cannot
+  be overridden: such a declaration, an invalid entry, and a code a module before this one
+  already declared are each dropped with one warning.
+
+  ## Example
+
+      @impl PhoenixKit.Module
+      def api_problems do
+        %{
+          quota_spent: %{
+            status: 422,
+            title: "Quota spent",
+            advice: "Wait for the next hour, then repeat."
+          }
+        }
+      end
+
+  A module that must also compile against an older core, which has no such callback,
+  defines `api_problems/0` without `@impl` (with `@impl` that compile warns).
+
+  Modules that answer with core's codes only skip this callback - the default is `%{}`.
+  """
+  @callback api_problems() :: %{
+              atom() => %{
+                status: 400..599,
+                title: String.t(),
+                advice: String.t() | nil
+              }
+            }
+
+  @doc """
   Returns the sticky LiveViews this module puts into the admin header, before the
   notifications bell (`PhoenixKit.HeaderWidget`).
 
@@ -837,6 +881,7 @@ defmodule PhoenixKit.Module do
     media_reorganizer: 0,
     job_kinds: 0,
     api_tools: 0,
+    api_problems: 0,
     header_widgets: 0
   ]
 
@@ -931,6 +976,9 @@ defmodule PhoenixKit.Module do
       @impl PhoenixKit.Module
       def api_tools, do: []
 
+      @impl PhoenixKit.Module
+      def api_problems, do: %{}
+
       defoverridable get_config: 0,
                      permission_metadata: 0,
                      admin_tabs: 0,
@@ -957,7 +1005,8 @@ defmodule PhoenixKit.Module do
                      email_templates: 0,
                      media_reorganizer: 0,
                      job_kinds: 0,
-                     api_tools: 0
+                     api_tools: 0,
+                     api_problems: 0
     end
   end
 end

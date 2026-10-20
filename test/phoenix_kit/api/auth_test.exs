@@ -217,7 +217,11 @@ defmodule PhoenixKit.API.AuthTest do
         "?api_key=x",
         "?token=x",
         "?access_token=x",
+        "?session_token=x",
         "?cart_token=x",
+        "?refresh_token=x",
+        "?Session_Token=x",
+        "?secret=x",
         "?confirm_token=x",
         "?API_KEY=x",
         "?api_key[]=x",
@@ -254,6 +258,32 @@ defmodule PhoenixKit.API.AuthTest do
     test "an ordinary query string passes", %{token: token} do
       conn = :post |> api_conn("/x?limit=5&q=pkg_name&note=pk", token: token) |> admin()
       refute conn.halted
+    end
+
+    test "a name that only resembles a credential passes", %{token: token} do
+      conn =
+        :post
+        |> api_conn("/x?token_count=5&tokens_issued=1&session-token=x", token: token)
+        |> admin()
+
+      refute conn.halted
+    end
+
+    test "credential_name?/1 is the one rule: the listed names and any name ending in _token" do
+      for name <- Auth.credential_params(), do: assert(Auth.credential_name?(name), name)
+
+      for name <- ~w(session_token SESSION_TOKEN page_token _token),
+          do: assert(Auth.credential_name?(name), name)
+
+      for name <- ~w(token_count tokens session-token tok limit),
+          do: refute(Auth.credential_name?(name), name)
+
+      refute Auth.credential_name?(nil)
+    end
+
+    test "credential_params/0 keeps the names that feed the log filter" do
+      assert ~w(api_key apikey api-key authorization bearer access_token token confirm_token secret) --
+               Auth.credential_params() == []
     end
 
     test "the token never reaches the log, on any path", %{token: token, owner: owner} do
@@ -374,15 +404,15 @@ defmodule PhoenixKit.API.AuthTest do
       conn = :post |> api_conn("/x", token: "garbage") |> public()
       refute conn.halted
 
-      conn = :post |> api_conn("/x?cart_token=abc") |> public()
+      conn = :post |> api_conn("/x?session_token=abc") |> public()
       assert conn.status == 400
       assert json(conn)["code"] == "token_in_url"
       _ = token
     end
 
-    test "tells a public caller to send a credential or cart token in the request body" do
+    test "tells a public caller to send a credential or client token in the request body" do
       queries = [
-        "?cart_token=abc",
+        "?session_token=abc",
         "?confirm_token=abc",
         "?api_key=abc",
         "?token=abc",
@@ -395,7 +425,7 @@ defmodule PhoenixKit.API.AuthTest do
         assert conn.status == 400, query
 
         assert json(conn)["detail"] ==
-                 "Credentials and cart tokens must be sent in the request body, never in the URL.",
+                 "Credentials and client tokens must be sent in the request body, never in the URL.",
                query
       end
     end
