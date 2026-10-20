@@ -1,0 +1,1786 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light" class="[scrollbar-gutter:stable]">
+  <head>
+    
+    <style data-phoenix-kit-themes>
+  [data-theme=phoenix-dark]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(25.33% 0.024 265.76);
+  --color-base-200: oklch(23.45% 0.022 265.76);
+  --color-base-300: oklch(21.68% 0.02 265.76);
+  --color-base-content: oklch(85% 0.02 265.76);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(32.77% 0.033 264.54);
+  --color-neutral-content: oklch(85% 0.02 264.54);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: dark;
+}
+
+[data-theme=phoenix-light]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(96% 0 0);
+  --color-base-300: oklch(92% 0.005 286.88);
+  --color-base-content: oklch(20% 0.02 269.31);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(23.04% 0.065 269.31);
+  --color-neutral-content: oklch(98% 0.02 269.31);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: light;
+}
+</style>
+<script>
+  (function () {
+    // One instance per page — a host layout and a kit layout can
+    // both render this; a second copy would double the storage listener.
+    if (window.__pkThemeBootstrap) return;
+    window.__pkThemeBootstrap = true;
+
+    var KEY = 'phx:theme';
+    var LEGACY_KEY = 'phoenix_kit_theme';
+    var LIGHT = 'phoenix-light';
+    var DARK = 'phoenix-dark';
+    var BASES = {"corporate":"light","pastel":"light","abyss":"dark","retro":"light","nord":"dark","black":"dark","lemonade":"light","synthwave":"dark","night":"dark","business":"dark","lofi":"light","valentine":"light","autumn":"light","sunset":"dark","dark":"dark","aqua":"light","phoenix-dark":"dark","wireframe":"light","light":"light","coffee":"dark","dracula":"dark","phoenix-light":"light","bumblebee":"light","fantasy":"light","forest":"dark","cmyk":"light","cupcake":"light","luxury":"dark","acid":"light","garden":"light","winter":"light","silk":"light","emerald":"light","caramellatte":"light","cyberpunk":"light","dim":"dark","halloween":"dark"};
+
+    function resolve(theme) {
+      if (!theme || theme === 'system') {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? DARK
+          : LIGHT;
+      }
+      return theme;
+    }
+
+    function apply(theme) {
+      var resolved = resolve(theme);
+      var el = document.documentElement;
+      el.setAttribute('data-theme', resolved);
+      el.style.colorScheme = BASES[resolved] || 'light';
+    }
+
+    var saved = null;
+    try {
+      saved = localStorage.getItem(KEY);
+      // The deleted static phoenix_kit_themes.js wrote this older key.
+      // Promote it once so an upgrade does not reset the saved choice.
+      if (!saved) {
+        var legacy = localStorage.getItem(LEGACY_KEY);
+        if (legacy) {
+          saved = legacy;
+          localStorage.setItem(KEY, legacy);
+        }
+      }
+    } catch (e) {
+      /* storage blocked: fall through to system */
+    }
+
+    apply(saved);
+
+    // A theme picked in another tab follows into this one.
+    window.addEventListener('storage', function (e) {
+      if (e.key === KEY || e.key === LEGACY_KEY) apply(e.newValue);
+    });
+  })();
+</script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="Az4rBxQcK0wSVQEDUg4EVCQDASkEOAoMfQF0DPS-Qeg69eaaWqCjWtpB">
+    
+    <title data-default="Acme Admin">
+      Dashboard
+    </title>
+    
+    
+
+    <link phx-track-static rel="stylesheet" href="/assets/css/app.css">
+    
+    <style data-pk-mobile-inputs>
+  @media (pointer: coarse) and (max-width: 767px) {
+    :is(#admin-drawer, [data-phoenix-kit]) :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), select, textarea) {
+      font-size: max(16px, 1em);
+    }
+  }
+</style>
+<script>
+  window.PHOENIX_KIT_PREFIX = "/phoenix_kit";
+  try{["localStorage","sessionStorage"].forEach(function(s){var t=window[s];Object.keys(t).filter(function(k){return k.indexOf("phx")!==-1&&k.indexOf("phx:")!==0}).forEach(function(k){t.removeItem(k)})})}catch(e){}
+  // Suppress topbar on initial WebSocket connect — the dead render already shows
+  // all content, so the connect-phase topbar is just visual noise. LiveView fires
+  // page-loading-start with kind:"initial" for the connect and kind:"redirect"/"patch"
+  // for actual navigations. We only suppress "initial" start events; the stop event
+  // must NOT be suppressed since the topbar was never shown and suppressing stop
+  // could prevent the parent app's topbar.hide() from running.
+  window.addEventListener("phx:page-loading-start",function(e){if(e.detail&&e.detail.kind==="initial")e.stopImmediatePropagation()},true);
+</script>
+    
+  </head>
+  <body class="bg-base-100 antialiased transition-colors" data-phoenix-kit>
+    
+    <main class="min-h-screen bg-base-100 transition-colors">
+      <div id="flash-group">
+  
+  
+  
+</div>
+      <div id="pk-library-notice" phx-hook="LibraryLoadNotice" phx-update="ignore" hidden role="alert" data-title="Some features on this page could not load" data-csp-other="Blocked by this site&#39;s Content-Security-Policy (%{directive}), which does not allow %{origin}." data-csp-self="Blocked by this site&#39;s Content-Security-Policy (%{directive}). Check that the site&#39;s asset serving and its policy allow this file." data-load="Could not be loaded or run; the cause is unknown. Check the network, and that the site&#39;s build includes PhoenixKit&#39;s JavaScript (the :phoenix_kit_js_sources compiler, or mix phoenix_kit.update)." data-facts="Its file is unknown: PhoenixKit&#39;s install facts are missing. Recompile the app (the :phoenix_kit_js_sources compiler) or run mix phoenix_kit.update." data-audience="Only administrators see this message." class="fixed bottom-4 right-4 z-[60] w-[min(28rem,calc(100vw-2rem))] rounded-lg border border-warning/60 bg-base-100 p-3 text-sm shadow-xl">
+  <div class="flex items-start gap-2">
+    <span class="text-warning" aria-hidden="true">⚠</span>
+    <div class="min-w-0 flex-1">
+      <p data-notice-title class="font-semibold"></p>
+      <ul data-notice-list class="mt-1 space-y-1.5"></ul>
+      <p data-notice-audience class="mt-2 text-xs text-base-content/60"></p>
+    </div>
+    <button type="button" data-notice-dismiss class="btn btn-ghost btn-xs" aria-label="Dismiss">
+      ✕
+    </button>
+  </div>
+</div>
+      
+      
+      <style data-pk-mobile-inputs>
+  @media (pointer: coarse) and (max-width: 767px) {
+    :is(#admin-drawer, [data-phoenix-kit]) :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], [type=color], [type=hidden]), select, textarea) {
+      font-size: max(16px, 1em);
+    }
+  }
+</style>
+<script>
+  window.PHOENIX_KIT_PREFIX = "/phoenix_kit";
+  try{["localStorage","sessionStorage"].forEach(function(s){var t=window[s];Object.keys(t).filter(function(k){return k.indexOf("phx")!==-1&&k.indexOf("phx:")!==0}).forEach(function(k){t.removeItem(k)})})}catch(e){}
+  // Suppress topbar on initial WebSocket connect — the dead render already shows
+  // all content, so the connect-phase topbar is just visual noise. LiveView fires
+  // page-loading-start with kind:"initial" for the connect and kind:"redirect"/"patch"
+  // for actual navigations. We only suppress "initial" start events; the stop event
+  // must NOT be suppressed since the topbar was never shown and suppressing stop
+  // could prevent the parent app's topbar.hide() from running.
+  window.addEventListener("phx:page-loading-start",function(e){if(e.detail&&e.detail.kind==="initial")e.stopImmediatePropagation()},true);
+</script>
+
+<style data-phoenix-kit-themes>
+  [data-theme=phoenix-dark]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(25.33% 0.024 265.76);
+  --color-base-200: oklch(23.45% 0.022 265.76);
+  --color-base-300: oklch(21.68% 0.02 265.76);
+  --color-base-content: oklch(85% 0.02 265.76);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(32.77% 0.033 264.54);
+  --color-neutral-content: oklch(85% 0.02 264.54);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: dark;
+}
+
+[data-theme=phoenix-light]
+{
+  --color-accent: oklch(74.22% 0.209 6.35);
+  --color-accent-content: oklch(20% 0.02 6.35);
+  --color-base-100: oklch(100% 0 0);
+  --color-base-200: oklch(96% 0 0);
+  --color-base-300: oklch(92% 0.005 286.88);
+  --color-base-content: oklch(20% 0.02 269.31);
+  --color-error: oklch(71.76% 0.221 22.18);
+  --color-error-content: oklch(20% 0.02 22.18);
+  --color-info: oklch(72.06% 0.191 231.6);
+  --color-info-content: oklch(20% 0.02 231.6);
+  --color-neutral: oklch(23.04% 0.065 269.31);
+  --color-neutral-content: oklch(98% 0.02 269.31);
+  --color-primary: oklch(57.38% 0.233 262.08);
+  --color-primary-content: oklch(98% 0.02 262.08);
+  --color-secondary: oklch(75.61% 0.194 333.67);
+  --color-secondary-content: oklch(20% 0.02 333.67);
+  --color-success: oklch(64.8% 0.15 160);
+  --color-success-content: oklch(20% 0.02 160);
+  --color-warning: oklch(84.71% 0.199 83.87);
+  --color-warning-content: oklch(20% 0.02 83.87);
+  color-scheme: light;
+}
+</style>
+<style>
+  /* Custom sidebar control for desktop - override lg:drawer-open grid layout when closed */
+  @media (min-width: 1024px) {
+    /* Override the grid to collapse sidebar column when closed */
+    #admin-drawer.sidebar-closed {
+      grid-template-columns: 0 1fr !important;
+      transition: grid-template-columns 300ms ease-in-out;
+    }
+    #admin-drawer.sidebar-closed .drawer-side {
+      /* -100%, not -16rem: the drawer-side is wider than the w-64 aside
+         when its scrollbar gutter is reserved — a fixed offset would
+         leave the gutter strip peeking out when closed. */
+      transform: translateX(-100%);
+      transition: transform 300ms ease-in-out;
+      overflow: hidden;
+    }
+    #admin-drawer:not(.sidebar-closed) {
+      transition: grid-template-columns 300ms ease-in-out;
+    }
+    #admin-drawer:not(.sidebar-closed).drawer.lg\:drawer-open .drawer-side {
+      transform: translateX(0);
+      transition: transform 300ms ease-in-out;
+    }
+  }
+</style>
+
+<header class="bg-base-100 shadow-sm border-b border-base-300 fixed top-0 left-0 right-0 z-50">
+  <div class="flex items-center justify-between h-16 px-4">
+    
+    <div class="flex items-center gap-3 min-w-0">
+      
+      <label for="admin-mobile-menu" class="btn btn-square btn-primary drawer-button p-0 lg:hidden">
+        <svg width="24" height="24" class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path>
+</svg>
+      </label>
+
+      
+      
+
+      
+      <div class="flex items-center gap-1 min-w-0">
+        <a href="/" class="font-bold text-base-content hover:opacity-80 transition-opacity truncate hidden lg:inline">
+          Acme
+        </a>
+        
+        
+        
+        <span class="font-bold text-base-content shrink-0 hidden lg:inline">
+          Admin Panel
+        </span>
+        <a href="/" title="Acme" class="lg:hidden font-bold text-base-content/50 hover:text-base-content transition-opacity shrink-0">
+          …
+        </a>
+        
+        <span class="flex items-center gap-1.5 min-w-0">
+          <span class="text-base-content/30 shrink-0">/</span>
+          
+          
+          
+          <span class="font-semibold text-base-content truncate min-w-0">Dashboard</span>
+          
+          
+          
+          
+          
+          
+          
+        </span>
+      </div>
+    </div>
+
+    
+    <div class="flex items-center gap-3">
+      
+      <div class="flex flex-col gap-3 w-full ">
+  <div class="relative w-full" data-theme-dropdown>
+    <details class="dropdown dropdown-end dropdown-bottom" id="admin-theme-dropdown">
+      <summary class="btn btn-sm btn-ghost btn-circle">
+        <span class="hero-swatch w-5 h-5"></span>
+      </summary>
+      <ul class="dropdown-content w-72 min-w-0 rounded-box border border-base-200 bg-base-100 p-2 shadow-xl z-[60] mt-2 max-h-[80vh] overflow-y-auto overflow-x-hidden list-none space-y-1" tabindex="0" phx-click-away="[[&quot;remove_attr&quot;,{&quot;to&quot;:&quot;#admin-theme-dropdown&quot;,&quot;attr&quot;:&quot;open&quot;}]]">
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;system&quot;}}]]" data-phx-theme="system" data-tip="system" data-theme-target="system" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-base-200 bg-base-100 shadow-sm">
+                    <svg class="size-4 opacity-90" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+  <line x1="8" y1="21" x2="16" y2="21"></line>
+  <line x1="12" y1="17" x2="12" y2="21"></line>
+</svg>
+                  </div>
+                
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                System
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;phoenix-light&quot;}}]]" data-phx-theme="phoenix-light" data-tip="phoenix-light" data-theme-target="phoenix-light" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="phoenix-light" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Phoenix Light
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;phoenix-dark&quot;}}]]" data-phx-theme="phoenix-dark" data-tip="phoenix-dark" data-theme-target="phoenix-dark" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="phoenix-dark" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Phoenix Dark
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;light&quot;}}]]" data-phx-theme="light" data-tip="light" data-theme-target="light" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="light" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Light
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;dark&quot;}}]]" data-phx-theme="dark" data-tip="dark" data-theme-target="dark" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="dark" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Dark
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;cupcake&quot;}}]]" data-phx-theme="cupcake" data-tip="cupcake" data-theme-target="cupcake" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="cupcake" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Cupcake
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;bumblebee&quot;}}]]" data-phx-theme="bumblebee" data-tip="bumblebee" data-theme-target="bumblebee" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="bumblebee" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Bumblebee
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;emerald&quot;}}]]" data-phx-theme="emerald" data-tip="emerald" data-theme-target="emerald" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="emerald" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Emerald
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;corporate&quot;}}]]" data-phx-theme="corporate" data-tip="corporate" data-theme-target="corporate" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="corporate" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Corporate
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;synthwave&quot;}}]]" data-phx-theme="synthwave" data-tip="synthwave" data-theme-target="synthwave" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="synthwave" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Synthwave
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;retro&quot;}}]]" data-phx-theme="retro" data-tip="retro" data-theme-target="retro" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="retro" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Retro
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;cyberpunk&quot;}}]]" data-phx-theme="cyberpunk" data-tip="cyberpunk" data-theme-target="cyberpunk" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="cyberpunk" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Cyberpunk
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;valentine&quot;}}]]" data-phx-theme="valentine" data-tip="valentine" data-theme-target="valentine" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="valentine" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Valentine
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;halloween&quot;}}]]" data-phx-theme="halloween" data-tip="halloween" data-theme-target="halloween" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="halloween" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Halloween
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;garden&quot;}}]]" data-phx-theme="garden" data-tip="garden" data-theme-target="garden" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="garden" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Garden
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;forest&quot;}}]]" data-phx-theme="forest" data-tip="forest" data-theme-target="forest" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="forest" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Forest
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;aqua&quot;}}]]" data-phx-theme="aqua" data-tip="aqua" data-theme-target="aqua" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="aqua" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Aqua
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;lofi&quot;}}]]" data-phx-theme="lofi" data-tip="lofi" data-theme-target="lofi" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="lofi" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Lo-Fi
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;pastel&quot;}}]]" data-phx-theme="pastel" data-tip="pastel" data-theme-target="pastel" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="pastel" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Pastel
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;fantasy&quot;}}]]" data-phx-theme="fantasy" data-tip="fantasy" data-theme-target="fantasy" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="fantasy" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Fantasy
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;wireframe&quot;}}]]" data-phx-theme="wireframe" data-tip="wireframe" data-theme-target="wireframe" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="wireframe" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Wireframe
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;black&quot;}}]]" data-phx-theme="black" data-tip="black" data-theme-target="black" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="black" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Black
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;luxury&quot;}}]]" data-phx-theme="luxury" data-tip="luxury" data-theme-target="luxury" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="luxury" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Luxury
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;dracula&quot;}}]]" data-phx-theme="dracula" data-tip="dracula" data-theme-target="dracula" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="dracula" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Dracula
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;cmyk&quot;}}]]" data-phx-theme="cmyk" data-tip="cmyk" data-theme-target="cmyk" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="cmyk" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                CMYK
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;autumn&quot;}}]]" data-phx-theme="autumn" data-tip="autumn" data-theme-target="autumn" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="autumn" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Autumn
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;business&quot;}}]]" data-phx-theme="business" data-tip="business" data-theme-target="business" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="business" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Business
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;acid&quot;}}]]" data-phx-theme="acid" data-tip="acid" data-theme-target="acid" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="acid" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Acid
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;lemonade&quot;}}]]" data-phx-theme="lemonade" data-tip="lemonade" data-theme-target="lemonade" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="lemonade" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Lemonade
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;night&quot;}}]]" data-phx-theme="night" data-tip="night" data-theme-target="night" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="night" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Night
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;coffee&quot;}}]]" data-phx-theme="coffee" data-tip="coffee" data-theme-target="coffee" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="coffee" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Coffee
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;winter&quot;}}]]" data-phx-theme="winter" data-tip="winter" data-theme-target="winter" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="winter" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Winter
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;dim&quot;}}]]" data-phx-theme="dim" data-tip="dim" data-theme-target="dim" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="dim" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Dim
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;nord&quot;}}]]" data-phx-theme="nord" data-tip="nord" data-theme-target="nord" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="nord" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Nord
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;sunset&quot;}}]]" data-phx-theme="sunset" data-tip="sunset" data-theme-target="sunset" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="sunset" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Sunset
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;caramellatte&quot;}}]]" data-phx-theme="caramellatte" data-tip="caramellatte" data-theme-target="caramellatte" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="caramellatte" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Caramel Latte
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;abyss&quot;}}]]" data-phx-theme="abyss" data-tip="abyss" data-theme-target="abyss" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="abyss" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Abyss
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+          <li class="w-full">
+            <button type="button" phx-click="[[&quot;dispatch&quot;,{&quot;event&quot;:&quot;phx:set-theme&quot;,&quot;detail&quot;:{&quot;theme&quot;:&quot;silk&quot;}}]]" data-phx-theme="silk" data-tip="silk" data-theme-target="silk" data-theme-role="dropdown-option" role="option" aria-pressed="false" class="w-full group flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition hover:bg-base-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary cursor-pointer">
+              
+                  <div data-theme="silk" class="grid h-8 w-8 shrink-0 grid-cols-2 gap-0.5 rounded-md border border-base-200 bg-base-100 p-0.5 shadow-sm">
+                    <div class="rounded-full bg-base-content"></div>
+                    <div class="rounded-full bg-primary"></div>
+                    <div class="rounded-full bg-secondary"></div>
+                    <div class="rounded-full bg-accent"></div>
+                  </div>
+              
+              <span class="flex-1 text-left font-medium text-base-content truncate">
+                Silk
+              </span>
+              <span data-theme-active-indicator>
+                <svg width="24" height="24" class="size-4 text-primary opacity-0 scale-75 transition-all" fill="currentColor" viewBox="0 0 20 20">
+  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"></path>
+</svg>
+              </span>
+            </button>
+          </li>
+        
+      </ul>
+    </details>
+  </div>
+</div>
+      
+      
+      
+      
+      
+      
+  <div class="dropdown dropdown-end">
+    
+    <div tabindex="0" role="button" class="cursor-pointer hover:opacity-80 transition-opacity">
+      <div class="avatar ">
+  <div class="rounded-full overflow-hidden relative flex items-center justify-center bg-neutral text-white font-bold w-10 h-10 text-sm !rounded-lg">
+    
+      
+      <span class="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-violet-400 to-purple-500" data-fallback="true">
+        H
+      </span>
+      
+      <img src="https://www.gravatar.com/avatar/a2010e0b4a2c493f6f037e278a78b654?s=80&amp;d=blank" alt="Avatar" style="" class="absolute inset-0 w-full h-full object-cover" onerror="this.style.display='none';">
+    
+  </div>
+</div>
+    </div>
+
+    
+    <ul id="pk-admin-account-menu" tabindex="0" class="dropdown-content menu bg-base-100 rounded-box z-[60] w-64 p-2 shadow-xl border border-base-300 mt-3 max-h-[calc(100vh-5rem)] overflow-y-auto overflow-x-hidden flex-nowrap">
+      
+      <li class="menu-title px-4 py-2">
+        <div class="flex flex-col gap-1">
+          <span class="text-sm font-medium text-base-content truncate">
+            head@example.com
+          </span>
+          <div>
+            <div class="badge badge-xs badge-error">Owner</div>
+          </div>
+        </div>
+      </li>
+
+      
+      
+
+      
+      
+      
+      
+      
+      <li>
+        <a href="/phoenix_kit/profile/settings" class="flex items-center gap-3">
+          <svg width="24" height="24" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+</svg>
+          <span>Settings</span>
+        </a>
+      </li>
+
+      
+      
+
+      
+      
+
+      
+
+      
+
+      
+
+      <div class="divider my-0"></div>
+
+      
+      <li>
+        <a href="/phoenix_kit/users/log-out" data-method="delete" data-csrf="Az4rBxQcK0wSVQEDUg4EVCQDASkEOAoMfQF0DPS-Qeg69eaaWqCjWtpB" data-to="/phoenix_kit/users/log-out" class="flex items-center gap-3 text-error hover:bg-error hover:text-error-content">
+          <svg width="24" height="24" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
+</svg>
+          <span>Log out</span>
+        </a>
+      </li>
+      
+    </ul>
+  </div>
+
+  
+
+    </div>
+  </div>
+</header>
+
+
+<div id="admin-drawer" class="drawer lg:drawer-open">
+  <input id="admin-mobile-menu" type="checkbox" class="drawer-toggle">
+
+  
+  <div class="drawer-content flex min-h-screen flex-col bg-base-100 transition-colors pt-16">
+    
+    <div class="flex-1">
+      
+  <span id="pk-test-body">body</span>
+
+    </div>
+
+    
+    <div id="pk-collapse-pad" data-pk-collapse-pad aria-hidden="true" class="shrink-0" phx-mounted="[[&quot;ignore_attrs&quot;,{&quot;attrs&quot;:[&quot;style&quot;]}]]">
+    </div>
+  </div>
+
+  
+  
+  <style data-phoenix-kit-sidebar>
+  /* Scoped to lg and up: below it the sidebar is an overlay drawer that is
+     already hidden until summoned, so there is nothing to reclaim. */
+  @media (min-width: 1024px) {
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar { width: 5rem; }
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar > div { padding-left: 0; padding-right: 0; }
+
+    /* Visually hidden, NOT display:none — the link keeps its accessible name. */
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      white-space: nowrap;
+      clip-path: inset(50%);
+    }
+
+    /* Centre what is left of each row, and drop the trailing badge column
+       so a lone icon is not pushed off-centre by an empty flex sibling. */
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar [data-tab-id] > div { justify-content: center; gap: 0; }
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar [data-tab-id] { justify-content: center; }
+
+    /* Group headings and subtab lists: a column of indistinguishable
+       indented icons is worse than none, so the tree collapses to its
+       top level. Expanding brings it straight back — nothing is lost,
+       because none of this is server state. */
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-group,
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .subtabs { display: none; }
+
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-toggle { justify-content: center; }
+    html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-toggle-icon { transform: rotate(180deg); }
+
+  }
+
+  /* ── Flyouts ──────────────────────────────────────────────────────────
+     Outside the `min-width: 1024px` block because the script only ever
+     opens these when the rail is collapsed, which is already lg-only; an
+     unopened popover is `display: none` regardless.
+
+     A shown popover paints in the TOP LAYER, so it does not inherit the
+     rail's 5rem width — but it is still a DOM DESCENDANT of the sidebar,
+     which is both why the label override below is needed and why it works.
+
+     Every rule here carries the `html[data-pk-sidebar="compact"]` prefix.
+     Uniformly, including the two that compete with nothing — it costs
+     nothing (a flyout is only ever shown in compact mode) and it lets the
+     regression guard in the test suite be a total rule rather than a list
+     of exceptions that a future rule could quietly slip past. */
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-flyout {
+    position: fixed;
+    inset: auto;
+    margin: 0;
+    min-width: 13rem;
+    max-width: 20rem;
+    max-height: 80vh;
+    overflow-y: auto;
+    padding: 0.5rem;
+    border: 1px solid var(--color-base-300, #e5e5e5);
+    border-radius: 0.5rem;
+    background: var(--color-base-100, #fff);
+    color: var(--color-base-content, #1f2937);
+    box-shadow: 0 10px 25px -5px rgb(0 0 0 / 0.25);
+  }
+
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-flyout-title {
+    padding: 0.25rem 0.75rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    opacity: 0.6;
+  }
+
+  /* The rail hides every `.pk-sidebar-label`, and these are descendants of
+     the sidebar — so without this the flyout would be a list of anonymous
+     icons, which is the whole thing it exists to prevent.
+
+     ⚠️ The `html[data-pk-sidebar="compact"]` prefix is LOAD-BEARING, not
+     decoration. Without it these read (1,2,0) against the rail rules'
+     (1,2,1) and lose on specificity, which is exactly the bug that shipped:
+     a flyout of anonymous icons. Do not "simplify" the prefix away — the
+     media query the rail rules sit in contributes no specificity, so this
+     is the only thing separating them. */
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-flyout .pk-sidebar-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    white-space: normal;
+    clip-path: none;
+  }
+
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-flyout [data-tab-id] {
+    justify-content: flex-start;
+  }
+
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .pk-sidebar-flyout [data-tab-id] > div {
+    justify-content: flex-start;
+    gap: 0.75rem;
+  }
+
+  /* Where you are, marked on the rail — as an edge bar rather than the
+     filled block `tab_classes/5` paints when the menu is expanded. At 5rem
+     a solid primary slab is most of the row, which reads as a state
+     (selected/disabled) rather than as a marker.
+
+     Two cases, and the rail needs both:
+       * `aria-current="page"` — this entry IS the page (a leaf like Users);
+       * `data-pk-branch-active` — a descendant is. Expanded, that highlight
+         sits on the active SUBTAB, and compact mode hides the subtab list,
+         so without this the section you are in shows nothing at all.
+
+     `.tab-with-subtabs > a` is a deliberate direct-child combinator: it
+     matches the rail row and never a link inside the flyout, which is a
+     DOM descendant of the same sidebar. The flyout is a wide panel with
+     text, where the ordinary filled highlight is right. */
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .tab-with-subtabs > a {
+    position: relative;
+  }
+
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .tab-with-subtabs > a[aria-current="page"],
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar [data-pk-branch-active="true"] > a {
+    /* Two declarations, and the order is the point: the first cancels the
+       `bg-primary` utility (a plain class, easily outranked) and is what a
+       browser without `color-mix` is left holding — which is exactly the
+       bar-only rendering that already worked. The second tints where it is
+       supported. */
+    background-color: transparent;
+    background-color: color-mix(in oklab, var(--color-primary) 12%, transparent);
+    color: var(--color-base-content);
+  }
+
+  /* Deliberately not `--color-base-200`, daisyUI's hover colour: a neutral
+     tint at this weight is indistinguishable from hover, so the row would
+     stop saying which page you are on the moment the pointer crossed it.
+     Tinting with the primary keeps "current" and "hovered" separable, and
+     the row still lifts under the pointer. */
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .tab-with-subtabs > a[aria-current="page"]:hover,
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar [data-pk-branch-active="true"] > a:hover {
+    background-color: color-mix(in oklab, var(--color-primary) 20%, transparent);
+  }
+
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar .tab-with-subtabs > a[aria-current="page"]::after,
+  html[data-pk-sidebar="compact"] #pk-admin-sidebar [data-pk-branch-active="true"] > a::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    top: 0.375rem;
+    bottom: 0.375rem;
+    width: 3px;
+    border-radius: 9999px;
+    background-color: var(--color-primary);
+  }
+</style>
+<script>
+  (function () {
+    // One instance per page: a host root layout and the kit's own admin
+    // shell can both render this.
+    if (window.__pkSidebarCompact) return;
+    window.__pkSidebarCompact = true;
+
+    var KEY = "phoenix_kit:admin:sidebar:compact";
+
+    function read() {
+      try { return localStorage.getItem(KEY) === "1"; } catch (_e) { return false; }
+    }
+
+    function stamp(on) {
+      var el = document.documentElement;
+      if (on) { el.setAttribute("data-pk-sidebar", "compact"); }
+      else { el.removeAttribute("data-pk-sidebar"); closeAll(); }
+      syncButton(on);
+    }
+
+    // The button's own label has to follow the state it toggles, and the
+    // button is re-rendered by every live navigation — so this runs on
+    // stamp AND on the LiveView page-load event, not just once.
+    function syncButton(on) {
+      var btn = document.querySelector("[data-pk-sidebar-toggle]");
+      if (!btn) return;
+      var label = on ? btn.dataset.pkLabelExpand : btn.dataset.pkLabelCollapse;
+      if (!label) return;
+      btn.setAttribute("aria-label", label);
+      btn.setAttribute("title", label);
+      btn.setAttribute("aria-expanded", on ? "false" : "true");
+    }
+
+    // Pre-paint: this script sits above the sidebar markup, so the
+    // attribute is on <html> before the menu is parsed. No flash.
+    stamp(read());
+
+    // Delegated: the sidebar DOM is replaced on every live navigation, so
+    // a listener bound to the button itself would need re-binding and
+    // cleanup. A document listener survives every patch.
+    document.addEventListener("click", function (e) {
+      var btn = e.target.closest && e.target.closest("[data-pk-sidebar-toggle]");
+      if (!btn) return;
+      var next = !read();
+      try { localStorage.setItem(KEY, next ? "1" : "0"); } catch (_e) {}
+      stamp(next);
+    });
+
+    // Re-apply after a live navigation swaps the button back in.
+    window.addEventListener("phx:page-loading-stop", function () { syncButton(read()); });
+
+    // Follow the choice into the app's other tabs, as the theme does.
+    window.addEventListener("storage", function (e) {
+      if (e.key === KEY) stamp(read());
+    });
+
+    // ── Flyouts ─────────────────────────────────────────────────────────
+    //
+    // Collapsed, a row shows an icon and nothing else, so every entry needs
+    // somewhere to say its own name — and a section needs somewhere to
+    // offer its children, which `subtab_display: :when_active` otherwise
+    // renders only for the section you are already in.
+    //
+    // Every listener is delegated from `document`: the sidebar DOM is
+    // replaced on every live navigation, so anything bound per-element
+    // would need re-binding and teardown. `mouseover`/`focusin` bubble, and
+    // a shown popover is still a DOM descendant of the row it belongs to —
+    // the top layer changes painting, not the tree — so one listener covers
+    // the trigger and its flyout together.
+    var HOVER_IN = 120;   // hover intent: don't flash on a passing cursor
+    var HOVER_OUT = 220;  // grace to travel from the icon to the panel
+    var openTimer = null;
+    var closeTimer = null;
+
+    function compact() {
+      return document.documentElement.getAttribute("data-pk-sidebar") === "compact";
+    }
+
+    function flyoutFor(node) {
+      var row = node && node.closest && node.closest("[data-pk-flyout-id]");
+      if (!row) return null;
+      return document.getElementById(row.dataset.pkFlyoutId);
+    }
+
+    // Popovers paint in the top layer, which means they are positioned
+    // against the VIEWPORT — the one thing the old CSS tooltip could not do
+    // from inside the sidebar's own scroll container.
+    function place(panel, row) {
+      var r = row.getBoundingClientRect();
+      panel.style.left = Math.round(r.right + 6) + "px";
+      panel.style.top = Math.round(r.top) + "px";
+      panel.style.bottom = "auto";
+      // Clamp: a section near the bottom of a long menu would otherwise
+      // open past the fold, where its last items are unreachable.
+      var h = panel.offsetHeight;
+      if (r.top + h > window.innerHeight - 8) {
+        panel.style.top = Math.max(8, window.innerHeight - h - 8) + "px";
+      }
+    }
+
+    function open(panel, row) {
+      if (!panel || !panel.showPopover || panel.matches(":popover-open")) return;
+      try {
+        panel.showPopover();
+      } catch (_e) {
+        return;
+      }
+      place(panel, row);
+    }
+
+    function closeAll() {
+      var open = document.querySelector(".pk-sidebar-flyout:popover-open");
+      if (open && open.hidePopover) {
+        try { open.hidePopover(); } catch (_e) {}
+      }
+    }
+
+    document.addEventListener("mouseover", function (e) {
+      if (!compact()) return;
+      var row = e.target.closest && e.target.closest("[data-pk-flyout-id]");
+      if (!row) return;
+      clearTimeout(closeTimer);
+      clearTimeout(openTimer);
+      var panel = flyoutFor(row);
+      if (!panel || panel.matches(":popover-open")) return;
+      openTimer = setTimeout(function () { open(panel, row); }, HOVER_IN);
+    });
+
+    document.addEventListener("mouseout", function (e) {
+      if (!compact()) return;
+      if (!e.target.closest || !e.target.closest("[data-pk-flyout-id]")) return;
+      // Moving deeper inside the same row (or into its panel) is not a
+      // leave — `relatedTarget` is null only when the pointer left the
+      // window entirely.
+      var to = e.relatedTarget;
+      if (to && to.closest && to.closest("[data-pk-flyout-id]") === e.target.closest("[data-pk-flyout-id]")) {
+        return;
+      }
+      clearTimeout(openTimer);
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(closeAll, HOVER_OUT);
+    });
+
+    // Keyboard: tabbing onto a rail icon names it, and Tab then walks
+    // straight into the panel because it sits next to the link in the DOM.
+    // Esc and click-away are `popover=auto`'s own behaviour.
+    document.addEventListener("focusin", function (e) {
+      if (!compact()) return;
+      var row = e.target.closest && e.target.closest("[data-pk-flyout-id]");
+      if (!row) { closeAll(); return; }
+      open(flyoutFor(row), row);
+    });
+
+    // Touch: there is no hover, so a tap on a rail icon opens its flyout
+    // instead of navigating — otherwise a touch user on a wide screen
+    // (a convertible laptop, a tablet in landscape; the rail is lg-only)
+    // could never reach a subtab at all. The flyout's own links navigate
+    // normally, and a second tap on the icon dismisses it.
+    document.addEventListener("click", function (e) {
+      if (!compact()) return;
+      if (!window.matchMedia || !window.matchMedia("(hover: none)").matches) return;
+      var link = e.target.closest && e.target.closest("[data-pk-flyout-id] > a");
+      if (!link) return;
+      var row = link.closest("[data-pk-flyout-id]");
+      var panel = flyoutFor(row);
+      if (!panel) return;
+      e.preventDefault();
+      if (panel.matches(":popover-open")) { closeAll(); } else { open(panel, row); }
+    });
+
+    // A live navigation replaces the sidebar under an open panel, and
+    // expanding the rail makes flyouts meaningless.
+    window.addEventListener("phx:page-loading-start", closeAll);
+    window.addEventListener("resize", closeAll);
+  })();
+</script>
+  <div id="pk-admin-sidebar" phx-hook="AdminSidebarScroll" class="drawer-side lg:[scrollbar-gutter:stable]">
+    <label for="admin-mobile-menu" class="drawer-overlay lg:hidden"></label>
+    <aside class="pk-sidebar min-h-full w-64 bg-base-100 shadow-lg border-r border-base-300 flex flex-col pt-16">
+      
+      <div class="px-4 py-6 flex-1">
+        
+      </div>
+
+      
+      <div class="hidden lg:block border-t border-base-300 px-4 py-3">
+        <button type="button" data-pk-sidebar-toggle class="pk-sidebar-toggle btn btn-ghost btn-sm w-full justify-start gap-3" aria-controls="pk-admin-sidebar" aria-label="Collapse the menu to icons" title="Collapse the menu to icons" data-pk-label-expand="Expand the menu" data-pk-label-collapse="Collapse the menu to icons">
+          <span class="hero-chevron-double-left pk-sidebar-toggle-icon w-5 h-5"></span>
+          <span class="pk-sidebar-label">Collapse</span>
+        </button>
+      </div>
+    </aside>
+  </div>
+</div>
+
+
+<script>
+  // Mobile drawer and burger menu navigation
+  document.addEventListener('DOMContentLoaded', function() {
+    const drawerToggle = document.getElementById('admin-mobile-menu');
+    const adminDrawer = document.getElementById('admin-drawer');
+    const burgerMenuButton = document.querySelector('label[for="admin-mobile-menu"]');
+
+    // Close mobile drawer on navigation
+    const mainNavLinks = document.querySelectorAll('.drawer-side a');
+
+    mainNavLinks.forEach(link => {
+      link.addEventListener('click', () => {
+        if (drawerToggle && window.innerWidth < 1024) {
+          drawerToggle.checked = false;
+        }
+      });
+    });
+
+    // Handle burger menu toggle for desktop
+    if (burgerMenuButton && adminDrawer) {
+      burgerMenuButton.addEventListener('click', () => {
+        // On desktop (>= 1024px), toggle the sidebar-closed class
+        if (window.innerWidth >= 1024) {
+          adminDrawer.classList.toggle('sidebar-closed');
+        }
+        // On mobile, default checkbox behavior handles it
+      });
+    }
+  });
+</script>
+
+<script>
+  (function () {
+    // One instance per page, whichever layout renders first.
+    if (window.__pkThemeController) return;
+    window.__pkThemeController = true;
+
+    const STORAGE_KEY = 'phx:theme';
+    const themeBaseMap = {"corporate":"light","pastel":"light","abyss":"dark","retro":"light","nord":"dark","black":"dark","lemonade":"light","synthwave":"dark","night":"dark","business":"dark","lofi":"light","valentine":"light","autumn":"light","sunset":"dark","dark":"dark","aqua":"light","phoenix-dark":"dark","wireframe":"light","light":"light","coffee":"dark","dracula":"dark","phoenix-light":"light","bumblebee":"light","fantasy":"light","forest":"dark","cmyk":"light","cupcake":"light","luxury":"dark","acid":"light","garden":"light","winter":"light","silk":"light","emerald":"light","caramellatte":"light","cyberpunk":"light","dim":"dark","halloween":"dark"};
+    const themeLabels = {"corporate":"Corporate","pastel":"Pastel","abyss":"Abyss","retro":"Retro","nord":"Nord","black":"Black","lemonade":"Lemonade","synthwave":"Synthwave","night":"Night","business":"Business","lofi":"Lo-Fi","valentine":"Valentine","autumn":"Autumn","sunset":"Sunset","dark":"Dark","aqua":"Aqua","phoenix-dark":"Phoenix Dark","wireframe":"Wireframe","light":"Light","coffee":"Coffee","dracula":"Dracula","phoenix-light":"Phoenix Light","bumblebee":"Bumblebee","fantasy":"Fantasy","forest":"Forest","system":"System","cmyk":"CMYK","cupcake":"Cupcake","luxury":"Luxury","acid":"Acid","garden":"Garden","winter":"Winter","silk":"Silk","emerald":"Emerald","caramellatte":"Caramel Latte","cyberpunk":"Cyberpunk","dim":"Dim","halloween":"Halloween"};
+    // The CONFIGURED light/dark pair "system" resolves to.
+    const systemPair = { light: 'phoenix-light', dark: 'phoenix-dark' };
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)') || null;
+
+    let dispatching = false;
+
+    // localStorage can throw wholesale (sandboxed iframes, storage-blocked
+    // modes). Guarded here so a throw degrades to non-persistent theming
+    // instead of killing init before any listener attaches.
+    const LEGACY_KEY = 'phoenix_kit_theme';
+
+    const storage = {
+      get() {
+        try {
+          return localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_KEY);
+        } catch (e) {
+          return null;
+        }
+      },
+      set(value) {
+        try {
+          localStorage.setItem(STORAGE_KEY, value);
+        } catch (e) {}
+      },
+      remove() {
+        try {
+          localStorage.removeItem(STORAGE_KEY);
+        } catch (e) {}
+      }
+    };
+
+    function resolve(theme) {
+      if (theme !== 'system') return theme;
+      return media && media.matches ? systemPair.dark : systemPair.light;
+    }
+
+    function toTitle(value) {
+      return value
+        .split('-')
+        .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+        .join(' ');
+    }
+
+    // Stamp the theme on the document and mirror it into every picker —
+    // labels, dropdown option indicators, and the pair toggle. Does NOT
+    // persist or dispatch; that is setTheme's half.
+    function apply(theme) {
+      const resolved = resolve(theme);
+
+      [document.documentElement, document.body].forEach((el) => {
+        if (!el) return;
+        el.setAttribute('data-theme', resolved);
+        el.style.colorScheme = themeBaseMap[resolved] || 'light';
+      });
+
+      document.querySelectorAll('[data-theme-current-label]').forEach((el) => {
+        el.textContent = themeLabels[theme] || toTitle(theme);
+      });
+
+      document.querySelectorAll('[data-theme-target]').forEach((btn) => {
+        const targets = (btn.dataset.themeTarget || '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+        const isActive = targets.includes(theme) || targets.includes(resolved);
+
+        if (btn.dataset.themeRole === 'toggle') {
+          // The persistent pair toggle: aria-pressed = dark half on, and
+          // data-phx-theme always points at the OTHER theme — it is what
+          // the button's JS.dispatch carries, so the click needs no
+          // state of its own. Icon visibility is CSS (keyed off
+          // html[data-theme], rendered next to the button), correct from
+          // the first paint with no JS involved.
+          const isDark = resolved === btn.dataset.themeDark;
+          btn.setAttribute('aria-pressed', String(isDark));
+          btn.dataset.phxTheme = isDark ? btn.dataset.themeLight : btn.dataset.themeDark;
+        } else if (btn.dataset.themeRole === 'dropdown-option') {
+          btn.classList.toggle('bg-base-200', isActive);
+          btn.classList.toggle('ring-2', isActive);
+          btn.classList.toggle('ring-primary/70', isActive);
+          btn.setAttribute('aria-selected', String(isActive));
+          btn.querySelectorAll('[data-theme-active-indicator]').forEach((icon) => {
+            icon.classList.toggle('opacity-100', isActive);
+            icon.classList.toggle('scale-100', isActive);
+            icon.classList.toggle('scale-75', !isActive);
+          });
+        }
+      });
+    }
+
+    // announce=false when the change arrived as a window event: it
+    // already bubbled past every host listener, and re-dispatching made
+    // hosts hear each selection twice.
+    function setTheme(theme, announce) {
+      apply(theme);
+
+      if (theme === 'system') {
+        storage.remove();
+      } else {
+        storage.set(theme);
+      }
+
+      if (announce && !dispatching) {
+        dispatching = true;
+        try {
+          window.dispatchEvent(new CustomEvent('phx:set-theme', { detail: { theme } }));
+        } catch (error) {
+          console.warn('PhoenixKit theme controller: unable to dispatch phx:set-theme', error);
+        } finally {
+          dispatching = false;
+        }
+      }
+    }
+
+    function init() {
+      // apply, not setTheme: initialization reflects the saved choice
+      // into the UI but should neither rewrite storage nor announce a
+      // change nobody made.
+      apply(storage.get() || 'system');
+
+      // Follow the OS while in system mode.
+      media?.addEventListener('change', () => {
+        if ((storage.get() || 'system') === 'system') apply('system');
+      });
+
+      // A theme picked in another tab: ThemeBootstrap already restamps
+      // the attribute pre-paint on fresh loads; this keeps LIVE pages'
+      // pickers in sync too. apply, not setTheme — the other tab
+      // already persisted.
+      window.addEventListener('storage', (e) => {
+        if (e.key === STORAGE_KEY) apply(e.newValue || 'system');
+      });
+
+      // LiveView patches rebuild picker markup mid-session, wiping the
+      // client-written state (aria-pressed, data-phx-theme, icon
+      // visibility) back to its SSR defaults. Re-stamp after every
+      // completed navigation/patch.
+      window.addEventListener('phx:page-loading-stop', () => apply(storage.get() || 'system'));
+
+      // Theme selections: every picker element (dropdown options and the
+      // pair toggle alike) dispatches phx:set-theme itself via
+      // JS.dispatch, carrying the theme in detail or data-phx-theme.
+      // Skip our own re-dispatches — see the guard in setTheme.
+      window.addEventListener('phx:set-theme', (e) => {
+        const theme = e?.detail?.theme ?? e?.target?.dataset?.phxTheme;
+        if (theme && !dispatching) setTheme(theme, false);
+      });
+
+      // Legacy event name — nothing in the kit emits it anymore, kept
+      // only so hosts that adopted it keep working. Announced, so host
+      // listeners for the modern event still hear the change.
+      document.addEventListener('phx:set-admin-theme', (e) => {
+        if (e?.detail?.theme) setTheme(e.detail.theme, true);
+      });
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init);
+    } else {
+      init();
+    }
+  })();
+</script>
+    </main>
+
+    
+    
+  </body>
+</html>
