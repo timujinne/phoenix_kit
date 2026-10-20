@@ -776,6 +776,33 @@ defmodule PhoenixKit.API.BodyGuardTest do
       assert cors(broken) == ["*"]
     end
 
+    test "the guard's own 413 and 400 on an alias carry Deprecation and the successor Link" do
+      rest_successor = Routes.path("/api/public/v1")
+      mcp_successor = Routes.path("/mcp/public")
+
+      for {path, body, successor} <- [
+            {alias_rest_path(), @oversized_and_broken, rest_successor},
+            {alias_rest_path(), "{nope", rest_successor},
+            {alias_mcp_path(), @oversized_and_broken, mcp_successor},
+            {alias_mcp_path(), "{nope", mcp_successor}
+          ] do
+        conn = run(:post, path, body)
+        assert conn.status in [400, 413], path
+        assert get_resp_header(conn, "deprecation") == ["@1792454400"], path
+        assert [link] = get_resp_header(conn, "link"), path
+        assert link =~ ~s(#{successor}>; rel="successor-version"), path
+      end
+
+      for path <- [
+            Routes.path("/api/public/v1/shop.search_products"),
+            Routes.prefix_base() <> "/mcp/public"
+          ] do
+        conn = run(:post, path, "{nope")
+        assert conn.status == 400, path
+        assert get_resp_header(conn, "deprecation") == [], path
+      end
+    end
+
     test "a JSON body becomes body_params, as on the canonical path" do
       assert run(:post, alias_rest_path(), ~s({"a":1})).body_params == %{"a" => 1}
     end

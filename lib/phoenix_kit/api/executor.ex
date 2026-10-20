@@ -22,7 +22,7 @@ defmodule PhoenixKit.API.Executor do
        lists are. A tool that needs another price (1 per
        query of a search batch) declares it with `Tool.cost`. The public
        audience pays 1 unit of its network bucket BEFORE the tool lookup (a
-       miss in `Registry.find/2` costs about 2 ms, so a flood of unknown
+       miss in `PhoenixKit.API.Registry.find/2` costs about 2 ms, so a flood of unknown
        names must end in 429 without it). The caller's client token is read
        only after the lookup, because the tool declares which input field
        holds it (`Tool.client_token`): the call then pays its full price to
@@ -86,7 +86,7 @@ defmodule PhoenixKit.API.Executor do
   again**: it would only repeat the owner lookup and the scope filtering.
   What a request still scans twice is the module registry
   (`ModuleRegistry.all_api_tools/0`: once inside `verify/2` to know the
-  scopes that exist, once in `Registry.find/2`); that is two walks over a
+  scopes that exist, once in `PhoenixKit.API.Registry.find/2`); that is two walks over a
   handful of modules, and sharing the result would need an API change in
   `Registry`, so 1a accepts it.
 

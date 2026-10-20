@@ -51,6 +51,8 @@ defmodule PhoenixKit.API.BodyGuard do
   the public REST paths they also carry `access-control-allow-origin: *` and
   `access-control-expose-headers`, as every other answer of the public REST
   audience does (`PhoenixKit.API.REST`), so a browser agent can read them; the admin audience and MCP send no CORS header.
+  On a deprecated alias (`PhoenixKit.API.Legacy`) they carry its `Deprecation` header and
+  successor `Link`, as the answers of the API behind it do (`PhoenixKit.API.Paths.put_deprecation/2`).
 
   While the switch is off, or the website password gate is on and the
   client's address is not on its allow-list (the public audience only), the
@@ -124,9 +126,10 @@ defmodule PhoenixKit.API.BodyGuard do
   # answers carry the CORS header (the public REST audience only, as
   # `PhoenixKit.API.REST` does): the table the router forwards, aliases
   # included. Each MCP endpoint follows the audience of its own name; bare
-  # `/mcp` and other `/mcp/...` paths are not guarded.
-  @guarded for {segments, audience, cors?, _kind} <- Paths.entries(),
-               do: {segments, audience, cors?}
+  # `/mcp` and other `/mcp/...` paths are not guarded. An alias also carries the
+  # `:deprecated` pair its forward gets, for the guard's own answers.
+  @guarded for {segments, audience, cors?, _kind} = entry <- Paths.entries(),
+               do: {segments, audience, cors?, Paths.plug_opts(entry)[:deprecated]}
 
   # Bytes asked of the socket per read; the total is bounded separately.
   @read_chunk 1_048_576
@@ -140,8 +143,11 @@ defmodule PhoenixKit.API.BodyGuard do
       nil ->
         conn
 
-      {audience, cors?, prefix_length} ->
-        conn |> decode_prefix(prefix_length) |> body(audience, cors?)
+      {audience, cors?, deprecated, prefix_length} ->
+        conn
+        |> decode_prefix(prefix_length)
+        |> put_private(:phoenix_kit_api_deprecated, deprecated)
+        |> body(audience, cors?)
     end
   end
 
@@ -176,9 +182,9 @@ defmodule PhoenixKit.API.BodyGuard do
     prefix = Routes.prefix_base() |> String.split("/", trim: true)
     decoded = decode_segments(segments)
 
-    Enum.find_value(@guarded, fn {path, audience, cors?} ->
+    Enum.find_value(@guarded, fn {path, audience, cors?, deprecated} ->
       if List.starts_with?(decoded, prefix ++ path),
-        do: {audience, cors?, length(prefix) + length(path)}
+        do: {audience, cors?, deprecated, length(prefix) + length(path)}
     end)
   end
 
@@ -283,6 +289,7 @@ defmodule PhoenixKit.API.BodyGuard do
   defp too_large(conn, max, cors?) do
     conn
     |> put_cors(cors?)
+    |> put_deprecation()
     |> Problem.send(:payload_too_large, "The request body is larger than #{max} bytes.", %{
       limit_bytes: max
     })
@@ -303,11 +310,18 @@ defmodule PhoenixKit.API.BodyGuard do
   # 400, id null): an MCP client reads that, not a problem document.
   defp parse_failure(conn, cors?, text) do
     if mcp?(conn) do
-      Rpc.send_error(conn, 400, nil, :parse_error, "Parse error: " <> text)
+      conn
+      |> put_deprecation()
+      |> Rpc.send_error(400, nil, :parse_error, "Parse error: " <> text)
     else
-      conn |> put_cors(cors?) |> Problem.send(:invalid_json, text, %{})
+      conn |> put_cors(cors?) |> put_deprecation() |> Problem.send(:invalid_json, text, %{})
     end
   end
+
+  # The guard answers before `PhoenixKit.API.Auth` marks an alias, so it marks its own
+  # answers on one the same way.
+  defp put_deprecation(conn),
+    do: Paths.put_deprecation(conn, conn.private[:phoenix_kit_api_deprecated])
 
   # Only guarded paths get here, and the only guarded `mcp` paths are the MCP
   # endpoints of `PhoenixKit.API.Paths`.

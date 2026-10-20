@@ -8,6 +8,7 @@ defmodule PhoenixKit.API.LegacyTest do
 
   alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.Tool
+  alias PhoenixKit.API.ToolLint
 
   describe "the deprecated paths" do
     test "are the REST and MCP paths the public API had" do
@@ -65,6 +66,40 @@ defmodule PhoenixKit.API.LegacyTest do
         )
 
       assert Legacy.legacy_client_token(admin) == nil
+    end
+  end
+
+  describe "ToolLint on a public tool built before Tool.client_token" do
+    # A struct literal, as an older module may still build it: a danger, a required
+    # `cart_token` input and no `client_token:`. The executor reads its client token
+    # from `cart_token`, so the lint has to accept it the same way.
+    defp danger_tool(required) do
+      struct!(Tool,
+        name: "demo.act",
+        audience: :public,
+        title: "Act",
+        description: "Acts.",
+        handler: {Kernel, :inspect},
+        danger: :always,
+        input_schema: %{
+          "type" => "object",
+          "required" => required,
+          "properties" => %{"cart_token" => %{"type" => "string"}},
+          "additionalProperties" => false
+        },
+        output_schema: nil,
+        annotations: %{read_only: false, destructive: false, idempotent: false, open_world: false}
+      )
+    end
+
+    test "passes when cart_token is required, as the executor reads it" do
+      assert :ok = ToolLint.check_tool(danger_tool(["cart_token"]))
+      assert :ok = ToolLint.check_tools([danger_tool(["cart_token"])])
+    end
+
+    test "still asks for cart_token in required" do
+      assert {:error, [message]} = ToolLint.check_tool(danger_tool([]))
+      assert message =~ "must list cart_token in required"
     end
   end
 

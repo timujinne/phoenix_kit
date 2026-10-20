@@ -414,14 +414,14 @@ The API used to carry the name of one module. Every old name still works, is mar
 
 | Old name | Use instead | What happens until 3.0.0 |
 |---|---|---|
-| `/api/shop/v1`, `/mcp/shop` | `/api/public/v1`, `/mcp/public` | Same plug, same answers, plus `Deprecation: @1792454400` (RFC 9745) and `Link: <canonical>; rel="successor-version"`; one `info` log line per node. A request that gets the bare `404` (switch off, website gate) carries neither. OpenAPI, the guide, the catalog, `llms.txt` and `Link` headers name only the canonical paths |
+| `/api/shop/v1`, `/mcp/shop` | `/api/public/v1`, `/mcp/public` | Same plug, same answers, plus `Deprecation: @1792454400` (RFC 9745) and `Link: <canonical>; rel="successor-version"`; one `info` log line per node. The body guard's own `413` and `400` on an alias carry them too. A request that gets the bare `404` (switch off, website gate) carries neither. OpenAPI, the guide, the catalog, `llms.txt` and `Link` headers name only the canonical paths |
 | `api_public_cart_rate_per_min` | `api_public_token_rate_per_min` | The new key is read first; when it holds no valid number (an integer above 0) the old key is read, then the default |
 | `api_public_cart_rows_per_ip_hour` | `api_public_new_rows_per_ip_hour` | The same |
 | `api_public_cart_rows_global_hour` | `api_public_new_rows_global_hour` | The same |
 | `RateLimit.check_cart_rows/1` | `RateLimit.check_new_rows/1` | Calls the new function; `@deprecated` |
 | `Config.rate_limits/0` atoms `public_cart_per_min`, `cart_rows_ip_hour`, `cart_rows_global_hour` | `public_token_per_min`, `new_rows_ip_hour`, `new_rows_global_hour` | Renamed, no mirror |
-| `Actor.cart_token_hash` | `Actor.client_token_hash` | Renamed, no mirror (no known reader outside core) |
-| a public tool that declares no `client_token` but has a `cart_token` property | `client_token: "cart_token"` on the tool | The executor reads `cart_token` as the client token, so such a module keeps its rate limit, idempotency scope and danger gate |
+| `Actor.cart_token_hash` | `Actor.client_token_hash` | Renamed, no mirror (no reader in a module's `lib/` is known; test fixtures that build an `Actor` need the new name) |
+| a public tool that declares no `client_token` but has a `cart_token` property | `client_token: "cart_token"` on the tool | The executor reads `cart_token` as the client token, so such a module keeps its rate limit, idempotency scope and danger gate; `ToolLint` checks the tool the same way |
 | output fields `claim_url`, `checkout_url`, `claim_token` and the value marker `/checkout/claim/` | `Tool.credentials` (or a `*_token` name) | Still treated as credentials: never stored for replay, redacted from approvals |
 | error codes `cart_not_found` (404), `cart_locked` (409), `unsupported_source` (422), `insufficient_stock` (422) | `api_problems/0` of the module that answers them | Core answers them with the same `code`, `status`, `title` and advice as long as no enabled module declares the code |
 
