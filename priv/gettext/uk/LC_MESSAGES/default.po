@@ -20191,10 +20191,10 @@ msgstr "Передавайте його лише в заголовку Authoriza
 msgid "Service users"
 msgstr "Службові користувачі"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:54
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
 #, elixir-autogen, elixir-format
-msgid "Shoppers' AI assistants search the shop and fill a cart, without a key."
-msgstr "ШІ-помічники покупців шукають товари в магазині та наповнюють кошик без ключа."
+msgid "AI assistants and other programs use what the site offers, without a key."
+msgstr "ШІ-помічники та інші програми користуються тим, що пропонує сайт, без ключа."
 
 #: lib/phoenix_kit_web/live/settings/api.ex:531
 #, elixir-autogen, elixir-format
@@ -20208,8 +20208,8 @@ msgstr "Перемикачі"
 
 #: lib/phoenix_kit_web/live/settings/api.ex:87
 #, elixir-autogen, elixir-format
-msgid "Switches and keys for the shop API that outside programs and AI agents use."
-msgstr "Перемикачі та ключі для API магазину, яким користуються зовнішні програми та ШІ-агенти."
+msgid "Switches and keys for the API that outside programs and AI agents use."
+msgstr "Перемикачі та ключі для API, яким користуються зовнішні програми та ШІ-агенти."
 
 #: lib/phoenix_kit_web/live/approvals.ex:118
 #: lib/phoenix_kit_web/live/settings/api.ex:322
@@ -20369,8 +20369,8 @@ msgstr "Дозволені джерела MCP (по одному в рядку)"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:370
 #, elixir-autogen, elixir-format
-msgid "Web origins that may call the MCP endpoint besides the shop itself, for example https://assistant.example.com"
-msgstr "Веб-джерела, яким дозволено звертатися до точки доступу MCP, крім самого магазину, наприклад https://assistant.example.com"
+msgid "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
+msgstr "Веб-джерела, яким дозволено звертатися до точки доступу MCP, крім самого сайту, наприклад https://assistant.example.com"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:383
 #, elixir-autogen, elixir-format
@@ -20384,8 +20384,8 @@ msgstr "Викликів за хвилину, на один ключ (API адм
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:399
 #, elixir-autogen, elixir-format
-msgid "Calls per minute, per cart (public API)"
-msgstr "Викликів за хвилину, на один кошик (публічний API)"
+msgid "Calls per minute, per client token (public API)"
+msgstr "Викликів за хвилину, на один токен клієнта (публічний API)"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:407
 #, elixir-autogen, elixir-format
@@ -20394,13 +20394,18 @@ msgstr "Викликів за хвилину, на одну адресу (пуб
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:415
 #, elixir-autogen, elixir-format
-msgid "New cart rows per hour, per address"
-msgstr "Нових рядків кошика за годину, на одну адресу"
+msgid "New rows per hour, per address"
+msgstr "Нових рядків за годину, на одну адресу"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:423
 #, elixir-autogen, elixir-format
-msgid "New cart rows per hour, all addresses"
-msgstr "Нових рядків кошика за годину, усі адреси разом"
+msgid "New rows per hour, all addresses"
+msgstr "Нових рядків за годину, усі адреси разом"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:511
+#, elixir-autogen, elixir-format
+msgid "Rows a module creates for callers without a key"
+msgstr "Рядки, які модуль створює для тих, хто викликає без ключа"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:430
 #, elixir-autogen, elixir-format
@@ -21060,8 +21065,8 @@ msgstr "Замініть <your key> на ключ. Ніколи не коміт�
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:131
 #, elixir-autogen, elixir-format
-msgid "The server name ends in -admin so that it does not clash with the public shop server of this site."
-msgstr "Назва сервера закінчується на -admin, щоб не конфліктувати з публічним сервером магазину цього сайту."
+msgid "The server name ends in -admin so that it does not clash with the public server of this site."
+msgstr "Назва сервера закінчується на -admin, щоб не конфліктувати з публічним сервером цього сайту."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:137
 #, elixir-autogen, elixir-format
@@ -21222,8 +21227,8 @@ msgstr "Відкрити посібник"
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:49
 #, elixir-autogen, elixir-format
-msgid "%{title} — shop API and MCP server"
-msgstr "%{title} — API магазину та MCP-сервер"
+msgid "%{title} — public API and MCP server"
+msgstr "%{title} — публічний API та MCP-сервер"
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:84
 #, elixir-autogen, elixir-format
@@ -21330,3 +21335,13 @@ msgstr "Каталог API"
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr "Цей сайт"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Особисті SMTP-з’єднання можуть використовувати лише порти 25, 465, 587 або 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "SMTP-сервер має вказувати на публічну адресу"

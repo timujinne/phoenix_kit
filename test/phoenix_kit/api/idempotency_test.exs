@@ -233,27 +233,28 @@ defmodule PhoenixKit.API.IdempotencyTest do
     end
   end
 
-  describe "storable?/1 and credential_bearing?/1" do
+  describe "storable?/2 and credential_bearing?/2" do
     test "a plain body is storable" do
       assert Idempotency.storable?(~s({"written":"x","rows":[{"id":"a"},{"id":"b"}]}))
     end
 
-    test "a cart token, a confirmation code or a claim token anywhere in the body is not" do
+    test "a client token, a confirmation code or a claim token anywhere in the body is not" do
       for body <- [
-            ~s({"cart_token":"abc"}),
-            ~s({"cart":{"cart_token":"abc"}}),
+            ~s({"session_token":"abc"}),
+            ~s({"session":{"session_token":"abc"}}),
             ~s({"lines":[{"ok":true},{"nested":{"confirm_token":"ct_x"}}]}),
             ~s({"claim_token":"abc"}),
-            ~s({"Cart_Token":"abc"})
+            ~s({"Session_Token":"abc"})
           ] do
         refute Idempotency.storable?(body), body
         assert Idempotency.credential_bearing?(body), body
       end
     end
 
-    test "every name on the credential list is refused, at any depth and in any case" do
+    test "every name core treats as a credential is refused, at any depth and in any case" do
       for name <-
-            ~w(cart_token confirm_token claim_token claim_url checkout_url api_key access_token token secret) do
+            ~w(confirm_token api_key apikey api-key authorization bearer access_token token secret
+               session_token refresh_token cart_token) do
         refute Idempotency.storable?(JSON.encode!(%{name => "x"})), name
 
         refute Idempotency.storable?(JSON.encode!(%{"a" => [%{String.upcase(name) => "x"}]})),
@@ -261,11 +262,26 @@ defmodule PhoenixKit.API.IdempotencyTest do
       end
     end
 
-    test "a checkout claim url is not, whatever the field is called" do
+    test "a field the tool declares as a credential is refused, and only for that tool" do
+      body = ~s({"url":"https://shop.example/x","count":1})
+
+      assert Idempotency.storable?(body)
+      assert Idempotency.storable?(body, ["other"])
+      refute Idempotency.storable?(body, ["url"])
+      refute Idempotency.storable?(body, ["URL"])
+      refute Idempotency.storable?(~s({"a":[{"url":"x"}]}), ["url"])
+      assert Idempotency.credential_bearing?(body, ["url"])
+      refute Idempotency.credential_bearing?(body)
+    end
+
+    test "the names and the marker of the old checkout links are still credentials (legacy)" do
+      for name <- ~w(claim_url checkout_url claim_token) do
+        refute Idempotency.storable?(JSON.encode!(%{name => "x"})), name
+      end
+
       refute Idempotency.storable?(~s({"url":"https://shop.example/checkout/claim/AbC123"}))
       refute Idempotency.storable?(~s({"url":"https://shop.example/Checkout/Claim/AbC123"}))
       refute Idempotency.storable?(~s({"link":{"href":"https://shop.example/checkout/claim/x"}}))
-      refute Idempotency.storable?(~s({"claim_url":"https://shop.example/x"}))
     end
 
     test "an API key anywhere in the body is not" do
@@ -275,7 +291,7 @@ defmodule PhoenixKit.API.IdempotencyTest do
 
     test "a field that merely resembles a credential name is fine" do
       assert Idempotency.storable?(
-               ~s({"token_count":3,"cart_tokens_issued":0,"url":"https://shop.example/product/x"})
+               ~s({"token_count":3,"tokens_issued":0,"session-token":"x","url":"https://shop.example/item/x"})
              )
     end
 

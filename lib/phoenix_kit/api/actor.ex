@@ -15,7 +15,9 @@ defmodule PhoenixKit.API.Actor do
       owner's `Scope.for_user(owner, narrow: false)` for a key, the session's narrowed
       scope for `:user`, `nil` for an anonymous caller. Handlers read it as `ctx.scope`.
     * `requires_approval` - the key's dangerous operations wait for a human.
-    * `cart_token_hash` - the hashed cart token of an anonymous public caller.
+    * `client_token_hash` - the hash of the client token an anonymous public caller sent in the
+      field its tool declares (`PhoenixKit.API.Tool`'s `:client_token`); `nil` when the tool
+      declares none or the caller sent none. The raw token is never kept.
     * `ip` - the address the request came from, as a string.
 
   The default is the least-privileged value: anonymous, no scopes, no approval.
@@ -32,7 +34,7 @@ defmodule PhoenixKit.API.Actor do
             scopes: [],
             scope: nil,
             requires_approval: false,
-            cart_token_hash: nil,
+            client_token_hash: nil,
             ip: nil
 
   @type t :: %__MODULE__{
@@ -43,7 +45,7 @@ defmodule PhoenixKit.API.Actor do
           scopes: [String.t()],
           scope: PhoenixKit.Users.Auth.Scope.t() | nil,
           requires_approval: boolean(),
-          cart_token_hash: String.t() | nil,
+          client_token_hash: String.t() | nil,
           ip: String.t() | nil
         }
 end

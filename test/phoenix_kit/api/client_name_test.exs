@@ -23,11 +23,11 @@ defmodule PhoenixKit.API.ClientNameTest do
       assert byte_size(ClientName.slug(String.duplicate("long ", 20))) <= 32
     end
 
-    test "falls back to shop when nothing is left" do
-      assert ClientName.slug("日本語") == "shop"
-      assert ClientName.slug("   ") == "shop"
-      assert ClientName.slug("") == "shop"
-      assert ClientName.slug(nil) == "shop"
+    test "falls back to site when nothing is left" do
+      assert ClientName.slug("日本語") == "site"
+      assert ClientName.slug("   ") == "site"
+      assert ClientName.slug("") == "site"
+      assert ClientName.slug(nil) == "site"
     end
   end
 end

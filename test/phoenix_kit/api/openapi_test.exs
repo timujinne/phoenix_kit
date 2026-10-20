@@ -135,7 +135,7 @@ defmodule PhoenixKit.API.OpenAPITest do
     end
 
     test "the public document has no security and no 401 or 403" do
-      document = doc([public_tool()], :public, title: "Shop API")
+      document = doc([public_tool()], :public, title: "Public API")
 
       refute Map.has_key?(document, "security")
       refute Map.has_key?(document["components"], "securitySchemes")

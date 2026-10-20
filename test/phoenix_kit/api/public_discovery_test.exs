@@ -36,11 +36,11 @@ defmodule PhoenixKit.API.PublicDiscoveryTest do
       prefix = Routes.prefix_base()
 
       assert PublicDiscovery.guide_url(@origin) == "#{@origin}#{prefix}/mcp"
-      assert PublicDiscovery.mcp_url(@origin) == "#{@origin}#{prefix}/mcp/shop"
-      assert PublicDiscovery.api_url(@origin) == "#{@origin}#{prefix}/api/shop/v1"
+      assert PublicDiscovery.mcp_url(@origin) == "#{@origin}#{prefix}/mcp/public"
+      assert PublicDiscovery.api_url(@origin) == "#{@origin}#{prefix}/api/public/v1"
 
       assert PublicDiscovery.openapi_url(@origin) ==
-               "#{@origin}#{prefix}/api/shop/v1/openapi.json"
+               "#{@origin}#{prefix}/api/public/v1/openapi.json"
 
       assert PublicDiscovery.llms_url(@origin) == "#{@origin}/llms.txt"
       assert PublicDiscovery.catalog_url(@origin) == "#{@origin}/.well-known/api-catalog"
@@ -108,11 +108,11 @@ defmodule PhoenixKit.API.PublicDiscoveryTest do
       prefix = Routes.prefix_base()
 
       assert section == """
-             ## Shop API and MCP
+             ## Public API and MCP
 
-             - [How to connect](#{@origin}#{prefix}/mcp): MCP server and REST API for the shop, no key needed
-             - [MCP server](#{@origin}#{prefix}/mcp/shop): Streamable HTTP
-             - [OpenAPI](#{@origin}#{prefix}/api/shop/v1/openapi.json)
+             - [How to connect](#{@origin}#{prefix}/mcp): MCP server and REST API, no key needed
+             - [MCP server](#{@origin}#{prefix}/mcp/public): Streamable HTTP
+             - [OpenAPI](#{@origin}#{prefix}/api/public/v1/openapi.json)
              """
     end
 
@@ -168,16 +168,16 @@ defmodule PhoenixKit.API.PublicDiscoveryTest do
     end
 
     test "the title is the project title, or 'This site' when it is blank" do
-      assert build("en", "Acme Print").title == "Acme Print — shop API and MCP server"
+      assert build("en", "Acme Print").title == "Acme Print — public API and MCP server"
 
       for blank <- [nil, "", "   "] do
         guide = build("en", blank)
-        assert guide.title == "This site — shop API and MCP server"
+        assert guide.title == "This site — public API and MCP server"
         assert [_, _, {:code, _, _, command} | _] = blocks(guide, "mcp")
-        assert command =~ "claude mcp add --transport http shop "
+        assert command =~ "claude mcp add --transport http site "
       end
 
-      assert build("de", "").title == "Diese Website — Shop-API und MCP-Server"
+      assert build("de", "").title == "Diese Website — öffentliche API und MCP-Server"
     end
 
     test "the client snippets name the server by the slug of the project title" do

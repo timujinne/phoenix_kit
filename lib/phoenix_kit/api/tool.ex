@@ -8,7 +8,7 @@ defmodule PhoenixKit.API.Tool do
 
   ## Fields
 
-    * `:name` - `"<namespace>.<verb>_<noun>"`, lowercase, stable (`"ecommerce.set_prices"`),
+    * `:name` - `"<namespace>.<verb>_<noun>"`, lowercase, stable (`"catalogue.set_prices"`),
       at most 100 characters.
     * `:audience` - `:admin` (a key with scopes) or `:public` (no key).
     * `:scope` - the scope a key must carry, `"<module>.<resource>:<action>"`. `nil` for
@@ -19,7 +19,7 @@ defmodule PhoenixKit.API.Tool do
       under that name is ignored, so a module cannot declare a tool that skips the scope and
       permission checks.
     * `:permission` - the role permission the key's owner must hold right now
-      (`"shop.manage_catalog"`). `nil` under the same rule as `:scope`; a public tool must
+      (`"catalogue"`). `nil` under the same rule as `:scope`; a public tool must
       have no permission either.
     * `:title`, `:description` - written for a person and for an agent. The title defaults
       to the name, the description to `""`.
@@ -41,14 +41,34 @@ defmodule PhoenixKit.API.Tool do
       value is refused by `validate/1`.
     * `:replay` - whether a retry of a write call with the same `idempotency_key` gets the
       first answer back. `true` by default. Set `false` on a write tool whose answer carries a
-      credential (a cart token, a claim URL): such an answer is never stored
-      (`PhoenixKit.API.Idempotency.credential_bearing?/1`), so the key could not be honoured.
+      credential (a session token, a claim URL): such an answer is never stored
+      (`PhoenixKit.API.Idempotency.credential_bearing?/2`), so the key could not be honoured.
       The tool then takes no `idempotency_key`: the schemas, MCP and OpenAPI do not offer it, a
       body that sends it is a `422`, and the `Idempotency-Key` header is ignored, as it is on a
       read tool. Say in the description that a repeated call is not the same call.
       The field is newer than core 2.63.0, where `new/1` refuses it. A module that must also
       run there passes it only when `Code.ensure_loaded?(PhoenixKit.API.ControlFields) and
       function_exported?(PhoenixKit.API.ControlFields, :replay_tool?, 1)`.
+    * `:client_token` - for a `:public` tool, the name of the input field that carries the
+      anonymous client's token (`"session_token"`), or `nil` (default). It must be a string
+      property of `input_schema`. Core hashes the value (sha256, url-safe base64, never kept
+      in clear) into `PhoenixKit.API.Actor.client_token_hash` and uses the hash as the
+      caller's identity where there is no key: the per-token rate-limit bucket, the scope of
+      the `idempotency_key` and the binding of a confirmation code. A public tool with a
+      `danger:` must declare it and list it in `required`; a call without the token is a
+      `422` naming the field. An `:admin` tool may not declare one. The field is a credential
+      like a key and is redacted from stored answers. It is refused in a URL, and filtered
+      from the request log, only when core's credential rule knows its name (the listed names
+      and `*_token`; see `PhoenixKit.API.Auth.credential_name?/1`), so name it `*_token`.
+      The field is newer than core 2.63.x, where `new/1` refuses it. A module that must also
+      run there sets it only when `Map.has_key?(PhoenixKit.API.Tool.__struct__(), :client_token)`
+      (a struct key is not a function, so `function_exported?/3` cannot tell; and
+      `%PhoenixKit.API.Tool{}` does not compile, it has required keys).
+    * `:credentials` - names of **output** fields in which the tool hands out a secret that is
+      not named `*_token` (a link with a claim code in it, say). An answer carrying one of
+      them is never stored for replay and is redacted from an approval's result. The tool's
+      `:client_token` counts as one without being listed. Same rule as `:client_token` for
+      older cores: pass it only when the struct has the key.
     * `:max_items` - the largest batch the tool accepts, or `nil`.
     * `:cost` - the rate-limit units one call costs. `nil` (default) means the executor's
       rule: 1, or for a non-read-only admin tool `max(1, ceil(longest list / 50))`. A
@@ -106,6 +126,8 @@ defmodule PhoenixKit.API.Tool do
     annotations: @default_annotations,
     danger: nil,
     replay: true,
+    client_token: nil,
+    credentials: [],
     max_items: nil,
     cost: nil
   ]
@@ -183,6 +205,8 @@ defmodule PhoenixKit.API.Tool do
       &check_annotations/1,
       &check_danger/1,
       &check_replay/1,
+      &check_client_token/1,
+      &check_credentials/1,
       &check_max_items/1,
       &check_cost/1
     ]
@@ -191,6 +215,16 @@ defmodule PhoenixKit.API.Tool do
       [] -> {:ok, tool}
       messages -> {:error, messages}
     end
+  end
+
+  @doc """
+  The output field names whose values must never be stored or shown in clear for `tool`:
+  its `:credentials` and its `:client_token`. `PhoenixKit.API.Idempotency` adds them to the
+  names core already treats as credentials.
+  """
+  @spec credential_keys(t()) :: [String.t()]
+  def credential_keys(%__MODULE__{credentials: credentials, client_token: client_token}) do
+    Enum.filter(List.wrap(credentials) ++ [client_token], &is_binary/1)
   end
 
   @doc "True for core's own `system.*` tools."
@@ -421,6 +455,46 @@ defmodule PhoenixKit.API.Tool do
 
   defp check_danger(%{danger: danger}),
     do: ["danger must be nil, :always or {module, function}, got #{inspect(danger)}"]
+
+  defp check_client_token(%{client_token: nil}), do: []
+
+  defp check_client_token(%{client_token: field, audience: :public} = tool)
+       when is_binary(field) and field != "" do
+    case string_property?(tool.input_schema, field) do
+      true -> []
+      false -> ["client_token #{inspect(field)} must be a string property of input_schema"]
+    end
+  end
+
+  defp check_client_token(%{client_token: field, audience: :public}),
+    do: ["client_token must be a non-empty string or nil, got #{inspect(field)}"]
+
+  defp check_client_token(%{client_token: _field}),
+    do: ["client_token is for a public tool only: an admin caller is identified by its key"]
+
+  defp string_property?(schema, field) when is_map(schema) and not is_struct(schema) do
+    properties = Map.get(schema, "properties", Map.get(schema, :properties))
+
+    with true <- is_map(properties) and not is_struct(properties),
+         %{} = property <- Map.get(properties, field),
+         type when type in ["string", :string] <-
+           Map.get(property, "type", Map.get(property, :type)) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp string_property?(_schema, _field), do: false
+
+  defp check_credentials(%{credentials: credentials}) when is_list(credentials) do
+    if Enum.all?(credentials, &(is_binary(&1) and &1 != "")),
+      do: [],
+      else: ["credentials must be a list of non-empty strings, got #{inspect(credentials)}"]
+  end
+
+  defp check_credentials(%{credentials: credentials}),
+    do: ["credentials must be a list of non-empty strings, got #{inspect(credentials)}"]
 
   defp check_max_items(%{max_items: nil}), do: []
   defp check_max_items(%{max_items: max}) when is_integer(max) and max > 0, do: []

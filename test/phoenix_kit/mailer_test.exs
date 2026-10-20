@@ -697,4 +697,164 @@ defmodule PhoenixKit.MailerTest do
       assert_received {:handle_after_send_called, {:ok, _}}
     end
   end
+
+  describe "the personal SMTP policy" do
+    setup do
+      Application.put_env(:phoenix_kit, :personal_smtp_policy, :restricted)
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :personal_smtp_policy) end)
+    end
+
+    defp smtp_creds(host, port, owner_uuid) do
+      base = %{
+        "provider" => "smtp",
+        "host" => host,
+        "port" => port,
+        "username" => "user",
+        "password" => "pw"
+      }
+
+      if owner_uuid,
+        do: Map.merge(base, %{"owner_type" => "user", "owner_uuid" => owner_uuid}),
+        else: base
+    end
+
+    # Accepts one connection, reports it, and hangs up at once — so a send that
+    # does get through fails fast instead of waiting on gen_smtp's read timeout.
+    defp hang_up_relay do
+      test = self()
+
+      {:ok, listener} =
+        :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+      {:ok, port} = :inet.port(listener)
+
+      server =
+        spawn(fn ->
+          case :gen_tcp.accept(listener) do
+            {:ok, socket} ->
+              send(test, :relay_accepted)
+              :gen_tcp.close(socket)
+              # A retry must find nothing listening, not a backlog that never
+              # answers.
+              :gen_tcp.close(listener)
+
+            _ ->
+              :ok
+          end
+        end)
+
+      on_exit(fn ->
+        Process.exit(server, :kill)
+        :gen_tcp.close(listener)
+      end)
+
+      port
+    end
+
+    defp personal_smtp(host, port) do
+      owner = {:user, Ecto.UUID.generate()}
+
+      {:ok, %{uuid: uuid}} =
+        Integrations.add_connection("smtp", "personal relay", nil, owner: owner)
+
+      {:ok, _} =
+        Integrations.save_setup(
+          uuid,
+          %{"host" => host, "port" => to_string(port), "username" => "u", "password" => "p"},
+          nil,
+          owner: owner
+        )
+
+      uuid
+    end
+
+    defp system_smtp(host, port) do
+      {:ok, %{uuid: uuid}} = Integrations.add_connection("smtp", "system relay")
+
+      {:ok, _} =
+        Integrations.save_setup(uuid, %{
+          "host" => host,
+          "port" => to_string(port),
+          "username" => "u",
+          "password" => "p"
+        })
+
+      uuid
+    end
+
+    defp policy_email do
+      new()
+      |> to("to@example.com")
+      |> Swoosh.Email.from("from@example.com")
+      |> subject("Hi")
+      |> text_body("Hello")
+    end
+
+    test "swoosh_config_for/1 refuses a personal connection to an internal address" do
+      owner = Ecto.UUID.generate()
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_host}} =
+               Mailer.swoosh_config_for(smtp_creds("127.0.0.1", 587, owner))
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_port}} =
+               Mailer.swoosh_config_for(smtp_creds("8.8.8.8", 5432, owner))
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_host}} =
+               Mailer.swoosh_config_for(smtp_creds("pgbouncer", 587, owner))
+    end
+
+    test "swoosh_config_for/1 leaves a personal connection to a public address as it was" do
+      assert {:ok, {Swoosh.Adapters.SMTP, config}} =
+               Mailer.swoosh_config_for(smtp_creds("8.8.8.8", 587, Ecto.UUID.generate()))
+
+      assert config[:relay] == "8.8.8.8"
+      assert config[:port] == 587
+    end
+
+    test "swoosh_config_for/1 does not touch a system connection" do
+      creds = smtp_creds("127.0.0.1", 5432, nil)
+      assert {:ok, {Swoosh.Adapters.SMTP, config}} = Mailer.swoosh_config_for(creds)
+      assert config[:relay] == "127.0.0.1"
+      assert config[:port] == 5432
+    end
+
+    test "swoosh_config_for/1 with the policy off is what it always was" do
+      Application.delete_env(:phoenix_kit, :personal_smtp_policy)
+      creds = smtp_creds("127.0.0.1", 5432, Ecto.UUID.generate())
+
+      assert Mailer.swoosh_config_for(creds) ==
+               Mailer.swoosh_config_for(Map.drop(creds, ["owner_type", "owner_uuid"]))
+
+      assert {:ok, {Swoosh.Adapters.SMTP, config}} = Mailer.swoosh_config_for(creds)
+      assert config[:relay] == "127.0.0.1"
+    end
+
+    test "deliver_via_integration/3 refuses a personal internal relay without connecting" do
+      port = hang_up_relay()
+      uuid = personal_smtp("127.0.0.1", port)
+
+      # A non-mail port is refused first.
+      assert {:error, {:smtp_endpoint_refused, :blocked_port}} =
+               Mailer.deliver_via_integration(policy_email(), uuid)
+
+      refute_receive :relay_accepted, 200
+    end
+
+    test "deliver_via_integration/3 refuses a personal relay at a loopback address" do
+      uuid = personal_smtp("127.0.0.1", 587)
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_host}} =
+               Mailer.deliver_via_integration(policy_email(), uuid)
+    end
+
+    test "deliver_via_integration/3 still connects a system relay on any address" do
+      port = hang_up_relay()
+      uuid = system_smtp("127.0.0.1", port)
+
+      result = Mailer.deliver_via_integration(policy_email(), uuid)
+
+      refute match?({:error, {:smtp_endpoint_refused, _}}, result)
+      assert_receive :relay_accepted, 5_000
+    end
+  end
 end

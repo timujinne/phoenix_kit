@@ -649,18 +649,21 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
   end
 
   describe "the public endpoint" do
-    test "runs a public tool with no key; the cart token is never echoed" do
+    test "runs a public tool with no key; the client token is never echoed" do
       conn =
         post_rpc(
           :public,
-          call_message("testkit_public_echo", %{"text" => "hi", "cart_token" => "my-cart-token"})
+          call_message("testkit_public_echo", %{
+            "text" => "hi",
+            "session_token" => "my-session-token"
+          })
         )
 
       result = result(conn)
       assert result["isError"] == false
       assert result["structuredContent"]["echo"] == "hi"
-      assert is_binary(result["structuredContent"]["cart_token_hash"])
-      refute conn.resp_body =~ "my-cart-token"
+      assert is_binary(result["structuredContent"]["client_token_hash"])
+      refute conn.resp_body =~ "my-session-token"
     end
   end
 

@@ -77,7 +77,9 @@
           <div>
             <div class="font-medium">{gettext("Public API")}</div>
             <p class="text-sm text-base-content/70">
-              {gettext("Shoppers' AI assistants search the shop and fill a cart, without a key.")}
+              {gettext(
+                "AI assistants and other programs use what the site offers, without a key."
+              )}
             </p>
           </div>
           <.checkbox
@@ -447,7 +449,7 @@
               >{@limits_params["mcp_allowed_origins"]}</textarea>
               <p class="label">
                 {gettext(
-                  "Web origins that may call the MCP endpoint besides the shop itself, for example https://assistant.example.com"
+                  "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
                 )}
               </p>
             </div>
@@ -471,12 +473,12 @@
               value={@limits_params["admin_per_min"]}
             />
             <.input
-              id="api-limit-public-cart-per-min"
-              name="limits[public_cart_per_min]"
+              id="api-limit-public-token-per-min"
+              name="limits[public_token_per_min]"
               type="text"
               inputmode="numeric"
-              label={gettext("Calls per minute, per cart (public API)")}
-              value={@limits_params["public_cart_per_min"]}
+              label={gettext("Calls per minute, per client token (public API)")}
+              value={@limits_params["public_token_per_min"]}
             />
             <.input
               id="api-limit-public-ip-per-min"
@@ -487,22 +489,27 @@
               value={@limits_params["public_ip_per_min"]}
             />
             <.input
-              id="api-limit-cart-rows-ip-hour"
-              name="limits[cart_rows_ip_hour]"
+              id="api-limit-new-rows-ip-hour"
+              name="limits[new_rows_ip_hour]"
               type="text"
               inputmode="numeric"
-              label={gettext("New cart rows per hour, per address")}
-              value={@limits_params["cart_rows_ip_hour"]}
+              aria-describedby="api-limit-new-rows-help"
+              label={gettext("New rows per hour, per address")}
+              value={@limits_params["new_rows_ip_hour"]}
             />
             <.input
-              id="api-limit-cart-rows-global-hour"
-              name="limits[cart_rows_global_hour]"
+              id="api-limit-new-rows-global-hour"
+              name="limits[new_rows_global_hour]"
               type="text"
               inputmode="numeric"
-              label={gettext("New cart rows per hour, all addresses")}
-              value={@limits_params["cart_rows_global_hour"]}
+              aria-describedby="api-limit-new-rows-help"
+              label={gettext("New rows per hour, all addresses")}
+              value={@limits_params["new_rows_global_hour"]}
             />
           </div>
+          <p id="api-limit-new-rows-help" class="text-sm text-base-content/70">
+            {gettext("Rows a module creates for callers without a key")}
+          </p>
 
           <div class="flex justify-end">
             <.button type="submit" id="api-limits-submit">

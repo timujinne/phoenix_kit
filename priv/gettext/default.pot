@@ -20134,9 +20134,9 @@ msgstr ""
 msgid "Service users"
 msgstr ""
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:54
+#: lib/phoenix_kit_web/live/settings/api.html.heex:81
 #, elixir-autogen, elixir-format
-msgid "Shoppers' AI assistants search the shop and fill a cart, without a key."
+msgid "AI assistants and other programs use what the site offers, without a key."
 msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.ex:531
@@ -20151,7 +20151,7 @@ msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.ex:87
 #, elixir-autogen, elixir-format
-msgid "Switches and keys for the shop API that outside programs and AI agents use."
+msgid "Switches and keys for the API that outside programs and AI agents use."
 msgstr ""
 
 #: lib/phoenix_kit_web/live/approvals.ex:118
@@ -20312,7 +20312,7 @@ msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:370
 #, elixir-autogen, elixir-format
-msgid "Web origins that may call the MCP endpoint besides the shop itself, for example https://assistant.example.com"
+msgid "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
 msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:383
@@ -20327,7 +20327,7 @@ msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:399
 #, elixir-autogen, elixir-format
-msgid "Calls per minute, per cart (public API)"
+msgid "Calls per minute, per client token (public API)"
 msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:407
@@ -20337,12 +20337,17 @@ msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:415
 #, elixir-autogen, elixir-format
-msgid "New cart rows per hour, per address"
+msgid "New rows per hour, per address"
 msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:423
 #, elixir-autogen, elixir-format
-msgid "New cart rows per hour, all addresses"
+msgid "New rows per hour, all addresses"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:511
+#, elixir-autogen, elixir-format
+msgid "Rows a module creates for callers without a key"
 msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:430
@@ -21003,7 +21008,7 @@ msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:131
 #, elixir-autogen, elixir-format
-msgid "The server name ends in -admin so that it does not clash with the public shop server of this site."
+msgid "The server name ends in -admin so that it does not clash with the public server of this site."
 msgstr ""
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:137
@@ -21161,7 +21166,7 @@ msgstr ""
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:49
 #, elixir-autogen, elixir-format
-msgid "%{title} — shop API and MCP server"
+msgid "%{title} — public API and MCP server"
 msgstr ""
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:84
@@ -21268,4 +21273,14 @@ msgstr ""
 #: lib/phoenix_kit/api/public_discovery/guide.ex:63
 #, elixir-autogen, elixir-format
 msgid "This site"
+msgstr ""
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr ""
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
 msgstr ""

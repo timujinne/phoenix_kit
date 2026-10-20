@@ -790,16 +790,19 @@ defmodule PhoenixKit.API.ExecutorTest do
       conn = public_call("testkit.public_echo", %{"text" => "hi"})
 
       assert conn.status == 200
-      assert %{"echo" => "hi", "cart_token_hash" => nil} = json(conn)
+      assert %{"echo" => "hi", "client_token_hash" => nil} = json(conn)
     end
 
-    test "gives the handler a hash of the cart token, never the token" do
+    test "gives the handler a hash of the client token, never the token" do
       conn =
-        public_call("testkit.public_echo", %{"text" => "hi", "cart_token" => "my-cart-token"})
+        public_call("testkit.public_echo", %{
+          "text" => "hi",
+          "session_token" => "my-session-token"
+        })
 
-      assert %{"cart_token_hash" => hash} = json(conn)
-      assert is_binary(hash) and hash != "my-cart-token"
-      refute conn.resp_body =~ "my-cart-token"
+      assert %{"client_token_hash" => hash} = json(conn)
+      assert is_binary(hash) and hash != "my-session-token"
+      refute conn.resp_body =~ "my-session-token"
     end
 
     test "a 50-line list costs one unit, as a call without lines" do

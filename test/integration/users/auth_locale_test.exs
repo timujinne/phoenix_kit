@@ -469,9 +469,9 @@ defmodule PhoenixKit.Integration.Users.AuthLocaleTest do
       assert redirected_to(conn, 307) == "/phoenix_kit/shop?page=2"
     end
 
-    test "`mcp` is reserved too: /<prefix>/mcp/shop is stripped like /<prefix>/api/shop" do
+    test "`mcp` is reserved too: /<prefix>/mcp/public is stripped like /<prefix>/api/shop" do
       conn =
-        build_conn(:get, "/phoenix_kit/mcp/shop?page=2")
+        build_conn(:get, "/phoenix_kit/mcp/public?page=2")
         |> Plug.Conn.fetch_query_params()
         |> Map.put(:path_params, %{"locale" => "mcp"})
 
@@ -479,7 +479,7 @@ defmodule PhoenixKit.Integration.Users.AuthLocaleTest do
 
       assert conn.halted
       assert conn.status == 307
-      assert redirected_to(conn, 307) == "/phoenix_kit/shop?page=2"
+      assert redirected_to(conn, 307) == "/phoenix_kit/public?page=2"
     end
 
     test "a hostile segment in `rest` does not raise on the reserved-segment 307 path" do

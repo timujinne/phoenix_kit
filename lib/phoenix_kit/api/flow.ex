@@ -133,7 +133,7 @@ defmodule PhoenixKit.API.Flow do
 
   @doc """
   Claims the request's `Idempotency-Key`, if it has one. A dry run never claims.
-  A public call without a cart token has no scope to claim in and ignores the key.
+  A public call without a client token has no scope to claim in and ignores the key.
   """
   def idempotency(%{control: %{"idempotency_key" => key}, dry_run?: false} = state)
       when is_binary(key) do
@@ -166,22 +166,22 @@ defmodule PhoenixKit.API.Flow do
 
   defp scope_ref(%{audience: :admin, actor: %{key_uuid: uuid}}) when is_binary(uuid), do: uuid
 
-  defp scope_ref(%{audience: :public, actor: %{cart_token_hash: hash}}) when is_binary(hash),
+  defp scope_ref(%{audience: :public, actor: %{client_token_hash: hash}}) when is_binary(hash),
     do: hash
 
   defp scope_ref(_state), do: nil
 
   @doc """
   Called when the answer is sent. Stores a `200` body under the claim when it may be
-  stored (`Idempotency.storable?/1`), otherwise gives the claim up. Never raises: the
-  handler has already run, so a store that fails (a database hiccup) is logged and the
-  answer is sent anyway; the claim then runs out with its lease.
+  stored (`Idempotency.storable?/2`, given the tool's own credential fields), otherwise gives
+  the claim up. Never raises: the handler has already run, so a store that fails (a database
+  hiccup) is logged and the answer is sent anyway; the claim then runs out with its lease.
   """
   def finish(%{claim: nil}), do: :ok
 
-  def finish(%{claim: claim, store?: true, body: body}) when is_binary(body) do
+  def finish(%{claim: claim, store?: true, body: body} = state) when is_binary(body) do
     guarded(fn ->
-      if Idempotency.storable?(body) do
+      if Idempotency.storable?(body, tool_credential_keys(state)) do
         _ = Idempotency.store(claim, body)
       else
         Idempotency.release(claim)
@@ -190,6 +190,9 @@ defmodule PhoenixKit.API.Flow do
   end
 
   def finish(%{claim: claim}), do: guarded(fn -> Idempotency.release(claim) end)
+
+  defp tool_credential_keys(%{tool: %Tool{} = tool}), do: Tool.credential_keys(tool)
+  defp tool_credential_keys(_state), do: []
 
   @doc "Called when the request is refused: gives the idempotency claim up. Never raises."
   def release(%{claim: nil}), do: :ok
@@ -287,7 +290,7 @@ defmodule PhoenixKit.API.Flow do
       true
   end
 
-  # Admin write tools only: a public cart of fifty lines is not a batch to confirm.
+  # Admin write tools only: a public call of fifty lines is not a batch to confirm.
   defp batch_danger?(%{audience: :admin, rows: rows}), do: rows > FlowConfig.confirm_batch_over()
   defp batch_danger?(_state), do: false
 
@@ -295,10 +298,18 @@ defmodule PhoenixKit.API.Flow do
 
   defp confirm_flow(state) do
     cond do
-      state.audience == :public and is_nil(state.actor.cart_token_hash) ->
-        {:error, :validation_failed, "A cart token is required for this operation.",
-         %{errors: [%{path: "cart_token", message: "is required", limit: nil, allowed: nil}]},
-         state}
+      state.audience == :public and is_nil(state.actor.client_token_hash) ->
+        {:error, :validation_failed, "A client token is required for this operation.",
+         %{
+           errors: [
+             %{
+               path: state.tool.client_token || "",
+               message: "is required",
+               limit: nil,
+               allowed: nil
+             }
+           ]
+         }, state}
 
       is_binary(state.control["confirm_token"]) ->
         redeem(state, state.control["confirm_token"])

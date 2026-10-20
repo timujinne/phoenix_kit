@@ -709,6 +709,7 @@ defmodule PhoenixKit.API.Approvals do
   # executor adds later reaches approved operations too (a test compares the key sets).
   defp ctx(%Confirmation{} = row, actor, approver_uuid, dry_run?) do
     snapshot = row.context || %{}
+    keys = credential_keys(row.tool)
 
     Executor.context_from(%{
       actor: actor,
@@ -722,18 +723,18 @@ defmodule PhoenixKit.API.Approvals do
       dry_run?: dry_run?,
       approved_by_uuid: approver_uuid,
       confirmation_uuid: row.uuid,
-      progress: fn partial -> record_progress(row.uuid, partial) end
+      progress: fn partial -> record_progress(row.uuid, partial, keys) end
     })
   end
 
   # A handler that works through many rows reports what it has done; if the process
   # dies, the sweep keeps these results on the failed approval.
-  defp record_progress(uuid, partial) do
+  defp record_progress(uuid, partial, keys) do
     now = second(DateTime.utc_now())
 
     repo().update_all(
       from(c in Confirmation, where: c.uuid == ^uuid and c.status == "executing"),
-      set: [result: %{"partial" => storable_result(partial)}, updated_at: now]
+      set: [result: %{"partial" => storable_result(partial, keys)}, updated_at: now]
     )
 
     :ok
@@ -774,7 +775,7 @@ defmodule PhoenixKit.API.Approvals do
       result
       |> jsonable()
       |> keep_partial(status, current)
-      |> Idempotency.redact_credentials()
+      |> Idempotency.redact_credentials(credential_keys(row.tool))
 
     write_final(uuid, status, result, now, status == "executed" and swept?(current))
 
@@ -848,7 +849,18 @@ defmodule PhoenixKit.API.Approvals do
     _ -> %{"error" => error(:internal_error, "The result could not be stored.")}
   end
 
-  defp storable_result(value), do: value |> jsonable() |> Idempotency.redact_credentials()
+  defp storable_result(value, keys),
+    do: value |> jsonable() |> Idempotency.redact_credentials(keys)
+
+  # The output fields the approved tool declares as credentials. A tool that is gone (its
+  # module was disabled or removed since the request) declares nothing: core's rule and
+  # `PhoenixKit.API.Legacy` still redact.
+  defp credential_keys(tool_name) do
+    case Registry.find(tool_name, :admin) do
+      {:ok, %Tool{} = tool} -> Tool.credential_keys(tool)
+      _gone -> []
+    end
+  end
 
   defp error(code, detail, context \\ %{}),
     do: %{"code" => to_string(code), "detail" => detail, "context" => context}
