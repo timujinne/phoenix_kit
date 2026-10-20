@@ -27,7 +27,7 @@ msgid "OAuth authentication is not configured. Please contact your administrator
 msgstr "OAuth autentimine ei ole seadistatud. Palun võtke ühendust administraatoriga."
 
 ## Dashboard page translations
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:118
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:120
 #: lib/phoenix_kit_web/components/core/admin_label.ex:64
 #: lib/phoenix_kit_web/live/dashboard.html.heex:5
 #: lib/phoenix_kit_web/live/dashboard/index.ex:11
@@ -51,9 +51,9 @@ msgid "System Information"
 msgstr "Süsteemi teave"
 
 ## Navigation menu items
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:131
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:146
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:377
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:133
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:148
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:421
 #: lib/phoenix_kit_web/components/core/dashboard_overview.ex:108
 #: lib/phoenix_kit_web/live/settings/users.ex:49
 #: lib/phoenix_kit_web/live/users/roles.html.heex:95
@@ -70,7 +70,7 @@ msgstr "Kasutajad"
 msgid "User management"
 msgstr "Kasutajate haldamine"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:182
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:184
 #: lib/phoenix_kit_web/components/core/dashboard_overview.ex:124
 #: lib/phoenix_kit_web/live/settings/api.html.heex:850
 #: lib/phoenix_kit_web/live/settings/users.ex:97
@@ -87,7 +87,7 @@ msgstr "Rollid"
 msgid "Role management"
 msgstr "Rollide haldamine"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:173
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:175
 #: lib/phoenix_kit_web/components/core/dashboard_overview.ex:140
 #: lib/phoenix_kit_web/components/profile_settings_tabs.ex:236
 #: lib/phoenix_kit_web/live/settings/authorization.ex:77
@@ -1571,7 +1571,7 @@ msgstr "Ootel"
 msgid "Permission denied"
 msgstr "Õigus puudub"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:191
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:193
 #: lib/phoenix_kit_web/live/users/permissions_matrix.ex:29
 #: lib/phoenix_kit_web/live/users/permissions_matrix.html.heex:5
 #: lib/phoenix_kit_web/live/users/roles.html.heex:151
@@ -1681,7 +1681,7 @@ msgid "Registration Number"
 msgstr "Registreerimisnumber"
 
 #: lib/phoenix_kit_web/legal_gettext_manifest.ex:84
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:49
+#: lib/phoenix_kit_web/live/approvals.html.heex:77
 #, elixir-autogen, elixir-format
 msgid "Reject"
 msgstr "Keeldu"
@@ -1887,7 +1887,7 @@ msgstr "Vali, millistele lõikudele ja moodulitele see roll pääseb juurde. Sa 
 #: lib/modules/storage/web/dimension_form.html.heex:5
 #: lib/modules/storage/web/library_page.html.heex:5
 #: lib/modules/storage/web/settings.html.heex:5
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:329
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:373
 #: lib/phoenix_kit_web/components/user_dashboard_nav.ex:170
 #: lib/phoenix_kit_web/live/modules/languages.ex:51
 #: lib/phoenix_kit_web/live/settings.ex:67
@@ -1956,7 +1956,6 @@ msgstr "Maakond/provints"
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:189
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:244
 #: lib/phoenix_kit_web/live/settings/api.html.heex:98
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:138
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:286
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:64
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:139
@@ -2323,7 +2322,6 @@ msgstr "Muuda bucket"
 msgid "Enable"
 msgstr "Luba"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:31
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:244
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:346
 #: lib/phoenix_kit_web/users/user_form.html.heex:870
@@ -2825,6 +2823,7 @@ msgid "Facebook Sign-In"
 msgstr "Facebook sisselogimine"
 
 #: lib/phoenix_kit_web/live/activity/show.html.heex:158
+#: lib/phoenix_kit_web/live/approvals.html.heex:142
 #: lib/phoenix_kit_web/live/settings/users.html.heex:581
 #, elixir-autogen, elixir-format
 msgid "Field"
@@ -4181,7 +4180,7 @@ msgstr "Seisund"
 msgid "Integration deleted"
 msgstr "Integratsioon kustutatud"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:420
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:464
 #: lib/phoenix_kit_web/components/profile_settings_tabs.ex:238
 #: lib/phoenix_kit_web/live/components/user_settings.ex:1989
 #: lib/phoenix_kit_web/live/settings/integration_form.html.heex:10
@@ -4429,7 +4428,7 @@ msgstr "OpenRouter"
 msgid "Org"
 msgstr "Org"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:368
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:412
 #: lib/phoenix_kit_web/live/settings/organization.ex:46
 #: lib/phoenix_kit_web/live/users/user_details.html.heex:160
 #: lib/phoenix_kit_web/live/users/user_details.html.heex:184
@@ -5200,13 +5199,13 @@ msgstr "Genereeri XML-saidikaarti otsingumootoritele koos stiiliga brauseri kuva
 msgid "Headers Only"
 msgstr "Ainult päised"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:214
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:231
 #: lib/phoenix_kit_web/live/modules/jobs/index.html.heex:5
 #, elixir-autogen, elixir-format
 msgid "Jobs"
 msgstr "Tööd"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:431
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:487
 #: lib/phoenix_kit_web/live/modules/languages.ex:50
 #, elixir-autogen, elixir-format
 msgid "Languages"
@@ -5233,7 +5232,7 @@ msgstr "Sõnum"
 msgid "Module Management"
 msgstr "Moodulite haldamine"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:268
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:312
 #: lib/phoenix_kit_web/live/modules.html.heex:5
 #, elixir-autogen, elixir-format
 msgid "Modules"
@@ -5301,8 +5300,8 @@ msgstr "nõuab, et"
 #: lib/modules/storage/web/library_page.html.heex:8
 #: lib/modules/storage/web/settings.ex:72
 #: lib/modules/storage/web/settings.html.heex:4
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:227
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:440
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:244
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:496
 #: lib/phoenix_kit_web/components/profile_settings_tabs.ex:239
 #: lib/phoenix_kit_web/live/users/media.ex:57
 #: lib/phoenix_kit_web/live/users/media.ex:58
@@ -5319,8 +5318,8 @@ msgstr "Meedia"
 
 #: lib/phoenix_kit_web/components/core/badge.ex:125
 #: lib/phoenix_kit_web/components/core/badge.ex:128
+#: lib/phoenix_kit_web/live/approvals.ex:436
 #: lib/phoenix_kit_web/live/settings/api.ex:904
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:227
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:272
 #, elixir-autogen, elixir-format
 msgid "Expired"
@@ -5371,7 +5370,6 @@ msgstr[0] "%{count} päeva tagasi"
 msgstr[1] "%{count} päeva tagasi"
 
 #: lib/phoenix_kit_web/live/modules/languages.html.heex:57
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:78
 #, elixir-autogen
 msgid "Summary"
 msgstr "Kokkuvõte"
@@ -7204,7 +7202,7 @@ msgid_plural "%{count} activities"
 msgstr[0] "%{count} sündmus"
 msgstr[1] "%{count} sündmust"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:201
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:203
 #: lib/phoenix_kit_web/live/activity/index.ex:52
 #: lib/phoenix_kit_web/live/activity/index.html.heex:5
 #: lib/phoenix_kit_web/live/activity/index.html.heex:305
@@ -7288,7 +7286,7 @@ msgid "ID"
 msgstr "ID"
 
 #: lib/phoenix_kit_web/live/activity/show.html.heex:196
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:137
+#: lib/phoenix_kit_web/live/approvals.html.heex:229
 #, elixir-autogen, elixir-format
 msgid "Key"
 msgstr "Võti"
@@ -7349,7 +7347,7 @@ msgstr "Väärtus"
 msgid "View details"
 msgstr "Vaata üksikasju"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:359
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:403
 #: lib/phoenix_kit_web/live/settings/authorization.ex:45
 #, elixir-autogen, elixir-format
 msgid "Authorization"
@@ -7579,7 +7577,7 @@ msgstr "Kasutaja seosed"
 msgid "User connections module for PhoenixKit — follows, mutual connections, and blocking"
 msgstr "Kasutaja seoste moodul PhoenixKitile — jälgimised, vastastikused seosed ja blokeerimised"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:349
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:393
 #: lib/phoenix_kit_web/live/settings.ex:65
 #, elixir-autogen, elixir-format
 msgid "General"
@@ -7821,7 +7819,7 @@ msgstr "Vigane tühistamistehe"
 msgid "LIVE"
 msgstr "LIVE"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:164
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:166
 #: lib/phoenix_kit_web/live/users/live_sessions.ex:69
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:5
 #, elixir-autogen, elixir-format
@@ -9225,7 +9223,7 @@ msgstr "Teil pole lubatud muuta rolli %{role}"
 msgid "A browser is asking to sign in as you."
 msgstr "Brauser soovib teie kontoga sisse logida."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:64
+#: lib/phoenix_kit_web/live/approvals.html.heex:92
 #: lib/phoenix_kit_web/users/qr_login_confirm.ex:202
 #, elixir-autogen, elixir-format
 msgid "Approve"
@@ -9355,7 +9353,7 @@ msgstr "QR-koodiga sisselogimine ei ole saadaval."
 msgid "Request denied."
 msgstr "Taotlus lükati tagasi."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:29
+#: lib/phoenix_kit_web/live/approvals.html.heex:59
 #: lib/phoenix_kit_web/users/qr_login_confirm.ex:199
 #, elixir-autogen, elixir-format
 msgid "Requested"
@@ -12871,6 +12869,7 @@ msgid "Redirecting visitors to production"
 msgstr "Külastajad suunatakse tootmiskeskkonda"
 
 #: lib/modules/storage/web/bucket_page.html.heex:509
+#: lib/phoenix_kit_web/live/approvals.html.heex:230
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:236
 #: lib/phoenix_kit_web/live/settings/website_access.ex:404
 #: lib/phoenix_kit_web/live/users/media_storage.html.heex:508
@@ -12960,7 +12959,7 @@ msgstr "Sisestatud"
 msgid "Visitors asking for a public URL are sent to the same path on the production site. Logged-in users and admin paths are never redirected. Everyone, or only search-engine crawlers."
 msgstr "Avalikku URL-i küsivad külastajad saadetakse tootmissaidi samale teele. Sisselogitud kasutajaid ja administraatoriteid ei suunata kunagi ümber. Kõik või ainult otsingumootorite roomikud."
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:386
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:430
 #: lib/phoenix_kit_web/live/settings/website_access.ex:48
 #, elixir-autogen, elixir-format
 msgid "Website access"
@@ -13738,7 +13737,7 @@ msgstr "Bucketid"
 msgid "OG"
 msgstr "OG"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:404
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:448
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:365
 #: lib/phoenix_kit_web/live/settings/send_profile_form.ex:25
 #: lib/phoenix_kit_web/live/settings/send_profiles.ex:26
@@ -13746,7 +13745,7 @@ msgstr "OG"
 msgid "Emails Bulk"
 msgstr "Massmeilid"
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:395
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:439
 #: lib/phoenix_kit_web/live/settings/email_preview.ex:48
 #: lib/phoenix_kit_web/live/settings/email_sending.ex:66
 #, elixir-autogen, elixir-format
@@ -15199,7 +15198,7 @@ msgstr "Kogu ei leitud"
 #: lib/modules/storage/web/library_page.html.heex:9
 #: lib/modules/storage/web/settings.ex:124
 #: lib/modules/storage/web/settings.html.heex:439
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:241
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:258
 #: lib/phoenix_kit_web/live/users/libraries.ex:38
 #: lib/phoenix_kit_web/live/users/libraries.ex:110
 #: lib/phoenix_kit_web/live/users/libraries.ex:152
@@ -15841,7 +15840,6 @@ msgid "This resets the default dimensions and fixes missing bucket setup. Bucket
 msgstr "See lähtestab vaikimisi dimensioonid ja parandab puuduva bucketite seadistuse. Bucketid, redundantsus ja üleslaaditud failid jäävad alles. Kas jätkata?"
 
 #: lib/modules/storage/web/settings.html.heex:647
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:136
 #, elixir-autogen, elixir-format
 msgid "Tool"
 msgstr "Tööriist"
@@ -17059,9 +17057,9 @@ msgstr "Kestus"
 
 #: lib/modules/storage/web/bucket_page.html.heex:526
 #: lib/phoenix_kit_web/components/media_canvas_viewer.ex:838
+#: lib/phoenix_kit_web/live/approvals.ex:433
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:299
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:355
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:224
 #: lib/phoenix_kit_web/live/users/media_storage.ex:564
 #, elixir-autogen, elixir-format
 msgid "Failed"
@@ -17191,8 +17189,8 @@ msgstr "Jätkatud"
 msgid "Retry"
 msgstr "Proovi uuesti"
 
+#: lib/phoenix_kit_web/live/approvals.ex:437
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:294
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:228
 #, elixir-autogen, elixir-format
 msgid "Running"
 msgstr "Töös"
@@ -19877,16 +19875,6 @@ msgstr "iPhone’i või Pixeli foto sisaldab HDR-i gain mapi, mis laseb eredatel
 msgid "HDR photos"
 msgstr "HDR-fotod"
 
-#: lib/modules/storage/web/dimension_form.html.heex:257
-#, elixir-autogen, elixir-format
-msgid "HDR video poster"
-msgstr "HDR-video kaanepilt"
-
-#: lib/modules/storage/web/dimension_form.html.heex:270
-#, elixir-autogen, elixir-format
-msgid "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
-msgstr "HDR-video (iPhone'i HLG-salvestuse) jaoks kuvatav pilt tehakse HDR-fotona koos gain mapiga, nii et eredad alad hõõguvad HDR-ekraanil; teised ekraanid näitavad tavalist pilti. Ilma selleta on pilt tavaline. Kehtib videotele, mida töödeldakse edaspidi."
-
 #: lib/modules/storage/web/dimension_form.html.heex:261
 #, elixir-autogen, elixir-format
 msgid "Keep the HDR (gain map)"
@@ -19959,9 +19947,8 @@ msgstr "Lubatud aadressid (valikuline)"
 msgid "A new key is created with the same owner, scopes and limits. The old key keeps working for the grace period, then stops."
 msgstr "Luuakse uus võti sama omaniku, ulatuste ja piirangutega. Vana võti töötab üleminekuaja jooksul edasi ja lõpetab siis töö."
 
-#: lib/phoenix_kit/dashboard/admin_tabs.ex:432
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:476
 #: lib/phoenix_kit_web/live/settings/api.ex:84
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:49
 #, elixir-autogen, elixir-format
 msgid "API"
 msgstr "API"
@@ -20042,7 +20029,6 @@ msgid "I have stored the key"
 msgstr "Võti on salvestatud"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:655
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:25
 #, elixir-autogen, elixir-format
 msgid "Key: %{name}"
 msgstr "Võti: %{name}"
@@ -20177,9 +20163,9 @@ msgstr "Lülitid"
 msgid "Switches and keys for the shop API that outside programs and AI agents use."
 msgstr "Lülitid ja võtmed poe API jaoks, mida kasutavad välised programmid ja tehisintellekti agendid."
 
+#: lib/phoenix_kit_web/live/approvals.ex:118
 #: lib/phoenix_kit_web/live/settings/api.ex:322
 #: lib/phoenix_kit_web/live/settings/api.ex:353
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:103
 #, elixir-autogen, elixir-format
 msgid "That action is not available."
 msgstr "See toiming pole saadaval."
@@ -20265,10 +20251,10 @@ msgstr "kuni %{time}"
 msgid "What the key is for, for example Stock sync"
 msgstr "Milleks võti on, näiteks Laoseisu sünkroonimine"
 
+#: lib/phoenix_kit_web/live/approvals.ex:91
+#: lib/phoenix_kit_web/live/approvals.ex:113
 #: lib/phoenix_kit_web/live/settings/api.ex:338
 #: lib/phoenix_kit_web/live/settings/api.ex:537
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:76
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:98
 #, elixir-autogen, elixir-format
 msgid "You are not allowed to do that."
 msgstr "Teil pole selleks luba."
@@ -20303,10 +20289,10 @@ msgstr "Salvesta ulatused"
 msgid "The scopes were saved."
 msgstr "Ulatused salvestati."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:800
+#: lib/phoenix_kit_web/live/settings/api.html.heex:751
 #, elixir-autogen, elixir-format
-msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
-msgstr "Need ulatused on mitteaktiivsed, sest omanik ei saa neid enam kasutada või nende mooduli API on välja lülitatud. Need jäävad salvestamisel võtme külge alles."
+msgid "These scopes are inactive because the owner can no longer use them. They stay on the key when you save."
+msgstr "Need ulatused on mitteaktiivsed, sest omanik ei saa neid enam kasutada. Need jäävad salvestamisel võtme külge alles."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:325
 #, elixir-autogen, elixir-format
@@ -20430,13 +20416,12 @@ msgid "Without this option a key confirms its own operations with a code. That p
 msgstr "Ilma selle valikuta kinnitab võti oma toiminguid ise koodiga. See kaitseb eksimuste, mitte võtme valdaja eest."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:204
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:42
 #, elixir-autogen, elixir-format
 msgid "Pending approvals"
 msgstr "Ootel heakskiidud"
 
+#: lib/phoenix_kit_web/live/approvals.ex:60
 #: lib/phoenix_kit_web/live/settings/api.html.heex:207
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:45
 #, elixir-autogen, elixir-format
 msgid "Operations from keys that need a person's approval wait here. Nothing runs until you approve it."
 msgstr "Võtmete toimingud, mis vajavad inimese heakskiitu, ootavad siin. Midagi ei käivitata enne, kui te need heaks kiidate."
@@ -20491,97 +20476,97 @@ msgstr "Korduskaitse lukustusaeg sekundites"
 msgid "Save the settings"
 msgstr "Salvesta seaded"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:70
+#: lib/phoenix_kit_web/live/approvals.html.heex:116
 #, elixir-autogen, elixir-format
 msgid "What would change"
 msgstr "Mis muutuks"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:103
+#: lib/phoenix_kit_web/live/approvals.html.heex:182
 #, elixir-autogen, elixir-format
 msgid "The preview is cut: %{count} rows are not shown. Approving runs the whole operation, not only the rows shown."
 msgstr "Eelvaade on lühendatud: %{count} rida ei kuvata. Heakskiitmine käivitab kogu toimingu, mitte ainult kuvatud read."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:59
+#: lib/phoenix_kit_web/live/approvals.html.heex:87
 #, elixir-autogen, elixir-format
 msgid "Approve the whole operation? Only part of its preview is shown."
 msgstr "Kas kiita heaks kogu toiming? Eelvaatest kuvatakse ainult osa."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:117
+#: lib/phoenix_kit_web/live/approvals.html.heex:209
 #, elixir-autogen, elixir-format
 msgid "Nothing is waiting for approval."
 msgstr "Heakskiitu ootavaid toiminguid pole."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:118
+#: lib/phoenix_kit_web/live/approvals.html.heex:210
 #, elixir-autogen, elixir-format
 msgid "Operations that need your approval will show up here."
 msgstr "Toimingud, mis vajavad teie heakskiitu, ilmuvad siia."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:130
+#: lib/phoenix_kit_web/live/approvals.html.heex:222
 #, elixir-autogen, elixir-format
 msgid "Recently decided"
 msgstr "Hiljuti otsustatud"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.html.heex:139
+#: lib/phoenix_kit_web/live/approvals.html.heex:231
 #, elixir-autogen, elixir-format
 msgid "Decided"
 msgstr "Otsustatud"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:223
+#: lib/phoenix_kit_web/live/approvals.ex:432
 #, elixir-autogen, elixir-format
 msgid "Executed"
 msgstr "Täidetud"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:225
+#: lib/phoenix_kit_web/live/approvals.ex:434
 #, elixir-autogen, elixir-format
 msgid "Rejected"
 msgstr "Tagasi lükatud"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:226
+#: lib/phoenix_kit_web/live/approvals.ex:435
 #, elixir-autogen, elixir-format
 msgid "Stale"
 msgstr "Aegunud"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:91
+#: lib/phoenix_kit_web/live/approvals.ex:106
 #, elixir-autogen, elixir-format
 msgid "The approval was rejected."
 msgstr "Heakskiit lükati tagasi."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:158
+#: lib/phoenix_kit_web/live/approvals.ex:278
 #, elixir-autogen, elixir-format
 msgid "The approval was executed."
 msgstr "Heakskiit täideti."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:165
+#: lib/phoenix_kit_web/live/approvals.ex:285
 #, elixir-autogen, elixir-format
 msgid "The values changed since the request, so nothing was written. Ask the program to try again."
 msgstr "Väärtused muutusid pärast taotlust, seega ei kirjutatud midagi. Paluge programmil uuesti proovida."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:175
+#: lib/phoenix_kit_web/live/approvals.ex:295
 #, elixir-autogen, elixir-format
 msgid "The operation could not run: %{detail}"
 msgstr "Toimingut ei õnnestunud käivitada: %{detail}"
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:186
+#: lib/phoenix_kit_web/live/approvals.ex:305
 #, elixir-autogen, elixir-format
 msgid "That approval was not found."
 msgstr "Seda heakskiitu ei leitud."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:187
+#: lib/phoenix_kit_web/live/approvals.ex:306
 #, elixir-autogen, elixir-format
 msgid "You are not allowed to decide this approval."
 msgstr "Teil pole luba selle heakskiidu üle otsustada."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:188
+#: lib/phoenix_kit_web/live/approvals.ex:307
 #, elixir-autogen, elixir-format
 msgid "That approval is no longer waiting."
 msgstr "See heakskiit ei ole enam ootel."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:189
+#: lib/phoenix_kit_web/live/approvals.ex:308
 #, elixir-autogen, elixir-format
 msgid "That approval has expired."
 msgstr "See heakskiit on aegunud."
 
-#: lib/phoenix_kit_web/live/settings/api_approvals.ex:116
+#: lib/phoenix_kit_web/live/approvals.ex:137
 #, elixir-autogen, elixir-format
 msgid "The approval could not be processed."
 msgstr "Heakskiitu ei õnnestunud töödelda."
@@ -20595,6 +20580,222 @@ msgstr "Sügavsuum on lukus, kuni me selle tööd ümber teeme."
 #, elixir-autogen, elixir-format
 msgid "We are redoing how deep zoom works, so this switch is locked for now."
 msgstr "Teeme sügavsuumi tööd ümber, seega on see lüliti praegu lukus."
+
+#: lib/phoenix_kit/dashboard/admin_tabs.ex:218
+#: lib/phoenix_kit_web/live/approvals.ex:57
+#, elixir-autogen, elixir-format
+msgid "Approvals"
+msgstr "Heakskiidud"
+
+#: lib/phoenix_kit_web/live/approvals.ex:448
+#, elixir-autogen, elixir-format
+msgid "Done."
+msgstr "Valmis."
+
+#: lib/phoenix_kit_web/live/approvals.ex:449
+#, elixir-autogen, elixir-format
+msgid "Done: %{summary}"
+msgstr "Valmis: %{summary}"
+
+#: lib/phoenix_kit_web/live/approvals.ex:457
+#, elixir-autogen, elixir-format
+msgid "Not executed: the data changed since the request; nothing was written."
+msgstr "Ei täidetud: andmed on pärast taotlust muutunud; midagi ei kirjutatud."
+
+#: lib/phoenix_kit_web/live/approvals.ex:462
+#, elixir-autogen, elixir-format
+msgid "Failed: %{code}"
+msgstr "Ebaõnnestus: %{code}"
+
+#: lib/phoenix_kit_web/live/approvals.ex:466
+#, elixir-autogen, elixir-format
+msgid "Rejected: nothing was run."
+msgstr "Tagasi lükatud: midagi ei käivitatud."
+
+#: lib/phoenix_kit_web/live/approvals.ex:469
+#, elixir-autogen, elixir-format
+msgid "Expired: nobody decided in time, nothing was run."
+msgstr "Aegunud: keegi ei otsustanud õigel ajal, midagi ei käivitatud."
+
+#: lib/phoenix_kit_web/live/approvals.ex:471
+#, elixir-autogen, elixir-format
+msgid "Running."
+msgstr "Käivitamisel."
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:32
+#: lib/phoenix_kit_web/live/approvals.html.heex:252
+#, elixir-autogen, elixir-format
+msgid "Rows: %{count}"
+msgstr "Ridu: %{count}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:44
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key} (owner: %{owner})"
+msgstr "Taotleja: võti %{key} (omanik: %{owner})"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:49
+#, elixir-autogen, elixir-format
+msgid "Requested by key %{key}"
+msgstr "Taotleja: võti %{key}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:110
+#, elixir-autogen, elixir-format
+msgid "Decided by %{name}"
+msgstr "Otsustas %{name}"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:123
+#, elixir-autogen, elixir-format
+msgid "Summary: %{summary}."
+msgstr "Kokkuvõte: %{summary}."
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:141
+#, elixir-autogen, elixir-format
+msgid "Item"
+msgstr "Kirje"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:143
+#, elixir-autogen, elixir-format
+msgid "Was"
+msgstr "Enne"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:144
+#, elixir-autogen, elixir-format
+msgid "Becomes"
+msgstr "Pärast"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:145
+#, elixir-autogen, elixir-format
+msgid "Change, %"
+msgstr "Muutus, %"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:196
+#, elixir-autogen, elixir-format
+msgid "Technical details (JSON)"
+msgstr "Tehnilised üksikasjad (JSON)"
+
+#: lib/phoenix_kit_web/live/approvals.html.heex:228
+#, elixir-autogen, elixir-format
+msgid "Operation"
+msgstr "Toiming"
+
+#: lib/phoenix_kit_web/live/approvals.ex:426
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} d"
+msgstr "Aegub %{count} p pärast"
+
+#: lib/phoenix_kit_web/live/approvals.ex:425
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} h"
+msgstr "Aegub %{count} h pärast"
+
+#: lib/phoenix_kit_web/live/approvals.ex:424
+#, elixir-autogen, elixir-format
+msgid "Expires in %{count} min"
+msgstr "Aegub %{count} min pärast"
+
+#: lib/phoenix_kit_web/live/approvals.ex:423
+#, elixir-autogen, elixir-format
+msgid "Expires in less than a minute"
+msgstr "Aegub vähem kui minuti pärast"
+
+#: lib/phoenix_kit_web/live/approvals.ex:401
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "create"
+msgstr "luua"
+
+#: lib/phoenix_kit_web/live/approvals.ex:407
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "delete"
+msgstr "kustutada"
+
+#: lib/phoenix_kit_web/live/approvals.ex:416
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "error"
+msgstr "viga"
+
+#: lib/phoenix_kit_web/live/approvals.ex:410
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "remove"
+msgstr "eemaldada"
+
+#: lib/phoenix_kit_web/live/approvals.ex:413
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "skip"
+msgstr "vahele jätta"
+
+#: lib/phoenix_kit_web/live/approvals.ex:415
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "unchanged"
+msgstr "muutmata"
+
+#: lib/phoenix_kit_web/live/approvals.ex:404
+#, elixir-autogen, elixir-format
+msgctxt "approval row action"
+msgid "update"
+msgstr "uuendada"
+
+#: lib/phoenix_kit_web/live/approvals.ex:377
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "created"
+msgstr "loodud"
+
+#: lib/phoenix_kit_web/live/approvals.ex:383
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "deleted"
+msgstr "kustutatud"
+
+#: lib/phoenix_kit_web/live/approvals.ex:393
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "error"
+msgstr "vead"
+
+#: lib/phoenix_kit_web/live/approvals.ex:386
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "removed"
+msgstr "eemaldatud"
+
+#: lib/phoenix_kit_web/live/approvals.ex:391
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "skipped"
+msgstr "vahele jäetud"
+
+#: lib/phoenix_kit_web/live/approvals.ex:388
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "unchanged"
+msgstr "muutmata"
+
+#: lib/phoenix_kit_web/live/approvals.ex:380
+#, elixir-autogen, elixir-format
+msgctxt "approval summary"
+msgid "updated"
+msgstr "uuendatud"
+
+#: lib/modules/storage/web/dimension_form.html.heex:257
+#, elixir-autogen, elixir-format
+msgid "HDR video poster"
+msgstr "HDR-video kaanepilt"
+
+#: lib/modules/storage/web/dimension_form.html.heex:270
+#, elixir-autogen, elixir-format
+msgid "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
+msgstr "HDR-video (iPhone'i HLG-salvestuse) jaoks kuvatav pilt tehakse HDR-fotona koos gain mapiga, nii et eredad alad hõõguvad HDR-ekraanil; teised ekraanid näitavad tavalist pilti. Ilma selleta on pilt tavaline. Kehtib videotele, mida töödeldakse edaspidi."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:800
+#, elixir-autogen, elixir-format
+msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
+msgstr "Need ulatused on mitteaktiivsed, sest omanik ei saa neid enam kasutada või nende mooduli API on välja lülitatud. Need jäävad salvestamisel võtme külge alles."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:81
 #, elixir-autogen, elixir-format

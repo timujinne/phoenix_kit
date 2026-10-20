@@ -2482,6 +2482,7 @@ defmodule PhoenixKitWeb.Users.Auth do
     # place where "Admin" alone is not enough.
     PhoenixKitWeb.Live.Settings.Api => "api",
     PhoenixKitWeb.Live.Settings.ApiApprovals => "api",
+    PhoenixKitWeb.Live.Approvals => "api",
     PhoenixKitWeb.Live.Settings.ApiGuide => "api",
     # Personal per-user integrations moved to /profile/settings/integrations
     # (the :phoenix_kit_authenticated session, not this admin gate) — each

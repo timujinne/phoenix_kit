@@ -115,7 +115,7 @@ defmodule PhoenixKitWeb.Live.Settings.ApiFlowSettingsTest do
 
       assert has_element?(
                view,
-               ~s(#api-approvals-link[href="#{Routes.path("/admin/settings/api/approvals")}"])
+               ~s(#api-approvals-link[href="#{Routes.path("/admin/approvals")}"])
              )
 
       refute has_element?(view, "#api-approvals-count")
