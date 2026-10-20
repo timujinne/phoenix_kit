@@ -389,6 +389,13 @@ defmodule PhoenixKit.API.Approvals.ViewTest do
       assert View.delta_pct("5.00 EUR", "6.00 EUR") == nil
       assert View.delta_pct(%{"a" => 1}, 2) == nil
     end
+
+    test "nil for a number in exponent notation: its power of ten is never computed" do
+      assert View.delta_pct("1e999999999", "1") == nil
+      assert View.delta_pct("1", "1E999999999") == nil
+      assert View.delta_pct("1e2", "1e3") == nil
+      assert View.delta_pct(String.duplicate("9", 31), "1") == nil
+    end
   end
 
   describe "facts/1 of a result" do

@@ -1,6 +1,6 @@
-# Shop API (admin and public)
+# Machine API (admin and public)
 
-The shared core of the shop API: a registry of tools that modules declare, API keys that belong to users, one request pipeline, a REST transport, and the Settings -> API page. Modules (catalogue, e-commerce, warehouse) add the actual tools; core adds `system.get_identity` and everything around it.
+The shared core of the machine API: a registry of tools that modules declare, API keys that belong to users, one request pipeline, a REST transport, and the Settings -> API page. Modules (catalogue, warehouse, e-commerce and so on) add the actual tools; core adds `system.get_identity` and everything around it. Core knows no module: the API is split by audience (`/api/admin/v1`, `/api/public/v1`), and the tools a module declares carry its own namespace.
 
 This guide describes what exists in core: REST, MCP and the generated OpenAPI documents. The dangerous-operation flow (previews, confirmation codes, approvals, idempotency) is described in the last section.
 
@@ -13,12 +13,14 @@ This guide describes what exists in core: REST, MCP and the generated OpenAPI do
 | Keys | `PhoenixKit.API.Keys` | Create, verify, revoke, rotate; effective scopes; 60 s row cache |
 | Service users | `PhoenixKit.API.ServiceUsers` | Accounts for programs (`api_only`), roles limited to the creator's own |
 | Config | `PhoenixKit.API.Config` | Switches, limits, lists, all from Settings, failing closed |
-| Rate limits | `PhoenixKit.API.RateLimit` | Hammer buckets: pre-auth failures per IP, per key, public per cart token and per IP |
+| Rate limits | `PhoenixKit.API.RateLimit` | Hammer buckets: pre-auth failures per IP, per key, public per client token and per IP, and the shared new-rows quota |
 | Validator | `PhoenixKit.API.Validator` | The JSON Schema subset the tools use |
 | Auth, Executor, REST | `PhoenixKit.API.Auth`, `.Executor`, `.REST` | The request flow, `forward`ed by `phoenix_kit_routes/0` |
-| MCP | `PhoenixKit.API.MCP` | The Model Context Protocol transport: `/mcp/admin`, `/mcp/shop` |
+| MCP | `PhoenixKit.API.MCP` | The Model Context Protocol transport: `/mcp/admin`, `/mcp/public` |
 | OpenAPI | `PhoenixKit.API.OpenAPI` | The generated OpenAPI 3.1 documents |
 | Public discovery | `PhoenixKit.API.PublicDiscovery` | The public guide `GET /mcp`, `/.well-known/api-catalog`, `Link` headers, the `/llms.txt` section |
+| Paths | `PhoenixKit.API.Paths` | The one table of API paths; the router and the body guard both read it |
+| Legacy | `PhoenixKit.API.Legacy` | Every deprecated name (paths, settings keys, error codes), deleted in 3.0.0; see "Deprecated aliases" |
 | Body guard | `PhoenixKit.API.BodyGuard` | Endpoint plug before `Plug.Parsers`: 2 MB limit, JSON errors as problem+json (JSON-RPC parse errors on `/mcp/*`) |
 | Admin page | `PhoenixKitWeb.Live.Settings.Api` | Switches, keys, service users, limits and advanced (route `/admin/settings/api`) |
 | Admin guide | `PhoenixKitWeb.Live.Settings.ApiGuide` | Read-only "how to connect" page generated from the registry: endpoints, client snippets, tools by module, errors (route `/admin/settings/api/guide`, permission `api`) |
@@ -30,11 +32,11 @@ Both sides are **off by default** and fail closed: a Settings read error counts 
 | Setting | Default | Side |
 |---|---|---|
 | `api_admin_enabled` | `false` | `/api/admin/v1/*` |
-| `api_public_enabled` | `false` | `/api/shop/v1/*` |
+| `api_public_enabled` | `false` | `/api/public/v1/*` |
 
 While a side is off, every path of it answers `404` after one cached settings read. Flip them on Settings -> API (permission `api`); the change lands in the Settings history with the admin as actor.
 
-Limits and lists are settings too (`api_admin_rate_per_min`, `api_admin_preauth_fail_per_min`, `api_public_cart_rate_per_min`, `api_public_ip_rate_per_min`, `api_public_cart_rows_per_ip_hour`, `api_public_cart_rows_global_hour`, `api_disabled_tools`, `api_mcp_allowed_origins`). Lists are stored as newline-separated strings (`PhoenixKit.API.Config.parse_list/1` and `encode_list/1`). They are edited in the "Limits and advanced" card of Settings -> API: the whole form is validated first, one invalid field saves nothing, and every changed value is a permanent `setting.changed` entry in the Activity log with the admin as actor.
+Limits and lists are settings too (`api_admin_rate_per_min`, `api_admin_preauth_fail_per_min`, `api_public_token_rate_per_min`, `api_public_ip_rate_per_min`, `api_public_new_rows_per_ip_hour`, `api_public_new_rows_global_hour`, `api_disabled_tools`, `api_mcp_allowed_origins`). Lists are stored as newline-separated strings (`PhoenixKit.API.Config.parse_list/1` and `encode_list/1`). They are edited in the "Limits and advanced" card of Settings -> API: the whole form is validated first, one invalid field saves nothing, and every changed value is a permanent `setting.changed` entry in the Activity log with the admin as actor.
 
 ### Switching a module's API off
 
@@ -42,7 +44,7 @@ Limits and lists are settings too (`api_admin_rate_per_min`, `api_admin_preauth_
 
 Each module that declares tools (`PhoenixKit.ModuleRegistry.api_modules/0`) has a switch in the "Modules" card of Settings -> API (event `set_module_api`, checked on the server like every other event of the page). The event reads the stored list from the database under a row lock (`PhoenixKit.Settings.modify_setting_with_module/4`), not from the cache, so two admins, or a node with a stale cache, cannot undo each other's change. The change is a `setting.changed` entry in the Activity log with the admin as actor.
 
-On the Modules page every such module carries a badge that links to the card: "API off" when its switch is off, "API idle" when its switch is on but nothing can call it now (the module is disabled, or every audience its tools serve, admin or public, is switched off in the two switches at the top of the page), and "API on" when it can be called. The badge looks at the switches and the module only: while the website password gate is on, the public side also answers `404` to every client that is not on the gate's allow-list, and the badge does not show that.
+On the Modules page every such module that has a card carries a badge that links to the "Modules" card of Settings -> API: "API off" when its switch is off, "API idle" when its switch is on but nothing can call it now (the module is disabled, or every audience its tools serve, admin or public, is switched off in the two switches at the top of the page), and "API on" when it can be called. The badge looks at the switches and the module only: while the website password gate is on, the public side also answers `404` to every client that is not on the gate's allow-list, and the badge does not show that.
 
 ## Who may manage keys
 
@@ -68,7 +70,7 @@ A service user is a `phoenix_kit_users` row with `api_only: true`, an address `a
 
 ## Calling the API
 
-The request body is always read as JSON, whatever its `Content-Type` says (`BodyGuard`). Send the key only in the `Authorization` header. A key in a URL is refused with `400 token_in_url`, as is any query parameter named `api_key`, `apikey`, `api-key`, `authorization`, `bearer`, `access_token`, `token`, `cart_token` or `confirm_token` (any case), or any value starting with `pk_` (`PhoenixKit.API.Auth.token_in_url?/1`).
+The request body is always read as JSON, whatever its `Content-Type` says (`BodyGuard`). Send the key only in the `Authorization` header. A key in a URL is refused with `400 token_in_url`, as is any query parameter named `api_key`, `apikey`, `api-key`, `authorization`, `bearer`, `access_token`, `token`, `secret` or `confirm_token`, or any name that ends in `_token` such as `session_token` (any case), or any value starting with `pk_` (`PhoenixKit.API.Auth.token_in_url?/1`; the rule is `Auth.credential_name?/1`, shared with the redaction of stored answers).
 
 ```bash
 # who am I, and what may I do
@@ -86,8 +88,8 @@ Errors are `application/problem+json` with a stable `code`:
 
 ```json
 {"type": "https://phoenixkit.dev/api/errors/forbidden", "title": "Forbidden", "status": 403,
- "code": "forbidden", "detail": "This key lacks ecommerce.prices:write.",
- "context": {"required_scope": "ecommerce.prices:write"}, "request_id": "..."}
+ "code": "forbidden", "detail": "This key lacks catalogue.categories:write.",
+ "context": {"required_scope": "catalogue.categories:write"}, "request_id": "..."}
 ```
 
 | code | HTTP | When |
@@ -101,13 +103,17 @@ Errors are `application/problem+json` with a stable `code`:
 | `validation_failed` | 422 | input does not match the tool's schema; `context.errors` lists paths |
 | `rate_limited` | 429 | with `Retry-After`; successful calls carry `RateLimit-*` headers |
 
-The full list of codes and statuses is `PhoenixKit.API.Problem.statuses/0`. `detail` is always English; the codes are the contract.
+The full list of codes and statuses is `PhoenixKit.API.Problem.statuses/0`: core's own codes plus the ones enabled modules declare (see "Error codes of a module"). `detail` is always English; the codes are the contract.
 
 ### Rate limits
 
 Hammer's ETS backend is per node. Failed authentications are counted per client IP; when that bucket is full only requests that fail authentication get `429`, so a valid key from the same address still passes. The client IP is the last `X-Forwarded-For` hop only when the direct peer is a loopback or private address; behind a proxy on a public address every client shares the proxy's IP. A private peer address alone does not establish trust: the proxy must overwrite `X-Forwarded-For` or append the actual client address on every request, and the application port must be reachable only through that proxy. A Docker-published port reachable directly, or nginx forwarding a client-supplied XFF while setting only `X-Real-IP`, lets the client forge the address used for `allowed_ips` and rotate failed-authentication buckets. Set `config :phoenix_kit, :trusted_proxies` to the proxy's CIDR block(s) to believe those headers only from it, public address included (see `guides/integration.md`). Strip incoming forwarding headers at the trusted edge; `X-Real-IP` is only a fallback when the final XFF entry is absent or invalid.
 
 A write tool costs more than one unit when it takes a long list: `max(1, ceil(rows / 50))`, with the rows counted up to the tool's `max_items` (up to 1000 when it declares none), so a refused oversized batch is charged as a full one.
+
+The public audience has two buckets per call: one per client token (when the tool declares one, see "Client token of a public tool") and one per client network. The call pays 1 unit of the network bucket **before** the tool is looked up (so a flood of unknown names ends in `429` without a registry walk), and after the lookup its full `cost` to the token bucket and `cost - 1` to the network bucket. A call that the token bucket refuses has therefore already spent 1 unit of the network bucket.
+
+A module that creates rows for a caller without a key charges a shared quota: `PhoenixKit.API.RateLimit.check_new_rows/1` (`:ok` or `{:error, retry_after_seconds}`) counts a new row against `api_public_new_rows_per_ip_hour` (per client network) and `api_public_new_rows_global_hour` (all clients). The module calls it when it creates the row; core never does. The quota is one for every module, not one per module.
 
 A call that is refused before the limiter (an unknown, hidden, forbidden or disabled-module admin tool) costs one unit, over REST and MCP alike, and answers the same refusal (`404` or `403`), or `429` once the key's budget is spent; it writes no audit entry. A key therefore cannot loop on invented tool names for free.
 
@@ -133,15 +139,102 @@ def api_tools do
 end
 ```
 
-The handler returns `{:ok, map}`, `{:ok, map, effects}` or `{:error, code, message, context}` (`code` from `PhoenixKit.API.Problem.statuses/0`). Core does validation, permission checks, rate limits and the request log; the module logs its own domain changes with the key's owner as actor.
+The handler returns `{:ok, map}`, `{:ok, map, effects}` or `{:error, code, message, context}` (`code` from `PhoenixKit.API.Problem.statuses/0` or declared by the module, see "Error codes of a module"). Core does validation, permission checks, rate limits and the request log; the module logs its own domain changes with the key's owner as actor.
 
-Rules that the registry enforces: tool names match `<namespace>.<verb>_<noun>`; a scope has exactly one `permission`; public tools have neither; a scope of a disabled module stays on the key but grants nothing. The input names `dry_run`, `confirm_token` and `idempotency_key` are reserved for the executor and rejected in a tool's schema. A public tool declares `language` and `currency` itself.
+Rules that the registry enforces: tool names match `<namespace>.<verb>_<noun>`; a scope has exactly one `permission`; public tools have neither; a scope of a disabled module stays on the key but grants nothing. The input names `dry_run`, `confirm_token` and `idempotency_key` are reserved for the executor and rejected in a tool's schema. A public tool declares `language` and `currency` itself, and, when it needs to tell its anonymous callers apart, `client_token` (below).
 
-When a handler fails, the executor logs the exception module always, the exception message only for the two kinds whose message is fixed text (`ArithmeticError`, `FunctionClauseError`), and a stacktrace with argument lists replaced by their length. All other messages can embed the failing input and never reach the log: `KeyError`, `MatchError` and Ecto errors print their arguments, and the standard library raises `ArgumentError`, `RuntimeError` and `UndefinedFunctionError` with the value it failed on (`Date.from_iso8601!/1`, `Module.concat/1`), so a cart token or personal data would reach the log. Code that logs a request-derived term follows the same rule. Processes a handler spawns log their own crashes, so never put request data in their messages. The text kept for those two kinds is the text of the exception class, not of the instance, and an atom is logged as "an atom" (except `nil`, booleans, `:ok` and `:error`), since one can be made from input.
+When a handler fails, the executor logs the exception module always, the exception message only for the two kinds whose message is fixed text (`ArithmeticError`, `FunctionClauseError`), and a stacktrace with argument lists replaced by their length. All other messages can embed the failing input and never reach the log: `KeyError`, `MatchError` and Ecto errors print their arguments, and the standard library raises `ArgumentError`, `RuntimeError` and `UndefinedFunctionError` with the value it failed on (`Date.from_iso8601!/1`, `Module.concat/1`), so a client token or personal data would reach the log. Code that logs a request-derived term follows the same rule. Processes a handler spawns log their own crashes, so never put request data in their messages. The text kept for those two kinds is the text of the exception class, not of the instance, and an atom is logged as "an atom" (except `nil`, booleans, `:ok` and `:error`), since one can be made from input.
 
-A tool that hands out a public page URL (a published post, a product card) builds it with `PhoenixKit.Utils.Routes.canonical_absolute/2` (a path that is already built; `canonical_absolute_or_nil/2` answers `nil` instead of the site base when the language has no host, in the same single resolver call, for a presenter with a base of its own) or `canonical_url/2` (a canonical path; it uses the language's base code as the segment, so a dialect served under its own `/en-gb` segment goes through `canonical_absolute/2` with a built path), passing the language of the page as stored (a dialect code such as `en-GB` included). A multi-domain host serves each language from its own host through `config :phoenix_kit, :canonical_host_resolver, {mod, fun}`; these helpers ask it with that code (safely, `canonical_host/1`; it maps dialects itself and answers `nil` for one without a domain) and, on the host found, leave out the language segment when it is the language's base code (`/de`, `/en`; a dialect segment such as `/en-gb` stays, on the dialect's own host too), and fall back to the site's base URL with the segment otherwise. The scheme is that of the explicit `site_url` setting (`http` or `https`), and `https` when it is unset. The resolver is called once per URL: keep it cheap. Do not prefix the request's `Host` header or `site_url` yourself, and do not call the resolver yourself, nor probe with `canonical_origin/1` before these helpers.
+A tool that hands out a public page URL (a published post, a catalogue page) builds it with `PhoenixKit.Utils.Routes.canonical_absolute/2` (a path that is already built; `canonical_absolute_or_nil/2` answers `nil` instead of the site base when the language has no host, in the same single resolver call, for a presenter with a base of its own) or `canonical_url/2` (a canonical path; it uses the language's base code as the segment, so a dialect served under its own `/en-gb` segment goes through `canonical_absolute/2` with a built path), passing the language of the page as stored (a dialect code such as `en-GB` included). A multi-domain host serves each language from its own host through `config :phoenix_kit, :canonical_host_resolver, {mod, fun}`; these helpers ask it with that code (safely, `canonical_host/1`; it maps dialects itself and answers `nil` for one without a domain) and, on the host found, leave out the language segment when it is the language's base code (`/de`, `/en`; a dialect segment such as `/en-gb` stays, on the dialect's own host too), and fall back to the site's base URL with the segment otherwise. The scheme is that of the explicit `site_url` setting (`http` or `https`), and `https` when it is unset. The resolver is called once per URL: keep it cheap. Do not prefix the request's `Host` header or `site_url` yourself, and do not call the resolver yourself, nor probe with `canonical_origin/1` before these helpers.
+
+### Client token of a public tool
+
+A public tool has no key, so it has no caller identity. A tool that needs one (to rate-limit a caller, to scope an `idempotency_key`, to bind a confirmation code) names the input field that carries its anonymous client's token:
+
+```elixir
+PhoenixKit.API.Tool.new!(
+  name: "booking.hold_slot",
+  audience: :public,
+  client_token: "session_token",   # a string property of input_schema
+  ...
+)
+```
+
+After the tool is looked up, the executor hashes the value (sha256, url-safe base64; the clear value goes to the handler and is never kept) into `PhoenixKit.API.Actor.client_token_hash` and uses the hash as the caller's identity: the per-token rate-limit bucket (`api_public_token_rate_per_min`), the scope of the `idempotency_key`, and the binding of a confirmation code. A public tool with a `danger:` must declare `client_token` and list the field in `required`; a call that reaches the confirmation flow without a token is `422 validation_failed` ("A client token is required for this operation.", `path` the declared field). An admin tool may not declare one. `ToolLint` checks all of this. Name the field `*_token`: the field is a credential like a key (see below), and core recognises a name as a credential only when it is on the list or ends in `_token`.
+
+The field is newer than core 2.63.x, where `Tool.new/1` answers `unknown field(s)`. A module that must also run there sets it only when `Map.has_key?(PhoenixKit.API.Tool.__struct__(), :client_token)`. Until 3.0.0 core reads the field `cart_token` of a public tool that declares none (see "Deprecated aliases").
+
+### Credentials in answers
+
+A field in an answer that carries a secret must be recognizable, or the answer is stored for replay and shown in an approval. The rule of core (`PhoenixKit.API.Auth.credential_name?/1`) is: a name on the list (`confirm_token api_key apikey api-key authorization bearer access_token token secret`) or any name that ends in `_token`, in any case, plus a string value that starts with `pk_`. A secret that is not named `*_token` (a link with a claim code in it, say) is declared in `Tool.credentials`, a list of **output** field names:
+
+```elixir
+credentials: ["url"]   # `url` carries the secret; the answer is never stored for replay
+```
+
+The tool's `client_token` counts as a credential without being listed. `credentials:` is newer than core 2.63.x (feature-detect it like `client_token`).
+
+### Error codes of a module
+
+Core's error codes are a closed table. A module adds its own with the optional callback `api_problems/0`, which returns `%{code_atom => %{status: 400..599, title: String.t(), advice: String.t() | nil}}`:
+
+```elixir
+@impl PhoenixKit.Module
+def api_problems do
+  %{slot_taken: %{status: 409, title: "Slot taken", advice: "Pick another slot and try again."}}
+end
+```
+
+Enabled modules are asked only when an error is answered. `Problem.status/1`, the problem `title` and the MCP advice (`[code] message - advice`) read the declarations. A declaration cannot replace a code of core (it is dropped with a warning, like an invalid entry or a code another module declared first). The `code`, `status` and `title` are a contract with clients: change them like an API. A code that nothing declares answers `500` and is logged. A module that must also compile against an older core defines `api_problems/0` without `@impl`.
 
 Module cron jobs are declared with the optional `oban_crons/0` callback (one `{cron, worker_module}` per worker); `mix phoenix_kit.update` writes them into the host's Oban config.
+
+### Tools of the host application
+
+A host application declares tools for its own code the same way: one module in the host with `use PhoenixKit.Module` and `api_tools/0`. Discovery scans every application whose `.app` lists `:phoenix_kit`, the host included, so a module that only declares tools needs no config line (`config :phoenix_kit, modules: [...]` matters for a host module with routes or tabs, which the router must see on a cold build). A running node picks the module up after a restart or `PhoenixKit.ModuleRegistry.rescan/0`.
+
+```elixir
+defmodule MyApp.API.Tools do
+  use PhoenixKit.Module
+
+  @impl PhoenixKit.Module
+  def module_key, do: "orders_api"     # the key in api_disabled_modules
+
+  @impl PhoenixKit.Module
+  def module_name, do: "Orders"        # its row in Settings -> API, its tool group in the guide
+
+  # Always on; its API can still be switched off in the "Modules" card of Settings -> API.
+  @impl PhoenixKit.Module
+  def enabled?, do: true
+
+  @impl PhoenixKit.Module
+  def enable_system, do: {:error, :always_on}
+
+  @impl PhoenixKit.Module
+  def disable_system, do: {:error, :always_on}
+
+  @impl PhoenixKit.Module
+  def api_tools do
+    [
+      PhoenixKit.API.Tool.new!(
+        name: "orders.list_orders",
+        # ...the other required fields (audience, scope, permission, ...) as in "Declaring tools" above
+        handler: handler("Orders", :list_orders)
+      )
+    ]
+  end
+
+  # Built at run time: a literal {MyApp.API.Tools.Orders, :list_orders} would tie the
+  # router to the handler and to everything the handler calls.
+  defp handler(name, fun), do: {Module.concat(__MODULE__, name), fun}
+end
+```
+
+- `module_name/0` is what admins read: name it after what the tools do.
+- Without `permission_metadata/0` the module has no card on the Modules page and no permission key of its own. A tool uses a key the host already has, or one it registers at start with `PhoenixKit.Users.Permissions.register_custom_key/2`; pass `auto_grant_admin: false` unless every Admin should get it.
+- A handler reads and writes only what `ctx.scope` may reach, and answers nothing without one.
+- The router depends at compile time on this module and on every module it names, so a change in any of them recompiles the router: keep the module to declarations and name handlers as above.
+- REST and MCP serve the admin tools to keys that hold their scopes; an in-app assistant acting for a signed-in person (`PhoenixKit.API.Executor.visible_for/3`) gets the read tools that person may call. Check the tools with the lint below.
 
 ## Installing and upgrading a host
 
@@ -151,7 +244,7 @@ Module cron jobs are declared with the optional `oban_crons/0` callback (one `{c
 4. The Admin role does not get `api`. An Owner grants it when wanted.
 5. If the host endpoint is not laid out in the conventional way, `mix phoenix_kit.update` prints a warning instead of patching it: add `plug PhoenixKit.API.BodyGuard` immediately before `plug Plug.Parsers` by hand.
 6. Configure a trusted proxy to overwrite or append the real client address in `X-Forwarded-For` and prevent direct access to the application port (see Rate limits). Set `config :phoenix_kit, :trusted_proxies` to the proxy's address (`guides/integration.md`); a private peer alone is insufficient; a public proxy address without host-side real-IP handling makes clients share its address and rate-limit buckets.
-7. `phoenix_kit_routes()` claims four paths in every host router: `/api/admin/v1`, `/api/shop/v1`, `/mcp/admin` and `/mcp/shop` (under the PhoenixKit `url_prefix` when it is not `/`), and, beside `/llms.txt`, `GET /mcp` (the public guide, under the prefix and at the site root) and `/.well-known/api-catalog` (site root only). While the API is off they answer `404`, and a host that already serves something at one of them after `phoenix_kit_routes()` is shadowed by them. Check the host router before you upgrade.
+7. `phoenix_kit_routes()` claims four paths in every host router: `/api/admin/v1`, `/api/public/v1`, `/mcp/admin` and `/mcp/public` (under the PhoenixKit `url_prefix` when it is not `/`), and, until 3.0.0, the two deprecated aliases `/api/shop/v1` and `/mcp/shop`, and, beside `/llms.txt`, `GET /mcp` (the public guide, under the prefix and at the site root) and `/.well-known/api-catalog` (site root only). While the API is off they answer `404`, and a host that already serves something at one of them after `phoenix_kit_routes()` is shadowed by them. Check the host router before you upgrade.
 
 ## MCP
 
@@ -160,19 +253,19 @@ Two endpoints speak the Model Context Protocol (Streamable HTTP, tools only) ove
 | Endpoint | Audience | Auth | Switch |
 |---|---|---|---|
 | `POST /mcp/admin` | admin tools | `Authorization: Bearer pk_...` | `api_admin_enabled` |
-| `POST /mcp/shop` | public tools | none | `api_public_enabled` |
+| `POST /mcp/public` | public tools | none | `api_public_enabled` |
 
-Under a non-root `url_prefix` they live under it, like everything else. While a switch is off its endpoint answers `404`; while the website password gate is on, `/mcp/shop` answers `404` too.
+Under a non-root `url_prefix` they live under it, like everything else. While a switch is off its endpoint answers `404`; while the website password gate is on, `/mcp/public` answers `404` too.
 
 What a client gets:
 
 - `initialize` negotiates the protocol revision (`2025-11-25`, `2025-06-18` or `2025-03-26`, see [Protocol revisions](#protocol-revisions); no `MCP-Protocol-Version` header means `2025-03-26`) and announces the `tools` capability. `ping`, `tools/list` and `tools/call` work; `notifications/*` are answered `202` with no body and run nothing. Batches are not supported. Revision `2026-07-28` (the handshake-less protocol) is not spoken: a client that speaks only that revision is not served, and an unsupported `MCP-Protocol-Version` is always the `400` with JSON-RPC code `-32600`, never a code of that revision.
 - There is no session and no event stream: every request carries its own key, `GET` and `DELETE` are `405`, answers are always JSON. The `Accept` header must allow `application/json` (a missing one is fine).
-- Tool names use `_` for `.` (`ecommerce_set_prices`); `tools/call` accepts both forms.
+- Tool names use `_` for `.` (`catalogue_list_categories`); `tools/call` accepts both forms.
 - A tool that fails comes back as a result with `isError: true` (HTTP 200): the first text item is `[code] message - what to do next`, the second the full problem document as JSON. Only a rate limit is an HTTP `429` with `Retry-After`, and an unknown tool name (also one hidden by `api_disabled_tools`, or of the other audience) is the JSON-RPC error `-32602` `Unknown tool: <name>` with HTTP `200`, as the MCP specification prescribes for every revision this server speaks; a client that treated that case as an `isError` result must now read the `error` member. Everything that happens before a tool runs is an HTTP status: `404` switch off, `400` credential in the URL, `401`/`403` key, `403` foreign `Origin`, `405`, `406`, `400` bad body.
 - From revision `2025-06-18` a successful result also carries `structuredContent`, and each tool has `title` and `outputSchema`. A write tool's `outputSchema` allows either the success shape or a preview (`executed: false`); it is written with `anyOf`.
 - The control fields of a write tool (`dry_run`, `confirm_token`, `idempotency_key`; see the last section) are ordinary arguments of `tools/call`: `tools/list` lists them in `inputSchema`, and an MCP client cannot set a header for a single call, so the key goes in the arguments. A preview, a request for a confirmation code (`status: confirmation_required`) and a queued approval (`status: pending_approval`) are normal results with `isError: false` and the answer in `structuredContent`; only a refused code, a reused key and the other failures are `isError`. Every answer with `executed: false` means the operation did **not** run: an agent must follow it up (repeat the call without `dry_run`, repeat it with the `confirm_token`, or poll `system.get_approval`), and the `outputSchema` of a write tool says so. Over MCP the key is the `idempotency_key` argument only: an `Idempotency-Key` header on the transport request is ignored.
-- `initialize`, `ping`, notifications and unknown methods cost one rate-limit unit each; `tools/list` costs one; `tools/call` costs what the tool costs over REST (a tool may declare its own price with `cost:`, see below), and a call to an unknown, hidden or forbidden admin tool, refused before the limiter, costs one unit. The public endpoint charges one unit before it resolves the name or looks the tool up, so a flood of unknown names ends in 429 without a registry walk. Over MCP a name with an underscore (`ecommerce_set_prices`) is mapped back to its dotted name after that charge, so an admin call over MCP does a little more registry work than the same call over REST.
+- `initialize`, `ping`, notifications and unknown methods cost one rate-limit unit each; `tools/list` costs one; `tools/call` costs what the tool costs over REST (a tool may declare its own price with `cost:`, see below), and a call to an unknown, hidden or forbidden admin tool, refused before the limiter, costs one unit. The public endpoint charges one unit of the network bucket before it resolves the name or looks the tool up, so a flood of unknown names ends in 429 without a registry walk. Over MCP a name with an underscore (`catalogue_list_categories`) is mapped back to its dotted name after that charge, so an admin call over MCP does a little more registry work than the same call over REST.
 
 ### Protocol revisions
 
@@ -198,13 +291,13 @@ A request without an `Origin` header (every client that is not a browser) passes
 
 ### Connecting a client
 
-An MCP client that lets you set a request header for a remote server takes the key as `Authorization: Bearer <key>` and the endpoint URL `https://<host>/mcp/admin` (or `/mcp/shop` without a key). Settings -> API -> Guide (`/admin/settings/api/guide`) shows the ready-made lines for this site, with the placeholder `<your key>`:
+An MCP client that lets you set a request header for a remote server takes the key as `Authorization: Bearer <key>` and the endpoint URL `https://<host>/mcp/admin` (or `/mcp/public` without a key). Settings -> API -> Guide (`/admin/settings/api/guide`) shows the ready-made lines for this site, with the placeholder `<your key>`:
 
 ```sh
 claude mcp add --transport http <name>-admin 'https://<host>/mcp/admin' --header 'Authorization: Bearer <your key>'
 ```
 
-`--header` takes any number of values, so it comes after the URL. The line uses Claude Code's default `local` scope, which keeps the key out of the shared project file. Cursor takes `{"mcpServers": {"<name>-admin": {"url": "...", "headers": {"Authorization": "Bearer <your key>"}}}}` in `~/.cursor/mcp.json` (the user file), VS Code a `servers` entry in `.vscode/mcp.json` whose header is `Bearer ${input:<name>-admin-key}` with an `inputs` prompt of `"password": true`, so the key is asked for and not written down. `<name>` is the slug of the project title; `-admin` keeps it apart from the shop server of the same site. Claude's desktop and web connectors cannot send a fixed Bearer header and are not covered. For the public server the site publishes the commands itself: see [Public discovery](#public-discovery) (`GET /mcp`).
+`--header` takes any number of values, so it comes after the URL. The line uses Claude Code's default `local` scope, which keeps the key out of the shared project file. Cursor takes `{"mcpServers": {"<name>-admin": {"url": "...", "headers": {"Authorization": "Bearer <your key>"}}}}` in `~/.cursor/mcp.json` (the user file), VS Code a `servers` entry in `.vscode/mcp.json` whose header is `Bearer ${input:<name>-admin-key}` with an `inputs` prompt of `"password": true`, so the key is asked for and not written down. `<name>` is the slug of the project title; `-admin` keeps it apart from the public server of the same site. Claude's desktop and web connectors cannot send a fixed Bearer header and are not covered. For the public server the site publishes the commands itself: see [Public discovery](#public-discovery) (`GET /mcp`).
 
 Clients that support only OAuth for remote servers are not supported yet. Put the key in the client's secret store, never in the URL: a URL with `?token=...` is refused.
 
@@ -212,7 +305,7 @@ If a CDN or WAF in front of the site challenges bots, exempt `/api` and `/mcp`: 
 
 ## OpenAPI
 
-`GET /api/admin/v1/openapi.json` (needs a key) and `GET /api/shop/v1/openapi.json` (public, CORS `*`) return an OpenAPI 3.1 document built from the registry: one `POST /<tool>` per tool, `operationId` is the dotted tool name, tags are the namespaces, the request body schema is the schema the validator enforces, the `200` schema is the one MCP calls `outputSchema`, errors are the `application/problem+json` document defined once. Each operation has `x-agent-safety` (`read`, `write` or `destructive`), `x-idempotent` and, for admin tools, `x-required-scope`. A write operation also lists the optional `Idempotency-Key` header parameter, the `Idempotent-Replayed` response header and a `409` response (`confirm_token_invalid`, `idempotency_key_reused`, `idempotency_in_progress`); a tool with `replay: false` lists neither the parameter nor the header, and the `409` only when the tool can be dangerous (it has a `danger:`, or it is an admin tool). The admin document lists only the tools the key's effective scopes unlock; a module that is switched off is absent. It costs one rate-limit unit.
+`GET /api/admin/v1/openapi.json` (needs a key) and `GET /api/public/v1/openapi.json` (public, CORS `*`) return an OpenAPI 3.1 document built from the registry: one `POST /<tool>` per tool, `operationId` is the dotted tool name, tags are the namespaces, the request body schema is the schema the validator enforces, the `200` schema is the one MCP calls `outputSchema`, errors are the `application/problem+json` document defined once. Each operation has `x-agent-safety` (`read`, `write` or `destructive`), `x-idempotent` and, for admin tools, `x-required-scope`. A write operation also lists the optional `Idempotency-Key` header parameter, the `Idempotent-Replayed` response header and a `409` response (`confirm_token_invalid`, `idempotency_key_reused`, `idempotency_in_progress`); a tool with `replay: false` lists neither the parameter nor the header, and the `409` only when the tool can be dangerous (it has a `danger:`, or it is an admin tool). The admin document lists only the tools the key's effective scopes unlock; a module that is switched off is absent. It costs one rate-limit unit.
 
 ## Public discovery
 
@@ -220,10 +313,10 @@ Four things tell a person or an agent how to connect, without a key. All are gen
 
 | What | Where |
 |---|---|
-| The guide | `GET /mcp` at the site root and under the kit `url_prefix`: HTML by default, Markdown with `?format=md` or an `Accept` that prefers `text/markdown`. Every other method is a `405` that names `/mcp/shop`; an `Accept` of `text/event-stream` alone (an MCP client given the guide URL) is a `406` that does the same |
+| The guide | `GET /mcp` at the site root and under the kit `url_prefix`: HTML by default, Markdown with `?format=md` or an `Accept` that prefers `text/markdown`. Every other method is a `405` that names `/mcp/public`; an `Accept` of `text/event-stream` alone (an MCP client given the guide URL) is a `406` that does the same |
 | The API catalog | `GET /.well-known/api-catalog` at the site root only (RFC 9727, `application/linkset+json`, CORS `*`) |
-| `Link` headers | `rel="api-catalog"` on `/mcp` and `/llms.txt`; `rel="service-desc"` and `rel="service-doc"` on `GET /api/shop/v1` (when it answers `200` and the guide is published) and `rel="service-doc"` on the `405` of `GET /mcp/shop` |
-| `/llms.txt` | A `## Shop API and MCP` section after the operator's text (`LlmsTxt.build(api_section: ...)`, `build_for/2` is unchanged); the Crawlers settings preview shows it while the public API is on |
+| `Link` headers | `rel="api-catalog"` on `/mcp` and `/llms.txt`; `rel="service-desc"` and `rel="service-doc"` on `GET /api/public/v1` (when it answers `200` and the guide is published) and `rel="service-doc"` on the `405` of `GET /mcp/public` |
+| `/llms.txt` | A `## Public API and MCP` section after the operator's text (`LlmsTxt.build(api_section: ...)`, `build_for/2` is unchanged); the Crawlers settings preview shows it while the public API is on |
 
 **One predicate** (`PublicDiscovery.check/1`): the public API switch is on, the website password gate does not hide the site from this client, and at least one public tool is visible. When it is false `/mcp` and the catalog answer the same `404` problem document as the public API, `/llms.txt` has no section and no `Link`. The order on `/mcp` is visibility (`404`), method (`405`), representation (`406`), then `200`.
 
@@ -231,7 +324,7 @@ Four things tell a person or an agent how to connect, without a key. All are gen
 
 **Cache headers.** `public, max-age=300` while the website gate is off; `private, no-store` while it is on (the answer then depends on the client address); every `404`/`405`/`406` carries plain `no-store`. `/llms.txt` keeps its one hour unless the gate is on and the section is present. No rate-limit unit is charged: these are not API calls.
 
-**Nothing here names the admin API.** The public documents never contain an admin path, tool name, scope, permission, `Bearer` or "approval". `OutputShape.for_tool/1` gives a public write tool a preview shape without approvals for that reason. The leak test (`PhoenixKitWeb.APIDiscoveryTest`) builds its banned list from the admin registry and scans every public body and header.
+**Nothing here names the admin API, and only the canonical public paths.** The deprecated aliases are never advertised. The public documents never contain an admin path, tool name, scope, permission, `Bearer` or "approval". `OutputShape.for_tool/1` gives a public write tool a preview shape without approvals for that reason. The leak test (`PhoenixKitWeb.APIDiscoveryTest`) builds its banned list from the admin registry and scans every public body and header.
 
 **Translations.** The guide's headings and fixed sentences are gettext (`default.pot` and the nine `.po` files, added by hand); tool titles and descriptions, command lines and JSON stay as declared. `PhoenixKit.API.PublicDiscoveryTranslationsTest` fails when a msgid is missing from a catalogue.
 
@@ -245,17 +338,17 @@ test "the API tools are well formed" do
 end
 ```
 
-It rejects every keyword outside the supported subset in an input schema (a whitelist: `oneOf`, `const`, `nullable`, `uniqueItems` and anything else the validator does not enforce; the annotations the validator accepts and ignores, such as `title`, `description`, `default`, `examples`, `format` and `x-*` keys, are fine), `$ref` anywhere, a `required` name that is not declared, a non-object root, an empty description, a public tool with a `danger:` that does not list `cart_token` in `required`, two tools with one name and two tools whose MCP names collide (`a.b_c` and `a_b.c`).
+It rejects every keyword outside the supported subset in an input schema (a whitelist: `oneOf`, `const`, `nullable`, `uniqueItems` and anything else the validator does not enforce; the annotations the validator accepts and ignores, such as `title`, `description`, `default`, `examples`, `format` and `x-*` keys, are fine), `$ref` anywhere, a `required` name that is not declared, a non-object root, an empty description, a public tool with a `danger:` that does not declare a `client_token` and list it in `required`, a `client_token` that is not a string property of the input schema, an admin tool that declares a `client_token`, two tools with one name and two tools whose MCP names collide (`a.b_c` and `a_b.c`).
 
 ### Pricing a call
 
-A call costs one rate-limit unit, except a non-read-only admin tool, which costs `max(1, ceil(rows / 50))` (see Rate limits). A tool that needs another price says so: `cost: 5` (a fixed price up to 1000) or `cost: {MyModule.API, :batch_cost}`, a function that gets the raw, unvalidated input and returns a positive integer, for example one unit per query of a batch read. The function runs before validation and its result is clamped only at 1000, not by `max_items`, so it must bound itself. A function that raises or answers anything else is logged (without the input) and the default rule applies. REST and MCP both use it. On the public side the first unit is charged before the tool is looked up and a dearer price pays the difference after it.
+A call costs one rate-limit unit, except a non-read-only admin tool, which costs `max(1, ceil(rows / 50))` (see Rate limits). A tool that needs another price says so: `cost: 5` (a fixed price up to 1000) or `cost: {MyModule.API, :batch_cost}`, a function that gets the raw, unvalidated input and returns a positive integer, for example one unit per query of a batch read. The function runs before validation and its result is clamped only at 1000, not by `max_items`, so it must bound itself. A function that raises or answers anything else is logged (without the input) and the default rule applies. REST and MCP both use it. On the public side the first unit is charged to the network bucket before the tool is looked up; after it the token bucket pays the full price and the network bucket the rest (`cost - 1`).
 
 ## Testing
 
 - Use `async: false`: tests register a fake module in the global `PhoenixKit.ModuleRegistry` and the rate-limit counters are shared.
 - Give each request its own client address through `X-Forwarded-For` (believed because the test peer is loopback), so no test shares a bucket.
-- `PhoenixKit.API.KeyTestSupport` registers a fake module with tools on core permissions and builds users and keys. `test/integration/api/shop_api_end_to_end_test.exs` shows every guarantee over HTTP.
+- `PhoenixKit.API.KeyTestSupport` registers a fake module with tools on core permissions and builds users and keys. `test/integration/api/public_api_end_to_end_test.exs` shows every guarantee over HTTP.
 - To prove a secret never reaches a log, raise the primary Logger level for real (`Logger.configure(level: :debug)`) around `ExUnit.CaptureLog.with_log/2`; `config/test.exs` sets it to `:warning`, and a `refute log =~ secret` at that level looks at nothing.
 
 ## Dangerous operations, approvals and idempotency
@@ -270,9 +363,9 @@ The executor adds three fields to the input of **every write tool** (a tool whos
    * `fingerprint` is a string, a hash of the **current values** the operation would touch (not `updated_at`). A confirmation code and an approval are valid only while the fingerprint is unchanged. Hash the touched rows' values in a stable order; two calls that see the same data must answer the same fingerprint.
 
    A handler that answers anything else to a dry run is a bug: the executor answers `500 internal_error` and logs it. An error answered to a dry run (`{:error, code, message, context}`) is passed on.
-2. **Declare what is dangerous** with `danger:` on the tool: `nil` (never by itself), `:always`, or `{Module, :function}`. Any other value (a typo such as `:allways`) is refused when the tool is built (`Tool.new/1` returns an error), and a hand-built struct that carries one is treated as dangerous. The function is called as `Module.function(input, ctx)` with `ctx.dry_run? == true`, must not write, and returns `true` when the call is dangerous (for example, when a price that is above 0 moves by more than the `api_confirm_price_change_pct` setting). A function that raises counts as dangerous. Independently of `danger:`, an **admin** write tool whose longest top-level list holds more than `api_confirm_batch_over` rows (default 50) is dangerous. Public tools never use the row threshold. A **public** tool with a `danger:` flag must list `cart_token` in the `required` of its input schema: the gate answers a `dry_run` before it looks for a cart token, so without `required` a dry run without one reaches the handler, while the same call without `dry_run` is refused as `validation_failed`.
+2. **Declare what is dangerous** with `danger:` on the tool: `nil` (never by itself), `:always`, or `{Module, :function}`. Any other value (a typo such as `:allways`) is refused when the tool is built (`Tool.new/1` returns an error), and a hand-built struct that carries one is treated as dangerous. The function is called as `Module.function(input, ctx)` with `ctx.dry_run? == true`, must not write, and returns `true` when the call is dangerous (for example, when a value moves by more than a threshold setting the module owns). A function that raises counts as dangerous. Independently of `danger:`, an **admin** write tool whose longest top-level list holds more than `api_confirm_batch_over` rows (default 50) is dangerous. Public tools never use the row threshold. A **public** tool with a `danger:` flag must declare a `client_token` and list that field in the `required` of its input schema: the gate answers a `dry_run` before it looks for a client token, so without `required` a dry run without one reaches the handler, while the same call without `dry_run` is refused as `validation_failed`.
 3. **Use the context.** `ctx.approved_by_uuid` is the person who approved the operation (`nil` unless it runs from the approval queue): put it in the metadata of your change log next to the key's owner, who is `ctx.actor.user_uuid`. `ctx.confirmation_uuid` is the code or approval row the call runs under. `ctx.progress.(partial)` records the partial results of a long batch on an approval (a map or a list); if the process dies, the failed approval keeps them.
-4. **Keep credentials out of stored answers.** A `200` answer to a call with an `Idempotency-Key` is stored and replayed. An answer is **not** stored when any object key, at any depth, is `cart_token`, `confirm_token`, `claim_token`, `claim_url`, `checkout_url`, `api_key`, `access_token`, `token` or `secret` (any case), or any string value starts with `pk_` or contains `/checkout/claim/`. A field that carries a secret must have one of those names. Approval results, error contexts and progress are stored with those credential fields and recognized credential strings replaced by `[REDACTED]`; polling returns the redacted result. Tools that mint credentials need a separate secure delivery path when run through approvals. A write tool whose answer always carries a credential (a tool that mints a cart token) declares `replay: false` (`PhoenixKit.API.Tool`): it then takes no `idempotency_key`, the schemas, MCP and OpenAPI do not offer one (a body that sends it is a `422`; the `Idempotency-Key` header is ignored), and its description says that a repeated call is a new call. Replaying a stored credential is not an option for a tool that anyone can call without a key: the `Idempotency-Key` header is not a secret, so whoever guessed or saw it on the same network would be handed the first caller's credential. `replay:` is newer than core 2.63.0, where `Tool.new/1` answers `unknown field(s): :replay`, `Tool.new!/1` raises and a `%Tool{replay: ...}` literal does not compile. A module that must also run on that core builds the tool with the field only when `Code.ensure_loaded?(PhoenixKit.API.ControlFields) and function_exported?(PhoenixKit.API.ControlFields, :replay_tool?, 1)` is true; a module whose minimum core has it passes `replay: false` unconditionally.
+4. **Keep credentials out of stored answers.** A `200` answer to a call with an `Idempotency-Key` is stored and replayed. An answer is **not** stored when any object key, at any depth, is a credential name (`api_key`, `confirm_token`, `access_token`, `token`, `secret`, any name that ends in `_token`; any case), is the tool's `client_token` or one of its `credentials`, or when any string value starts with `pk_`. A field that carries a secret must be named `*_token` or be listed in the tool's `credentials`. Approval results, error contexts and progress are stored with those credential fields and recognized credential strings replaced by `[REDACTED]`; polling returns the redacted result. Tools that mint credentials need a separate secure delivery path when run through approvals. A write tool whose answer always carries a credential (a tool that mints a client token) declares `replay: false` (`PhoenixKit.API.Tool`): it then takes no `idempotency_key`, the schemas, MCP and OpenAPI do not offer one (a body that sends it is a `422`; the `Idempotency-Key` header is ignored), and its description says that a repeated call is a new call. Replaying a stored credential is not an option for a tool that anyone can call without a key: the `Idempotency-Key` header is not a secret, so whoever guessed or saw it on the same network would be handed the first caller's credential. `replay:` is newer than core 2.63.0, where `Tool.new/1` answers `unknown field(s): :replay`, `Tool.new!/1` raises and a `%Tool{replay: ...}` literal does not compile. A module that must also run on that core builds the tool with the field only when `Code.ensure_loaded?(PhoenixKit.API.ControlFields) and function_exported?(PhoenixKit.API.ControlFields, :replay_tool?, 1)` is true; a module whose minimum core has it passes `replay: false` unconditionally.
 5. **Make stock writes idempotent by themselves** (`external_ref`): a request that committed and died before its answer was stored runs again after its lease (`api_idempotency_lease_seconds`) has run out.
 6. **Do not log request-derived values.** The log of the flow follows `PhoenixKit.API.LogSafe` (see the AGENTS.md section): no confirmation code, idempotency key, tool input or approval preview in a log line.
 
@@ -291,7 +384,7 @@ The executor adds three fields to the input of **every write tool** (a tool whos
 | the same key, another request | `409 idempotency_key_reused`, unless the key's last answer was not stored (a pending-approval answer, a preview, an error): that claim is released, the key is free, and the other request runs as a new one |
 | the same key while the first request runs | `409 idempotency_in_progress` |
 
-A code is bound to the key (or, for a public tool, the cart token), the tool, the arguments (their order in the JSON does not matter) and the fingerprint. It is spent by one atomic update, so two simultaneous confirmations run the operation once. Previews, prompts, errors and credential-bearing answers are not stored under an idempotency key, so the confirming call may reuse the key of its preview. Nor is the result of an approval stored under the key: once an approval has run, the same call sent again queues a new approval, so an `Idempotency-Key` is not exactly-once across an approval.
+A code is bound to the key (or, for a public tool, the client token), the tool, the arguments (their order in the JSON does not matter) and the fingerprint. It is spent by one atomic update, so two simultaneous confirmations run the operation once. Previews, prompts, errors and credential-bearing answers are not stored under an idempotency key, so the confirming call may reuse the key of its preview. Nor is the result of an approval stored under the key: once an approval has run, the same call sent again queues a new approval, so an `Idempotency-Key` is not exactly-once across an approval.
 
 ### What this protects against, and what it does not
 
@@ -305,7 +398,7 @@ Approvals (a menu entry for holders of `api`, at `/admin/approvals`, with a badg
 
 ### Settings
 
-`api_confirm_batch_over` (50), `api_confirm_ttl_seconds` (120, at most 600), `api_approval_ttl_hours` (72), `api_approval_pending_max` (20), `api_idempotency_ttl_hours` (24), `api_idempotency_lease_seconds` (120): Settings -> API -> Confirmation, approvals and repeats. `api_confirm_price_change_pct` belongs to the e-commerce module.
+`api_confirm_batch_over` (50), `api_confirm_ttl_seconds` (120, at most 600), `api_approval_ttl_hours` (72), `api_approval_pending_max` (20), `api_idempotency_ttl_hours` (24), `api_idempotency_lease_seconds` (120): Settings -> API -> Confirmation, approvals and repeats. A module that decides `danger:` from a threshold keeps that setting itself.
 
 ### Upgrading a host
 
@@ -315,12 +408,35 @@ Approvals (a menu entry for holders of `api`, at `/admin/approvals`, with a badg
 
 `PhoenixKit.Test.ApiFlowTools` and `PhoenixKit.Test.ApiFlowHarness` (`test/support/`) show the whole contract with a handful of tools and an in-memory store; copy their shape. Test, for every dangerous tool: the dry run writes nothing; the fingerprint changes when a touched value changes and not otherwise; a confirm after the values changed is `409`; an approval after the key was revoked or the values changed writes nothing.
 
+## Deprecated aliases (until 3.0.0)
+
+The API used to carry the name of one module. Every old name still works, is marked deprecated, and is deleted with `PhoenixKit.API.Legacy` (`lib/phoenix_kit/api/legacy.ex`) in 3.0.0. A guard test (`PhoenixKit.API.ModuleNeutralTest`) fails when anything in `lib/phoenix_kit/api/` outside `Legacy` spells a module name, and fails again when the version reaches 3.0.0 while `legacy.ex` is still there.
+
+| Old name | Use instead | What happens until 3.0.0 |
+|---|---|---|
+| `/api/shop/v1`, `/mcp/shop` | `/api/public/v1`, `/mcp/public` | Same plug, same answers, plus `Deprecation: @1792454400` (RFC 9745) and `Link: <canonical>; rel="successor-version"`; one `info` log line per node. The body guard's own `413` and `400` on an alias carry them too. A request that gets the bare `404` (switch off, website gate) carries neither. OpenAPI, the guide, the catalog, `llms.txt` and `Link` headers name only the canonical paths |
+| `api_public_cart_rate_per_min` | `api_public_token_rate_per_min` | The new key is read first; when it holds no valid number (an integer above 0) the old key is read, then the default |
+| `api_public_cart_rows_per_ip_hour` | `api_public_new_rows_per_ip_hour` | The same |
+| `api_public_cart_rows_global_hour` | `api_public_new_rows_global_hour` | The same |
+| `RateLimit.check_cart_rows/1` | `RateLimit.check_new_rows/1` | Calls the new function; `@deprecated` |
+| `Config.rate_limits/0` atoms `public_cart_per_min`, `cart_rows_ip_hour`, `cart_rows_global_hour` | `public_token_per_min`, `new_rows_ip_hour`, `new_rows_global_hour` | Renamed, no mirror |
+| `Actor.cart_token_hash` | `Actor.client_token_hash` | Renamed, no mirror (no reader in a module's `lib/` is known; test fixtures that build an `Actor` need the new name) |
+| a public tool that declares no `client_token` but has a `cart_token` property | `client_token: "cart_token"` on the tool | The executor reads `cart_token` as the client token, so such a module keeps its rate limit, idempotency scope and danger gate; `ToolLint` checks the tool the same way |
+| output fields `claim_url`, `checkout_url`, `claim_token` and the value marker `/checkout/claim/` | `Tool.credentials` (or a `*_token` name) | Still treated as credentials: never stored for replay, redacted from approvals |
+| error codes `cart_not_found` (404), `cart_locked` (409), `unsupported_source` (422), `insufficient_stock` (422) | `api_problems/0` of the module that answers them | Core answers them with the same `code`, `status`, `title` and advice as long as no enabled module declares the code |
+
+Nothing deletes or migrates the old settings rows. The first save of Settings -> API writes the values in effect under the **new** keys and leaves the old rows alone, so a rollback still finds them.
+
+Two names stay for good because a migration would be needed to remove them: the confirmations table column is `cart_token_hash` (V220, shipped in 2.63.0), and `PhoenixKit.API.Confirm.Confirmation` maps its `client_token_hash` field onto it with `source:`. Renaming the column is a question for the owner of the schema.
+
+The segment that names the public audience in the paths is one constant (`PhoenixKit.API.Paths.public_segment/0`), so a different public prefix is a one-line change.
+
 ## Known limitations
 
 These are deliberate for now; a module author or an operator should know them.
 
 - **Settings -> API changes need only the `api` permission.** The Owner-or-creator rule applies to keys and service users. The switches, rate limits, hidden tools, allowed MCP origins, confirmation thresholds and approval TTLs are global, and anyone who holds `api` can change them for every key, the Owner's included. The Admin role does not get `api` by default, so only an Owner's explicit grant widens this. Grant `api` accordingly; every change is an entry in the Activity log with the person as actor.
-- **Dangerous public calls are not deduplicated.** A key that repeats a dangerous call while its code is live gets the same code back; a public caller (a cart token) gets a new confirmation row for every call. The rows are bounded only by the public rate-limit buckets (per cart and per network), and unused codes are deleted an hour after they ran out.
+- **Dangerous public calls are not deduplicated.** A key that repeats a dangerous call while its code is live gets the same code back; a public caller (a client token) gets a new confirmation row for every call. The rows are bounded only by the public rate-limit buckets (per client token and per network), and unused codes are deleted an hour after they ran out.
 - **`ctx.base_url` and `ctx.hosts` follow the `Host` header** unless the host app configures `:api_request_context` (`config :phoenix_kit, :api_request_context, {MyApp.ApiContext, :resolve}`). They are also stored on an approval and replayed when it runs. A module must not e-mail or otherwise send to a third party a link built from them unless the host configures a fixed host.
 - **An idempotency lease expires after 120 seconds** (`api_idempotency_lease_seconds`). A retry with the same key and the same body after that takes the row over while the first handler may still be running; the first handler's writes are done, only its stored answer is lost. Make long writes idempotent by themselves (`external_ref`, see above).
 - **`PhoenixKit.Activity.log_many/2`** is for modules that write many entries at once. Core does not call it.

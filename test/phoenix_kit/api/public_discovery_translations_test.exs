@@ -107,7 +107,7 @@ defmodule PhoenixKit.API.PublicDiscoveryTranslationsTest do
     test "in English the text is the msgid, interpolated" do
       guide = Guide.build(@origin, "en", tools(), "Acme")
 
-      assert guide.title =~ " — shop API and MCP server"
+      assert guide.title =~ " — public API and MCP server"
       refute Enum.any?(texts(guide), &(&1 =~ "%{"))
     end
 

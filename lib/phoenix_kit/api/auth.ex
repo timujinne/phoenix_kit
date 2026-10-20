@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.Auth do
   @moduledoc """
-  Plug that admits a request to the shop API: steps 1 to 3 of the request
+  Plug that admits a request to the machine API: steps 1 to 3 of the request
   flow (API switch, refusal of a credential in the URL, authentication;
   `PhoenixKit.API.Executor` runs the rest). The order below is the order of
   the code.
@@ -28,6 +28,11 @@ defmodule PhoenixKit.API.Auth do
        pk_...` key with `PhoenixKit.API.Keys.verify/2` (always, whatever
        the state of the IP's failure bucket). For the public audience it
        assigns an anonymous actor.
+
+  An optional `:deprecated` option (`[path: ..., successor: ...]`, set by the
+  forward of a deprecated path, see `PhoenixKit.API.Paths`) marks every answer
+  from step 3 on with `Deprecation` and a successor `Link`. The bare `404` of
+  step 2 does not carry it: a switched-off or gated API reveals nothing.
 
   An optional `:before_auth` hook, `{module, function}`, is called with the
   conn after step 3 and before step 4. The MCP transport uses it to refuse a
@@ -67,22 +72,42 @@ defmodule PhoenixKit.API.Auth do
   alias PhoenixKit.API.Config
   alias PhoenixKit.API.Keys
   alias PhoenixKit.API.LogSafe
+  alias PhoenixKit.API.Paths
   alias PhoenixKit.API.Problem
   alias PhoenixKit.API.RateLimit
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.WebsiteAccess.AllowedAddresses
   alias PhoenixKit.WebsiteAccess.Gate
 
-  @credential_params ~w(api_key apikey api-key authorization bearer access_token token cart_token confirm_token)
+  @credential_params ~w(confirm_token api_key apikey api-key authorization bearer access_token token secret)
 
   @doc """
-  The query parameter names `token_in_url?/1` treats as a credential.
+  The credential names core knows by heart. `credential_name?/1` adds every name that
+  ends in `_token`.
 
-  The boot-time log filter (`PhoenixKit.boot/1`) is built from this list, so a
-  name refused here never reaches the log in clear text.
+  The boot-time log filter (`PhoenixKit.boot/1`) is built from this list, and Phoenix
+  filters a parameter whose name *contains* one of its entries, so `token` also
+  keeps every `*_token` out of the log: a name refused here never reaches the log in
+  clear text.
   """
   @spec credential_params() :: [String.t()]
   def credential_params, do: @credential_params
+
+  @doc """
+  Whether `name` is the name of a credential: one of `credential_params/0`, or any name
+  that ends in `_token` (`access_token`, `session_token`, `claim_token`), compared
+  without regard to case. `token_count` and `tokens_issued` are not.
+
+  The one rule behind the refusal of a credential in a URL and the redaction of a
+  credential from a stored answer (`PhoenixKit.API.Idempotency`).
+  """
+  @spec credential_name?(term()) :: boolean()
+  def credential_name?(name) when is_binary(name) do
+    name = String.downcase(name)
+    name in @credential_params or String.ends_with?(name, "_token")
+  end
+
+  def credential_name?(_name), do: false
 
   @audiences [:admin, :public]
 
@@ -95,16 +120,34 @@ defmodule PhoenixKit.API.Auth do
             "PhoenixKit.API.Auth :audience must be :admin or :public, got: #{inspect(audience)}"
     end
 
-    case Keyword.fetch(opts, :before_auth) do
-      :error ->
-        [audience: audience]
+    [audience: audience]
+    |> put_option(opts, :before_auth, &before_auth!/1)
+    |> put_option(opts, :deprecated, &deprecated!/1)
+  end
 
-      {:ok, {module, function}} when is_atom(module) and is_atom(function) ->
-        [audience: audience, before_auth: {module, function}]
+  defp put_option(init, opts, key, validate) do
+    case Keyword.fetch(opts, key) do
+      :error -> init
+      {:ok, value} -> init ++ [{key, validate.(value)}]
+    end
+  end
 
-      {:ok, other} ->
-        raise ArgumentError,
-              "PhoenixKit.API.Auth :before_auth must be {module, function}, got: #{inspect(other)}"
+  defp before_auth!({module, function} = hook) when is_atom(module) and is_atom(function),
+    do: hook
+
+  defp before_auth!(other) do
+    raise ArgumentError,
+          "PhoenixKit.API.Auth :before_auth must be {module, function}, got: #{inspect(other)}"
+  end
+
+  defp deprecated!(deprecated) do
+    if Keyword.keyword?(deprecated) and is_binary(deprecated[:path]) and
+         is_binary(deprecated[:successor]) do
+      deprecated
+    else
+      raise ArgumentError,
+            "PhoenixKit.API.Auth :deprecated must be [path: binary, successor: binary], " <>
+              "got: #{inspect(deprecated)}"
     end
   end
 
@@ -116,17 +159,23 @@ defmodule PhoenixKit.API.Auth do
     cond do
       not api_enabled?(audience) -> Problem.send(conn, :not_found, "", %{})
       gated?(conn, audience) -> Problem.send(conn, :not_found, "", %{})
-      token_in_url?(conn) -> token_in_url(conn, audience)
-      true -> conn |> run_before_auth(opts) |> admit(audience)
+      true -> conn |> Paths.put_deprecation(opts[:deprecated]) |> screen(audience, opts)
+    end
+  end
+
+  defp screen(conn, audience, opts) do
+    if token_in_url?(conn) do
+      token_in_url(conn, audience)
+    else
+      conn |> run_before_auth(opts) |> admit(audience)
     end
   end
 
   @doc """
-  Whether the query string carries a credential: a parameter named
-  `api_key`, `apikey`, `api-key`, `authorization`, `bearer`, `access_token`,
-  `token`, `cart_token` or `confirm_token` (any case, with or without a `[]`
-  suffix), or any parameter whose value starts with `pk_` (any case, after
-  trimming spaces).
+  Whether the query string carries a credential: a parameter whose name is a
+  credential (`credential_name?/1`: `api_key`, `authorization`, `token`, `secret`,
+  anything ending in `_token` and so on; any case, with or without a `[]` suffix),
+  or any parameter whose value starts with `pk_` (any case, after trimming spaces).
 
   Names and values are compared after percent-decoding, so `%61pi_key=...`
   is caught too.
@@ -137,13 +186,11 @@ defmodule PhoenixKit.API.Auth do
   def token_in_url?(%Plug.Conn{query_string: query}) do
     query
     |> URI.query_decoder()
-    |> Enum.any?(fn {name, value} -> credential_name?(name) or credential_value?(value) end)
+    |> Enum.any?(fn {name, value} -> param_credential?(name) or credential_value?(value) end)
   end
 
-  defp credential_name?(name) do
-    base = name |> String.split("[", parts: 2) |> hd() |> String.downcase()
-    base in @credential_params
-  end
+  defp param_credential?(name),
+    do: name |> String.split("[", parts: 2) |> hd() |> credential_name?()
 
   # Any value that starts with `pk_` is refused, whatever its parameter name
   # and on both audiences: a key may sit under a name nobody listed, and the
@@ -194,7 +241,7 @@ defmodule PhoenixKit.API.Auth do
   client of `conn`.
 
   While the gate is on, the public API is as private as the site: it would
-  otherwise hand a gated pre-production site's catalogue and carts to anyone.
+  otherwise hand a gated pre-production site's catalogue and customer data to anyone.
   Addresses on the gate's allow-list pass, like they do for the site. The
   admin API is not gated: it has its own keys.
 
@@ -224,12 +271,12 @@ defmodule PhoenixKit.API.Auth do
     )
   end
 
-  # The public API has no Authorization header: the cart token travels in the request body.
+  # The public API has no Authorization header: a client token travels in the request body.
   defp token_in_url(conn, :public) do
     Problem.send(
       conn,
       :token_in_url,
-      "Credentials and cart tokens must be sent in the request body, never in the URL.",
+      "Credentials and client tokens must be sent in the request body, never in the URL.",
       %{}
     )
   end

@@ -17,7 +17,7 @@ defmodule PhoenixKit.Utils.Routes do
   # Keep the entries both lists share (api, mcp, webhooks, assets, static,
   # files, images) in sync with @reserved_path_segments in
   # PhoenixKitWeb.Users.Auth, which names them without the slashes. `/api` and
-  # `/mcp` are the shop API's and MCP's endpoints.
+  # `/mcp` are the machine API's and MCP's endpoints.
   @reserved_prefixes ~w(/api /webhooks /assets /static /files /images /fonts /js /css /sitemap)
 
   # Reserved as a whole path segment only: `/mcp` and `/mcp/...` keep their

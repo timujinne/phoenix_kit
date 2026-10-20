@@ -3,8 +3,8 @@ defmodule PhoenixKit.API.MCP.Names do
   Tool names on MCP.
 
   Some model APIs accept only `[a-zA-Z0-9_-]` in tool names, so MCP shows
-  every tool with `_` where the name has a `.` (`ecommerce.set_prices` is
-  `ecommerce_set_prices`). REST and OpenAPI keep the dotted name, and
+  every tool with `_` where the name has a `.` (`catalogue.set_prices` is
+  `catalogue_set_prices`). REST and OpenAPI keep the dotted name, and
   `tools/call` accepts both.
 
   Two tools of one audience can map to the same MCP name (`a.b_c` and

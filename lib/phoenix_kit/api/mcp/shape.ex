@@ -30,10 +30,10 @@ defmodule PhoenixKit.API.MCP.Shape do
     ip_not_allowed: "Call from an address the key allows.",
     origin_not_allowed:
       "Call from a client that sends no Origin header, or ask an administrator to allow the origin.",
-    token_in_url: "Send credentials in the Authorization header, never in the URL.",
+    token_in_url:
+      "Send credentials in the Authorization header (admin) or the request body (client tokens), never in the URL.",
     invalid_json: "Send a valid JSON body.",
     not_found: "Check the tool name or the id with tools/list and try again.",
-    cart_not_found: "Create a new cart and try again.",
     module_disabled:
       "The module behind this tool is switched off; use another tool or ask an administrator to enable it.",
     method_not_allowed: "Use the method named in the Allow header.",
@@ -42,13 +42,10 @@ defmodule PhoenixKit.API.MCP.Shape do
     confirm_token_invalid:
       "Repeat the call without the confirmation token to get a fresh preview.",
     revision_mismatch: "Read the current state, then repeat the change on top of it.",
-    cart_locked: "The cart is already in checkout; start a new cart.",
     idempotency_key_reused: "Use a new idempotency key for a different request.",
     idempotency_in_progress: "Wait a moment and repeat the same request.",
     payload_too_large: "Send fewer rows per call.",
     validation_failed: "Fix the fields listed in context.errors and call again.",
-    unsupported_source: "This product source cannot be changed through the API.",
-    insufficient_stock: "Reduce the quantities listed in context.lines; nothing was posted.",
     rate_limited: "Wait the number of seconds in context.retry_after, then repeat.",
     internal_error: "The tool failed; repeat once, then report the request_id."
   }
@@ -128,9 +125,27 @@ defmodule PhoenixKit.API.MCP.Shape do
     }
   end
 
-  @doc "What to do next after an error `code`, one sentence for an agent."
+  @doc """
+  What to do next after an error `code`, one sentence for an agent.
+
+  Core's codes have it here; any other code takes the `advice` of the enabled module that
+  declares it (`c:PhoenixKit.Module.api_problems/0`) or of `PhoenixKit.API.Legacy`, and a
+  code with none gets a pointer to the problem document.
+  """
   @spec advice(atom()) :: String.t()
-  def advice(code), do: Map.get(@advice, code, @default_advice)
+  def advice(code) do
+    case Map.fetch(@advice, code) do
+      {:ok, advice} -> advice
+      :error -> declared_advice(code)
+    end
+  end
+
+  defp declared_advice(code) do
+    case Problem.declared(code) do
+      %{advice: advice} when is_binary(advice) -> advice
+      _no_advice -> @default_advice
+    end
+  end
 
   defp problem_json(code, detail, context, request_id),
     do: code |> Problem.body(detail, context, request_id) |> Problem.encode()
@@ -146,7 +161,7 @@ defmodule PhoenixKit.API.MCP.Shape do
   end
 
   defp side(:admin), do: " admin API"
-  defp side(:public), do: " shop API"
+  defp side(:public), do: " public API"
 
   @doc "The `instructions` of the `initialize` answer."
   @spec instructions(Tool.audience()) :: String.t()
@@ -166,7 +181,7 @@ defmodule PhoenixKit.API.MCP.Shape do
     "This endpoint needs no key. List the tools with tools/list. Answers follow the language and currency " <>
       "of the domain you call, unless a tool takes a language or currency field and the call sets it. " <>
       "A failed call of a tool comes back as a result with isError set (an unknown tool name is a JSON-RPC " <>
-      "error, -32602); its text starts with the code in square brackets, which is stable, and the second " <>
-      "text item is the full problem document."
+      "error, -32602); the code in square brackets is stable and the second text item is the full problem " <>
+      "document."
   end
 end

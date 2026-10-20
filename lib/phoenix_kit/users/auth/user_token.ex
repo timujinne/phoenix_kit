@@ -140,25 +140,38 @@ defmodule PhoenixKit.Users.Auth.UserToken do
   not expired (after @session_validity_in_days).
   """
   def verify_session_token_query(token) do
-    # `active_role_uuid` rides along on the user's virtual field: this query
-    # is the ONLY writer of `%User{active_role_uuid: _}`, which is how a
-    # per-session value reaches `Scope.for_user/1` without every caller
-    # learning about tokens. `nil` — a session that never switched, or a user
-    # loaded any other way — resolves to the default role, never to the
-    # union. See `PhoenixKit.Users.ActiveRole`.
-    query =
-      from token in by_token_and_context_query(token, "session"),
-        join: user in assoc(token, :user),
-        where: token.inserted_at > ago(@session_validity_in_days, "day"),
-        # A service user (`api_only`) has no web session, whatever a token row says: this
-        # query is how every plug, LiveView mount and multi-account read resolves a
-        # session, so a token minted before the flag was set, or by a door nobody guarded,
-        # reads as "nobody is signed in".
-        where: user.api_only == false,
-        select: user,
-        select_merge: %{active_role_uuid: token.active_role_uuid}
+    {:ok, session_user_query(by_token_and_context_query(token, "session"))}
+  end
 
-    {:ok, query}
+  @doc """
+  Like `verify_session_token_query/1`, for a session known by the `uuid` of its token
+  row instead of the token itself (`PhoenixKit.Users.Auth.SessionRef`). The same rules
+  apply: a `"session"` row that has not expired, of a user who is not a service user,
+  and the user carries the session's `active_role_uuid`.
+
+  `token_uuid` must be a valid UUID; the caller checks it.
+  """
+  def verify_session_token_uuid_query(token_uuid) do
+    {:ok, session_user_query(from(UserToken, where: [uuid: ^token_uuid, context: "session"]))}
+  end
+
+  # `active_role_uuid` rides along on the user's virtual field: the two session
+  # queries above are the ONLY writers of `%User{active_role_uuid: _}`, which is
+  # how a per-session value reaches `Scope.for_user/1` without every caller
+  # learning about tokens. `nil` — a session that never switched, or a user
+  # loaded any other way — resolves to the default role, never to the
+  # union. See `PhoenixKit.Users.ActiveRole`.
+  defp session_user_query(session_tokens) do
+    from token in session_tokens,
+      join: user in assoc(token, :user),
+      where: token.inserted_at > ago(@session_validity_in_days, "day"),
+      # A service user (`api_only`) has no web session, whatever a token row says: this
+      # query is how every plug, LiveView mount and multi-account read resolves a
+      # session, so a token minted before the flag was set, or by a door nobody guarded,
+      # reads as "nobody is signed in".
+      where: user.api_only == false,
+      select: user,
+      select_merge: %{active_role_uuid: token.active_role_uuid}
   end
 
   @doc """

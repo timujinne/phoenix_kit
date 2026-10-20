@@ -1,6 +1,6 @@
 defmodule PhoenixKit.Test.ApiFlowStore do
   @moduledoc """
-  The in-memory data the `flowkit.*` test tools read and write: items by id, carts, and
+  The in-memory data the `flowkit.*` test tools read and write: items by id, sessions, and
   a counter of real handler runs. `fingerprint/1` is the hash of the current values of
   some ids, which is exactly what a real tool's fingerprint is.
   """
@@ -135,23 +135,44 @@ defmodule PhoenixKit.Test.ApiFlowTools do
           "mode" => %{
             "type" => "string",
             "enum" =>
-              ~w(ok write dry_error fail raise leak) ++
+              ~w(ok write dry_error fail raise leak leak_link) ++
                 @danger_modes ++ @broken_dry_modes ++ @fingerprint_modes
           },
           "note" => %{"type" => "string"}
         },
-        danger: {__MODULE__, :misbehave_danger}
+        danger: {__MODULE__, :misbehave_danger},
+        credentials: ["link"]
       ),
-      public("flowkit.mint_cart", @write, :mint_cart, %{}, replay: false),
-      public("flowkit.public_write", @write, :public_write, %{
+      public("flowkit.mint_session", @write, :mint_session, %{}, replay: false),
+      public(
+        "flowkit.public_write",
+        @write,
+        :public_write,
+        %{
+          "text" => %{"type" => "string"},
+          "session_token" => %{"type" => "string"},
+          "lines" => %{"type" => "array", "items" => %{"type" => "object"}}
+        },
+        client_token: "session_token"
+      ),
+      public(
+        "flowkit.clear_session",
+        @destructive,
+        :clear_session,
+        %{"session_token" => %{"type" => "string"}},
+        danger: :always,
+        client_token: "session_token"
+      ),
+      # The two tools below predate `Tool.client_token`: they name their client token
+      # `cart_token` and declare nothing, which core still honours (`PhoenixKit.API.Legacy`).
+      public("flowkit.legacy_write", @write, :public_write, %{
         "text" => %{"type" => "string"},
-        "cart_token" => %{"type" => "string"},
-        "lines" => %{"type" => "array", "items" => %{"type" => "object"}}
+        "cart_token" => %{"type" => "string"}
       }),
       public(
-        "flowkit.clear_cart",
+        "flowkit.legacy_clear",
         @destructive,
-        :clear_cart,
+        :legacy_clear,
         %{"cart_token" => %{"type" => "string"}},
         danger: :always
       )
@@ -175,7 +196,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       handler: {__MODULE__, function},
       annotations: annotations,
       danger: Keyword.get(opts, :danger),
-      max_items: Keyword.get(opts, :max_items)
+      max_items: Keyword.get(opts, :max_items),
+      credentials: Keyword.get(opts, :credentials, [])
     )
   end
 
@@ -194,7 +216,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       handler: {__MODULE__, function},
       annotations: annotations,
       danger: Keyword.get(opts, :danger),
-      replay: Keyword.get(opts, :replay, true)
+      replay: Keyword.get(opts, :replay, true),
+      client_token: Keyword.get(opts, :client_token)
     )
   end
 
@@ -359,7 +382,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
   @doc """
   Modes: `ok` (a normal tool); `write` (ignores the dry run and writes: a bug); `dry_error`
   (answers the dry run with an error); `fail` (the real run answers an error); `raise`
-  (raises, dry run or not); `leak` (the real run answers a credential); `danger_raises`
+  (raises, dry run or not); `leak` (the real run answers a credential named `*_token`); `leak_link` (the real run
+  answers a credential in the field `link`, which the tool declares in its `credentials`); `danger_raises`
   (a normal tool whose danger check raises). The `dry_*` modes break the dry-run contract in
   one way each, and only in a dry run (a real run is `ok`): `dry_bad_message` (an error whose
   message is not UTF-8), `dry_throw`, `dry_exit`, `dry_wrong_shape` (an `{:ok, map}`), and a
@@ -393,7 +417,10 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         {:error, :insufficient_stock, "Two lines are short.", %{lines: []}}
 
       mode == "leak" ->
-        {:ok, %{"cart_token" => "leaked-cart-token-#{Store.bump()}"}}
+        {:ok, %{"session_token" => "leaked-session-token-#{Store.bump()}"}}
+
+      mode == "leak_link" ->
+        {:ok, %{"link" => "https://example.test/open/#{Store.bump()}", "ok" => true}}
 
       true ->
         {:ok, %{"ok" => Store.bump()}}
@@ -423,12 +450,12 @@ defmodule PhoenixKit.Test.ApiFlowTools do
   defp fingerprinted(fingerprint),
     do: {:preview, %{"totals" => %{"misbehave" => 1}}, fingerprint}
 
-  def mint_cart(input, ctx) do
-    send(self(), {:flow, "flowkit.mint_cart", input, ctx})
+  def mint_session(input, ctx) do
+    send(self(), {:flow, "flowkit.mint_session", input, ctx})
 
     if ctx.dry_run?,
-      do: {:preview, %{"totals" => %{"carts" => 1}}, Store.fingerprint(["mint"])},
-      else: {:ok, %{"cart_token" => "secret-cart-token-#{Store.bump()}"}}
+      do: {:preview, %{"totals" => %{"sessions" => 1}}, Store.fingerprint(["mint"])},
+      else: {:ok, %{"session_token" => "secret-session-token-#{Store.bump()}"}}
   end
 
   def public_write(input, ctx) do
@@ -439,17 +466,29 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       else: {:ok, %{"echo" => Map.get(input, "text"), "call" => Store.bump()}}
   end
 
-  def clear_cart(%{"cart_token" => token} = input, ctx) do
-    send(self(), {:flow, "flowkit.clear_cart", input, ctx})
-    cart = "cart:" <> token
+  def clear_session(%{"session_token" => token} = input, ctx) do
+    send(self(), {:flow, "flowkit.clear_session", input, ctx})
+    ref = "session:" <> token
 
     if ctx.dry_run? do
       {:preview,
        %{
-         "rows" => [%{"ref" => cart, "action" => "clear", "from" => Map.get(Store.items(), cart)}]
-       }, Store.fingerprint([cart])}
+         "rows" => [%{"ref" => ref, "action" => "clear", "from" => Map.get(Store.items(), ref)}]
+       }, Store.fingerprint([ref])}
     else
-      Store.delete([cart])
+      Store.delete([ref])
+      {:ok, %{"cleared" => true}}
+    end
+  end
+
+  def legacy_clear(%{"cart_token" => token} = input, ctx) do
+    send(self(), {:flow, "flowkit.legacy_clear", input, ctx})
+    ref = "legacy:" <> token
+
+    if ctx.dry_run? do
+      {:preview, %{"rows" => [%{"ref" => ref, "action" => "clear"}]}, Store.fingerprint([ref])}
+    else
+      Store.delete([ref])
       {:ok, %{"cleared" => true}}
     end
   end

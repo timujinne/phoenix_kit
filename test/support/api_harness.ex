@@ -1,13 +1,13 @@
 defmodule PhoenixKit.Test.ApiHarness do
   @moduledoc """
-  Helpers shared by the tests of the shop API: switch the API on, register
+  Helpers shared by the tests of the machine API: switch the API on, register
   the fake tool module, start the key cache, make users with exactly the
   permissions a test needs, issue real keys, and build requests that carry
   them.
 
   Users, owners, keys, client addresses and the key cache come from
   `PhoenixKit.API.KeyTestSupport`, the single source for them; the
-  functions here delegate to it and add only what is specific to the shop
+  functions here delegate to it and add only what is specific to the machine
   API. Import this module, not `KeyTestSupport`, in a test file of this
   part, so no helper name is ambiguous.
 

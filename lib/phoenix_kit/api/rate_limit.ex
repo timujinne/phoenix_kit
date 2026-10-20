@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.RateLimit do
   @moduledoc """
-  Rate limits of the shop API.
+  Rate limits of the machine API.
 
   Counters live in the one Hammer ETS table core already supervises
   (`PhoenixKit.Users.RateLimiter.Backend`), under keys that start with `api:`.
@@ -12,13 +12,19 @@ defmodule PhoenixKit.API.RateLimit do
   |---|---|---|---|
   | admin pre-auth, per client network | 1 min | **failed** authentications only | `api_admin_preauth_fail_per_min` |
   | admin, per key | 1 min | cost units | `api_admin_rate_per_min` |
-  | public, per cart token | 1 min | cost units | `api_public_cart_rate_per_min` |
+  | admin, per user acting through a live session | 1 min | cost units | `api_admin_rate_per_min` |
+  | public, per client token | 1 min | cost units | `api_public_token_rate_per_min` |
   | public, per client network | 1 min | cost units | `api_public_ip_rate_per_min` |
-  | cart rows, per client network | 1 hour | new carts | `api_public_cart_rows_per_ip_hour` |
-  | cart rows, all clients | 1 hour | new carts | `api_public_cart_rows_global_hour` |
+  | new rows, per client network | 1 hour | new rows | `api_public_new_rows_per_ip_hour` |
+  | new rows, all clients | 1 hour | new rows | `api_public_new_rows_global_hour` |
 
   The client network is `PhoenixKit.Utils.IpAddress.network/1`: an IPv4 address
   as it is, an IPv6 address as its /64.
+
+  The client token is a hash of the input field a public tool declares as its
+  client token (`PhoenixKit.API.Tool`): the caller's identity where it has no
+  key. The new-rows quota (`check_new_rows/1`) is charged by the module that
+  creates the rows, and is one quota shared by every module.
 
   ## Throttling key guessing without locking out a valid key
 
@@ -105,46 +111,81 @@ defmodule PhoenixKit.API.RateLimit do
   end
 
   @doc """
-  Charges `cost` units to the public buckets: the client network's room is
-  checked first, then the cart token's bucket (when there is one) is charged,
-  then the network's.
+  Charges `cost` units to the admin bucket of a user acting through a live session
+  (`PhoenixKit.API.Executor.execute_as/5`): one bucket per user, shared by all of that
+  user's sessions and apart from the buckets of the user's keys. The limit is the per-key
+  one, `api_admin_rate_per_min`.
+  """
+  @spec check_user(String.t(), pos_integer()) ::
+          {:ok, headers()} | {:error, pos_integer(), headers()}
+  def check_user(user_uuid, cost)
+      when is_binary(user_uuid) and is_integer(cost) and cost > 0 do
+    ("api:admin:user:" <> user_uuid)
+    |> charge(@minute, Config.rate_limits().admin_per_min, cost)
+    |> result()
+  end
 
-  A client whose network bucket is full is refused before any cart counter is
-  created, so fresh random cart tokens cannot grow the shared counter table. A
-  request refused by the cart bucket is not charged to the network bucket, so a
-  client hammering with one token does not use up the shared address. Headers
-  describe the bucket with the least room left.
+  @doc """
+  Charges `cost` units to the public buckets: the client network's room is
+  checked first, then the client token's bucket (when there is one) is charged
+  `cost`, then the network's is charged `network_cost` (`cost` unless given;
+  `0` charges it nothing, and only reports its state).
+
+  The executor charges the network bucket 1 unit before it looks a tool up
+  (`check_public(ip, nil, 1)`: the token is not known yet), then the token
+  bucket the tool's full price and the network bucket the rest
+  (`check_public(ip, hash, cost, cost - 1)`), so one call costs `cost` units in
+  each bucket.
+
+  A client whose network bucket is full is refused before any token counter is
+  created, so fresh random tokens cannot grow the shared counter table. A
+  request refused by the token bucket is not charged to the network bucket (but
+  it paid its first unit there, before the lookup), so a client hammering with
+  one token does not use up the shared address. Headers describe the bucket
+  with the least room left.
   """
   @spec check_public(String.t() | nil, String.t() | nil, pos_integer()) ::
           {:ok, headers()} | {:error, pos_integer(), headers()}
-  def check_public(ip, cart_token_hash, cost) when is_integer(cost) and cost > 0 do
+  def check_public(ip, client_token_hash, cost) when is_integer(cost) and cost > 0,
+    do: check_public(ip, client_token_hash, cost, cost)
+
+  @spec check_public(String.t() | nil, String.t() | nil, pos_integer(), non_neg_integer()) ::
+          {:ok, headers()} | {:error, pos_integer(), headers()}
+  def check_public(ip, client_token_hash, cost, network_cost)
+      when is_integer(cost) and cost > 0 and is_integer(network_cost) and network_cost >= 0 do
     limits = Config.rate_limits()
     ip_limit = limits.public_ip_per_min
 
-    case peek_network(ip, ip_limit, cost) do
+    case peek_network(ip, ip_limit, network_cost) do
       {:denied, _info} = denied ->
         result(denied)
 
       :room ->
-        case charge_cart(cart_token_hash, limits.public_cart_per_min, cost) do
+        case charge_token(client_token_hash, limits.public_token_per_min, cost) do
           {:denied, _info} = denied -> result(denied)
-          cart -> result(charge_network(cart, ip, ip_limit, cost))
+          token -> result(charge_network(token, ip, ip_limit, network_cost))
         end
     end
   end
 
   @doc """
-  Counts the first write of a new cart against the per-network and the global
-  hourly limits.
+  Counts the first write of a new row against the per-network and the global
+  hourly limits. A module calls it when it creates a row for a caller without a
+  key; the quota is shared by every module.
   """
-  @spec check_cart_rows(String.t() | nil) :: :ok | {:error, pos_integer()}
-  def check_cart_rows(ip) do
+  @spec check_new_rows(String.t() | nil) :: :ok | {:error, pos_integer()}
+  def check_new_rows(ip) do
     limits = Config.rate_limits()
 
-    with :ok <- hit_hour("api:cart_rows:ip:" <> network(ip), limits.cart_rows_ip_hour) do
-      hit_hour("api:cart_rows:global", limits.cart_rows_global_hour)
+    with :ok <- hit_hour("api:new_rows:ip:" <> network(ip), limits.new_rows_ip_hour) do
+      hit_hour("api:new_rows:global", limits.new_rows_global_hour)
     end
   end
+
+  @doc false
+  @deprecated "Use check_new_rows/1"
+  @spec check_cart_rows(String.t() | nil) :: :ok | {:error, pos_integer()}
+  def check_cart_rows(ip), do: check_new_rows(ip)
 
   # Charges nothing: whether `cost` more units still fit the network's window.
   defp peek_network(ip, limit, cost) do
@@ -153,24 +194,34 @@ defmodule PhoenixKit.API.RateLimit do
       else: :room
   end
 
-  # An anonymous request has no cart token: that bucket is skipped.
-  defp charge_cart(nil, _limit, _cost), do: {:skipped, nil}
+  # An anonymous request has no client token: that bucket is skipped.
+  defp charge_token(nil, _limit, _cost), do: {:skipped, nil}
 
-  defp charge_cart(cart_token_hash, limit, cost) when is_binary(cart_token_hash),
-    do: charge("api:public:cart:" <> cart_token_hash, @minute, limit, cost)
+  defp charge_token(client_token_hash, limit, cost) when is_binary(client_token_hash),
+    do: charge("api:public:token:" <> client_token_hash, @minute, limit, cost)
 
-  defp charge_network(cart, ip, limit, cost) do
+  # Nothing to add to the network bucket: report where it stands.
+  defp charge_network(token, ip, limit, 0) do
+    used = Backend.get("api:public:ip:" <> network(ip), @minute)
+
+    tightest(
+      token,
+      {:allowed, %{limit: limit, remaining: max(limit - used, 0), reset: seconds_left(@minute)}}
+    )
+  end
+
+  defp charge_network(token, ip, limit, cost) do
     case charge("api:public:ip:" <> network(ip), @minute, limit, cost) do
       {:denied, _info} = denied -> denied
-      {:allowed, _info} = network -> tightest(cart, network)
+      {:allowed, _info} = network -> tightest(token, network)
     end
   end
 
   # The headers describe the bucket with the least room left.
   defp tightest({:skipped, nil}, network), do: network
 
-  defp tightest({:allowed, cart}, {:allowed, network}),
-    do: {:allowed, Enum.min_by([cart, network], & &1.remaining)}
+  defp tightest({:allowed, token}, {:allowed, network}),
+    do: {:allowed, Enum.min_by([token, network], & &1.remaining)}
 
   defp hit_hour(key, limit) do
     case Backend.hit(key, @hour, limit) do

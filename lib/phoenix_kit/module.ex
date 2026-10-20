@@ -120,7 +120,11 @@ defmodule PhoenixKit.Module do
     implementing `PhoenixKit.Jobs.Kind`), for the admin Jobs page
     (default: `[]`).
   - `api_tools/0` - `PhoenixKit.API.Tool` structs this module offers through the
-    shop/admin API (default: `[]`).
+    public and admin machine API (default: `[]`).
+  - `api_problems/0` - Error codes this module's API tools answer with beyond core's own
+    (default: `%{}`).
+  - `header_widgets/0` - Sticky LiveViews this module puts into the admin header, before
+    the notifications bell. No default: it is called only on a module that defines it.
   """
 
   @typedoc """
@@ -701,6 +705,153 @@ defmodule PhoenixKit.Module do
   """
   @callback api_tools() :: [PhoenixKit.API.Tool.t()]
 
+  @doc """
+  Returns the error codes this module's API tools answer with, beyond the ones core defines.
+
+  A tool handler fails with `{:error, code, message, context}` (`PhoenixKit.API.Executor`),
+  and `code` is what an agent branches on. Core knows its own codes (`not_found`,
+  `validation_failed`, ...); a code of the module's own, such as `quota_spent`, answers
+  `500` and is logged unless the module declares it here, with the HTTP `status` (400..599),
+  a `title` for the problem document, and the `advice` an MCP client reads after the error
+  (`nil` for the generic sentence). The values on the wire (`code`, `status`, `title`) are a
+  contract with clients: change them like an API.
+
+  Collected from **enabled** modules by `PhoenixKit.ModuleRegistry.all_api_problems/0`, and
+  only when an error is answered, so a successful call pays nothing. A code of core cannot
+  be overridden: such a declaration, an invalid entry, and a code a module before this one
+  already declared are each dropped with one warning.
+
+  ## Example
+
+      @impl PhoenixKit.Module
+      def api_problems do
+        %{
+          quota_spent: %{
+            status: 422,
+            title: "Quota spent",
+            advice: "Wait for the next hour, then repeat."
+          }
+        }
+      end
+
+  A module that must also compile against an older core, which has no such callback,
+  defines `api_problems/0` without `@impl` (with `@impl` that compile warns).
+
+  Modules that answer with core's codes only skip this callback - the default is `%{}`.
+  """
+  @callback api_problems() :: %{
+              atom() => %{
+                status: 400..599,
+                title: String.t(),
+                advice: String.t() | nil
+              }
+            }
+
+  @doc """
+  Returns the sticky LiveViews this module puts into the admin header, before the
+  notifications bell (`PhoenixKit.HeaderWidget`).
+
+  Each entry is `{live_view, id, session_fun}`, or `{live_view, id, session_fun, opts}` with
+  `opts = [dock: true]` for a widget that uses the dock column (see below):
+
+    * `live_view` - the LiveView module.
+    * `id` - the DOM id of the nested LiveView. Keep it stable: it is what lets the widget
+      survive admin navigation (`sticky: true`) with its state and subscriptions.
+    * `session_fun` - `(layout_assigns -> session | nil)`. It gets the assigns of the admin
+      layout (`:socket`, `:phoenix_kit_current_scope`, `:phoenix_kit_current_user`,
+      `:current_locale`, `:impersonating?`, ...) and returns the session map of the nested
+      LiveView: **string** keys, values that can be signed into the page (ids and strings,
+      not structs). `nil` means "no widget for this user": nothing is rendered, no dock, no
+      warning. The keys `user_token`, `pk_session_accounts`, `live_socket_id` and
+      `phoenix_kit_session_uuid` are reserved (they belong to the cookie session, which a
+      nested LiveView's session would otherwise hide): they are dropped from the map, with
+      one warning per module and widget.
+
+  Collected from **enabled** modules by `PhoenixKit.ModuleRegistry.all_header_widgets/0`.
+  The admin layout renders a widget only when it has the parent LiveView's socket and a
+  signed-in user, with `Phoenix.Component.live_render/3`, `sticky: true`; a widget whose
+  session function raises is skipped (one warning per module and widget id), and so is an
+  invalid entry (one warning per module).
+  The callback runs on every render of the layout, so keep it a cheap list of literals. The
+  user dashboard has its own header and does not render widgets.
+
+  ## Who may see the widget
+
+  Core decides only whether the widget can be shown at all (enabled module, socket, signed-in
+  user); who of the users may see it, the module does, in `session_fun`: it gets the scope
+  and returns `nil` for a user who may not, so that no process is started for him. A nested
+  sticky LiveView does **not** go through the `live_session`'s `on_mount` hooks and gets no
+  `current_scope`: it starts from nothing but its session map. And `session_fun` runs for
+  **every** signed-in user of a page with the admin layout, including a user with no admin
+  permission at all who lands on the `/admin` page. So check the permission there, and check
+  it again in `mount/3` (rebuilding the user from the session the way the notifications bell
+  does with its `user_uuid`), which is what holds when the session was made for someone else.
+  Put only server-derived ids and strings into the session, never a value that came from the
+  browser. The session is signed, not encrypted: whoever has the page can read it, so no
+  secret and no token in it.
+
+  `:impersonating?` in the assigns is `true` while the session acts as an account other than
+  the root of the browser's multi-session stack (`PhoenixKit.HeaderWidget.impersonating?/1`:
+  an operator's "log in as this user" looks like that, and so does an account the user added
+  with a password). A widget that must not run for a borrowed session returns `nil` then.
+
+  `session_fun` gets the layout's assigns and does **not** get the cookie session or the
+  session token. `:impersonating?` is a hint for rendering, not a guarantee: it reads
+  `scope.multi_session_accounts` and is always `false` while multi_session is off. A widget
+  that needs the session reference or a reliable impersonation check does it in its own
+  connected `mount/3`: LiveView merges the cookie session from `connect_info` into the
+  session of any LiveView, so `PhoenixKit.Users.Auth.SessionRef.from_session/1` and
+  `PhoenixKitWeb.Users.MultiSession.impersonated?/1` work on the `session` argument there
+  (they arrive with the agent-execute PR, not with this one). Never put a secret in the
+  session map: a nested LiveView's session is signed, not encrypted.
+
+  ## The dock column
+
+  A widget may need room beside the page: a chat panel, for instance. The admin layout has
+  an optional right-hand column for it, `#pk-dock` inside `#admin-drawer`. It is rendered
+  **only while a rendered widget declares `dock: true`**, so a layout without such a widget
+  is exactly the layout it has always been. The contract (details and the JS commands:
+  `PhoenixKitWeb.Components.AdminDock`):
+
+    * the container is `#pk-dock`; it is empty and hidden;
+    * the widget opens and closes it with the class `pk-dock-open` on `<body>`
+      (`AdminDock.open/1`, `close/1`, `toggle/1`) or on an element of its own markup in the
+      header, after which the work area is narrower by the column's width instead of being
+      overlapped; below `lg` the column covers the screen under the header. `<body>` is the
+      element above both the header (where the widget is) and `#admin-drawer` (where the
+      dock is), and LiveView does not patch it: the state survives a live redirect to another
+      LiveView and a patch; only a full page load resets it;
+    * the width comes from the CSS variable `--pk-dock-width` (default `25rem`), which the
+      widget or the host sets on `:root` or `<body>` so that both the dock and a panel in the
+      header see it.
+
+  ## Example
+
+      @impl PhoenixKit.Module
+      def header_widgets do
+        [
+          {MyModule.Web.Assistant, "my-assistant",
+           fn
+             %{impersonating?: true} ->
+               nil
+
+             assigns ->
+               %{
+                 "user_uuid" => assigns.phoenix_kit_current_user.uuid,
+                 "locale" => assigns[:current_locale_base]
+               }
+           end, dock: true}
+        ]
+      end
+
+  A module that must also compile against an older core, which has no such callback,
+  defines `header_widgets/0` without `@impl` (with `@impl` that compile warns).
+
+  Modules with no header widget skip this callback; there is no default, so that the
+  registry asks only the modules that define it.
+  """
+  @callback header_widgets() :: [PhoenixKit.HeaderWidget.entry()]
+
   @optional_callbacks [
     get_config: 0,
     permission_metadata: 0,
@@ -729,7 +880,9 @@ defmodule PhoenixKit.Module do
     email_templates: 0,
     media_reorganizer: 0,
     job_kinds: 0,
-    api_tools: 0
+    api_tools: 0,
+    api_problems: 0,
+    header_widgets: 0
   ]
 
   defmacro __using__(_opts) do
@@ -823,6 +976,9 @@ defmodule PhoenixKit.Module do
       @impl PhoenixKit.Module
       def api_tools, do: []
 
+      @impl PhoenixKit.Module
+      def api_problems, do: %{}
+
       defoverridable get_config: 0,
                      permission_metadata: 0,
                      admin_tabs: 0,
@@ -849,7 +1005,8 @@ defmodule PhoenixKit.Module do
                      email_templates: 0,
                      media_reorganizer: 0,
                      job_kinds: 0,
-                     api_tools: 0
+                     api_tools: 0,
+                     api_problems: 0
     end
   end
 end

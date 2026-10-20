@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.Problem do
   @moduledoc """
-  RFC 9457 `application/problem+json` errors for the shop API.
+  RFC 9457 `application/problem+json` errors for the machine API.
 
   Every error the API sends, from the endpoint's `PhoenixKit.API.BodyGuard`
   to a tool handler's `{:error, code, message, context}`, goes through
@@ -8,8 +8,8 @@ defmodule PhoenixKit.API.Problem do
 
       {"type": "https://phoenixkit.dev/api/errors/forbidden",
        "title": "Forbidden", "status": 403, "code": "forbidden",
-       "detail": "This key lacks ecommerce.prices:write.",
-       "context": {"required_scope": "ecommerce.prices:write"},
+       "detail": "This key lacks catalogue.prices:write.",
+       "context": {"required_scope": "catalogue.prices:write"},
        "request_id": "F9x..."}
 
   `code` is the contract: stable, machine-readable, and what an agent
@@ -17,14 +17,21 @@ defmodule PhoenixKit.API.Problem do
   relay. `context` carries the fields that make the error actionable
   (`required_scope`, `errors`, `retry_after`, ...).
 
-  The table of codes and statuses is `statuses/0`. A code that is not in it
-  answers `500` and is logged: it means a handler returned a code this
-  module does not know.
+  The codes of core are a closed table here (`core_code?/1`). A module adds its
+  own through `c:PhoenixKit.Module.api_problems/0` (it can never replace a code of
+  core), and `PhoenixKit.API.Legacy` supplies the few codes the API had
+  before they became a module's, for as long as no enabled module declares them.
+  Both are read only here, when an error is answered, so a successful call pays
+  nothing. `statuses/0` is the table as it stands right now. A code that is in
+  none of the three answers `500` and is logged: it means a handler returned a
+  code nothing declares.
   """
 
   import Plug.Conn
 
+  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.LogSafe
+  alias PhoenixKit.ModuleRegistry
 
   require Logger
 
@@ -38,19 +45,15 @@ defmodule PhoenixKit.API.Problem do
     token_in_url: 400,
     invalid_json: 400,
     not_found: 404,
-    cart_not_found: 404,
     module_disabled: 404,
     method_not_allowed: 405,
     not_acceptable: 406,
     confirm_token_invalid: 409,
     revision_mismatch: 409,
-    cart_locked: 409,
     idempotency_key_reused: 409,
     idempotency_in_progress: 409,
     payload_too_large: 413,
     validation_failed: 422,
-    unsupported_source: 422,
-    insufficient_stock: 422,
     rate_limited: 429,
     internal_error: 500
   }
@@ -63,34 +66,61 @@ defmodule PhoenixKit.API.Problem do
     token_in_url: "Credential in URL",
     invalid_json: "Invalid JSON",
     not_found: "Not found",
-    cart_not_found: "Cart not found",
     module_disabled: "Module disabled",
     method_not_allowed: "Method not allowed",
     not_acceptable: "Not acceptable",
     confirm_token_invalid: "Confirmation token invalid",
     revision_mismatch: "Revision mismatch",
-    cart_locked: "Cart locked",
     idempotency_key_reused: "Idempotency key reused",
     idempotency_in_progress: "Request in progress",
     payload_too_large: "Payload too large",
     validation_failed: "Validation failed",
-    unsupported_source: "Unsupported source",
-    insufficient_stock: "Insufficient stock",
     rate_limited: "Rate limited",
     internal_error: "Internal error"
   }
 
-  @doc "Every error code this module knows, with its HTTP status."
+  @doc """
+  Every error code the API can answer with right now, with its HTTP status: core's,
+  those of the enabled modules and the `PhoenixKit.API.Legacy` ones no module
+  declares.
+  """
   @spec statuses() :: %{atom() => pos_integer()}
-  def statuses, do: @statuses
+  def statuses do
+    Map.merge(
+      Map.new(Legacy.problems(), fn {code, %{status: status}} -> {code, status} end),
+      Map.merge(
+        Map.new(ModuleRegistry.all_api_problems(), fn {code, %{status: status}} ->
+          {code, status}
+        end),
+        @statuses
+      )
+    )
+  end
+
+  @doc "Whether `code` is one of core's own, which no module can override."
+  @spec core_code?(atom()) :: boolean()
+  def core_code?(code) when is_atom(code), do: Map.has_key?(@statuses, code)
+
+  @doc """
+  What is declared for a `code` that core does not define: `%{status, title, advice}`
+  from the enabled module that declares it, else from `PhoenixKit.API.Legacy`, else
+  `nil`. A module's declaration replaces the legacy one as a whole.
+  """
+  @spec declared(atom()) ::
+          %{status: pos_integer(), title: String.t(), advice: String.t() | nil} | nil
+  def declared(code) when is_atom(code) do
+    if core_code?(code),
+      do: nil,
+      else: Map.get(ModuleRegistry.all_api_problems(), code) || Map.get(Legacy.problems(), code)
+  end
 
   @doc """
   The HTTP status of an error `code`.
 
-  A code that is not in `statuses/0` answers `500`.
+  A code that no table declares answers `500`.
   """
   @spec status(atom()) :: pos_integer()
-  def status(code) when is_atom(code), do: Map.get(@statuses, code, 500)
+  def status(code) when is_atom(code), do: code |> resolve() |> elem(0)
 
   @doc """
   The problem document as a map with string keys.
@@ -100,15 +130,35 @@ defmodule PhoenixKit.API.Problem do
   @spec body(atom(), String.t(), map(), String.t() | nil) :: map()
   def body(code, detail, context, request_id)
       when is_atom(code) and is_binary(detail) and is_map(context) do
+    {status, title, _known?} = resolve(code)
+    build_body(code, status, title, detail, context, request_id)
+  end
+
+  defp build_body(code, status, title, detail, context, request_id) do
     %{
       "type" => @type_base <> Atom.to_string(code),
-      "title" => Map.get(@titles, code, "Error"),
-      "status" => status(code),
+      "title" => title,
+      "status" => status,
       "code" => Atom.to_string(code),
       "detail" => detail,
       "context" => context
     }
     |> put_request_id(request_id)
+  end
+
+  # `{status, title, known?}`: core's table first (no registry read), then what a module
+  # or Legacy declares, else the generic 500.
+  defp resolve(code) do
+    case Map.fetch(@statuses, code) do
+      {:ok, status} ->
+        {status, Map.fetch!(@titles, code), true}
+
+      :error ->
+        case declared(code) do
+          %{status: status, title: title} -> {status, title, true}
+          nil -> {500, "Error", false}
+        end
+    end
   end
 
   @doc """
@@ -130,21 +180,23 @@ defmodule PhoenixKit.API.Problem do
   @spec send(Plug.Conn.t(), atom(), String.t(), map()) :: Plug.Conn.t()
   def send(%Plug.Conn{} = conn, code, detail, context \\ %{})
       when is_atom(code) and is_binary(detail) and is_map(context) do
-    unless Map.has_key?(@statuses, code) do
+    {status, title, known?} = resolve(code)
+
+    unless known? do
       Logger.warning(
         "[PhoenixKit.API] unknown error code (#{LogSafe.shape(code)}); answering 500"
       )
     end
 
     conn = settle_request_id(conn)
-    payload = code |> body(detail, context, request_id(conn)) |> encode()
+    payload = code |> build_body(status, title, detail, context, request_id(conn)) |> encode()
 
     conn
     |> put_challenge(code, context)
     |> put_retry_after(context)
     |> put_resp_header("content-type", "application/problem+json; charset=utf-8")
     |> put_resp_header("cache-control", "no-store")
-    |> send_resp(status(code), payload)
+    |> send_resp(status, payload)
     |> halt()
   end
 

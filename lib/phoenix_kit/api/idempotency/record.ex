@@ -2,7 +2,7 @@ defmodule PhoenixKit.API.Idempotency.Record do
   @moduledoc """
   One `Idempotency-Key` an API client used (table `phoenix_kit_api_idempotency`).
 
-    * `scope_ref` - the key uuid (admin calls) or the cart-token hash (public cart
+    * `scope_ref` - the key uuid (admin calls) or the client-token hash (public
       calls); `{scope_ref, key}` is unique.
     * `request_hash` - canonical hash of the tool and its arguments, so a retry is
       told from a different request.

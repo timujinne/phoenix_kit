@@ -11,6 +11,7 @@ defmodule PhoenixKitWeb.Live.Settings.ApiLimitsTest do
 
   alias PhoenixKit.Activity
   alias PhoenixKit.API.Config
+  alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Users.RolePermission
@@ -36,10 +37,10 @@ defmodule PhoenixKitWeb.Live.Settings.ApiLimitsTest do
       "mcp_allowed_origins" => "",
       "preauth_fail_per_min" => Integer.to_string(limits.preauth_fail_per_min),
       "admin_per_min" => Integer.to_string(limits.admin_per_min),
-      "public_cart_per_min" => Integer.to_string(limits.public_cart_per_min),
+      "public_token_per_min" => Integer.to_string(limits.public_token_per_min),
       "public_ip_per_min" => Integer.to_string(limits.public_ip_per_min),
-      "cart_rows_ip_hour" => Integer.to_string(limits.cart_rows_ip_hour),
-      "cart_rows_global_hour" => Integer.to_string(limits.cart_rows_global_hour)
+      "new_rows_ip_hour" => Integer.to_string(limits.new_rows_ip_hour),
+      "new_rows_global_hour" => Integer.to_string(limits.new_rows_global_hour)
     }
     |> Map.merge(overrides)
   end
@@ -80,8 +81,112 @@ defmodule PhoenixKitWeb.Live.Settings.ApiLimitsTest do
 
     assert has_element?(
              view,
-             ~s(#api-limit-cart-rows-global-hour[value="#{limits.cart_rows_global_hour}"])
+             ~s(#api-limit-new-rows-global-hour[value="#{limits.new_rows_global_hour}"])
            )
+  end
+
+  test "the card names the limits without a module in them", %{conn: conn} do
+    {:ok, view, html} = live(conn, @path)
+
+    assert html =~ "Calls per minute, per client token (public API)"
+    assert html =~ "New rows per hour, per address"
+    assert html =~ "New rows per hour, all addresses"
+    assert has_element?(view, "#api-limit-new-rows-help", "Rows a module creates")
+    refute has_element?(view, "#api-limit-public-cart-per-min")
+  end
+
+  test "the card shows the values in effect through the deprecated setting names", %{conn: conn} do
+    {:ok, _} = Settings.update_setting("api_public_cart_rate_per_min", "55")
+    {:ok, _} = Settings.update_setting("api_public_cart_rows_per_ip_hour", "66")
+    {:ok, view, _html} = live(conn, @path)
+
+    assert has_element?(view, ~s(#api-limit-public-token-per-min[value="55"]))
+    assert has_element?(view, ~s(#api-limit-new-rows-ip-hour[value="66"]))
+    assert has_element?(view, ~s(#api-limit-new-rows-global-hour[value="2000"]))
+  end
+
+  test "the first save writes the values in effect through the deprecated names under the new ones",
+       %{conn: conn, admin: admin} do
+    {:ok, _} = Settings.update_setting("api_public_cart_rate_per_min", "55")
+    {:ok, _} = Settings.update_setting("api_public_cart_rows_per_ip_hour", "66")
+    {:ok, view, _html} = live(conn, @path)
+
+    # Nothing in the form is edited except an unrelated limit.
+    save(view, %{"admin_per_min" => "700"})
+
+    assert changed_settings(admin) ==
+             [
+               "api_admin_rate_per_min",
+               "api_public_new_rows_per_ip_hour",
+               "api_public_token_rate_per_min"
+             ]
+
+    assert Settings.get_setting("api_public_token_rate_per_min") == "55"
+    assert Settings.get_setting("api_public_new_rows_per_ip_hour") == "66"
+    assert Settings.get_setting("api_public_new_rows_global_hour") == nil
+    # The old rows stay, for a rollback.
+    assert Settings.get_setting("api_public_cart_rate_per_min") == "55"
+    assert Settings.get_setting("api_public_cart_rows_per_ip_hour") == "66"
+    assert Config.rate_limits().public_token_per_min == 55
+  end
+
+  test "a second save does not rewrite the migrated values", %{conn: conn, admin: admin} do
+    {:ok, _} = Settings.update_setting("api_public_cart_rate_per_min", "55")
+    {:ok, view, _html} = live(conn, @path)
+    save(view, %{})
+    assert "api_public_token_rate_per_min" in changed_settings(admin)
+    after_first = changed_settings(admin)
+
+    save(view, %{})
+
+    assert changed_settings(admin) == after_first
+  end
+
+  test "a migrated value can be edited afterwards, and the old row stays", %{
+    conn: conn
+  } do
+    {:ok, _} = Settings.update_setting("api_public_cart_rate_per_min", "55")
+    {:ok, view, _html} = live(conn, @path)
+    save(view, %{})
+
+    save(view, %{"public_token_per_min" => "77"})
+
+    assert Config.rate_limits().public_token_per_min == 77
+    assert Settings.get_setting("api_public_cart_rate_per_min") == "55"
+  end
+
+  test "the default can be saved over a deprecated override", %{conn: conn} do
+    {:ok, _} = Settings.update_setting("api_public_cart_rate_per_min", "500")
+    {:ok, view, _html} = live(conn, @path)
+    assert Config.rate_limits().public_token_per_min == 500
+
+    save(view, %{"public_token_per_min" => "120"})
+
+    assert Settings.get_setting("api_public_token_rate_per_min") == "120"
+    assert Config.rate_limits().public_token_per_min == 120
+  end
+
+  for invalid <- ["0", "-3", "abc"] do
+    test "the default can be saved over a deprecated override when the new key holds #{inspect(invalid)}",
+         %{conn: conn} do
+      {:ok, _} = Settings.update_setting("api_public_cart_rate_per_min", "500")
+      {:ok, _} = Settings.update_setting("api_public_token_rate_per_min", unquote(invalid))
+      {:ok, view, _html} = live(conn, @path)
+      assert Config.rate_limits().public_token_per_min == 500
+
+      save(view, %{"public_token_per_min" => "120"})
+
+      assert Settings.get_setting("api_public_token_rate_per_min") == "120"
+      assert Config.rate_limits().public_token_per_min == 120
+    end
+  end
+
+  test "saving the default with nothing set writes nothing", %{conn: conn, admin: admin} do
+    {:ok, view, _html} = live(conn, @path)
+
+    save(view, %{})
+
+    assert changed_settings(admin) == []
   end
 
   test "saving writes the settings, Config reads them back, and the history has them", %{

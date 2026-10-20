@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.Idempotency do
   @moduledoc """
-  Idempotent writes for the shop API: a client that retries a request with
+  Idempotent writes for the machine API: a client that retries a request with
   the same `Idempotency-Key` gets the first answer back, and never a second write.
 
   `claim/4` is called before the handler runs. Its answers:
@@ -13,9 +13,9 @@ defmodule PhoenixKit.API.Idempotency do
     * `{:error, :reused}` - the key was used for a different request.
 
   A claim is a row of `phoenix_kit_api_idempotency` keyed by `(scope_ref, key)`;
-  `scope_ref` is the API key's uuid for admin calls and the cart-token hash for public
-  cart calls. The insert is `ON CONFLICT DO NOTHING`, so two first requests cannot both
-  win. A request that crashed or timed out leaves an `in_progress` row; once its lease
+  `scope_ref` is the API key's uuid for admin calls and the client-token hash for public
+  calls whose tool declares a client token. The insert is `ON CONFLICT DO NOTHING`, so two
+  first requests cannot both win. A request that crashed or timed out leaves an `in_progress` row; once its lease
   (`api_idempotency_lease_seconds`) has run out a retry of the same request takes the row
   over. A request that committed and died before `store/2` runs again after a takeover,
   so module authors should also give their writes a natural key of their own (an
@@ -29,28 +29,31 @@ defmodule PhoenixKit.API.Idempotency do
   Only a `200` body that is at most 1 MB and carries no credential (`storable?/1`).
   Previews, confirmation prompts, pending approvals and errors are not stored: the caller
   releases the claim, so the confirming or the corrected call may reuse the key. A body
-  is credential-bearing when any object key, at any depth, is one of `cart_token`,
-  `confirm_token`, `claim_token`, `claim_url`, `checkout_url`, `api_key`, `access_token`,
-  `token` or `secret` (compared without regard to case), or any string value starts with
-  `pk_` or contains `/checkout/claim/` (the marker is compared without regard to case).
-  Module authors: give a field that carries a secret one of those names, or the answer is
-  not safe to replay. The check is deliberately broad, so it has false positives: an echoed
-  SKU or title that starts with `pk_`, or a field named `token` or `secret`, makes the
-  answer unstorable, and the retry of that write then runs the handler again. Keep such
-  values out of write answers. The names are matched exactly: `refresh_token` or
-  `cart-token` are not on the list.
+  is credential-bearing when any object key, at any depth, names a credential
+  (`PhoenixKit.API.Auth.credential_name?/1`: `token`, `secret`, `api_key`, `authorization`,
+  `bearer`, or any name ending in `_token`, compared without regard to case), or is one of
+  the output fields the tool declares (`PhoenixKit.API.Tool.credential_keys/1`: its
+  `credentials` and its `client_token`), or any string value starts with `pk_`.
+  `PhoenixKit.API.Legacy` adds the keys `claim_url` and `checkout_url` and the value
+  marker `/checkout/claim/` for modules that predate `Tool.credentials`.
+  Module authors: name a field that carries a secret `*_token`, or list it in the tool's
+  `credentials`, or the answer is not safe to replay. The check is deliberately broad, so
+  it has false positives: an echoed SKU or title that starts with `pk_`, or a field named
+  `token` or `secret`, makes the answer unstorable, and the retry of that write then runs
+  the handler again. Keep such values out of write answers. `token_count` or `tokens_issued`
+  are not credentials; `session-token` (a hyphen) is not either.
   """
 
   import Ecto.Query
 
+  alias PhoenixKit.API.Auth
   alias PhoenixKit.API.FlowConfig
   alias PhoenixKit.API.Idempotency.Record
+  alias PhoenixKit.API.Legacy
   alias PhoenixKit.RepoHelper
 
   @max_body_bytes 1_048_576
   @max_attempts 3
-  @credential_keys ~w(cart_token confirm_token claim_token claim_url checkout_url api_key access_token token secret)
-  @credential_markers ["/checkout/claim/"]
 
   @type claim :: %{uuid: String.t(), locked_at: DateTime.t()}
 
@@ -143,7 +146,7 @@ defmodule PhoenixKit.API.Idempotency do
   deleted) meanwhile: the newer run owns the row.
 
   The body is written as given. The caller must check `storable?/1` first and call
-  `release/1` instead when it is false: a cart token or a claim URL stored here would
+  `release/1` instead when it is false: a client token or a claim URL stored here would
   sit in the table in plain text.
   """
   @spec store(claim(), String.t()) :: :ok | :lost
@@ -171,59 +174,70 @@ defmodule PhoenixKit.API.Idempotency do
     :ok
   end
 
-  @doc "Whether an answer may be stored: at most 1 MB, valid JSON, no credential."
-  @spec storable?(String.t()) :: boolean()
-  def storable?(body) when is_binary(body) do
-    byte_size(body) <= @max_body_bytes and not credential_bearing?(body)
+  @doc """
+  Whether an answer may be stored: at most 1 MB, valid JSON, no credential. `keys` are the
+  tool's own credential fields (`PhoenixKit.API.Tool.credential_keys/1`).
+  """
+  @spec storable?(String.t(), [String.t()]) :: boolean()
+  def storable?(body, keys \\ []) when is_binary(body) do
+    byte_size(body) <= @max_body_bytes and not credential_bearing?(body, keys)
   end
 
   @doc """
-  Whether a JSON body carries a credential (see the moduledoc). A body that is not JSON
-  counts as carrying one: it is not stored.
+  Whether a JSON body carries a credential (see the moduledoc); `keys` are the tool's own
+  credential fields. A body that is not JSON counts as carrying one: it is not stored.
   """
-  @spec credential_bearing?(String.t()) :: boolean()
-  def credential_bearing?(body) when is_binary(body) do
+  @spec credential_bearing?(String.t(), [String.t()]) :: boolean()
+  def credential_bearing?(body, keys \\ []) when is_binary(body) do
     case JSON.decode(body) do
-      {:ok, decoded} -> walk(decoded)
+      {:ok, decoded} -> walk(decoded, key_set(keys))
       {:error, _reason} -> true
     end
   end
 
   @doc """
-  Redacts credentials in JSON-compatible data using the same rules as replay storage.
+  Redacts credentials in JSON-compatible data using the same rules as replay storage;
+  `keys` are the tool's own credential fields.
   Approval results and progress must pass through this before they are persisted.
   """
-  @spec redact_credentials(term()) :: term()
-  def redact_credentials(map) when is_map(map) do
+  @spec redact_credentials(term(), [String.t()]) :: term()
+  def redact_credentials(data, keys \\ []), do: redact(data, key_set(keys))
+
+  defp redact(map, keys) when is_map(map) do
     Map.new(map, fn {key, value} ->
-      {key, if(credential_key?(key), do: "[REDACTED]", else: redact_credentials(value))}
+      {key, if(credential_key?(key, keys), do: "[REDACTED]", else: redact(value, keys))}
     end)
   end
 
-  def redact_credentials(list) when is_list(list), do: Enum.map(list, &redact_credentials/1)
+  defp redact(list, keys) when is_list(list), do: Enum.map(list, &redact(&1, keys))
 
-  def redact_credentials(value) when is_binary(value),
-    do: if(walk(value), do: "[REDACTED]", else: value)
+  defp redact(value, keys) when is_binary(value),
+    do: if(walk(value, keys), do: "[REDACTED]", else: value)
 
-  def redact_credentials(value), do: value
+  defp redact(value, _keys), do: value
 
-  defp walk(map) when is_map(map) do
-    Enum.any?(map, fn {key, value} -> credential_key?(key) or walk(value) end)
+  defp walk(map, keys) when is_map(map) do
+    Enum.any?(map, fn {key, value} -> credential_key?(key, keys) or walk(value, keys) end)
   end
 
-  defp walk(list) when is_list(list), do: Enum.any?(list, &walk/1)
+  defp walk(list, keys) when is_list(list), do: Enum.any?(list, &walk(&1, keys))
 
-  defp walk(value) when is_binary(value) do
+  defp walk(value, _keys) when is_binary(value) do
     lowered = String.downcase(value)
 
     String.starts_with?(value, "pk_") or
-      Enum.any?(@credential_markers, &String.contains?(lowered, &1))
+      Enum.any?(Legacy.credential_markers(), &String.contains?(lowered, &1))
   end
 
-  defp walk(_other), do: false
+  defp walk(_other, _keys), do: false
 
-  defp credential_key?(key) when is_binary(key), do: String.downcase(key) in @credential_keys
-  defp credential_key?(_key), do: false
+  defp credential_key?(key, keys) when is_binary(key),
+    do: Auth.credential_name?(key) or String.downcase(key) in keys
+
+  defp credential_key?(_key, _keys), do: false
+
+  # The names that are credentials besides core's rule: the tool's own and the legacy ones.
+  defp key_set(keys), do: Legacy.credential_keys() ++ Enum.map(keys, &String.downcase/1)
 
   @doc "Deletes the rows that have expired. Returns how many."
   @spec prune(DateTime.t()) :: non_neg_integer()

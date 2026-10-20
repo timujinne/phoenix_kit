@@ -22,6 +22,7 @@ if Code.ensure_loaded?(Igniter) do
     alias Igniter.Project.Application
     alias Igniter.Project.Deps
     alias Igniter.Project.Module, as: IgniterModule
+    alias PhoenixKit.API.Paths
     alias PhoenixKit.Install.IgniterHelpers
 
     # PDF.js viewer assets are vendored in phoenix_kit_catalogue's
@@ -35,7 +36,7 @@ if Code.ensure_loaded?(Igniter) do
       gzip: false\
     """
 
-    # The shop API's body guard. It has to run before `Plug.Parsers`, which in
+    # The machine API's body guard. It has to run before `Plug.Parsers`, which in
     # the host endpoint reads (up to 8 MB) and parses every body first; see
     # `PhoenixKit.API.BodyGuard`.
     @body_guard_plug "plug PhoenixKit.API.BodyGuard"
@@ -102,7 +103,7 @@ if Code.ensure_loaded?(Igniter) do
     Puts `plug PhoenixKit.API.BodyGuard` into the host endpoint, immediately
     before `plug Plug.Parsers`.
 
-    `PhoenixKit.API.BodyGuard` bounds the body of shop API requests to 2 MB
+    `PhoenixKit.API.BodyGuard` bounds the body of machine API requests to 2 MB
     and answers malformed JSON as `application/problem+json`; a router plug
     cannot do either, because `Plug.Parsers` has already read the body by
     then. Requests to any other path pass through it untouched.
@@ -154,8 +155,8 @@ if Code.ensure_loaded?(Igniter) do
       where = if endpoint_module, do: inspect(endpoint_module), else: "the endpoint"
 
       "Could not add PhoenixKit.API.BodyGuard to #{where}. Add `#{@body_guard_plug}` " <>
-        "immediately before `plug Plug.Parsers` by hand; without it the shop API " <>
-        "(/api/admin/v1, /api/shop/v1) has no 2 MB body limit and answers malformed " <>
+        "immediately before `plug Plug.Parsers` by hand; without it the machine API " <>
+        "(#{Paths.rest_path(:admin)}, #{Paths.rest_path(:public)}) has no 2 MB body limit and answers malformed " <>
         "JSON with an error page instead of a problem+json document."
     end
 

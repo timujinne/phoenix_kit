@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.FlowConfig do
   @moduledoc """
-  Settings of the dangerous-operation flow of the shop API: when an operation needs
+  Settings of the dangerous-operation flow of the machine API: when an operation needs
   a confirmation, how long a code, an approval and a stored idempotent answer live.
 
   | Setting | Default | Allowed |
@@ -12,7 +12,7 @@ defmodule PhoenixKit.API.FlowConfig do
   | `api_idempotency_ttl_hours` | `24` | 1 to 720 |
   | `api_idempotency_lease_seconds` | `120` | 5 to 3600 |
 
-  (`api_confirm_price_change_pct` belongs to the e-commerce module.)
+  (A module that tunes a flow threshold, such as `api_confirm_price_change_pct`, owns that setting.)
 
   A stored value that does not parse or is below its minimum reads as the default;
   one above its maximum reads as the maximum. A Settings read error reads as the

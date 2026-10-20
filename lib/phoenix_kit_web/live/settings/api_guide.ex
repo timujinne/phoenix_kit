@@ -83,7 +83,7 @@ defmodule PhoenixKitWeb.Live.Settings.ApiGuide do
 
   # ── Snippets ─────────────────────────────────────────────────────
 
-  # The shop server of the same site is named after the project too, so this one
+  # The public server of the same site is named after the project too, so this one
   # carries a suffix and the two can sit in one client.
   defp server_name(project_title), do: ClientName.slug(project_title) <> "-admin"
 

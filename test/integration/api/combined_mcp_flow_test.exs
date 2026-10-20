@@ -72,20 +72,20 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
     def write(_input, _ctx), do: {:ok, %{"written" => true}}
   end
 
-  defmodule CartTools do
+  defmodule SessionTools do
     @moduledoc false
     alias PhoenixKit.API.Tool
 
-    def module_key, do: "api_combined_cart_tools"
-    def module_name, do: "Combined cart tools"
+    def module_key, do: "api_combined_session_tools"
+    def module_name, do: "Combined session tools"
     def enabled?, do: true
 
-    # Two public tools that are always dangerous; only the second lists `cart_token` in
+    # Two public tools that are always dangerous; only the second lists `session_token` in
     # `required`.
     def api_tools do
       [
-        tool("carttools.drop_cart", []),
-        tool("carttools.drop_cart_required", ["cart_token"])
+        tool("sessiontools.drop_session", []),
+        tool("sessiontools.drop_session_required", ["session_token"])
       ]
     end
 
@@ -93,11 +93,12 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       Tool.new!(
         name: name,
         audience: :public,
-        description: "Drops a cart.",
+        client_token: "session_token",
+        description: "Drops a session.",
         input_schema: %{
           "type" => "object",
           "required" => required,
-          "properties" => %{"cart_token" => %{"type" => "string"}},
+          "properties" => %{"session_token" => %{"type" => "string"}},
           "additionalProperties" => false
         },
         handler: {__MODULE__, :drop},
@@ -176,7 +177,7 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
   defp dotted(mcp_name), do: String.replace(mcp_name, "_", ".", global: false)
 
   defp shop_call(conn, tool, arguments, opts \\ []),
-    do: mcp_call(conn, "/mcp/shop", nil, tool, arguments, opts)
+    do: mcp_call(conn, "/mcp/public", nil, tool, arguments, opts)
 
   defp idem,
     do: "idem-key-" <> String.pad_leading("#{System.unique_integer([:positive])}", 12, "0")
@@ -478,18 +479,18 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
     test "the public tools/list leaves idempotency_key off a tool that cannot replay", %{
       conn: conn
     } do
-      tools = tools_list(conn, "/mcp/shop", nil)
+      tools = tools_list(conn, "/mcp/public", nil)
 
-      properties = tools["flowkit_mint_cart"]["inputSchema"]["properties"]
+      properties = tools["flowkit_mint_session"]["inputSchema"]["properties"]
       assert Map.keys(properties) |> Enum.sort() == ["confirm_token", "dry_run"]
 
-      refused = shop_call(conn, "flowkit_mint_cart", %{"idempotency_key" => idem()})
+      refused = shop_call(conn, "flowkit_mint_session", %{"idempotency_key" => idem()})
       assert result(refused)["isError"] == true
       assert text(result(refused)) =~ "[validation_failed] "
     end
 
     test "the public tools/list shows them on public write tools", %{conn: conn} do
-      tools = tools_list(conn, "/mcp/shop", nil)
+      tools = tools_list(conn, "/mcp/public", nil)
 
       properties = tools["flowkit_public_write"]["inputSchema"]["properties"]
       assert Enum.all?(@control, &Map.has_key?(properties, &1))
@@ -540,7 +541,7 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       public =
         conn
         |> ApiHarness.with_client_ip()
-        |> get(Routes.path("/api/shop/v1/openapi.json"))
+        |> get(Routes.path("/api/public/v1/openapi.json"))
         |> json()
 
       assert Enum.all?(
@@ -649,7 +650,7 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       ip = KeyTestSupport.unique_ip()
 
       first =
-        mcp_call(conn, "/mcp/shop", nil, "counting_public_write", %{"dry_run" => true}, ip: ip)
+        mcp_call(conn, "/mcp/public", nil, "counting_public_write", %{"dry_run" => true}, ip: ip)
 
       assert first.status == 200
       assert %{"dry_run" => true} = structured(first)
@@ -663,7 +664,7 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
             %{}
           ],
           name <- ["counting_public_write", "counting.public_write", "no_such_tool"] do
-        refused = mcp_call(conn, "/mcp/shop", nil, name, arguments, ip: ip)
+        refused = mcp_call(conn, "/mcp/public", nil, name, arguments, ip: ip)
         assert refused.status == 429
         assert %{"code" => "rate_limited"} = json(refused)
       end
@@ -675,7 +676,7 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       conn: conn
     } do
       ip = KeyTestSupport.unique_ip()
-      answer = mcp_call(conn, "/mcp/shop", nil, "no_such_tool", %{"dry_run" => true}, ip: ip)
+      answer = mcp_call(conn, "/mcp/public", nil, "no_such_tool", %{"dry_run" => true}, ip: ip)
 
       assert answer.status == 200
       refute Map.has_key?(json(answer), "result")
@@ -1036,24 +1037,26 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
   # --- (j) the public endpoint ---------------------------------------------------------------
 
   describe "a dangerous public tool over MCP" do
-    test "needs a cart token to ask for a code, and the code is bound to that cart", %{conn: conn} do
-      without = shop_call(conn, "flowkit_clear_cart", %{"confirm_token" => "x.y"})
+    test "needs a client token to ask for a code, and the code is bound to that client token", %{
+      conn: conn
+    } do
+      without = shop_call(conn, "flowkit_clear_session", %{"confirm_token" => "x.y"})
       assert text(result(without)) =~ "[validation_failed]"
 
-      asked = shop_call(conn, "flowkit_clear_cart", %{"cart_token" => "cart-aaaa"})
+      asked = shop_call(conn, "flowkit_clear_session", %{"session_token" => "session-aaaa"})
       assert %{"status" => "confirmation_required", "confirm_token" => code} = structured(asked)
 
-      other_cart =
-        shop_call(conn, "flowkit_clear_cart", %{
-          "cart_token" => "cart-bbbb",
+      other_session =
+        shop_call(conn, "flowkit_clear_session", %{
+          "session_token" => "session-bbbb",
           "confirm_token" => code
         })
 
-      assert text(result(other_cart)) =~ "[confirm_token_invalid]"
+      assert text(result(other_session)) =~ "[confirm_token_invalid]"
 
       done =
-        shop_call(conn, "flowkit_clear_cart", %{
-          "cart_token" => "cart-aaaa",
+        shop_call(conn, "flowkit_clear_session", %{
+          "session_token" => "session-aaaa",
           "confirm_token" => code
         })
 
@@ -1073,7 +1076,7 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
       end
     end
 
-    test "ignores an idempotency key without a cart token and keeps one answer per cart with it",
+    test "ignores an idempotency key without a client token and keeps one answer per client token with it",
          %{conn: conn} do
       key = idem()
       shop_call(conn, "flowkit_public_write", %{"text" => "x", "idempotency_key" => key})
@@ -1082,10 +1085,10 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
 
       key = idem()
 
-      call = fn cart ->
+      call = fn session ->
         shop_call(conn, "flowkit_public_write", %{
           "text" => "x",
-          "cart_token" => cart,
+          "session_token" => session,
           "idempotency_key" => key
         })
       end
@@ -1097,25 +1100,25 @@ defmodule PhoenixKit.API.CombinedMcpFlowTest do
     end
   end
 
-  describe "a dangerous public tool whose schema does not require cart_token" do
+  describe "a dangerous public tool whose schema does not require session_token" do
     setup do
-      :ok = ModuleRegistry.register(CartTools)
-      on_exit(fn -> ModuleRegistry.unregister(CartTools) end)
+      :ok = ModuleRegistry.register(SessionTools)
+      on_exit(fn -> ModuleRegistry.unregister(SessionTools) end)
       :ok
     end
 
-    test "answers a dry run without a cart token and refuses the real call", %{conn: conn} do
-      dry = shop_call(conn, "carttools_drop_cart", %{"dry_run" => true})
+    test "answers a dry run without a client token and refuses the real call", %{conn: conn} do
+      dry = shop_call(conn, "sessiontools_drop_session", %{"dry_run" => true})
       assert %{"executed" => false, "dry_run" => true} = structured(dry)
 
-      real = shop_call(conn, "carttools_drop_cart", %{})
+      real = shop_call(conn, "sessiontools_drop_session", %{})
       assert result(real)["isError"] == true
       assert text(result(real)) =~ "[validation_failed]"
     end
 
     test "refuses both when the schema requires it", %{conn: conn} do
       for arguments <- [%{"dry_run" => true}, %{}] do
-        answer = shop_call(conn, "carttools_drop_cart_required", arguments)
+        answer = shop_call(conn, "sessiontools_drop_session_required", arguments)
         assert result(answer)["isError"] == true
         assert text(result(answer)) =~ "[validation_failed]"
       end

@@ -19,7 +19,7 @@ defmodule PhoenixKit.Test.ApiTools do
   | `testkit.fail_write` | admin | `testkit.items:write` / `settings` | write; `{:error, :insufficient_stock, ...}` |
   | `testkit.crash_write` | admin | `testkit.items:write` / `settings` | write; raises |
   | `testkit.open_schema_write` | admin | `testkit.items:write` / `settings` | write; its schema does NOT say `additionalProperties: false` (the executor must close it) |
-  | `testkit.public_echo` | public | none | read; echoes input and cart token hash; has a `lines` list (a public call costs 1 whatever the list) |
+  | `testkit.public_echo` | public | none | read; echoes input and client token hash; has a `lines` list (a public call costs 1 whatever the list) |
   """
 
   alias PhoenixKit.API.Tool
@@ -113,14 +113,15 @@ defmodule PhoenixKit.Test.ApiTools do
         "type" => "object",
         "properties" => %{
           "text" => %{"type" => "string"},
-          "cart_token" => %{"type" => "string"},
+          "session_token" => %{"type" => "string"},
           "lines" => %{"type" => "array", "items" => %{"type" => "object"}}
         },
         "additionalProperties" => false
       },
       output_schema: %{"type" => "object"},
       handler: {__MODULE__, :public_echo},
-      annotations: @read
+      annotations: @read,
+      client_token: "session_token"
     )
   end
 
@@ -165,6 +166,6 @@ defmodule PhoenixKit.Test.ApiTools do
   end
 
   def public_echo(input, ctx) do
-    {:ok, %{"echo" => Map.get(input, "text"), "cart_token_hash" => ctx.actor.cart_token_hash}}
+    {:ok, %{"echo" => Map.get(input, "text"), "client_token_hash" => ctx.actor.client_token_hash}}
   end
 end

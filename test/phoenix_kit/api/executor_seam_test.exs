@@ -80,7 +80,7 @@ defmodule PhoenixKit.API.ExecutorSeamTest do
     test "a public tool runs for an anonymous actor" do
       conn = :post |> api_conn("/") |> Auth.call(Auth.init(audience: :public))
 
-      assert {:ok, %{result: %{"echo" => "hi", "cart_token_hash" => nil}}, headers} =
+      assert {:ok, %{result: %{"echo" => "hi", "client_token_hash" => nil}}, headers} =
                Executor.execute(conn, :public, "testkit.public_echo", %{"text" => "hi"})
 
       assert header?(headers, "ratelimit-limit")

@@ -14,6 +14,39 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   parent) and gives the files stored in it an object-key prefix of its own
   (`key_prefix`).
 
+  ## Hidden system libraries
+
+  A module that keeps files of its own (a chat's attachments, say) can create a
+  **hidden** one: `create_system_library(attrs, hidden: true)` with a `"slug"`
+  of its own. It is a system library with `visibility: "private"`, and the site
+  neither lists it nor opens it:
+
+    * it is not listed with the site's libraries (`list_system_libraries/0`, so
+      not in Media's switcher nor in Settings), and `get_system_library/1` and
+      `get_system_library_by_slug/1`, which check a URL, do not find it; the
+      module finds it again with `get_hidden_library_by_slug/1` or
+      `get_library/1`;
+    * its files and folders are left out of every listing that names no library
+      (`exclude_user_libraries/1`: the media pickers, orphan cleanup) and are only
+      browsed where the module names the library;
+    * the Settings pages that name libraries (Health's stale files, a bucket's
+      contents, a storage profile's libraries) and the job titles count it with
+      the private libraries and never name it;
+    * its files are private (`private?/1`): their URLs carry a time-window token
+      and the permanent one is refused, and the repair log writes nothing about
+      them;
+    * `can?/3` grants its files to their uploader and to an Owner/Admin
+      (`Scope.system_role?/1`) only: `media.view_all` opens none of them. An
+      Owner/Admin reads any file of Storage by design, a hidden one included.
+
+  Its name and slug are not secret: the Storage history records its creation by
+  name (unless the module passes `audit: false`), and they are taken in the one
+  namespace all system libraries share (see `create_system_library/2`).
+
+  Dedup keys fold the library in (`Storage.calculate_user_file_checksum/3`), so
+  an upload outside the hidden library never comes back as one of its files.
+  Without a hidden library, nothing about Storage changes.
+
   ## User libraries (V203)
 
   When the install turns them on (`user_libraries_enabled?/0`), a user with
@@ -87,16 +120,50 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   @doc """
-  The live system libraries, the default (Media) first, then by name.
+  The live system libraries, the default (Media) first, then by name. A hidden
+  one (`hidden?/1`) is not among them.
   """
   @spec list_system_libraries() :: [Library.t()]
   def list_system_libraries do
     from(l in Library,
-      where: l.kind == "system" and is_nil(l.trashed_at),
+      where: l.kind == "system" and l.visibility == "site" and is_nil(l.trashed_at),
       order_by: [desc: l.is_default, asc: fragment("lower(?)", l.name)]
     )
     |> repo().all()
   end
+
+  @doc """
+  Whether a library is a hidden system library (`create_system_library/2` with
+  `hidden: true`). Takes a library or a uuid; Media and anything that is not a
+  library are not.
+  """
+  @spec hidden?(Library.t() | term()) :: boolean()
+  def hidden?(%Library{kind: "system", visibility: "private"}), do: true
+  def hidden?(%Library{}), do: false
+  def hidden?(nil), do: false
+
+  def hidden?(uuid) when is_binary(uuid) do
+    if media?(uuid), do: false, else: hidden?(get_library(uuid))
+  end
+
+  def hidden?(_), do: false
+
+  @doc """
+  The live hidden system library whose slug is `slug`, or nil — how the module
+  that created it finds it again.
+  """
+  @spec get_hidden_library_by_slug(term()) :: Library.t() | nil
+  def get_hidden_library_by_slug(slug) when is_binary(slug) do
+    repo().one(
+      from(l in Library,
+        where:
+          l.kind == "system" and l.visibility == "private" and is_nil(l.trashed_at) and
+            l.slug == ^slug
+      )
+    )
+  end
+
+  def get_hidden_library_by_slug(_slug), do: nil
 
   @doc """
   `list_system_libraries/0` with what each one holds: `files` (live,
@@ -189,24 +256,28 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   @doc """
   The live system library with this uuid, or nil — what a URL-supplied
   library id is checked against before anything is listed or stored in it.
+  A hidden one (`hidden?/1`) is nil here.
   """
   @spec get_system_library(term()) :: Library.t() | nil
   def get_system_library(uuid) do
     case get_library(uuid) do
-      %Library{kind: "system", trashed_at: nil} = library -> library
+      %Library{kind: "system", visibility: "site", trashed_at: nil} = library -> library
       _ -> nil
     end
   end
 
   @doc """
   The live system library whose URL slug is `slug`, or nil. The default
-  library has no slug (it is the bare `/admin/media`).
+  library has no slug (it is the bare `/admin/media`). A hidden one is not
+  found here (`get_hidden_library_by_slug/1`).
   """
   @spec get_system_library_by_slug(term()) :: Library.t() | nil
   def get_system_library_by_slug(slug) when is_binary(slug) do
     repo().one(
       from(l in Library,
-        where: l.kind == "system" and is_nil(l.trashed_at) and l.slug == ^slug
+        where:
+          l.kind == "system" and l.visibility == "site" and is_nil(l.trashed_at) and
+            l.slug == ^slug
       )
     )
   end
@@ -218,6 +289,17 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   slug comes from the name (`"Brand Assets"` → `"brand-assets"`, then
   `"brand-assets-2"` … while one is taken) and the object-key prefix is
   generated, unless either is given.
+
+  `hidden: true` among the options makes it a hidden library (see "Hidden
+  system libraries" above), for a module's own files. Only this option hides
+  one: a `"visibility"` in `attrs` is ignored. A hidden library needs its
+  `"slug"` in `attrs`: it is not derived, and a taken one is an error (on
+  `:slug`), never `"<slug>-2"`, so the module finds the library again with
+  `get_hidden_library_by_slug/1`. System libraries share one namespace of
+  names and of slugs, so give both a prefix of the module's own
+  (`"phoenix-kit-ai"`, say); a site library cannot then take that name later
+  without "is already the name of another library". `audit: false` among the
+  options leaves the creation out of the Storage history, which names it.
   """
   @spec create_system_library(map(), keyword()) ::
           {:ok, Library.t()} | {:error, Ecto.Changeset.t()}
@@ -229,9 +311,17 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     attrs = Map.new(attrs, fn {k, v} -> {to_string(k), v} end)
     attrs = Map.put_new_lazy(attrs, "key_prefix", &generate_key_prefix/0)
 
+    hidden? = Keyword.get(opts, :hidden) == true
+
     with {:ok, storage} <- creation_storage(attrs) do
+      storage = if hidden?, do: Keyword.put(storage, :visibility, "private"), else: storage
+
       case attrs do
         %{"slug" => _} ->
+          insert_system_library(attrs, storage)
+
+        # A hidden one is found again by its slug: none is made up for it.
+        _ when hidden? ->
           insert_system_library(attrs, storage)
 
         _ ->
@@ -295,6 +385,21 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   # The site's libraries are in the history; a user's library is theirs and private.
+  # A hidden one is named only when it is created (and `audit: false` skips that).
+  defp audit_library(
+         action,
+         %Library{kind: "system", visibility: "private"} = library,
+         opts,
+         metadata
+       )
+       when action == "storage.library.created" do
+    Audit.log(action, "storage_library", library.uuid, opts, metadata)
+    :ok
+  end
+
+  defp audit_library(_action, %Library{kind: "system", visibility: "private"}, _opts, _metadata),
+    do: :ok
+
   defp audit_library(action, %Library{kind: "system"} = library, opts, metadata) do
     Audit.log(action, "storage_library", library.uuid, opts, metadata)
     :ok
@@ -400,8 +505,8 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
   @doc """
   Whether files in a library are private (`visibility: "private"`, every user
-  library except a public one, and a public one while it is suspended or in the
-  trash): their
+  library except a public one, a hidden system library, and a public one while
+  it is suspended or in the trash): their
   URLs carry a time-window token and are never answered with a redirect to a
   public object URL. Media is answered without a query; anything that is not a
   library is not private.
@@ -442,7 +547,17 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   builds URLs for many files at once.
   """
   @spec private_among([term()]) :: [String.t()]
-  def private_among(library_uuids) do
+  def private_among(library_uuids), do: among(library_uuids, private_condition())
+
+  @doc """
+  Which of `library_uuids` are user libraries or hidden system libraries
+  (`hidden?/1`), in one query — the ones a site's folder tree leaves out.
+  """
+  @spec user_or_hidden_among([term()]) :: [String.t()]
+  def user_or_hidden_among(library_uuids),
+    do: among(library_uuids, dynamic([l], l.kind == "user" or l.visibility == "private"))
+
+  defp among(library_uuids, condition) do
     uuids =
       library_uuids
       |> Enum.reject(&(is_nil(&1) or media?(&1)))
@@ -452,10 +567,7 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     if uuids == [] do
       []
     else
-      from(l in Library,
-        where: ^dynamic([l], l.uuid in ^uuids and ^private_condition()),
-        select: l.uuid
-      )
+      from(l in Library, where: ^dynamic([l], l.uuid in ^uuids and ^condition), select: l.uuid)
       |> repo().all()
       |> Enum.map(&to_string/1)
     end
@@ -622,6 +734,7 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
   defp check_type(_type, nil), do: :ok
   defp check_type(:boolean, value) when is_boolean(value), do: :ok
+
   defp check_type(_type, _value), do: {:error, :invalid_value}
 
   defp stored(settings, key) do
@@ -637,13 +750,189 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # A module's own per-library settings
+  #
+  # A module that is not core (a package: photos, say) has settings of its own for a
+  # library, and core must not have to name them. They live in the same `settings` map,
+  # under `"modules"` and the module's namespace: `settings["modules"]["photos"]["viewer"]`.
+  # Core keeps the namespacing, the update of only that key, the lock and the history; it
+  # knows no key and checks no value beyond being a plain scalar. Which keys exist, what
+  # they may be, and what none means is the module's to say.
+  # ---------------------------------------------------------------------------
+
+  @module_namespace ~r/\A[a-z][a-z0-9_]{0,31}\z/
+  @module_key ~r/\A[a-z][a-z0-9_]{0,63}\z/
+  @module_value_bytes 255
+
+  @typedoc "A module setting's value: a boolean, a number, or a string of at most 255 bytes."
+  @type module_value :: boolean() | number() | String.t()
+
+  @doc """
+  A module's own value of `key` for a library, or nil when it has none. `namespace` is
+  the module's (`"photos"`); a library, a library uuid, or nil for Media.
+  """
+  @spec module_setting(Library.t() | term(), String.t(), String.t()) :: module_value() | nil
+  def module_setting(%Library{settings: settings}, namespace, key),
+    do: stored_module_value(settings, namespace, key)
+
+  def module_setting(nil, namespace, key), do: module_setting(@media_uuid, namespace, key)
+
+  def module_setting(uuid, namespace, key) do
+    with {:ok, uuid} <- Ecto.UUID.cast(uuid),
+         %Library{} = library <- repo().get(Library, uuid) do
+      module_setting(library, namespace, key)
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Sets a module's own value of `key` for a library; nil removes it. Only that key
+  changes (another key of the module, or another module's, is not lost). The value is
+  a boolean, a number or a string of at most 255 bytes; the namespace and the key are
+  lowercase words (`[a-z][a-z0-9_]*`, up to 32 and 64 characters).
+
+  Returns `{:error, :invalid_namespace | :invalid_key | :invalid_value | :not_found}`
+  and changes nothing when refused.
+  """
+  @spec put_module_setting(Library.t(), String.t(), String.t(), module_value() | nil, keyword()) ::
+          {:ok, Library.t()}
+          | {:error, :invalid_namespace | :invalid_key | :invalid_value | :not_found}
+  def put_module_setting(%Library{} = library, namespace, key, value, opts \\ []) do
+    with :ok <- check_module_namespace(namespace),
+         :ok <- check_module_key(key),
+         :ok <- check_module_value(value) do
+      Audit.change(library, &do_put_module_setting(&1, namespace, key, value, opts))
+    end
+  end
+
+  defp do_put_module_setting(%Library{uuid: uuid} = library, namespace, key, value, opts) do
+    {count, _} =
+      if is_nil(value) do
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              settings:
+                fragment("? #- array['modules', ?::text, ?::text]", l.settings, ^namespace, ^key)
+            ]
+          ]
+        )
+        |> repo().update_all([])
+      else
+        patch = %{key => value}
+
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              # First make sure `modules` exists, then set the module's map to itself merged with the patch.
+              # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+              settings:
+                fragment(
+                  "jsonb_set(jsonb_set(?, '{modules}', coalesce(? -> 'modules', '{}'::jsonb)), array['modules', ?::text], coalesce(? #> array['modules', ?::text], '{}'::jsonb) || ?)",
+                  l.settings,
+                  l.settings,
+                  ^namespace,
+                  l.settings,
+                  ^namespace,
+                  type(^patch, :map)
+                )
+            ]
+          ]
+        )
+        |> repo().update_all([])
+      end
+
+    if count == 1 do
+      if is_nil(value), do: prune_module_namespace(uuid, namespace)
+      updated = get_library(uuid)
+      audit_module_setting(library, updated, namespace, key, opts)
+      {:ok, updated}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  # A module whose last key was removed leaves nothing behind.
+  defp prune_module_namespace(uuid, namespace) do
+    from(l in Library,
+      where: l.uuid == ^uuid,
+      where: fragment("(? #> array['modules', ?::text]) = '{}'::jsonb", l.settings, ^namespace),
+      update: [
+        set: [settings: fragment("? #- array['modules', ?::text]", l.settings, ^namespace)]
+      ]
+    )
+    |> repo().update_all([])
+
+    from(l in Library,
+      where: l.uuid == ^uuid,
+      where: fragment("(? -> 'modules') = '{}'::jsonb", l.settings),
+      update: [set: [settings: fragment("? - 'modules'", l.settings)]]
+    )
+    |> repo().update_all([])
+  end
+
+  defp audit_module_setting(%Library{} = before, %Library{} = updated, namespace, key, opts) do
+    old = module_setting(before, namespace, key)
+    new = module_setting(updated, namespace, key)
+
+    if old != new do
+      audit_library("storage.library.setting_changed", updated, opts, %{
+        "library" => updated.name,
+        PhoenixKit.Activity.changes_key() => %{
+          "#{namespace}.#{key}" => %{"from" => old || "not set", "to" => new || "not set"}
+        }
+      })
+    end
+
+    :ok
+  end
+
+  defp check_module_namespace(namespace) when is_binary(namespace),
+    do:
+      if(Regex.match?(@module_namespace, namespace), do: :ok, else: {:error, :invalid_namespace})
+
+  defp check_module_namespace(_namespace), do: {:error, :invalid_namespace}
+
+  defp check_module_key(key) when is_binary(key),
+    do: if(Regex.match?(@module_key, key), do: :ok, else: {:error, :invalid_key})
+
+  defp check_module_key(_key), do: {:error, :invalid_key}
+
+  defp check_module_value(nil), do: :ok
+  defp check_module_value(value) when is_boolean(value) or is_number(value), do: :ok
+
+  defp check_module_value(value) when is_binary(value) do
+    if byte_size(value) <= @module_value_bytes and String.valid?(value),
+      do: :ok,
+      else: {:error, :invalid_value}
+  end
+
+  defp check_module_value(_value), do: {:error, :invalid_value}
+
+  defp stored_module_value(settings, namespace, key) do
+    with :ok <- check_module_namespace(namespace),
+         :ok <- check_module_key(key),
+         %{} = modules <- Map.get(settings || %{}, "modules"),
+         %{} = own <- Map.get(modules, namespace),
+         value when not is_nil(value) <- Map.get(own, key),
+         :ok <- check_module_value(value) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
   @doc "Whether `file` (anything with a `library_uuid`) is in a private library."
   @spec private_file?(map()) :: boolean()
   def private_file?(%{library_uuid: library_uuid}), do: private?(library_uuid)
   def private_file?(_file), do: false
 
   @doc """
-  Drops rows whose library is a user library, private or public.
+  Drops rows whose library is a user library, private or public, or a hidden
+  system library (any private library).
 
   The file or folder is the query's first binding. Site listings
   (`/admin/media`, the media pickers, orphan cleanup) use this so a user
@@ -672,7 +961,8 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   per-file check, so they stop drifting apart:
 
     * `:read` — the file's info and signed URLs: its uploader, an
-      Owner/Admin (`Scope.system_role?/1`), or — for a file in a user
+      Owner/Admin (`Scope.system_role?/1`, whatever library the file is in, a
+      hidden one included), or — for a file in a user
       library — that library's owner or any of its members, or **anyone**,
       signed in or not, when the library is public (`public?/1`). Deliberately
       NOT the `"media"` permission: a single permission must not open every
@@ -680,7 +970,7 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     * `:edit` — change the picture (image editing, annotation burn-in, the
       unedited original): the uploader, an Owner/Admin, a holder of the
       `"media"` permission with `"media.view_all"` when the file is in a system
-      library, or the
+      library that is not hidden (`hidden?/1`), or the
       owner or a manager of the user library it is in.
 
   Anything else is refused, and a scope without a user, or none at all (`nil`),
@@ -710,6 +1000,8 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       action == :edit and Scope.has_module_access?(scope, "media") and
         Scope.can?(scope, "media.view_all")
 
+  # A hidden library is a module's own: nothing beyond its uploader and an Owner/Admin.
+  defp grants?(_scope, %Library{kind: "system", visibility: "private"}, _action), do: false
   defp grants?(scope, %Library{kind: "system"}, action), do: grants?(scope, :media, action)
 
   defp grants?(scope, %Library{kind: "user", trashed_at: nil} = library, action) do

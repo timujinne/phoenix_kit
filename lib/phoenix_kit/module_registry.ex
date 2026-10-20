@@ -31,6 +31,8 @@ defmodule PhoenixKit.ModuleRegistry do
       ModuleRegistry.all_email_settings_sections() # Collect Emails Transactional page sections
       ModuleRegistry.all_email_templates()   # Collect emails for the admin email preview
       ModuleRegistry.all_api_tools()         # Collect API tools of enabled modules
+      ModuleRegistry.all_api_problems()      # Collect API error codes of enabled modules
+      ModuleRegistry.all_header_widgets()    # Collect admin header widgets of enabled modules
       ModuleRegistry.all_user_dashboard_tabs() # Collect user dashboard tabs
       ModuleRegistry.all_children()          # Collect supervisor child specs
       ModuleRegistry.all_permission_metadata() # Collect permission metadata
@@ -42,8 +44,10 @@ defmodule PhoenixKit.ModuleRegistry do
 
   use GenServer
 
+  alias PhoenixKit.API.Problem
   alias PhoenixKit.API.Tool
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKit.HeaderWidget
   alias PhoenixKit.Integrations.Providers
 
   require Logger
@@ -914,6 +918,42 @@ defmodule PhoenixKit.ModuleRegistry do
   end
 
   @doc """
+  Collect the API error codes (`c:PhoenixKit.Module.api_problems/0`) of the **enabled**
+  modules as `%{code => %{status, title, advice}}`.
+
+  This is read when an error is answered (`PhoenixKit.API.Problem`), never on the success
+  path. A code that is one of core's (`PhoenixKit.API.Problem.core_code?/1`) cannot be
+  overridden, so that declaration is dropped with a warning; so is an entry with a code that
+  is not an atom, a `status` outside `400..599`, a `title` that is not a non-empty string
+  or an `advice` that is neither a string nor `nil`. A code declared by two modules keeps
+  the first (registration order), again with one warning. A module whose
+  `api_problems/0` raises, or returns something that is not a map, contributes nothing
+  and is reported once.
+
+  Like `all_api_tools/1` it asks every module again on every call.
+  """
+  @spec all_api_problems() :: %{
+          atom() => %{status: 400..599, title: String.t(), advice: String.t() | nil}
+        }
+  def all_api_problems do
+    enabled_modules()
+    |> Enum.flat_map(&module_api_problems/1)
+    |> Enum.reduce(%{}, fn {mod, code, problem}, acc ->
+      if Map.has_key?(acc, code) do
+        warn_once(
+          {:duplicate_api_problem, mod, code},
+          "[ModuleRegistry] #{inspect(mod)}.api_problems/0 declares #{inspect(code)}, " <>
+            "which another module already declared, ignored"
+        )
+
+        acc
+      else
+        Map.put(acc, code, problem)
+      end
+    end)
+  end
+
+  @doc """
   The registered modules that declare at least one valid API tool, switched on or off,
   sorted by name: `%{module, key, name, enabled?, tools, audiences}` (`tools` is how many,
   `audiences` the audiences they serve).
@@ -963,6 +1003,136 @@ defmodule PhoenixKit.ModuleRegistry do
       end
     end)
     |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc """
+  Collect the admin header widgets (`c:PhoenixKit.Module.header_widgets/0`) of the
+  **enabled** modules, as `PhoenixKit.HeaderWidget` structs tagged with `:module`.
+
+  Only a module that defines `header_widgets/0` is asked (and only then is its `enabled?/0`
+  called), so an install without such modules pays nothing for this on the layout's render
+  path. An entry that is not a valid widget is dropped with one warning per module, a widget
+  whose id was already taken by an earlier one is dropped with one warning, and a module
+  whose `header_widgets/0` raises contributes nothing and is reported once.
+  """
+  @spec all_header_widgets() :: [HeaderWidget.t()]
+  def all_header_widgets do
+    all_modules()
+    |> Enum.filter(&(header_widgets_exported?(&1) and header_widgets_enabled?(&1)))
+    |> Enum.flat_map(&module_header_widgets/1)
+    |> drop_duplicate_header_widgets()
+  end
+
+  @doc """
+  The header widgets to render for one layout render: `all_header_widgets/0`, each with
+  `:session` computed by its session function from `assigns` (the layout's assigns).
+
+  A widget whose session function returns `nil` is dropped without a word (no widget for
+  this user); one whose session function raises, or returns something that is not a map with
+  string keys, is dropped with one warning. The keys the cookie session owns
+  (`PhoenixKit.HeaderWidget.reserved_session_keys/0`) are removed from the session, with one
+  warning per module and widget.
+  """
+  @spec header_widgets_for(map()) :: [HeaderWidget.t()]
+  def header_widgets_for(assigns) when is_map(assigns) do
+    Enum.flat_map(all_header_widgets(), fn widget ->
+      case HeaderWidget.resolve_session(widget, assigns) do
+        {:ok, resolved, dropped} ->
+          warn_reserved_session_keys(widget, dropped)
+          [resolved]
+
+        :skip ->
+          []
+
+        {:error, reason} ->
+          warn_once(
+            {:header_widget_session, widget.module, widget.id},
+            "[ModuleRegistry] #{inspect(widget.module)} header widget #{inspect(widget.id)} " <>
+              "skipped: #{reason}"
+          )
+
+          []
+      end
+    end)
+  end
+
+  defp warn_reserved_session_keys(_widget, []), do: :ok
+
+  defp warn_reserved_session_keys(widget, dropped) do
+    warn_once(
+      {:header_widget_reserved_keys, widget.module, widget.id},
+      "[ModuleRegistry] #{inspect(widget.module)} header widget #{inspect(widget.id)} " <>
+        "session keys dropped, they belong to the cookie session: #{Enum.join(dropped, ", ")}"
+    )
+  end
+
+  defp header_widgets_exported?(mod) do
+    Code.ensure_loaded?(mod) and function_exported?(mod, :header_widgets, 0)
+  end
+
+  defp header_widgets_enabled?(mod) do
+    function_exported?(mod, :enabled?, 0) and safe_enabled?(mod)
+  end
+
+  defp module_header_widgets(mod) do
+    mod
+    |> call_header_widgets()
+    |> List.wrap()
+    |> Enum.flat_map(fn entry ->
+      case HeaderWidget.new(entry) do
+        {:ok, widget} ->
+          [%{widget | module: mod}]
+
+        {:error, reason} ->
+          warn_once(
+            {:bad_header_widget, mod},
+            "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 returned an invalid " <>
+              "widget, ignored: #{reason}"
+          )
+
+          []
+      end
+    end)
+  end
+
+  # Like `call_api_tools/1`: this runs on every render of the admin layout, so a failing
+  # callback is reported once per module.
+  defp call_header_widgets(mod) do
+    mod.header_widgets()
+  rescue
+    error ->
+      warn_header_widgets_failed(mod, "raised #{inspect(error.__struct__)}")
+  catch
+    kind, _reason ->
+      warn_header_widgets_failed(mod, "failed (#{kind})")
+  end
+
+  defp warn_header_widgets_failed(mod, detail) do
+    warn_once(
+      {:header_widgets_failed, mod},
+      "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 #{detail}"
+    )
+
+    []
+  end
+
+  defp drop_duplicate_header_widgets(widgets) do
+    {kept, _seen} =
+      Enum.reduce(widgets, {[], MapSet.new()}, fn widget, {kept, seen} ->
+        if MapSet.member?(seen, widget.id) do
+          warn_once(
+            {:duplicate_header_widget, widget.id},
+            "[ModuleRegistry] #{inspect(widget.module)} declares the header widget " <>
+              "#{inspect(widget.id)} that another module already declared, ignored"
+          )
+
+          {kept, seen}
+        else
+          {[widget | kept], MapSet.put(seen, widget.id)}
+        end
+      end)
+
+    Enum.reverse(kept)
   end
 
   defp api_module_name(mod) do
@@ -1085,6 +1255,97 @@ defmodule PhoenixKit.ModuleRegistry do
       end)
 
     Enum.reverse(kept)
+  end
+
+  defp module_api_problems(mod) do
+    case call_api_problems(mod) do
+      %{} = problems ->
+        Enum.flat_map(problems, fn {code, entry} -> valid_api_problem(mod, code, entry) end)
+
+      other ->
+        warn_once(
+          {:bad_api_problems, mod},
+          "[ModuleRegistry] #{inspect(mod)}.api_problems/0 returned something that is not a " <>
+            "map, ignored: #{inspect(other, limit: 5, printable_limit: 80)}"
+        )
+
+        []
+    end
+  end
+
+  # Runs when an error is answered by an endpoint that needs no login: a failing callback
+  # is reported once per module, like `call_api_tools/1`.
+  defp call_api_problems(mod) do
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :api_problems, 0) do
+      mod.api_problems()
+    else
+      %{}
+    end
+  rescue
+    error ->
+      warn_api_problems_failed(mod, Exception.message(error))
+  catch
+    kind, reason ->
+      warn_api_problems_failed(mod, inspect({kind, reason}))
+  end
+
+  defp warn_api_problems_failed(mod, detail) do
+    warn_once(
+      {:api_problems_failed, mod},
+      "[ModuleRegistry] #{inspect(mod)}.api_problems/0 failed: #{detail}"
+    )
+
+    %{}
+  end
+
+  defp valid_api_problem(mod, code, entry) when is_atom(code) do
+    if Problem.core_code?(code) do
+      warn_once(
+        {:shadowed_api_problem, mod, code},
+        "[ModuleRegistry] #{inspect(mod)}.api_problems/0 declares #{inspect(code)}, " <>
+          "but that code belongs to core and cannot be overridden, ignored"
+      )
+
+      []
+    else
+      case normalize_api_problem(entry) do
+        {:ok, problem} -> [{mod, code, problem}]
+        {:error, reason} -> warn_bad_api_problem(mod, code, reason)
+      end
+    end
+  end
+
+  defp valid_api_problem(mod, code, _entry),
+    do: warn_bad_api_problem(mod, code, "the code is not an atom")
+
+  defp normalize_api_problem(%{status: status, title: title} = entry)
+       when is_integer(status) and status in 400..599 and is_binary(title) and title != "" do
+    case Map.get(entry, :advice) do
+      advice when is_nil(advice) or is_binary(advice) ->
+        {:ok, %{status: status, title: title, advice: advice}}
+
+      _other ->
+        {:error, "advice must be a string or nil"}
+    end
+  end
+
+  defp normalize_api_problem(%{} = entry) do
+    {:error,
+     "needs a status in 400..599 and a non-empty title, got " <>
+       inspect(Map.take(entry, [:status, :title]), limit: 5, printable_limit: 80)}
+  end
+
+  defp normalize_api_problem(entry),
+    do: {:error, "is not a map: #{inspect(entry, limit: 5, printable_limit: 80)}"}
+
+  defp warn_bad_api_problem(mod, code, reason) do
+    warn_once(
+      {:bad_api_problem, mod, code},
+      "[ModuleRegistry] #{inspect(mod)}.api_problems/0 has an invalid entry " <>
+        "#{inspect(code, limit: 5, printable_limit: 80)} (#{reason}), ignored"
+    )
+
+    []
   end
 
   # Collectors run on the request path: log a given problem once per node.

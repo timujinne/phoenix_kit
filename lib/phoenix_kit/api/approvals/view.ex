@@ -345,9 +345,19 @@ defmodule PhoenixKit.API.Approvals.View do
   defp decimal(value) when is_integer(value), do: Decimal.new(value)
   defp decimal(value) when is_float(value), do: Decimal.from_float(value)
 
+  # A plain number only. The text of a preview can be a key holder's own input, shown to
+  # the person who approves it, and `Decimal.parse/1` also takes "1e999999999": comparing
+  # or subtracting that one lines the exponents up with a power of ten of that size (the
+  # parser of Decimal 3 refuses the extreme ones, an older Decimal does not).
+  @plain_number ~r/\A[+-]?\d{1,30}(\.\d{1,30})?\z/
+
   defp decimal(value) when is_binary(value) do
-    case Decimal.parse(String.trim(value)) do
-      {%Decimal{coef: coef} = decimal, ""} when is_integer(coef) -> decimal
+    trimmed = String.trim(value)
+
+    with true <- Regex.match?(@plain_number, trimmed),
+         {%Decimal{} = decimal, ""} <- Decimal.parse(trimmed) do
+      decimal
+    else
       _ -> nil
     end
   end

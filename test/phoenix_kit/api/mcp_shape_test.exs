@@ -374,7 +374,7 @@ defmodule PhoenixKit.API.MCP.ShapeTest do
       KeyTestSupport.put_setting("project_title", "Acme Print")
 
       assert Shape.server_info(:admin, @new)["title"] == "Acme Print admin API"
-      assert Shape.server_info(:public, @new)["title"] == "Acme Print shop API"
+      assert Shape.server_info(:public, @new)["title"] == "Acme Print public API"
     end
 
     test "the admin side" do
@@ -400,7 +400,7 @@ defmodule PhoenixKit.API.MCP.ShapeTest do
     test "the public side" do
       info = Shape.server_info(:public, @new)
 
-      assert info["title"] =~ "shop API"
+      assert info["title"] =~ "public API"
       refute Shape.instructions(:public) =~ "system_get_identity"
       assert Shape.instructions(:public) != ""
     end
@@ -410,8 +410,8 @@ defmodule PhoenixKit.API.MCP.ShapeTest do
                "This endpoint needs no key. List the tools with tools/list. Answers follow the language " <>
                  "and currency of the domain you call, unless a tool takes a language or currency field and " <>
                  "the call sets it. A failed call of a tool comes back as a result with isError set (an " <>
-                 "unknown tool name is a JSON-RPC error, -32602); its text starts with the code in square " <>
-                 "brackets, which is stable, and the second text item is the full problem document."
+                 "unknown tool name is a JSON-RPC error, -32602); the code in square brackets is stable and " <>
+                 "the second text item is the full problem document."
     end
 
     test "the public instructions name no URL, no admin tool and no approval" do

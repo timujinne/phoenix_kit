@@ -194,4 +194,33 @@ defmodule PhoenixKit.API.RequestContextTest do
       assert log =~ "must be {module, function}"
     end
   end
+
+  describe "from_options/1" do
+    test "takes the given context, and the defaults for what is missing or malformed" do
+      assert RequestContext.from_options(
+               language: "et",
+               currency: "EUR",
+               hosts: ["shop.example"],
+               base_url: "https://shop.example"
+             ) == %{
+               language: "et",
+               currency: "EUR",
+               hosts: ["shop.example"],
+               base_url: "https://shop.example"
+             }
+
+      defaults = %{
+        language: Multilang.primary_language(),
+        currency: nil,
+        hosts: [],
+        base_url: nil
+      }
+
+      assert RequestContext.from_options([]) == defaults
+      assert RequestContext.from_options(language: 1, hosts: [1], base_url: "") == defaults
+
+      assert RequestContext.from_options([:junk, {"language", "et"}, {:currency, "EUR", 1}]) ==
+               defaults
+    end
+  end
 end

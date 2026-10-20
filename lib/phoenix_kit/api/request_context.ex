@@ -8,8 +8,8 @@ defmodule PhoenixKit.API.RequestContext do
 
     * `:language` is the install's primary language
       (`PhoenixKit.Utils.Multilang.primary_language/0`);
-    * `:currency` is `nil`, because core does not depend on Billing. The
-      e-commerce module fills it from its base currency;
+    * `:currency` is `nil`, because core does not depend on Billing. A
+      module that knows a base currency fills it;
     * `:hosts` is the request host;
     * `:base_url` is `scheme://host[:port]` of the request.
 
@@ -24,6 +24,11 @@ defmodule PhoenixKit.API.RequestContext do
   and the defaults are used, so a bug in the hook cannot take the API down.
   The log names the hook, the exception module and the shape of a bad result,
   never their values: the hook gets the whole connection, headers included.
+
+  A call without a connection (`PhoenixKit.API.Executor.execute_as/5`, on behalf of a
+  live session) has no request to read: its caller passes the context as options and
+  `from_options/1` takes it as given. The hook is not called there, because it expects a
+  `Plug.Conn`.
   """
 
   require Logger
@@ -36,13 +41,37 @@ defmodule PhoenixKit.API.RequestContext do
           language: String.t(),
           currency: String.t() | nil,
           hosts: [String.t()],
-          base_url: String.t()
+          base_url: String.t() | nil
         }
 
   @doc "Resolves the context of `conn`."
   @spec resolve(Plug.Conn.t()) :: t()
   def resolve(%Plug.Conn{} = conn) do
     Map.merge(defaults(conn), host_overrides(conn))
+  end
+
+  @doc """
+  The context of a call without a connection, from `options` (`:language`, `:currency`,
+  `:hosts`, `:base_url`). A missing option, or one of the wrong type, gets the default:
+  the install's primary language, no currency, no hosts, no base URL. An element of
+  `options` that is not a `{key, value}` pair is ignored.
+  """
+  @spec from_options(keyword()) :: t()
+  def from_options(options) when is_list(options) do
+    given =
+      for {key, value} <- options,
+          key in [:language, :currency, :hosts, :base_url],
+          into: %{},
+          do: {key, value}
+
+    base_url =
+      case Map.get(given, :base_url) do
+        url when is_binary(url) and url != "" -> url
+        _other -> nil
+      end
+
+    %{language: Multilang.primary_language(), currency: nil, hosts: [], base_url: base_url}
+    |> Map.merge(given |> Map.delete(:base_url) |> sanitize())
   end
 
   defp defaults(conn) do
@@ -78,7 +107,7 @@ defmodule PhoenixKit.API.RequestContext do
     end
   rescue
     # The hook is handed the whole connection: the headers (the bearer token)
-    # and the body params (cart tokens) must not reach the log, so only the
+    # and the body params (client tokens) must not reach the log, so only the
     # exception module (and a fixed message) is logged.
     error -> bad_hook(module, fun, "raised #{LogSafe.exception_label(error)}")
   catch

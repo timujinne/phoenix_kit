@@ -1565,7 +1565,7 @@ if Code.ensure_loaded?(Igniter) do
       # The bucket log (V208). Without the prune the table grows for the life
       # of the install.
       {"20 4 * * *", "PhoenixKit.Modules.Storage.Workers.BucketLogPruneWorker"},
-      # The dangerous-operation flow of the shop API (V220). Without the prune the idempotency
+      # The dangerous-operation flow of the machine API (V220). Without the prune the idempotency
       # and confirmation tables grow for the life of the install, and without the expiry
       # worker a pending approval is never expired and an interrupted one never failed.
       {"35 4 * * *", "PhoenixKit.API.Idempotency.PruneWorker"},
