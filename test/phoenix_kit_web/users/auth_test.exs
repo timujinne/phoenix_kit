@@ -84,7 +84,8 @@ defmodule PhoenixKitWeb.Users.AuthTest do
       assert Auth.permission_key_for_admin_view(PhoenixKitWeb.Live.Settings.Api) == "api"
     end
 
-    test "maps Settings -> API -> Pending approvals to the api permission too" do
+    test "maps Approvals, and the old Settings -> API -> approvals redirect, to the api permission too" do
+      assert Auth.permission_key_for_admin_view(PhoenixKitWeb.Live.Approvals) == "api"
       assert Auth.permission_key_for_admin_view(PhoenixKitWeb.Live.Settings.ApiApprovals) == "api"
     end
 

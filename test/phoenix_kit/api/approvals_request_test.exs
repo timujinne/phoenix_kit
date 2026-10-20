@@ -15,6 +15,7 @@ defmodule PhoenixKit.API.ApprovalsRequestTest do
   alias PhoenixKit.API.KeyTestSupport
   alias PhoenixKit.PubSub.Manager, as: PubSub
   alias PhoenixKit.Test.ApiFlowStore
+  alias PhoenixKit.Test.ApiFlowTools
   alias PhoenixKit.Test.ApiHarness
   alias PhoenixKit.Users.Permissions
 
@@ -27,6 +28,37 @@ defmodule PhoenixKit.API.ApprovalsRequestTest do
 
   defp later(time, seconds), do: DateTime.add(time, seconds, :second)
   defp row!(row), do: Repo.get!(Confirmation, row.uuid)
+
+  # The SQL of every query `fun` runs in this process.
+  defp queries_of(fun) do
+    test_pid = self()
+    handler = "approvals-queries-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler,
+      [:phoenix_kit, :test, :repo, :query],
+      fn _event, _measurements, %{query: query}, _config ->
+        if self() == test_pid, do: send(test_pid, {:query, query})
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    drain_queries([])
+  end
+
+  defp drain_queries(acc) do
+    receive do
+      {:query, query} -> drain_queries([query | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
 
   describe "request/2" do
     test "stores a pending approval with the arguments, the preview and the request context", %{
@@ -620,6 +652,52 @@ defmodule PhoenixKit.API.ApprovalsRequestTest do
 
       assert Approvals.pending_count(KeyTestSupport.scope_of(KeyTestSupport.register_user!())) ==
                0
+    end
+
+    test "pending_count/1 equals the length of list_pending/2 for every kind of viewer", %{
+      agent: agent
+    } do
+      other = agent()
+      for id <- ["a", "b", "c"], do: {:ok, _, :created} = queue(agent, @tool, %{"ids" => [id]})
+      for id <- ["d", "e"], do: {:ok, _, :created} = queue(other, @tool, %{"ids" => [id]})
+      {holder, _role} = ApiHarness.user_with(["api", "settings", "dashboard"])
+
+      viewers = fn ->
+        [
+          KeyTestSupport.scope_of(KeyTestSupport.owner_user()),
+          KeyTestSupport.scope_of(agent.owner),
+          KeyTestSupport.scope_of(other.owner),
+          KeyTestSupport.scope_of(holder),
+          KeyTestSupport.scope_of(KeyTestSupport.register_user!())
+        ]
+      end
+
+      counts = fn -> for scope <- viewers.(), do: Approvals.pending_count(scope) end
+
+      listed = fn ->
+        for scope <- viewers.(), do: scope |> Approvals.list_pending() |> length()
+      end
+
+      assert counts.() == listed.()
+      assert [_owner, 3, 2, 0, 0] = counts.()
+
+      assert :ok = Permissions.revoke_permission(agent.role.uuid, "settings")
+      assert counts.() == listed.()
+      assert [_owner, 0, 2, 0, 0] = counts.()
+
+      ApiFlowTools.set_enabled(false)
+      assert counts.() == listed.()
+      assert [_owner, 0, 0, 0, 0] = counts.()
+    end
+
+    test "pending_count/1 for a non-Owner reads no preview or result", %{agent: agent} do
+      {:ok, _row, :created} = queue(agent, @tool, %{"ids" => ["a"]})
+
+      queries = queries_of(fn -> assert Approvals.pending_count(agent.scope) == 1 end)
+
+      assert queries != []
+      assert Enum.any?(queries, &(&1 =~ "phoenix_kit_api_confirmations"))
+      refute Enum.any?(queries, &(&1 =~ ~s("preview") or &1 =~ ~s("result")))
     end
 
     test "a creator who lost the tool's permission sees none of its approvals", %{agent: agent} do

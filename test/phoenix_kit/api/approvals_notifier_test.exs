@@ -75,7 +75,8 @@ defmodule PhoenixKit.API.ApprovalsNotifierTest do
 
     [latest | _] = Notifications.recent_for_user(owner.uuid, 5)
     assert latest.metadata["notification_text"] =~ "3"
-    assert latest.metadata["notification_link"] =~ "/admin/settings/api/approvals"
+    assert latest.metadata["notification_link"] =~ "/admin/approvals#approval-#{third.uuid}"
+    refute latest.metadata["notification_link"] =~ "/settings/"
   end
 
   test "another key is told about separately", %{agent: agent, owner: owner} do
@@ -89,10 +90,30 @@ defmodule PhoenixKit.API.ApprovalsNotifierTest do
     assert %DateTime{} = notified_at(other)
   end
 
-  test "with notifications switched off an approval is still queued", %{agent: agent} do
+  test "with notifications switched off an approval is still queued, and nobody is told", %{
+    agent: agent,
+    owner: owner
+  } do
     KeyTestSupport.put_setting("notifications_enabled", "false")
+    owner_before = unread(owner)
+    agent_before = unread(agent.owner)
 
     assert {:ok, _row, :created} = queue(agent, @tool, %{"ids" => ["a"]})
+
+    assert unread(owner) == owner_before
+    assert unread(agent.owner) == agent_before
+  end
+
+  test "the notice links to the card of the approval that triggered it", %{
+    agent: agent,
+    owner: owner
+  } do
+    {:ok, row, :created} = queue(agent, @tool, %{"ids" => ["a"]})
+
+    [latest | _] = Notifications.recent_for_user(owner.uuid, 5)
+    link = latest.metadata["notification_link"]
+
+    assert String.ends_with?(link, "/admin/approvals#approval-#{row.uuid}")
   end
 
   describe "notify_requested/2 never raises" do
