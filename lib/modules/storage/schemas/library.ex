@@ -8,7 +8,9 @@ defmodule PhoenixKit.Modules.Storage.Library do
   (`PhoenixKit.Modules.Storage.Libraries.media_uuid/0`). **User** libraries
   (V203) belong to a user, are `private`, and may have members
   (`PhoenixKit.Modules.Storage.LibraryMember`). A trashed user library may
-  outlive its owner (`owner_uuid` NULL) until it is purged.
+  outlive its owner (`owner_uuid` NULL) until it is purged. A system library
+  is `site`, except a **hidden** one a module keeps its own files in, which is
+  `private` (`PhoenixKit.Modules.Storage.Libraries.hidden?/1`).
 
   `key_prefix` is the first segment of the object key for files stored in the
   library from now on. `nil` keeps the historical layout, which is what Media
@@ -69,7 +71,10 @@ defmodule PhoenixKit.Modules.Storage.Library do
     timestamps(type: :utc_datetime)
   end
 
-  @doc "A new system library: a name, a URL slug and an object-key prefix."
+  @doc """
+  A new system library: a name, a URL slug and an object-key prefix. Always
+  `site`; `Libraries.create_system_library/2` makes a hidden one `private`.
+  """
   def create_system_changeset(library, attrs) do
     library
     |> cast(attrs, [:name, :key_prefix, :slug])

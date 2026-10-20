@@ -208,7 +208,8 @@ defmodule PhoenixKit.Modules.Storage.Reconciler do
   @doc """
   Up to `limit` stale site-library files for the Health page: the file, its
   library's name, and whether its copies (`:placement`) or its sizes
-  (`:variants`) are what is out of date. Personal-library contents are private;
+  (`:variants`) are what is out of date. The contents of a private library (a
+  user's, or a hidden system library, `Libraries.hidden?/1`) are not listed;
   they remain included in aggregate counts and the reconciler's work queries.
   """
   @spec stale_files(pos_integer()) :: [map()]
@@ -217,7 +218,7 @@ defmodule PhoenixKit.Modules.Storage.Reconciler do
     set = VariantSets.default_uuid()
 
     from([f, l, p, s] in stale_query(),
-      where: l.kind == "system" or is_nil(f.library_uuid),
+      where: (l.kind == "system" and l.visibility == "site") or is_nil(f.library_uuid),
       order_by: [asc: f.original_file_name, asc: f.uuid],
       limit: ^limit,
       select: %{

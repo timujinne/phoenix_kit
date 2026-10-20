@@ -648,7 +648,8 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
   @doc """
   The names of the site libraries on `profile_uuid` (the Default's include
   those that name no profile), and how many user libraries are on it besides.
-  A user's library is private to its owner, so it is counted, never named.
+  A user's library is private to its owner, so it is counted, never named; a
+  hidden system library (`Libraries.hidden?/1`) is counted with them.
   """
   @spec library_names_using(term()) :: %{names: [String.t()], user_libraries: non_neg_integer()}
   def library_names_using(profile_uuid) do
@@ -662,13 +663,16 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
 
     names =
       from(l in base,
-        where: l.kind != "user",
+        where: l.kind != "user" and l.visibility == "site",
         order_by: fragment("lower(?)", l.name),
         select: l.name
       )
       |> repo().all()
 
-    users = repo().one(from(l in base, where: l.kind == "user", select: count()))
+    users =
+      repo().one(
+        from(l in base, where: l.kind == "user" or l.visibility == "private", select: count())
+      )
 
     %{names: names, user_libraries: users}
   end
@@ -712,6 +716,8 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
 
   # A system library moving to another profile: from and to, by name. A user's
   # library is theirs and private, and is not in the history.
+  defp audit_library_profile(%Library{visibility: "private"}, _before, _opts), do: :ok
+
   defp audit_library_profile(%Library{kind: "system"} = library, before_uuid, opts) do
     now = profile_uuid_for(library)
 
