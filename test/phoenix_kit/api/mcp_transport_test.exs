@@ -111,7 +111,7 @@ defmodule PhoenixKit.API.MCPTransportTest do
       conn = post_rpc(:public, message("initialize", initialize_params()))
 
       assert conn.status == 200
-      assert result(conn)["serverInfo"]["title"] =~ "shop API"
+      assert result(conn)["serverInfo"]["title"] =~ "public API"
       refute result(conn)["instructions"] =~ "system_get_identity"
     end
 

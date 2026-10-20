@@ -9,12 +9,15 @@ defmodule PhoenixKit.API.ProblemTest do
   import Plug.Conn
   import Plug.Test
 
+  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.Problem
 
   defp decode(conn), do: JSON.decode!(conn.resp_body)
 
   describe "status/1" do
     test "maps every documented error code" do
+      # Core's own codes plus the four of the old shop API, which `PhoenixKit.API.Legacy`
+      # keeps answering while no module declares them.
       expected = %{
         unauthorized: 401,
         forbidden: 403,
@@ -41,6 +44,14 @@ defmodule PhoenixKit.API.ProblemTest do
       }
 
       assert Problem.statuses() == expected
+
+      for code <- ~w(cart_not_found cart_locked unsupported_source insufficient_stock)a do
+        refute Problem.core_code?(code)
+      end
+
+      for code <- Map.keys(expected) -- Map.keys(Legacy.problems()) do
+        assert Problem.core_code?(code)
+      end
 
       for {code, status} <- expected do
         assert Problem.status(code) == status

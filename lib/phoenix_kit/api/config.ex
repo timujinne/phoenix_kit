@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.Config do
   @moduledoc """
-  Settings accessors for the shop API.
+  Settings accessors for the machine API.
 
   Every function reads a core setting through `PhoenixKit.Settings` and applies a
   safe default. The API is **off by default and fails closed**: a switch is on
@@ -18,34 +18,49 @@ defmodule PhoenixKit.API.Config do
   | `api_mcp_allowed_origins` | `""` (newline separated origins) |
   | `api_admin_preauth_fail_per_min` | `20` |
   | `api_admin_rate_per_min` | `600` |
-  | `api_public_cart_rate_per_min` | `120` |
+  | `api_public_token_rate_per_min` | `120` |
   | `api_public_ip_rate_per_min` | `300` |
-  | `api_public_cart_rows_per_ip_hour` | `120` |
-  | `api_public_cart_rows_global_hour` | `2000` |
+  | `api_public_new_rows_per_ip_hour` | `120` |
+  | `api_public_new_rows_global_hour` | `2000` |
+
+  The three `api_public_token_*` and `api_public_new_rows_*` limits were renamed
+  when the API was made module-neutral. While the deprecation window lasts
+  (`PhoenixKit.API.Legacy`) a limit whose new key holds no valid number reads
+  its old key, then the default.
 
   List settings are stored as newline-separated strings: `PhoenixKit.Settings`
   has no list setter and a JSON setting cannot hold a bare list. Use
   `encode_list/1` when writing one and `parse_list/1` when reading one.
   """
 
+  alias PhoenixKit.API.Legacy
   alias PhoenixKit.Settings
+
+  @type rate_limits :: %{
+          preauth_fail_per_min: pos_integer(),
+          admin_per_min: pos_integer(),
+          public_token_per_min: pos_integer(),
+          public_ip_per_min: pos_integer(),
+          new_rows_ip_hour: pos_integer(),
+          new_rows_global_hour: pos_integer()
+        }
 
   @max_body_bytes 2_097_152
 
   @rate_defaults [
     preauth_fail_per_min: {"api_admin_preauth_fail_per_min", 20},
     admin_per_min: {"api_admin_rate_per_min", 600},
-    public_cart_per_min: {"api_public_cart_rate_per_min", 120},
+    public_token_per_min: {"api_public_token_rate_per_min", 120},
     public_ip_per_min: {"api_public_ip_rate_per_min", 300},
-    cart_rows_ip_hour: {"api_public_cart_rows_per_ip_hour", 120},
-    cart_rows_global_hour: {"api_public_cart_rows_global_hour", 2000}
+    new_rows_ip_hour: {"api_public_new_rows_per_ip_hour", 120},
+    new_rows_global_hour: {"api_public_new_rows_global_hour", 2000}
   ]
 
   @doc "Whether the admin API (`/api/admin/v1`) is switched on. Fails closed."
   @spec admin_enabled?() :: boolean()
   def admin_enabled?, do: flag("api_admin_enabled")
 
-  @doc "Whether the public API (`/api/shop/v1`, MCP) is switched on. Fails closed."
+  @doc "Whether the public API (`/api/public/v1`, MCP) is switched on. Fails closed."
   @spec public_enabled?() :: boolean()
   def public_enabled?, do: flag("api_public_enabled")
 
@@ -108,11 +123,19 @@ defmodule PhoenixKit.API.Config do
   request, so a non-positive value is treated as unset.
   """
   @spec int(String.t(), integer()) :: integer()
-  def int(key, default) when is_binary(key) and is_integer(default) do
-    case key |> Settings.get_setting_cached(nil) |> whole_number() do
-      value when is_integer(value) and value > 0 -> value
-      _ -> default
-    end
+  def int(key, default) when is_binary(key) and is_integer(default),
+    do: int(key, nil, default)
+
+  @doc """
+  Reads an integer setting that was renamed: the value of `key` when it is a
+  valid limit (see `int/2`), else the value of `legacy_key` when that is, else
+  `default`. A `nil` `legacy_key` reads `key` alone.
+  """
+  @spec int(String.t(), String.t() | nil, integer()) :: integer()
+  def int(key, legacy_key, default)
+      when is_binary(key) and (is_binary(legacy_key) or is_nil(legacy_key)) and
+             is_integer(default) do
+    Enum.find_value([key, legacy_key], default, &limit/1)
   rescue
     _ -> default
   catch
@@ -129,15 +152,22 @@ defmodule PhoenixKit.API.Config do
   `*_per_min` limits count over a 60 second window and `*_hour` limits over a
   one hour window (see `PhoenixKit.API.RateLimit`).
   """
-  @spec rate_limits() :: %{
-          preauth_fail_per_min: pos_integer(),
-          admin_per_min: pos_integer(),
-          public_cart_per_min: pos_integer(),
-          public_ip_per_min: pos_integer(),
-          cart_rows_ip_hour: pos_integer(),
-          cart_rows_global_hour: pos_integer()
-        }
+  @spec rate_limits() :: rate_limits()
   def rate_limits do
+    Map.new(@rate_defaults, fn {name, {key, default}} ->
+      {name, int(key, Legacy.setting_fallback(key), default)}
+    end)
+  end
+
+  @doc """
+  The rate-limit settings as `rate_limits/0` gives them, but reading each key
+  alone: the deprecated key of a renamed limit is not consulted. The settings
+  form compares what it is given with this, so that its first save writes a
+  value that was in effect through a deprecated key under the new key. Goes
+  away with `PhoenixKit.API.Legacy`.
+  """
+  @spec rate_limits_without_fallback() :: rate_limits()
+  def rate_limits_without_fallback do
     Map.new(@rate_defaults, fn {name, {key, default}} -> {name, int(key, default)} end)
   end
 
@@ -173,6 +203,16 @@ defmodule PhoenixKit.API.Config do
     case fetch_list(key) do
       {:ok, items} -> items
       :unreadable -> []
+    end
+  end
+
+  # The setting as a limit: a whole number above zero, else `nil`.
+  defp limit(nil), do: nil
+
+  defp limit(key) do
+    case key |> Settings.get_setting_cached(nil) |> whole_number() do
+      value when is_integer(value) and value > 0 -> value
+      _ -> nil
     end
   end
 

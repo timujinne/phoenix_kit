@@ -552,13 +552,13 @@ defmodule PhoenixKit.API.ToolLintTest do
       assert :ok = ToolLint.check_tool(tool(input_schema: %{type: :object, properties: %{}}))
     end
 
-    test "a public tool with a danger must list cart_token in required" do
+    test "a public tool with a danger must declare a client token and list it in required" do
       schema = fn required ->
         %{
           "type" => "object",
           "required" => required,
           "properties" => %{
-            "cart_token" => %{"type" => "string"},
+            "session_token" => %{"type" => "string"},
             "other" => %{"type" => "string"}
           },
           "additionalProperties" => false
@@ -566,25 +566,91 @@ defmodule PhoenixKit.API.ToolLintTest do
       end
 
       public = fn danger, required ->
-        tool(audience: :public, scope: nil, danger: danger, input_schema: schema.(required))
+        tool(
+          audience: :public,
+          scope: nil,
+          danger: danger,
+          client_token: "session_token",
+          input_schema: schema.(required)
+        )
       end
 
       for danger <- [:always, {Kernel, :inspect}] do
         assert {:error, [m]} = ToolLint.check_tool(public.(danger, []))
-        assert m =~ "must list cart_token in required"
+        assert m =~ "must list session_token in required"
 
         assert {:error, [_]} = ToolLint.check_tool(public.(danger, ["other"]))
-        assert :ok = ToolLint.check_tool(public.(danger, ["cart_token"]))
-        assert :ok = ToolLint.check_tool(public.(danger, [:cart_token]))
+        assert :ok = ToolLint.check_tool(public.(danger, ["session_token"]))
+        assert :ok = ToolLint.check_tool(public.(danger, [:session_token]))
       end
+    end
+
+    test "a public tool with a danger and no client_token is an error that says to declare one" do
+      undeclared =
+        tool(
+          audience: :public,
+          scope: nil,
+          danger: :always,
+          input_schema: %{
+            "type" => "object",
+            "required" => ["session_token"],
+            "properties" => %{"session_token" => %{"type" => "string"}},
+            "additionalProperties" => false
+          }
+        )
+
+      assert {:error, [m]} = ToolLint.check_tool(undeclared)
+      assert m =~ "must declare a client_token and list it in required"
 
       assert {:error, [_]} =
                ToolLint.check_tool(tool(audience: :public, scope: nil, danger: :always))
     end
 
-    test "a public tool without a danger, and an admin tool with one, need no cart_token" do
+    test "a public tool without a danger, and an admin tool with one, need no client token" do
       assert :ok = ToolLint.check_tool(tool(audience: :public, scope: nil, danger: nil))
       assert :ok = ToolLint.check_tool(tool(danger: :always))
+    end
+
+    test "a client_token must be a string property of the input schema" do
+      schema = fn property ->
+        %{
+          "type" => "object",
+          "properties" => %{"session_token" => property},
+          "additionalProperties" => false
+        }
+      end
+
+      public = fn property, field ->
+        tool(
+          audience: :public,
+          scope: nil,
+          client_token: field,
+          input_schema: schema.(property)
+        )
+      end
+
+      assert :ok = ToolLint.check_tool(public.(%{"type" => "string"}, "session_token"))
+
+      assert {:error, [m]} = ToolLint.check_tool(public.(%{"type" => "integer"}, "session_token"))
+      assert m =~ ~s(client_token "session_token" must be a property of type string)
+
+      assert {:error, [m]} = ToolLint.check_tool(public.(%{"type" => "string"}, "other"))
+      assert m =~ ~s(client_token "other" must be a property of the input schema)
+    end
+
+    test "an admin tool with a client_token is an error" do
+      admin =
+        tool(
+          client_token: "session_token",
+          input_schema: %{
+            "type" => "object",
+            "properties" => %{"session_token" => %{"type" => "string"}},
+            "additionalProperties" => false
+          }
+        )
+
+      assert {:error, [m]} = ToolLint.check_tool(admin)
+      assert m =~ "an admin tool may not declare a client_token"
     end
   end
 

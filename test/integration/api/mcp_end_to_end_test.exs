@@ -153,12 +153,12 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
     end
 
     test "the public side needs no key and lists only public tools", %{conn: conn} do
-      assert conn |> rpc("/mcp/shop", message("tools/list")) |> tool_names() == [
+      assert conn |> rpc("/mcp/public", message("tools/list")) |> tool_names() == [
                "testkit_public_echo"
              ]
 
       echo =
-        call_tool(conn, "/mcp/shop", nil, "testkit_public_echo", %{"text" => "hi"}) |> result()
+        call_tool(conn, "/mcp/public", nil, "testkit_public_echo", %{"text" => "hi"}) |> result()
 
       assert echo["structuredContent"]["echo"] == "hi"
     end
@@ -192,7 +192,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
       rebinding = %{conn | host: "evil.test"} |> put_req_header("origin", "http://evil.test")
 
       assert rpc(rebinding, "/mcp/admin", message("ping"), token: token).status == 403
-      assert rpc(rebinding, "/mcp/shop", message("ping")).status == 403
+      assert rpc(rebinding, "/mcp/public", message("ping")).status == 403
     end
 
     # The same attack with a host hook configured: a hook that
@@ -216,7 +216,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
         {{admin, public}, log} =
           with_log(fn ->
             {rpc(rebinding, "/mcp/admin", message("ping"), token: token),
-             rpc(rebinding, "/mcp/shop", message("ping"))}
+             rpc(rebinding, "/mcp/public", message("ping"))}
           end)
 
         assert admin.status == 403
@@ -253,7 +253,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
   end
 
   describe "each endpoint follows its own switch, with a real call" do
-    test "admin on, public off: tools/call works on /mcp/admin, /mcp/shop is a 404", %{
+    test "admin on, public off: tools/call works on /mcp/admin, /mcp/public is a 404", %{
       conn: conn,
       token: token
     } do
@@ -263,7 +263,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
              |> result()
              |> Map.fetch!("isError") == false
 
-      assert call_tool(conn, "/mcp/shop", nil, "testkit_public_echo").status == 404
+      assert call_tool(conn, "/mcp/public", nil, "testkit_public_echo").status == 404
     end
 
     test "admin off, public on: the reverse", %{conn: conn, token: token} do
@@ -271,7 +271,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
 
       assert call_tool(conn, "/mcp/admin", token, "testkit_read_items").status == 404
 
-      assert call_tool(conn, "/mcp/shop", nil, "testkit_public_echo", %{"text" => "x"})
+      assert call_tool(conn, "/mcp/public", nil, "testkit_public_echo", %{"text" => "x"})
              |> result()
              |> Map.fetch!("isError") == false
     end
@@ -279,7 +279,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
 
   describe "malformed JSON-RPC" do
     test "a body that is not JSON is -32700 on both endpoints", %{conn: conn, token: token} do
-      for {path, key} <- [{"/mcp/admin", token}, {"/mcp/shop", nil}],
+      for {path, key} <- [{"/mcp/admin", token}, {"/mcp/public", nil}],
           body <- ["{broken", "not json", ~s({"a":})] do
         answer = rpc(conn, path, body, token: key)
 
@@ -419,7 +419,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
                                       |> tool_names())
     end
 
-    test "the key and a cart token appear in no answer and in no log line, at debug level", %{
+    test "the key and a client token appear in no answer and in no log line, at debug level", %{
       conn: conn,
       token: token
     } do
@@ -443,9 +443,9 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
           [
             call_tool(conn, "/mcp/admin", token, "testkit_read_items"),
             call_tool(conn, "/mcp/admin", token, "testkit_nope"),
-            call_tool(conn, "/mcp/shop", nil, "testkit_public_echo", %{
+            call_tool(conn, "/mcp/public", nil, "testkit_public_echo", %{
               "text" => "hi",
-              "cart_token" => "my-cart-token-value"
+              "session_token" => "my-session-token-value"
             })
           ]
         end)
@@ -455,12 +455,12 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
 
       refute log =~ token
       refute log =~ secret
-      refute log =~ "my-cart-token-value"
+      refute log =~ "my-session-token-value"
 
       for answer <- answers do
         refute answer.resp_body =~ token
         refute answer.resp_body =~ secret
-        refute answer.resp_body =~ "my-cart-token-value"
+        refute answer.resp_body =~ "my-session-token-value"
       end
     end
   end
@@ -476,9 +476,9 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
       ip = unique_ip()
 
       for n <- 1..3,
-          do: assert(rpc(conn, "/mcp/shop", message("ping", nil, n), ip: ip).status == 200)
+          do: assert(rpc(conn, "/mcp/public", message("ping", nil, n), ip: ip).status == 200)
 
-      answer = rpc(conn, "/mcp/shop", message("ping", nil, 4), ip: ip)
+      answer = rpc(conn, "/mcp/public", message("ping", nil, 4), ip: ip)
 
       assert answer.status == 429
       assert %{"code" => "rate_limited"} = json(answer)
@@ -487,8 +487,8 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
 
     test "another address is not slowed", %{conn: conn} do
       put_setting("api_public_ip_rate_per_min", 1)
-      assert rpc(conn, "/mcp/shop", message("ping")).status == 200
-      assert rpc(conn, "/mcp/shop", message("ping")).status == 200
+      assert rpc(conn, "/mcp/public", message("ping")).status == 200
+      assert rpc(conn, "/mcp/public", message("ping")).status == 200
     end
 
     test "a flood of invented tool names against the admin endpoint ends in a 429 too", %{
@@ -518,12 +518,12 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
       ip = unique_ip()
 
       for n <- 1..3 do
-        answer = call_tool(conn, "/mcp/shop", nil, "invented_tool_#{n}", %{}, ip: ip)
+        answer = call_tool(conn, "/mcp/public", nil, "invented_tool_#{n}", %{}, ip: ip)
         assert answer.status == 200
         assert %{"code" => -32_602} = json(answer)["error"]
       end
 
-      answer = call_tool(conn, "/mcp/shop", nil, "invented_tool_4", %{}, ip: ip)
+      answer = call_tool(conn, "/mcp/public", nil, "invented_tool_4", %{}, ip: ip)
 
       assert answer.status == 429
       assert %{"code" => "rate_limited"} = json(answer)
@@ -559,31 +559,31 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
       assert mcp.().status == 429
     end
 
-    test "a public batch is charged per query on /mcp/shop and on REST", %{conn: conn} do
+    test "a public batch is charged per query on /mcp/public and on REST", %{conn: conn} do
       put_setting("api_public_ip_rate_per_min", 4)
       batch = fn n -> %{"queries" => List.duplicate(%{}, n)} end
 
       mcp_ip = unique_ip()
 
-      assert call_tool(conn, "/mcp/shop", nil, "testkit_public_batch", batch.(3), ip: mcp_ip).status ==
+      assert call_tool(conn, "/mcp/public", nil, "testkit_public_batch", batch.(3), ip: mcp_ip).status ==
                200
 
-      assert call_tool(conn, "/mcp/shop", nil, "testkit_public_batch", batch.(3), ip: mcp_ip).status ==
+      assert call_tool(conn, "/mcp/public", nil, "testkit_public_batch", batch.(3), ip: mcp_ip).status ==
                429
 
       rest_ip = unique_ip()
 
-      assert rest_post(conn, "/api/shop/v1/testkit.public_batch", nil, batch.(3), rest_ip).status ==
+      assert rest_post(conn, "/api/public/v1/testkit.public_batch", nil, batch.(3), rest_ip).status ==
                200
 
-      assert rest_post(conn, "/api/shop/v1/testkit.public_batch", nil, batch.(3), rest_ip).status ==
+      assert rest_post(conn, "/api/public/v1/testkit.public_batch", nil, batch.(3), rest_ip).status ==
                429
     end
   end
 
   describe "OpenAPI through the endpoint" do
     test "the public document is served and not swallowed by a locale route", %{conn: conn} do
-      answer = conn |> with_client_ip() |> get(Routes.path("/api/shop/v1/openapi.json"))
+      answer = conn |> with_client_ip() |> get(Routes.path("/api/public/v1/openapi.json"))
 
       assert answer.status == 200
       assert %{"openapi" => "3.1.0", "paths" => %{"/testkit.public_echo" => _}} = json(answer)
@@ -627,7 +627,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
 
       requests = [
         fn -> foreign |> rpc("/mcp/admin", message("ping"), token: token) end,
-        fn -> foreign |> rpc("/mcp/shop", message("ping")) end,
+        fn -> foreign |> rpc("/mcp/public", message("ping")) end,
         fn -> foreign |> rpc("/mcp/admin", "{broken", token: token) end,
         fn ->
           conn
@@ -635,7 +635,7 @@ defmodule PhoenixKit.API.MCPEndToEndTest do
           |> bearer(token)
           |> get(Routes.path("/api/admin/v1/openapi.json"))
         end,
-        fn -> conn |> with_client_ip() |> get(Routes.path("/api/shop/v1/openapi.json")) end
+        fn -> conn |> with_client_ip() |> get(Routes.path("/api/public/v1/openapi.json")) end
       ]
 
       all = fn -> for request <- requests, do: request.().status end

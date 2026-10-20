@@ -70,7 +70,7 @@ defmodule PhoenixKit.API.ConfirmTest do
       assert row.kind == "token"
       assert row.status == "unused"
       assert row.actor_key_uuid == key.uuid
-      assert row.cart_token_hash == nil
+      assert row.client_token_hash == nil
       assert row.tool == @tool
       assert row.input_hash == @hash
       assert row.fingerprint == @fp
@@ -91,13 +91,13 @@ defmodule PhoenixKit.API.ConfirmTest do
       assert issue(actor, hash: String.duplicate("2", 64)).expires_in_seconds == 600
     end
 
-    test "a public actor's code is bound to the cart token hash" do
+    test "a public actor's code is bound to the client token hash" do
       hash = String.duplicate("c", 43)
-      actor = %Actor{kind: :anonymous, cart_token_hash: hash}
+      actor = %Actor{kind: :anonymous, client_token_hash: hash}
 
       row = issue(actor).row
 
-      assert row.cart_token_hash == hash
+      assert row.client_token_hash == hash
       assert row.actor_key_uuid == nil
     end
 
@@ -174,8 +174,8 @@ defmodule PhoenixKit.API.ConfirmTest do
       refute issue(actor).token == issue(other).token
     end
 
-    test "a public actor gets a row per call: its cart token is its own choice", %{} do
-      actor = %Actor{kind: :anonymous, cart_token_hash: String.duplicate("d", 43)}
+    test "a public actor gets a row per call: its client token is its own choice", %{} do
+      actor = %Actor{kind: :anonymous, client_token_hash: String.duplicate("d", 43)}
 
       refute issue(actor).token == issue(actor).token
     end
@@ -225,9 +225,9 @@ defmodule PhoenixKit.API.ConfirmTest do
       assert {:error, :wrong_binding} = Confirm.lookup_token(issued.token, other, @tool, @hash)
     end
 
-    test "another cart may not use a public code" do
-      mine = %Actor{kind: :anonymous, cart_token_hash: String.duplicate("a", 43)}
-      theirs = %Actor{kind: :anonymous, cart_token_hash: String.duplicate("b", 43)}
+    test "another client token may not use a public code" do
+      mine = %Actor{kind: :anonymous, client_token_hash: String.duplicate("a", 43)}
+      theirs = %Actor{kind: :anonymous, client_token_hash: String.duplicate("b", 43)}
 
       issued = issue(mine)
       assert {:ok, _} = Confirm.lookup_token(issued.token, mine, @tool, @hash)

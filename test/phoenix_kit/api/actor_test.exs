@@ -12,7 +12,7 @@ defmodule PhoenixKit.API.ActorTest do
     assert actor.requires_approval == false
     assert actor.key_uuid == nil
     assert actor.user_uuid == nil
-    assert actor.cart_token_hash == nil
+    assert actor.client_token_hash == nil
     assert actor.ip == nil
   end
 
@@ -26,7 +26,7 @@ defmodule PhoenixKit.API.ActorTest do
                :scopes,
                :scope,
                :requires_approval,
-               :cart_token_hash,
+               :client_token_hash,
                :ip
              ])
   end

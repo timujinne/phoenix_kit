@@ -105,6 +105,7 @@ defmodule PhoenixKitWeb.Integration do
 
   """
 
+  alias PhoenixKit.API.Paths
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb
 
@@ -237,7 +238,7 @@ defmodule PhoenixKitWeb.Integration do
         plug :accepts, ["json"]
       end
 
-      # Pipeline of the shop API (`/api/admin/v1`, `/api/shop/v1`). It has no
+      # Pipeline of the machine API (`/api/admin/v1`, `/api/public/v1`). It has no
       # `accepts`: the API negotiates nothing, and a client that sends
       # `Accept: application/problem+json` (or no Accept at all) must get the
       # same answer as one that sends `*/*`; `plug :accepts` would turn those
@@ -257,7 +258,7 @@ defmodule PhoenixKitWeb.Integration do
     end
   end
 
-  # The shop API: one forwarded plug per audience, so tools that modules
+  # The machine API: one forwarded plug per audience, so tools that modules
   # enable and disable at runtime need no route of their own.
   #
   # The scope carries no alias: `PhoenixKitWeb` would turn the plug into
@@ -269,20 +270,32 @@ defmodule PhoenixKitWeb.Integration do
   # from the raw `path_info` and raises a `MatchError` on the encoded form,
   # and no plug of the (empty) pipeline runs before it. The guard decodes the
   # prefix segments. Every further forward (the MCP endpoints) needs it too.
-  # `/mcp/admin` and `/mcp/shop` are the MCP transport of the same tools.
+  # `/mcp/admin` and `/mcp/public` are the MCP transport (Streamable HTTP) of
+  # the same tools: same scope and pipeline, so no session, no CSRF and no
+  # content negotiation either. `/mcp` is a reserved prefix, so the locale
+  # plugs leave it alone.
+  #
+  # The forwards are `PhoenixKit.API.Paths.entries/0`, the table
+  # `PhoenixKit.API.BodyGuard` guards too: the canonical paths, then the
+  # deprecated aliases of the public ones (`PhoenixKit.API.Legacy`), which go
+  # to the same plugs with `deprecated:` options.
   defp generate_api_routes(url_prefix) do
+    forwards =
+      for {segments, _audience, _cors?, _kind} = entry <- Paths.entries() do
+        path = Paths.path(segments)
+        plug = Paths.plug(segments)
+        opts = Paths.plug_opts(entry)
+
+        quote do
+          forward unquote(path), unquote(plug), unquote(opts)
+        end
+      end
+
     quote do
       scope unquote(url_prefix) do
         pipe_through [:phoenix_kit_api_v1]
 
-        forward "/api/admin/v1", PhoenixKit.API.REST, audience: :admin
-        forward "/api/shop/v1", PhoenixKit.API.REST, audience: :public
-
-        # MCP (Streamable HTTP) over the same tools. Same scope and pipeline:
-        # no session, no CSRF, no content negotiation. `/mcp` is a reserved
-        # prefix, so the locale plugs leave it alone.
-        forward "/mcp/admin", PhoenixKit.API.MCP, audience: :admin
-        forward "/mcp/shop", PhoenixKit.API.MCP, audience: :public
+        unquote_splicing(forwards)
       end
     end
   end
@@ -633,7 +646,7 @@ defmodule PhoenixKitWeb.Integration do
       live "/admin/settings/integrations/new", Live.Settings.IntegrationForm, :new
       live "/admin/settings/integrations/:uuid", Live.Settings.IntegrationForm, :edit
 
-      # API keys, service users and the shop API switches (gated by "api").
+      # API keys, service users and the machine API switches (gated by "api").
       live "/admin/settings/api", Live.Settings.Api, :index
       live "/admin/settings/api/approvals", Live.Settings.ApiApprovals, :index
       live "/admin/settings/api/guide", Live.Settings.ApiGuide, :index
@@ -1711,8 +1724,8 @@ defmodule PhoenixKitWeb.Integration do
     end
   end
 
-  # The public guide of the shop API, `GET /mcp`; any other method is a 405
-  # that points to the MCP server (`/mcp/shop`). Declared with the files above:
+  # The public guide of the machine API, `GET /mcp`; any other method is a 405
+  # that points to the MCP server (`/mcp/public`). Declared with the files above:
   # same session-free shape, at the kit prefix and at the site root. The
   # discovery pages are answered by `PhoenixKitWeb.Controllers.ApiDiscovery`.
   defp api_guide_routes do
@@ -1952,10 +1965,11 @@ defmodule PhoenixKitWeb.Integration do
       # Generate basic routes scope
       unquote(generate_basic_scope(url_prefix))
 
-      # The shop API. Literal-rooted (`/api/...`), so it belongs with the
+      # The machine API. Literal-rooted (`/api/...`), so it belongs with the
       # surfaces declared BEFORE the `/:locale`-rooted ones below: a later
-      # position would let `/:locale/shop/...` bind `/api/shop/v1/...` with
-      # `locale = "api"`. Pinned by test/phoenix_kit_web/api_routing_test.exs.
+      # position would let a `/:locale/...` route bind `/api/public/v1/...` (or
+      # its deprecated alias) with `locale = "api"`. Pinned by
+      # test/phoenix_kit_web/api_routing_test.exs.
       unquote(generate_api_routes(url_prefix))
 
       # ⚠️ THE ORDER OF EVERYTHING BELOW IS LOAD-BEARING — DO NOT REORDER.

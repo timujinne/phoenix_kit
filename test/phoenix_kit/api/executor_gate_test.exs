@@ -435,7 +435,7 @@ defmodule PhoenixKit.API.ExecutorGateTest do
       %{
         tool: tool,
         audience: :public,
-        actor: %PhoenixKit.API.Actor{kind: :anonymous, cart_token_hash: nil},
+        actor: %PhoenixKit.API.Actor{kind: :anonymous, client_token_hash: nil},
         input: %{},
         rows: 0,
         control: %{},
@@ -444,7 +444,7 @@ defmodule PhoenixKit.API.ExecutorGateTest do
     end
 
     test "a danger declaration nobody understands counts as dangerous" do
-      # Dangerous public calls without a cart token stop at the 422 of `confirm_flow/1`:
+      # Dangerous public calls without a client token stop at the 422 of `confirm_flow/1`:
       # reaching it proves the gate took the call for dangerous.
       for bad <- [
             :allways,
@@ -482,35 +482,75 @@ defmodule PhoenixKit.API.ExecutorGateTest do
     end
   end
 
-  describe "a public tool: the code is bound to the cart" do
-    test "the cart that got the code may use it, another cart may not" do
-      ApiFlowStore.put("cart:cart-1", ["line"])
-      first = public_call("flowkit.clear_cart", %{"cart_token" => "cart-1"})
+  describe "a public tool: the code is bound to the client token" do
+    test "the client that got the code may use it, another may not" do
+      ApiFlowStore.put("session:session-1", ["line"])
+      first = public_call("flowkit.clear_session", %{"session_token" => "session-1"})
 
       assert %{"status" => "confirmation_required", "confirm_token" => code} = json(first)
       assert [row] = rows("token")
       assert row.actor_key_uuid == nil
 
-      assert row.cart_token_hash ==
-               :crypto.hash(:sha256, "cart-1") |> Base.url_encode64(padding: false)
+      assert row.client_token_hash ==
+               :crypto.hash(:sha256, "session-1") |> Base.url_encode64(padding: false)
 
       other =
-        public_call("flowkit.clear_cart", %{"cart_token" => "cart-2", "confirm_token" => code})
+        public_call("flowkit.clear_session", %{
+          "session_token" => "session-2",
+          "confirm_token" => code
+        })
 
       assert other.status == 409
 
       done =
-        public_call("flowkit.clear_cart", %{"cart_token" => "cart-1", "confirm_token" => code})
+        public_call("flowkit.clear_session", %{
+          "session_token" => "session-1",
+          "confirm_token" => code
+        })
 
       assert done.status == 200
       assert json(done) == %{"cleared" => true}
-      refute Map.has_key?(ApiFlowStore.items(), "cart:cart-1")
+      refute Map.has_key?(ApiFlowStore.items(), "session:session-1")
     end
 
-    test "a dangerous public call without a cart token is a 422" do
-      conn = public_call("flowkit.clear_cart", %{})
+    test "a dangerous public call without a client token is a 422" do
+      conn = public_call("flowkit.clear_session", %{})
 
       assert conn.status == 422
+      assert json(conn)["detail"] == "A client token is required for this operation."
+      assert Enum.any?(json(conn)["context"]["errors"], &(&1["path"] == "session_token"))
+      assert rows("token") == []
+    end
+  end
+
+  describe "a public tool that declares no client token but has a cart_token property (legacy)" do
+    test "its code is bound to the cart_token, and another token may not use it" do
+      ApiFlowStore.put("legacy:token-1", ["line"])
+      first = public_call("flowkit.legacy_clear", %{"cart_token" => "token-1"})
+
+      assert %{"status" => "confirmation_required", "confirm_token" => code} = json(first)
+      assert [row] = rows("token")
+
+      assert row.client_token_hash ==
+               :crypto.hash(:sha256, "token-1") |> Base.url_encode64(padding: false)
+
+      other =
+        public_call("flowkit.legacy_clear", %{"cart_token" => "token-2", "confirm_token" => code})
+
+      assert other.status == 409
+
+      done =
+        public_call("flowkit.legacy_clear", %{"cart_token" => "token-1", "confirm_token" => code})
+
+      assert done.status == 200
+      refute Map.has_key?(ApiFlowStore.items(), "legacy:token-1")
+    end
+
+    test "a dangerous call without the token is a 422 that names cart_token" do
+      conn = public_call("flowkit.legacy_clear", %{})
+
+      assert conn.status == 422
+      assert json(conn)["detail"] == "A client token is required for this operation."
       assert Enum.any?(json(conn)["context"]["errors"], &(&1["path"] == "cart_token"))
       assert rows("token") == []
     end
@@ -547,11 +587,11 @@ defmodule PhoenixKit.API.ExecutorGateTest do
       assert Repo.aggregate(Confirmation, :count) == 0
     end
 
-    test "a public tool: 422 for a cart token with a NUL" do
-      conn = public_call("flowkit.clear_cart", %{"cart_token" => nul_value()})
+    test "a public tool: 422 for a client token with a NUL" do
+      conn = public_call("flowkit.clear_session", %{"session_token" => nul_value()})
 
       assert conn.status == 422
-      assert [%{"path" => "cart_token"}] = json(conn)["context"]["errors"]
+      assert [%{"path" => "session_token"}] = json(conn)["context"]["errors"]
       assert Repo.aggregate(Confirmation, :count) == 0
     end
 
@@ -705,7 +745,7 @@ defmodule PhoenixKit.API.ExecutorGateTest do
           tool: "flowkit.delete_items",
           input_hash: "h",
           fingerprint: String.duplicate("f", 65),
-          cart_token_hash: "c",
+          client_token_hash: "c",
           status: "unused",
           expires_at: DateTime.utc_now() |> DateTime.truncate(:second)
         })
