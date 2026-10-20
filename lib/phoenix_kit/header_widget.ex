@@ -140,13 +140,23 @@ defmodule PhoenixKit.HeaderWidget do
         end
 
       other ->
-        {:error, "the session is not a map: #{inspect(other, limit: 5, printable_limit: 80)}"}
+        {:error, "the session is #{describe_type(other)}, not a map"}
     end
   rescue
-    error -> {:error, "the session function raised: #{Exception.message(error)}"}
+    error -> {:error, "the session function raised #{inspect(error.__struct__)}"}
   catch
-    kind, reason -> {:error, "the session function failed: #{inspect({kind, reason})}"}
+    kind, _reason -> {:error, "the session function failed (#{kind})"}
   end
+
+  # The function gets the layout's assigns (the user and scope among them), so what it
+  # raises or returns can hold a person's data: a `KeyError` or `MatchError` message
+  # prints the whole term. The log names the kind of failure and never the value.
+  defp describe_type(%{__struct__: module}), do: "a #{inspect(module)} struct"
+  defp describe_type(value) when is_list(value), do: "a list"
+  defp describe_type(value) when is_tuple(value), do: "a tuple"
+  defp describe_type(value) when is_binary(value), do: "a string"
+  defp describe_type(value) when is_atom(value), do: "an atom"
+  defp describe_type(_value), do: "of another type"
 
   @doc """
   True while the account the session acts as is not the root account of the browser's

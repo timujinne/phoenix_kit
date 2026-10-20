@@ -1063,16 +1063,16 @@ defmodule PhoenixKit.ModuleRegistry do
     mod.header_widgets()
   rescue
     error ->
-      warn_header_widgets_failed(mod, Exception.message(error))
+      warn_header_widgets_failed(mod, "raised #{inspect(error.__struct__)}")
   catch
-    kind, reason ->
-      warn_header_widgets_failed(mod, inspect({kind, reason}))
+    kind, _reason ->
+      warn_header_widgets_failed(mod, "failed (#{kind})")
   end
 
   defp warn_header_widgets_failed(mod, detail) do
     warn_once(
       {:header_widgets_failed, mod},
-      "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 failed: #{detail}"
+      "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 #{detail}"
     )
 
     []
