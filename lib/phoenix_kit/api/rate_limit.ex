@@ -12,6 +12,7 @@ defmodule PhoenixKit.API.RateLimit do
   |---|---|---|---|
   | admin pre-auth, per client network | 1 min | **failed** authentications only | `api_admin_preauth_fail_per_min` |
   | admin, per key | 1 min | cost units | `api_admin_rate_per_min` |
+  | admin, per user acting through a live session | 1 min | cost units | `api_admin_rate_per_min` |
   | public, per cart token | 1 min | cost units | `api_public_cart_rate_per_min` |
   | public, per client network | 1 min | cost units | `api_public_ip_rate_per_min` |
   | cart rows, per client network | 1 hour | new carts | `api_public_cart_rows_per_ip_hour` |
@@ -100,6 +101,21 @@ defmodule PhoenixKit.API.RateLimit do
           {:ok, headers()} | {:error, pos_integer(), headers()}
   def check_admin(key_uuid, cost) when is_binary(key_uuid) and is_integer(cost) and cost > 0 do
     ("api:admin:key:" <> key_uuid)
+    |> charge(@minute, Config.rate_limits().admin_per_min, cost)
+    |> result()
+  end
+
+  @doc """
+  Charges `cost` units to the admin bucket of a user acting through a live session
+  (`PhoenixKit.API.Executor.execute_as/5`): one bucket per user, shared by all of that
+  user's sessions and apart from the buckets of the user's keys. The limit is the per-key
+  one, `api_admin_rate_per_min`.
+  """
+  @spec check_user(String.t(), pos_integer()) ::
+          {:ok, headers()} | {:error, pos_integer(), headers()}
+  def check_user(user_uuid, cost)
+      when is_binary(user_uuid) and is_integer(cost) and cost > 0 do
+    ("api:admin:user:" <> user_uuid)
     |> charge(@minute, Config.rate_limits().admin_per_min, cost)
     |> result()
   end

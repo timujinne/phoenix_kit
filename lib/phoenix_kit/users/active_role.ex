@@ -29,7 +29,8 @@ defmodule PhoenixKit.Users.ActiveRole do
 
   It reaches `PhoenixKit.Users.Auth.Scope.for_user/1` through the user's
   virtual field `active_role_uuid`, which only
-  `PhoenixKit.Users.Auth.UserToken.verify_session_token_query/1` fills: every
+  `PhoenixKit.Users.Auth.UserToken.verify_session_token_query/1` (or, for a
+  session known by its token row id, `verify_session_token_uuid_query/1`) fills: every
   web path starts from a session token, so every scope build narrows without
   knowing about tokens. A user loaded any other way (by uuid, in a background
   job, in an admin list) has `nil` there and acts as their **default role** —
