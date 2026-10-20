@@ -12,7 +12,9 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
       approval is decided or expires.
     * `context` - language, currency, hosts, base URL and request id of the original
       request (an approval runs without a request).
-    * `actor_key_uuid` / `cart_token_hash` - who it belongs to.
+    * `actor_key_uuid` / `client_token_hash` - who it belongs to: an API key, or the hash of
+      a public caller's client token. (The database column keeps the name it was
+      created with; the field's `source:` maps it.)
     * `preview` - what the person sees.
     * `status` - codes: `unused | used | expired`. Approvals: `pending | approved |
       executing | executed | failed | rejected | stale | expired`.
@@ -43,7 +45,7 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
     field :input, :map
     field :context, :map, default: %{}
     field :actor_key_uuid, UUIDv7
-    field :cart_token_hash, :string
+    field :client_token_hash, :string, source: :cart_token_hash
     field :preview, :map, default: %{}
     field :status, :string
     field :expires_at, :utc_datetime
@@ -86,7 +88,7 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
       :input,
       :context,
       :actor_key_uuid,
-      :cart_token_hash,
+      :client_token_hash,
       :preview,
       :status,
       :expires_at
@@ -104,10 +106,10 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
   end
 
   defp validate_actor(changeset) do
-    if get_field(changeset, :actor_key_uuid) || get_field(changeset, :cart_token_hash) do
+    if get_field(changeset, :actor_key_uuid) || get_field(changeset, :client_token_hash) do
       changeset
     else
-      add_error(changeset, :actor_key_uuid, "or a cart token hash is required")
+      add_error(changeset, :actor_key_uuid, "or a client token hash is required")
     end
   end
 end

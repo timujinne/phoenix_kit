@@ -16,6 +16,42 @@
   provider, region or endpoint sent anyway wins over the integration's.
 - **`Profiles.user_storage_for/1`** adds `buckets` (every one of the user's buckets, main first) beside `bucket`; `mode` is
   `:only` when one of them is the primary. **`Profiles.create_user_profile/3`** takes a bucket or a list.
+- **The public machine API no longer names a module.** The public side is served at `/api/public/v1` and `/mcp/public`,
+  next to `/api/admin/v1` and `/mcp/admin` (the axis is the audience; tools keep their module's namespace). One table,
+  `PhoenixKit.API.Paths.entries/0`, feeds the router and `BodyGuard`. Client-visible texts follow: the MCP `serverInfo.title`
+  and the OpenAPI title end in "public API", `llms.txt` has a `## Public API and MCP` section, the public guide is titled
+  "%{title} — public API and MCP server" (new gettext msgid, nine locales), and the MCP client name falls back to `site`.
+- **Public rate limits are named after the client token and new rows, not the cart.** Settings
+  `api_public_token_rate_per_min`, `api_public_new_rows_per_ip_hour` and `api_public_new_rows_global_hour` (same defaults:
+  120, 120, 2000) replace the `api_public_cart_*` ones; `Config.rate_limits/0` returns `public_token_per_min`,
+  `new_rows_ip_hour` and `new_rows_global_hour`. `RateLimit.check_new_rows/1` is the one new-rows quota every module shares.
+  Settings -> API writes the new keys. **Behaviour change:** a public call that the client token's bucket refuses has
+  already spent one unit of the network bucket (the first unit is charged before the tool is looked up).
+- **A public tool declares its anonymous client token.** New `Tool.client_token` (the input field that carries it) replaces
+  the executor reading `cart_token`: the hash is computed after the tool lookup into `Actor.client_token_hash` (renamed from
+  `cart_token_hash`, a public struct field, no mirror) and drives the per-token bucket, the `idempotency_key` scope and
+  the binding of a confirmation code. A public tool with a `danger:` must declare it and list it in `required`
+  (`ToolLint` checks); a call without it is `422 validation_failed` naming the field. New `Tool.credentials` lists output
+  fields that carry a secret; core's credential rule (`Auth.credential_name?/1`) is the list of known names or any name
+  ending in `_token`, for URLs and for stored answers alike. The confirmation table keeps its `cart_token_hash` column
+  (no migration); the schema field is `client_token_hash`.
+- **A module declares its own API error codes** with the optional `PhoenixKit.Module.api_problems/0`
+  (`%{code => %{status, title, advice}}`); `Problem` and the MCP advice read them. The four codes that belonged to the
+  shop (`cart_not_found`, `cart_locked`, `unsupported_source`, `insufficient_stock`) are served from
+  `PhoenixKit.API.Legacy` while no module declares them; their wire values are unchanged.
+- **The guide is `dev_docs/guides/2026-10-11-machine-api.md`** ("Machine API (admin and public)", renamed from
+  `2026-10-11-shop-api.md`), with neutral examples and a "Deprecated aliases (until 3.0.0)" section.
+
+### Deprecated
+
+- **`/api/shop/v1` and `/mcp/shop`** still answer, from the same plugs as the public paths, with `Deprecation: @1792454400`
+  (RFC 9745) and a `Link: <canonical>; rel="successor-version"`; no document advertises them. Removed in 3.0.0.
+- **`api_public_cart_rate_per_min`, `api_public_cart_rows_per_ip_hour` and `api_public_cart_rows_global_hour`** are read
+  as a fallback when the new key holds no valid number. The rows are never deleted. Removed in 3.0.0.
+- **`RateLimit.check_cart_rows/1`** calls `check_new_rows/1` (`@deprecated`). A public tool that declares no `client_token`
+  but has a `cart_token` input property keeps that field as its client token, and the output names `claim_url`,
+  `checkout_url`, `claim_token` and the `/checkout/claim/` marker stay credentials. Apart from `check_cart_rows/1`
+  itself, all of it lives in `PhoenixKit.API.Legacy`, which is deleted in 3.0.0.
 
 ### Added
 

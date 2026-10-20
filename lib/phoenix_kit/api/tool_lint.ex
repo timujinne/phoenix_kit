@@ -29,10 +29,13 @@ defmodule PhoenixKit.API.ToolLint do
   numeric and count bounds, `pattern`), that both roots are objects (MCP
   needs an object `inputSchema`, and `structuredContent` is an object), that a
   `required` name is declared when the object is closed, that a tool has a
-  description, that a public tool with a `danger:` lists `cart_token` in
-  `required` (a dry run is answered before the cart token is checked, so
-  the schema has to refuse a call without one), and that no two tools of one audience share a name or an MCP
-  name (`a.b_c` and `a_b.c` are both `a_b_c` on MCP).
+  description, that a public tool with a `danger:` declares a `client_token:`
+  and lists that field in `required` (a dry run is answered before the client
+  token is checked, so the schema has to refuse a call without one), that a
+  `client_token:` is a string property of the input schema and belongs to a
+  public tool (an admin tool is identified by its key), and that no two tools
+  of one audience share a name or an MCP name (`a.b_c` and `a_b.c` are both
+  `a_b_c` on MCP).
 
   ## Relation to the validator
 
@@ -92,7 +95,10 @@ defmodule PhoenixKit.API.ToolLint do
   @spec check_tool(Tool.t()) :: :ok | {:error, [String.t()]}
   def check_tool(%Tool{} = tool) do
     case input_messages(tool) ++
-           output_messages(tool) ++ description_messages(tool) ++ danger_messages(tool) do
+           output_messages(tool) ++
+           description_messages(tool) ++
+           danger_messages(tool) ++
+           client_token_messages(tool) do
       [] -> :ok
       messages -> {:error, messages}
     end
@@ -153,23 +159,49 @@ defmodule PhoenixKit.API.ToolLint do
 
   defp description_messages(%Tool{}), do: []
 
-  # `Flow.gate/1` answers a dry run before it asks for a cart token, so the
+  # `Flow.gate/1` answers a dry run before it asks for a client token, so the
   # schema itself has to refuse a call without one.
   defp danger_messages(%Tool{audience: :public, danger: danger} = tool) when danger != nil do
-    required =
-      case stringify(tool.input_schema) do
-        %{"required" => names} when is_list(names) -> Enum.map(names, &type_name/1)
-        _no_required -> []
-      end
+    case tool.client_token do
+      field when is_binary(field) ->
+        if field in required_names(tool),
+          do: [],
+          else: [
+            "a public tool with a danger must list #{field} in required: a dry run is answered before the client token is checked"
+          ]
 
-    if "cart_token" in required,
-      do: [],
-      else: [
-        "a public tool with a danger must list cart_token in required: a dry run is answered before the cart token is checked"
-      ]
+      _none ->
+        [
+          "a public tool with a danger must declare a client_token and list it in required: a confirmation code is bound to the caller's client token"
+        ]
+    end
   end
 
   defp danger_messages(%Tool{}), do: []
+
+  defp required_names(%Tool{input_schema: schema}) do
+    case stringify(schema) do
+      %{"required" => names} when is_list(names) -> Enum.map(names, &type_name/1)
+      _no_required -> []
+    end
+  end
+
+  defp client_token_messages(%Tool{client_token: nil}), do: []
+
+  defp client_token_messages(%Tool{audience: :admin}),
+    do: ["an admin tool may not declare a client_token: its caller is identified by its key"]
+
+  defp client_token_messages(%Tool{client_token: field} = tool) do
+    case stringify(tool.input_schema) do
+      %{"properties" => %{^field => property}} when is_map(property) ->
+        if type_name(Map.get(property, "type")) == "string",
+          do: [],
+          else: ["client_token #{inspect(field)} must be a property of type string"]
+
+      _not_declared ->
+        ["client_token #{inspect(field)} must be a property of the input schema"]
+    end
+  end
 
   defp prefix(label, messages), do: Enum.map(messages, &"#{label}: #{&1}")
 

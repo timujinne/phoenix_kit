@@ -44,7 +44,7 @@ defmodule PhoenixKit.API.PublicDiscovery.Guide do
       %{
         language: language,
         origin: origin,
-        title: gettext("%{title} — shop API and MCP server", title: display_title(project)),
+        title: gettext("%{title} — public API and MCP server", title: display_title(project)),
         sections: [
           mcp_section(urls, ClientName.slug(project)),
           rest_section(urls, tools),

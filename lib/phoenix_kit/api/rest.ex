@@ -1,16 +1,19 @@
 defmodule PhoenixKit.API.REST do
   @moduledoc """
-  The REST transport of the shop API: a plug that the router `forward`s to,
+  The REST transport of the machine API: a plug that the router `forward`s to,
   once per audience.
 
       forward "/api/admin/v1", PhoenixKit.API.REST, audience: :admin
-      forward "/api/shop/v1", PhoenixKit.API.REST, audience: :public
+      forward "/api/public/v1", PhoenixKit.API.REST, audience: :public
 
-  `phoenix_kit_routes/0` emits both. The plug sees the path after the
+  `phoenix_kit_routes/0` emits both, and the deprecated alias of the public
+  one (`PhoenixKit.API.Paths`), which also takes `deprecated: [path: ...,
+  successor: ...]`: the answers on it carry `Deprecation` and a `Link` to the
+  canonical path (`PhoenixKit.API.Auth`). The plug sees the path after the
   forward, so the routes are:
 
     * `POST /<tool>` runs a tool; the body is the tool's input as one JSON
-      object. A tool name has a dot in it (`ecommerce.set_prices`);
+      object. A tool name has a dot in it (`catalogue.set_prices`);
     * `GET /` lists the tools the caller may use, with their schemas;
     * `GET /openapi.json` is the generated OpenAPI 3.1 document of the tools the
       caller may use.
@@ -73,14 +76,14 @@ defmodule PhoenixKit.API.REST do
             "PhoenixKit.API.REST :audience must be :admin or :public, got: #{inspect(audience)}"
     end
 
-    [audience: audience]
+    [audience: audience] ++ Keyword.take(opts, [:deprecated])
   end
 
   @impl Plug
   def call(conn, opts) do
     audience = Keyword.fetch!(opts, :audience)
     conn = put_cors(conn, audience)
-    conn = Auth.call(conn, Auth.init(audience: audience))
+    conn = Auth.call(conn, Auth.init(opts))
 
     if conn.halted, do: conn, else: dispatch(conn, audience)
   end

@@ -82,12 +82,23 @@ defmodule PhoenixKit.API.ApprovalsDecideTest do
       row = pending!(agent, "flowkit.misbehave", %{"mode" => "leak"})
       assert {:ok, done} = Approvals.approve(row.uuid, scope)
       assert done.status == "executed"
-      assert done.result == %{"cart_token" => "[REDACTED]"}
+      assert done.result == %{"session_token" => "[REDACTED]"}
       assert reload(row).result == done.result
 
       view = row.uuid |> Approvals.get_for_key(agent.key.uuid) |> Approvals.status_view()
-      refute JSON.encode!(view) =~ "leaked-cart-token"
+      refute JSON.encode!(view) =~ "leaked-session-token"
       assert ApiFlowStore.calls() == 1
+    end
+
+    test "a field the tool declares in its credentials is redacted from the stored result", %{
+      agent: agent,
+      owner_scope: scope
+    } do
+      row = pending!(agent, "flowkit.misbehave", %{"mode" => "leak_link"})
+      assert {:ok, done} = Approvals.approve(row.uuid, scope)
+      assert done.status == "executed"
+      assert done.result == %{"link" => "[REDACTED]", "ok" => true}
+      refute JSON.encode!(reload(row).result) =~ "example.test/open"
     end
 
     test "runs the tool for the key's owner, with the original request's context", %{

@@ -4,7 +4,7 @@ defmodule PhoenixKit.API.LogSafe do
   request or from code that handled one.
 
   The log learns the kind and the size of a term, never its values: they may
-  hold bearer tokens, cart tokens or personal data. The exception message
+  hold bearer tokens, client tokens or personal data. The exception message
   is kept only for the exceptions in `@fixed_message_exceptions`, and then as
   the text of the exception class, never the text the instance carries.
   """

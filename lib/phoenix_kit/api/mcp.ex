@@ -1,15 +1,20 @@
 defmodule PhoenixKit.API.MCP do
   @moduledoc """
-  The MCP transport of the shop API: Model Context Protocol over Streamable
+  The MCP transport of the machine API: Model Context Protocol over Streamable
   HTTP, tools only, stateless, JSON answers only. A plug that the router
   `forward`s to, once per audience:
 
       forward "/mcp/admin", PhoenixKit.API.MCP, audience: :admin
-      forward "/mcp/shop", PhoenixKit.API.MCP, audience: :public
+      forward "/mcp/public", PhoenixKit.API.MCP, audience: :public
 
-  `phoenix_kit_routes/0` emits both. The admin endpoint takes the same bearer
-  key as the REST API (clients that let you set a request header for a remote MCP
-  server can use it); the public endpoint needs no key.
+  `phoenix_kit_routes/0` emits both, and the deprecated alias of the public
+  one (`PhoenixKit.API.Paths`), which also takes `deprecated: [path: ...,
+  successor: ...]`: the answers on it carry `Deprecation` and a `Link` to the
+  canonical path (`PhoenixKit.API.Auth`).
+
+  The admin endpoint takes the same bearer key as the REST API (clients that
+  let you set a request header for a remote MCP server can use it); the public
+  endpoint needs no key.
 
   ## What it speaks
 
@@ -102,13 +107,14 @@ defmodule PhoenixKit.API.MCP do
             "PhoenixKit.API.MCP :audience must be :admin or :public, got: #{inspect(audience)}"
     end
 
-    [audience: audience]
+    [audience: audience] ++ Keyword.take(opts, [:deprecated])
   end
 
   @impl Plug
   def call(conn, opts) do
     audience = Keyword.fetch!(opts, :audience)
-    conn = Auth.call(conn, Auth.init(audience: audience, before_auth: {Origin, :check}))
+    auth = Keyword.put(opts, :before_auth, {Origin, :check})
+    conn = Auth.call(conn, Auth.init(auth))
 
     if conn.halted, do: conn, else: route(conn, audience)
   end

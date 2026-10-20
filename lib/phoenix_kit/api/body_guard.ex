@@ -23,13 +23,14 @@ defmodule PhoenixKit.API.BodyGuard do
 
   ## What it does
 
-  For `POST`, `PUT`, `PATCH` and `DELETE` requests to the shop API
-  (`<prefix>/api/admin/v1`, `<prefix>/api/shop/v1`, `<prefix>/mcp/admin` and
-  `<prefix>/mcp/shop`, where `<prefix>` is the kit's URL prefix) **while the
-  API of that path's audience is reachable by the client** (the switch is on,
-  `api_admin_enabled` for `/api/admin/v1` and `/mcp/admin`,
-  `api_public_enabled` for `/api/shop/v1` and `/mcp/shop`, and, for the public
-  audience, the website password gate does not turn the client away) it reads
+  For `POST`, `PUT`, `PATCH` and `DELETE` requests to the machine API (every path
+  of `PhoenixKit.API.Paths.entries/0`: `<prefix>/api/admin/v1`,
+  `<prefix>/api/public/v1`, `<prefix>/mcp/admin`, `<prefix>/mcp/public` and the
+  deprecated aliases of the public two, where `<prefix>` is the kit's URL
+  prefix) **while the API of that path's audience is reachable by the client**
+  (the switch is on, `api_admin_enabled` for `/api/admin/v1` and `/mcp/admin`,
+  `api_public_enabled` for the public paths, and, for the public audience, the
+  website password gate does not turn the client away) it reads
   the body, at most
   `PhoenixKit.API.Config.max_body_bytes/0` (2 MB), and decodes it as JSON,
   whatever the `content-type` says. Then it fills `body_params` and `params`,
@@ -41,13 +42,13 @@ defmodule PhoenixKit.API.BodyGuard do
       shape `Plug.Parsers.JSON` uses;
     * a body over the limit is answered `413 payload_too_large`;
     * a body that is not JSON, or holds a number the decoder cannot take (an
-      integer of a million digits), is answered `400 invalid_json`; on
-      `/mcp/admin` and `/mcp/shop` that 400 is a JSON-RPC `-32700` parse error
+      integer of a million digits), is answered `400 invalid_json`; on the MCP
+      paths that 400 is a JSON-RPC `-32700` parse error
       (`application/json`, `id: null`).
 
   The `413` and, on the REST paths, the `400` are `application/problem+json`,
   see `PhoenixKit.API.Problem`. On
-  `/api/shop/v1` they also carry `access-control-allow-origin: *` and
+  the public REST paths they also carry `access-control-allow-origin: *` and
   `access-control-expose-headers`, as every other answer of the public REST
   audience does (`PhoenixKit.API.REST`), so a browser agent can read them; the admin audience and MCP send no CORS header.
 
@@ -98,7 +99,7 @@ defmodule PhoenixKit.API.BodyGuard do
   method and whatever the switch says, and leaves the rest of `path_info`
   as sent. The request then takes the same road as the plain path.
 
-  The forwards of the shop API depend on this plug for that: a host whose
+  The forwards of the machine API depend on this plug for that: a host whose
   endpoint does not have it yet (it has not run `mix phoenix_kit.update`)
   answers such a crafted URL with a 500 from inside the router. Every future
   forward under an API prefix (the MCP endpoints) inherits the dependency.
@@ -111,6 +112,7 @@ defmodule PhoenixKit.API.BodyGuard do
   alias PhoenixKit.API.Auth
   alias PhoenixKit.API.Config
   alias PhoenixKit.API.MCP.Rpc
+  alias PhoenixKit.API.Paths
   alias PhoenixKit.API.Problem
   alias PhoenixKit.API.REST
   alias PhoenixKit.Utils.Routes
@@ -120,14 +122,11 @@ defmodule PhoenixKit.API.BodyGuard do
   # Path segments under the kit's URL prefix, the audience whose switch
   # decides whether the guard acts on them, and whether the guard's own
   # answers carry the CORS header (the public REST audience only, as
-  # `PhoenixKit.API.REST` does). Each MCP endpoint follows the audience of its
-  # own name; bare `/mcp` and other `/mcp/...` paths are not guarded.
-  @guarded [
-    {["api", "admin", "v1"], :admin, false},
-    {["api", "shop", "v1"], :public, true},
-    {["mcp", "admin"], :admin, false},
-    {["mcp", "shop"], :public, false}
-  ]
+  # `PhoenixKit.API.REST` does): the table the router forwards, aliases
+  # included. Each MCP endpoint follows the audience of its own name; bare
+  # `/mcp` and other `/mcp/...` paths are not guarded.
+  @guarded for {segments, audience, cors?, _kind} <- Paths.entries(),
+               do: {segments, audience, cors?}
 
   # Bytes asked of the socket per read; the total is bounded separately.
   @read_chunk 1_048_576
@@ -310,8 +309,8 @@ defmodule PhoenixKit.API.BodyGuard do
     end
   end
 
-  # Only guarded paths get here, and the only guarded `mcp` paths are
-  # `/mcp/admin` and `/mcp/shop`.
+  # Only guarded paths get here, and the only guarded `mcp` paths are the MCP
+  # endpoints of `PhoenixKit.API.Paths`.
   defp mcp?(%Plug.Conn{path_info: segments}) do
     prefix = Routes.prefix_base() |> String.split("/", trim: true)
     List.starts_with?(segments, prefix ++ ["mcp"])

@@ -46,6 +46,7 @@ defmodule PhoenixKit.API.PublicDiscovery do
   alias PhoenixKit.API.Auth
   alias PhoenixKit.API.Config
   alias PhoenixKit.API.MCP.Origin
+  alias PhoenixKit.API.Paths
   alias PhoenixKit.API.PublicDiscovery.Guide
   alias PhoenixKit.API.Registry
   alias PhoenixKit.API.RequestContext
@@ -121,11 +122,11 @@ defmodule PhoenixKit.API.PublicDiscovery do
 
   @doc "The URL of the public MCP server under `origin`."
   @spec mcp_url(String.t()) :: String.t()
-  def mcp_url(origin), do: origin <> Routes.path("/mcp/shop")
+  def mcp_url(origin), do: origin <> Routes.path(Paths.mcp_path(:public))
 
   @doc "The URL of the public REST API under `origin`."
   @spec api_url(String.t()) :: String.t()
-  def api_url(origin), do: origin <> Routes.path("/api/shop/v1")
+  def api_url(origin), do: origin <> Routes.path(Paths.rest_path(:public))
 
   @doc "The URL of the public OpenAPI description under `origin`."
   @spec openapi_url(String.t()) :: String.t()
@@ -214,7 +215,7 @@ defmodule PhoenixKit.API.PublicDiscovery do
   def catalog_link(origin), do: ~s(<#{catalog_url(origin)}>; rel="api-catalog")
 
   @doc """
-  The `Link` header of `GET /api/shop/v1`, the tool list: the OpenAPI
+  The `Link` header of `GET /api/public/v1`, the tool list: the OpenAPI
   description and the guide. Added on a `200` only, and only when the guide
   is published; the check runs when the answer is sent.
   """
@@ -235,7 +236,7 @@ defmodule PhoenixKit.API.PublicDiscovery do
   end
 
   @doc """
-  Adds `Link: <guide>; rel="service-doc"` to the `405` of `GET /mcp/shop` when
+  Adds `Link: <guide>; rel="service-doc"` to the `405` of `GET /mcp/public` when
   the guide is published.
   """
   @spec put_service_doc_link(Plug.Conn.t()) :: Plug.Conn.t()
@@ -253,9 +254,9 @@ defmodule PhoenixKit.API.PublicDiscovery do
   @spec llms_section(String.t()) :: String.t()
   def llms_section(origin) do
     """
-    ## Shop API and MCP
+    ## Public API and MCP
 
-    - [How to connect](#{guide_url(origin)}): MCP server and REST API for the shop, no key needed
+    - [How to connect](#{guide_url(origin)}): MCP server and REST API, no key needed
     - [MCP server](#{mcp_url(origin)}): Streamable HTTP
     - [OpenAPI](#{openapi_url(origin)})
     """

@@ -44,7 +44,7 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
   test "a body over 2 MB is a 413 problem+json", %{conn: conn} do
     body = ~s({"a":"#{String.duplicate("x", @max)}"})
 
-    conn = post_json(conn, Routes.path("/api/shop/v1/shop.search_products"), body)
+    conn = post_json(conn, Routes.path("/api/public/v1/shop.search_products"), body)
 
     assert conn.status == 413
     assert %{"code" => "payload_too_large"} = JSON.decode!(conn.resp_body)
@@ -59,9 +59,9 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
             base <> "/api/%61dmin/v1/system.get_identity",
             base <> "/%61pi/admin/v1/system.get_identity",
             base <> "/api/admin/%76%31/system.get_identity",
-            base <> "/api/%73hop/v1/shop.search_products",
+            base <> "/api/%70ublic/v1/shop.search_products",
             base <> "/mcp/%61dmin",
-            base <> "/mcp/%73hop"
+            base <> "/mcp/%70ublic"
           ] do
         conn = post_json(conn, path, "{not json")
 
@@ -103,7 +103,7 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
 
       for {encoded, plain} <- [
             {base <> "/api/%61dmin/v1/", base <> "/api/admin/v1/"},
-            {base <> "/%61pi/%73hop/v1", base <> "/api/shop/v1"}
+            {base <> "/%61pi/%70ublic/v1", base <> "/api/public/v1"}
           ] do
         conn = with_client_ip(conn)
 
@@ -124,7 +124,7 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
 
       paths = [
         Routes.prefix_base() <> "/api/%61dmin/v1/x",
-        Routes.prefix_base() <> "/api/%73hop/v1/x"
+        Routes.prefix_base() <> "/api/%70ublic/v1/x"
       ]
 
       for path <- paths, body <- ["{not json", @three_mb] do
@@ -140,7 +140,7 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
 
   describe "CORS" do
     test "the public audience's 400 and 413 are readable by a browser agent", %{conn: conn} do
-      path = Routes.path("/api/shop/v1/shop.search_products")
+      path = Routes.path("/api/public/v1/shop.search_products")
 
       broken = post_json(conn, path, "{not json")
       assert broken.status == 400
@@ -197,7 +197,7 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
 
     test "invalid JSON and a 3 MB body to either audience are a bare 404, not 400 or 413",
          %{conn: conn} do
-      paths = [tool_path(), Routes.path("/api/shop/v1/shop.search_products")]
+      paths = [tool_path(), Routes.path("/api/public/v1/shop.search_products")]
 
       for path <- paths, body <- ["{not json", @three_mb] do
         conn = conn |> with_client_ip() |> post_json(path, body)
@@ -218,7 +218,7 @@ defmodule PhoenixKitWeb.APIBodyGuardEndpointTest do
       switch(:public, false)
       PhoenixKit.Cache.invalidate_now(:settings, ["api_admin_enabled", "api_public_enabled"])
 
-      paths = [tool_path(), Routes.path("/api/shop/v1/shop.search_products")]
+      paths = [tool_path(), Routes.path("/api/public/v1/shop.search_products")]
 
       # One request to each path warms the cache with both switches.
       for path <- paths, do: conn |> with_client_ip() |> post_json(path, "{not json")
