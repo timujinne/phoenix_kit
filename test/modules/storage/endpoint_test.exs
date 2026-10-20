@@ -75,6 +75,51 @@ defmodule PhoenixKit.Modules.Storage.EndpointTest do
       assert Endpoint.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0xA9FE, 0xA9FE}) == :link_local
       assert Endpoint.classify({0, 0, 0, 0, 0, 0xFFFF, 0x0808, 0x0808}) == :public
     end
+
+    test "the IPv4-compatible form ::a.b.c.d is classified as the IPv4 address" do
+      assert Endpoint.classify({0, 0, 0, 0, 0, 0, 0x7F00, 0x0001}) == :loopback
+      assert Endpoint.classify({0, 0, 0, 0, 0, 0, 0x0A00, 0x0001}) == :private
+      assert Endpoint.classify({0, 0, 0, 0, 0, 0, 0xA9FE, 0xA9FE}) == :link_local
+      assert Endpoint.classify({0, 0, 0, 0, 0, 0, 0x0808, 0x0808}) == :public
+    end
+
+    test "6to4 (2002::/16) is classified as the IPv4 address it embeds" do
+      assert Endpoint.classify({0x2002, 0x7F00, 0x0001, 0, 0, 0, 0, 0}) == :loopback
+      assert Endpoint.classify({0x2002, 0x0A00, 0x0001, 0, 0, 0, 0, 1}) == :private
+      assert Endpoint.classify({0x2002, 0xA9FE, 0xA9FE, 0, 0, 0, 0, 1}) == :link_local
+      assert Endpoint.classify({0x2002, 0x0808, 0x0808, 0, 0, 0, 0, 1}) == :public
+    end
+
+    test "well-known NAT64 (64:ff9b::/96) is classified by the embedded IPv4" do
+      assert Endpoint.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x7F00, 0x0001}) == :loopback
+      assert Endpoint.classify({0x64, 0xFF9B, 0, 0, 0, 0, 0x0808, 0x0808}) == :public
+    end
+
+    test "local-use NAT64 (64:ff9b:1::/48) is local as a whole" do
+      # RFC 8215: the operator picks where the IPv4 address sits inside the
+      # /48 (RFC 6052 layouts), so the last 32 bits mean nothing on their own.
+      assert Endpoint.classify({0x64, 0xFF9B, 1, 0, 0, 0, 0x7F00, 0x0001}) == :unique_local
+      assert Endpoint.classify({0x64, 0xFF9B, 1, 0, 0, 0, 0x0808, 0x0808}) == :unique_local
+      # 64:ff9b:1:a00:0:100:808:808 — 10.0.0.1 in the /64 layout, 8.8.8.8 at the end.
+      assert Endpoint.classify({0x64, 0xFF9B, 1, 0xA00, 0, 0x100, 0x808, 0x808}) ==
+               :unique_local
+    end
+
+    test "deprecated site-local (fec0::/10) is local, like unique-local" do
+      assert Endpoint.classify({0xFEC0, 0, 0, 0, 0, 0, 0, 1}) == :unique_local
+      assert Endpoint.classify({0xFEFF, 0xFFFF, 0, 0, 0, 0, 0, 1}) == :unique_local
+    end
+
+    test "Teredo (2001::/32) and documentation (2001:db8::/32) are reserved" do
+      assert Endpoint.classify({0x2001, 0, 0x4136, 0xE378, 0x8000, 0x63BF, 0x3FFF, 0xFDD2}) ==
+               :reserved
+
+      assert Endpoint.classify({0x2001, 0xDB8, 0, 0, 0, 0, 0, 1}) == :reserved
+      assert Endpoint.classify({0x2001, 0xDB8, 0xFFFF, 0, 0, 0, 0, 1}) == :reserved
+      # Neighbouring global unicast stays public.
+      assert Endpoint.classify({0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888}) == :public
+      assert Endpoint.classify({0x2001, 0xDB9, 0, 0, 0, 0, 0, 1}) == :public
+    end
   end
 
   describe "check/3 under :system (an admin set it)" do
@@ -90,7 +135,11 @@ defmodule PhoenixKit.Modules.Storage.EndpointTest do
             "http://[fe80::1]:9000",
             "http://0.0.0.0:9000",
             "http://224.0.0.1",
-            "http://[::ffff:169.254.169.254]"
+            "http://[::ffff:169.254.169.254]",
+            "http://[::169.254.169.254]",
+            "http://[2002:a9fe:a9fe::1]",
+            "http://[2001:db8::1]",
+            "http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]"
           ] do
         assert Endpoint.check(endpoint, :system) == {:error, :blocked_address}, endpoint
       end
@@ -119,7 +168,11 @@ defmodule PhoenixKit.Modules.Storage.EndpointTest do
             "https://100.64.0.1",
             "https://[fd00::1]",
             "https://[::1]",
-            "https://169.254.169.254"
+            "https://169.254.169.254",
+            "https://[::127.0.0.1]",
+            "https://[2002:7f00:1::1]",
+            "https://[64:ff9b:1::a00:1]",
+            "https://[fec0::1]"
           ] do
         assert Endpoint.check(endpoint, :personal) == {:error, :blocked_address}, endpoint
       end
