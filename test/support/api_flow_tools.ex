@@ -97,7 +97,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
             }
           }
         },
-        danger: {__MODULE__, :set_values_danger}
+        danger: {__MODULE__, :set_values_danger},
+        title: "Change values"
       ),
       admin(
         "flowkit.delete_items",
@@ -107,7 +108,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         :delete_items,
         %{"ids" => %{"type" => "array", "minItems" => 1, "items" => %{"type" => "string"}}},
         danger: :always,
-        max_items: 500
+        max_items: 500,
+        title: "Delete items"
       ),
       admin(
         "flowkit.progress_write",
@@ -140,7 +142,7 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         },
         danger: {__MODULE__, :misbehave_danger}
       ),
-      public("flowkit.mint_cart", @write, :mint_cart, %{}),
+      public("flowkit.mint_cart", @write, :mint_cart, %{}, replay: false),
       public("flowkit.public_write", @write, :public_write, %{
         "text" => %{"type" => "string"},
         "cart_token" => %{"type" => "string"},
@@ -162,7 +164,7 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       audience: :admin,
       scope: scope,
       permission: permission,
-      title: name,
+      title: Keyword.get(opts, :title, name),
       description: "Test tool #{name}.",
       input_schema: %{
         "type" => "object",
@@ -191,7 +193,8 @@ defmodule PhoenixKit.Test.ApiFlowTools do
       output_schema: %{"type" => "object"},
       handler: {__MODULE__, function},
       annotations: annotations,
-      danger: Keyword.get(opts, :danger)
+      danger: Keyword.get(opts, :danger),
+      replay: Keyword.get(opts, :replay, true)
     )
   end
 

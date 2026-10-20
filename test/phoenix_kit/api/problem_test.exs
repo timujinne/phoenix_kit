@@ -26,6 +26,7 @@ defmodule PhoenixKit.API.ProblemTest do
         cart_not_found: 404,
         module_disabled: 404,
         method_not_allowed: 405,
+        not_acceptable: 406,
         confirm_token_invalid: 409,
         revision_mismatch: 409,
         cart_locked: 409,

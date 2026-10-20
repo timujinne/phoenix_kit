@@ -349,6 +349,8 @@ defmodule PhoenixKit.Integration.Users.MultiSessionTest do
       assert Enum.find(accounts, & &1.active?).email == target.email
       # the admin's own account stays, and stays the root
       assert Enum.find(accounts, & &1.root?).email == admin.email
+      assert MultiSession.impersonated?(Plug.Conn.get_session(conn))
+      refute MultiSession.impersonated?(Plug.Conn.get_session(conn_for(admin)))
     end
 
     test "the Owner account is never a target" do

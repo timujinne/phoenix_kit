@@ -145,6 +145,15 @@ unless repo_available do
   Application.put_env(:phoenix_kit, :update_mode, true)
 end
 
+# PhoenixKit.Utils.IpAddress logs a one-time-per-VM warning when it honours a
+# forwarded header with `:trusted_proxies` unset. Logger writes in the
+# caller's process, so whichever test came first would put that line into
+# its own capture_log and fail `refute log =~ "[warning]"` — a result that
+# depends on the seed. Mark it as already said; the tests of the warning
+# itself erase the flag and put it back.
+:persistent_term.put({PhoenixKit.Utils.IpAddress, :unconfigured_proxies_warned}, true)
+:persistent_term.put({PhoenixKit.Utils.IpAddress, :invalid_proxies_warned}, true)
+
 # Start minimal services needed for tests
 {:ok, _pid} = PhoenixKit.ModuleRegistry.start_link([])
 {:ok, _pid} = PhoenixKit.Users.RateLimiter.Backend.start_link([])

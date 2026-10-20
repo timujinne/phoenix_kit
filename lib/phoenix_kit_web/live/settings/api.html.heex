@@ -11,6 +11,32 @@
   current_locale={@current_locale}
 >
   <div id="api-settings-page" class="px-4 py-6 space-y-6">
+    <%!-- Guide --%>
+    <div id="api-guide-card" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 class="card-title text-lg">
+              <.icon name="hero-book-open" class="w-5 h-5" /> {gettext("API guide")}
+            </h2>
+            <p class="text-sm text-base-content/70">
+              {gettext(
+                "How to connect a program or an AI agent with a key: addresses, setup for Claude Code, Cursor and VS Code, tools and errors."
+              )}
+            </p>
+          </div>
+          <.button
+            id="api-guide-link"
+            variant="outline"
+            size="sm"
+            navigate={Routes.path("/admin/settings/api/guide")}
+          >
+            {gettext("Open the guide")}
+          </.button>
+        </div>
+      </div>
+    </div>
+
     <%!-- Switches --%>
     <div id="api-switches" class="card bg-base-100 shadow-lg border border-base-200">
       <div class="card-body space-y-4">
@@ -64,6 +90,59 @@
             checked={@public_enabled}
             phx-click="toggle_switch"
             phx-value-switch="public"
+          />
+        </div>
+      </div>
+    </div>
+
+    <%!-- Modules --%>
+    <div id="api-modules-card" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-4">
+        <div>
+          <h2 class="card-title text-lg">
+            <.icon name="hero-puzzle-piece" class="w-5 h-5" /> {gettext("Modules")}
+          </h2>
+          <p class="text-sm text-base-content/70">
+            {gettext(
+              "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
+            )}
+          </p>
+        </div>
+
+        <p :if={@api_modules == []} id="api-modules-empty" class="text-sm text-base-content/70">
+          {gettext("No installed module offers tools to the API.")}
+        </p>
+
+        <div
+          :for={mod <- @api_modules}
+          id={"api-module-row-#{mod.key}"}
+          class="flex items-start justify-between gap-4"
+        >
+          <div>
+            <div class="font-medium">{Gettext.gettext(PhoenixKitWeb.Gettext, mod.name)}</div>
+            <p class="text-sm text-base-content/70">
+              {gettext("Tools: %{count}", count: mod.tools)}
+              <span :if={not mod.enabled?} class="badge badge-ghost badge-sm ml-1">
+                {gettext("Module disabled")}
+              </span>
+            </p>
+          </div>
+          <.checkbox
+            id={"api-module-switch-#{mod.key}"}
+            name={"api-module-switch-#{mod.key}"}
+            variant="toggle"
+            class="toggle-lg"
+            wrapper_class="shrink-0 flex-row-reverse"
+            label={if mod.api_on?, do: gettext("API on"), else: gettext("API off")}
+            aria-label={
+              if mod.api_on?,
+                do: gettext("Switch the API of %{module} off", module: module_label(mod)),
+                else: gettext("Switch the API of %{module} on", module: module_label(mod))
+            }
+            checked={mod.api_on?}
+            phx-click="set_module_api"
+            phx-value-module={mod.key}
+            phx-value-state={if mod.api_on?, do: "off", else: "on"}
           />
         </div>
       </div>
@@ -213,7 +292,7 @@
             id="api-approvals-link"
             variant="outline"
             size="sm"
-            navigate={Routes.path("/admin/settings/api/approvals")}
+            navigate={Routes.path("/admin/approvals")}
           >
             {gettext("Review approvals")}
             <span
@@ -749,7 +828,7 @@
         >
           <p class="label">
             {gettext(
-              "These scopes are inactive because the owner can no longer use them. They stay on the key when you save."
+              "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
             )}
           </p>
           <ul class="text-sm">

@@ -389,9 +389,9 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
   # Subtitle priority:
   # 1. OAuth account identifier (`external_account_id`) — already a
   #    human-readable string from the provider's userinfo endpoint.
-  # 2. Masked credential tail — first 8 + ellipsis + last 4 of whichever
-  #    credential field is present. Short keys (< 14 chars) fully mask
-  #    so a 13-char key doesn't leak most of itself.
+  # 2. Masked credential tail — only the last 4 characters of whichever
+  #    credential field is present. Short keys (< 14 chars) fully mask: on a
+  #    13-char key the visible 4 would already be almost a third of the secret.
   # 3. Empty — show nothing, the card has just the name + age.
   defp connection_subtitle(conn) do
     case conn.data["external_account_id"] do
@@ -423,7 +423,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
       # `-4..-1//1` pins the step explicitly — Elixir 1.16+ warns on
       # negative-bound ranges without a step, and the warning becomes
       # an error in a future minor.
-      String.slice(value, 0, 8) <> "…" <> String.slice(value, -4..-1//1)
+      "••••" <> String.slice(value, -4..-1//1)
     end
   end
 

@@ -16,6 +16,43 @@ defmodule PhoenixKit.Utils.IpAddress do
   Extract from peer_data directly:
       ip = PhoenixKit.Utils.IpAddress.extract_ip_address(%{address: {192, 168, 1, 1}})
 
+  ## Trusted proxies
+
+  `X-Forwarded-For` and `X-Real-IP` are written by whoever sent the request, so
+  they are only believed when the connection comes from a proxy of yours.
+  `config :phoenix_kit, :trusted_proxies` says which peers those are:
+
+      # Believe the headers only from these peers (CIDR blocks or bare addresses)
+      config :phoenix_kit, :trusted_proxies, ["172.18.0.7/32", "10.0.0.0/8"]
+
+      # Believe them from nobody: the client is always the connection's peer
+      config :phoenix_kit, :trusted_proxies, []
+
+  - **Not set (the default).** A loopback or private peer (127.0.0.0/8, 10/8,
+    172.16/12, 192.168/16, `::1`, `fc00::/7`) is taken for a proxy and its
+    headers are believed. This is what installs got before the option existed.
+    Any process that can open a connection from such an address can then
+    claim any client address, so set the option on a production install.
+    The first request on a VM whose forwarded header is honoured this way logs
+    one warning.
+  - **A list.** The headers are believed only when the peer is inside one of
+    the blocks — public or private alike. A malformed entry matches nothing.
+  - **`[]`.** Nobody is trusted; the client is the peer.
+  - **Not a list** (a string, a map) trusts nobody. Inside a list, an entry
+    that does not parse is ignored and the valid entries still apply. Either
+    case logs one warning per VM. Write IPv4 blocks as IPv4
+    (`"172.18.0.0/16"`), not as `::ffff:` IPv6.
+
+  One proxy hop is supported: the client is the LAST `x-forwarded-for` entry,
+  even when that entry is another trusted proxy, so a chain such as
+  CDN -> Caddy -> app reports the CDN. In Docker the proxy's address changes
+  when its container is recreated; pin it (`ipv4_address` in compose) or
+  resolve it by name at boot (`config/runtime.exs`), otherwise a fixed `/32`
+  silently stops matching and every client appears as the proxy.
+
+  The same rule applies to `client_address/1` (Plug.Conn) and
+  `client_address_from_socket/1` (LiveView).
+
   ## Examples
 
       iex> PhoenixKit.Utils.IpAddress.extract_ip_address(%{address: {192, 168, 1, 1}})
@@ -30,6 +67,10 @@ defmodule PhoenixKit.Utils.IpAddress do
       iex> PhoenixKit.Utils.IpAddress.extract_ip_address(%{})
       "unknown"
   """
+
+  alias PhoenixKit.API.Keys.CIDR
+
+  require Logger
 
   @doc """
   Extracts IP address from peer_data map.
@@ -58,9 +99,9 @@ defmodule PhoenixKit.Utils.IpAddress do
   Extracts the visitor's IP address from a `Plug.Conn`.
 
   Proxy-aware: delegates to `client_address/1`, which reads `x-forwarded-for`
-  / `x-real-ip` when `conn.remote_ip` is a loopback or private address (a
-  reverse proxy on the same box or network), and trusts a public
-  `conn.remote_ip` as-is.
+  / `x-real-ip` when `conn.remote_ip` is a trusted proxy (by default a
+  loopback or private address — see "Trusted proxies" above), and takes any
+  other `conn.remote_ip` as-is.
 
   ## Parameters
 
@@ -81,11 +122,12 @@ defmodule PhoenixKit.Utils.IpAddress do
   `extract_from_conn/1` answers the TCP peer, which behind nginx (or in a
   container) is the proxy's own address for every visitor. This one takes
   `conn.remote_ip` (which a host's RemoteIp plug already rewrites) and, when
-  that is a loopback or private address — a proxy on the same box or the
-  same network — the LAST entry of `x-forwarded-for`, the one that proxy
+  that is a trusted proxy — by default a loopback or private address, a proxy
+  on the same box or the same network; with `:trusted_proxies` set, only an
+  address inside it — the LAST entry of `x-forwarded-for`, the one that proxy
   appended (a visitor can send their own header; they cannot control what
-  nginx appends after it), then `x-real-ip`. A public `remote_ip` is trusted
-  as is. Returns nil when nothing is known.
+  nginx appends after it), then `x-real-ip`. Any other `remote_ip` is the
+  answer as is. Returns nil when nothing is known.
 
   A forwarded address may carry the port the proxy saw (Caddy's `{remote}`
   writes `203.0.113.7:28858` and `[2001:db8::1]:28858`); the port is dropped.
@@ -98,8 +140,8 @@ defmodule PhoenixKit.Utils.IpAddress do
   """
   @spec client_address(Plug.Conn.t()) :: String.t() | nil
   def client_address(%Plug.Conn{remote_ip: ip} = conn) do
-    if local?(ip) do
-      forwarded_for(conn) || real_ip(conn) || format_client(ip)
+    if proxy?(ip) do
+      forwarded(conn) || format_client(ip)
     else
       format_client(ip)
     end
@@ -109,8 +151,9 @@ defmodule PhoenixKit.Utils.IpAddress do
   The visitor's address as a LiveView socket knows it — or nil when the
   socket cannot tell.
 
-  From the connect info the endpoint passes: a public `:peer_data` address
-  is the visitor; a loopback or private one is a proxy, and only the
+  From the connect info the endpoint passes: a `:peer_data` address that is
+  not a trusted proxy is the visitor; a trusted one (by default any loopback
+  or private address, see "Trusted proxies" above) is a proxy, and only the
   forwarded address in `:x_headers` (`x-forwarded-for`, `x-real-ip`) names
   the visitor then. An endpoint that passes no `:x_headers` — core's
   installed endpoint passes `:peer_data` only — leaves a proxied socket
@@ -124,7 +167,7 @@ defmodule PhoenixKit.Utils.IpAddress do
         headers = Phoenix.LiveView.get_connect_info(socket, :x_headers) || []
         conn = %Plug.Conn{remote_ip: ip, req_headers: headers}
 
-        if local?(ip), do: forwarded_for(conn) || real_ip(conn), else: format_client(ip)
+        if proxy?(ip), do: forwarded(conn), else: format_client(ip)
 
       _ ->
         nil
@@ -186,6 +229,94 @@ defmodule PhoenixKit.Utils.IpAddress do
   defp network_key({0, 0, 0, 0, 0, 0, _, _} = compatible), do: format(unmap(compatible))
   defp network_key({a, _, _, _, _, _, _, _} = ll) when a in 0xFE80..0xFEBF, do: format(ll)
   defp network_key({a, b, c, d, _, _, _, _}), do: format({a, b, c, d, 0, 0, 0, 0}) <> "/64"
+
+  # Whether `ip` is a peer whose forwarded headers may be believed. Unset keeps
+  # the long-standing rule (loopback or private); a list is exact; anything
+  # else that is set is a misconfiguration and trusts nobody (and says so once).
+  defp proxy?(ip) do
+    case Application.get_env(:phoenix_kit, :trusted_proxies) do
+      nil ->
+        local?(ip)
+
+      blocks when is_list(blocks) ->
+        warn_invalid(blocks)
+        CIDR.allowed?(blocks, format_client(ip))
+
+      other ->
+        warn_invalid(other)
+        false
+    end
+  end
+
+  defp forwarded(conn) do
+    case forwarded_for(conn) || real_ip(conn) do
+      nil ->
+        nil
+
+      address ->
+        warn_unconfigured()
+        address
+    end
+  end
+
+  @warned_key {__MODULE__, :unconfigured_proxies_warned}
+  @invalid_key {__MODULE__, :invalid_proxies_warned}
+
+  # Once per VM, on the first request that actually relies on the default —
+  # not at boot, where reading settings races the repo.
+  defp warn_unconfigured do
+    if is_nil(Application.get_env(:phoenix_kit, :trusted_proxies)) and
+         not :persistent_term.get(@warned_key, false) do
+      :persistent_term.put(@warned_key, true)
+
+      Logger.warning(
+        "PhoenixKit trusts X-Forwarded-For / X-Real-IP from any loopback or private peer " <>
+          "because `config :phoenix_kit, :trusted_proxies` is not set. Anything that can " <>
+          "connect from such an address can claim any client IP. Set it to the CIDR blocks " <>
+          "of your reverse proxies (or [] to trust none)."
+      )
+    end
+
+    :ok
+  end
+
+  # A value that is not a list, or a list entry that is not a CIDR block or an
+  # address, quietly matches nothing — so every client would look like the proxy.
+  # Said once per VM, on the first request, so the operator can find it.
+  defp warn_invalid(value) do
+    if not :persistent_term.get(@invalid_key, false) do
+      case invalid_entries(value) do
+        [] ->
+          :ok
+
+        invalid ->
+          :persistent_term.put(@invalid_key, true)
+
+          Logger.warning(
+            "PhoenixKit `config :phoenix_kit, :trusted_proxies` is invalid; what it cannot " <>
+              "read is ignored: #{inspect_invalid(invalid)}. It must be a list of " <>
+              "CIDR blocks or addresses as text, e.g. [\"172.18.0.7/32\"]; a peer matched " <>
+              "by no valid entry is not trusted, so its clients appear as the proxy itself."
+          )
+      end
+    end
+
+    :ok
+  end
+
+  # `inspect/2`'s `limit` counts nested terms, so `limit: 5` on a list shows one
+  # tuple entry and elides the rest: take whole entries instead.
+  defp inspect_invalid(invalid),
+    do: invalid |> Enum.take(5) |> inspect(limit: :infinity, printable_limit: 80)
+
+  defp invalid_entries(blocks) when is_list(blocks) do
+    case CIDR.normalize_all(blocks) do
+      {:ok, _} -> []
+      {:error, invalid} -> invalid
+    end
+  end
+
+  defp invalid_entries(other), do: [other]
 
   # Every instance of the header, in order, as one list — a proxy that adds
   # its own header line rather than appending to the visitor's still puts
@@ -259,6 +390,9 @@ defmodule PhoenixKit.Utils.IpAddress do
   addresses `client_address/1` looks past. Anything that does not parse is
   not.
 
+  This is the default rule `client_address/1` applies when `:trusted_proxies`
+  is not set; once that option is set, trust follows the list instead.
+
       iex> PhoenixKit.Utils.IpAddress.local_address?("172.18.0.8")
       true
 
@@ -285,8 +419,9 @@ defmodule PhoenixKit.Utils.IpAddress do
   Extracts the visitor's IP address from a Phoenix.LiveView socket.
 
   Proxy-aware: delegates to `client_address_from_socket/1`, which reads the
-  connect info's `:x_headers` when the socket's `:peer_data` is a loopback
-  or private address, and trusts a public `:peer_data` address as-is.
+  connect info's `:x_headers` when the socket's `:peer_data` is a trusted
+  proxy (by default a loopback or private address — see "Trusted proxies"
+  above), and takes any other `:peer_data` address as-is.
 
   ## Parameters
 

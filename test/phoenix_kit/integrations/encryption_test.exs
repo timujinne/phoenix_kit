@@ -212,7 +212,11 @@ defmodule PhoenixKit.Integrations.EncryptionTest do
       refute Encryption.enabled?()
 
       data = %{"api_key" => "plain"}
-      assert Encryption.encrypt_fields(data) == data
+      flag_key = {Encryption, :plaintext_write_logged}
+      :persistent_term.erase(flag_key)
+      on_exit(fn -> :persistent_term.erase(flag_key) end)
+
+      ExUnit.CaptureLog.capture_log(fn -> assert Encryption.encrypt_fields(data) == data end)
     end
   end
 
@@ -713,6 +717,93 @@ defmodule PhoenixKit.Integrations.EncryptionTest do
     test "decrypt_value/1 still passes through legacy plaintext (no prefix) even with no key" do
       assert Encryption.decrypt_value("legacy-plaintext-secret") ==
                {:ok, "legacy-plaintext-secret"}
+    end
+  end
+
+  describe "encrypt_fields/1 when no key resolves" do
+    import ExUnit.CaptureLog
+
+    @flag_key {Encryption, :plaintext_write_logged}
+
+    setup do
+      original_flat = Application.get_env(:phoenix_kit, :secret_key_base)
+      original_parent = Application.get_env(:phoenix_kit, :parent_module)
+      original_enabled = Application.get_env(:phoenix_kit, :integration_encryption_enabled)
+      Application.delete_env(:phoenix_kit, :secret_key_base)
+      Application.put_env(:phoenix_kit, :parent_module, PhoenixKit.NoSuchApp)
+      :persistent_term.erase(@flag_key)
+
+      on_exit(fn ->
+        restore_env(:secret_key_base, original_flat)
+        restore_env(:parent_module, original_parent)
+        restore_env(:integration_encryption_enabled, original_enabled)
+        :persistent_term.erase(@flag_key)
+      end)
+
+      refute Encryption.enabled?()
+      :ok
+    end
+
+    test "logs a warning the first time it stores a credential as plaintext, never the value" do
+      data = %{"api_key" => "plaintext-api-key-must-not-be-logged", "name" => "x"}
+
+      log = capture_log(fn -> assert Encryption.encrypt_fields(data) == data end)
+
+      assert log =~ "[PhoenixKit.Integrations]"
+      assert log =~ "PLAINTEXT"
+      refute log =~ "plaintext-api-key-must-not-be-logged"
+    end
+
+    test "logs only once per VM" do
+      data = %{"api_key" => "plaintext-api-key-1234567890"}
+
+      first = capture_log(fn -> Encryption.encrypt_fields(data) end)
+      second = capture_log(fn -> Encryption.encrypt_fields(data) end)
+
+      assert first =~ "PLAINTEXT"
+      refute second =~ "PLAINTEXT"
+    end
+
+    test "stays silent when nothing sensitive would be stored in plaintext" do
+      log =
+        capture_log(fn ->
+          Encryption.encrypt_fields(%{"name" => "x", "api_key" => "", "password" => nil})
+          Encryption.encrypt_fields(%{"api_key" => "enc:v1:" <> Base.encode64("already")})
+        end)
+
+      refute log =~ "PLAINTEXT"
+      # ...and those writes did not use up the one-time warning.
+      assert capture_log(fn ->
+               Encryption.encrypt_fields(%{"api_key" => "real-plaintext-key"})
+             end) =~
+               "PLAINTEXT"
+    end
+
+    test "also warns when encryption is switched off explicitly" do
+      Application.put_env(:phoenix_kit, :integration_encryption_enabled, false)
+
+      log = capture_log(fn -> Encryption.encrypt_fields(%{"password" => "hunter2-hunter2"}) end)
+
+      assert log =~ "PLAINTEXT"
+      refute log =~ "hunter2-hunter2"
+    end
+
+    test "an explicit warn_on_boot: false silences it" do
+      original_flag = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+      on_exit(fn -> restore_env(:integration_encryption_warn_on_boot, original_flag) end)
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, false)
+
+      log = capture_log(fn -> Encryption.encrypt_fields(%{"password" => "hunter2-hunter2"}) end)
+
+      refute log =~ "PLAINTEXT"
+    end
+
+    test "does not warn when a key resolves" do
+      Application.put_env(:phoenix_kit, :secret_key_base, "some-usable-secret-key-base-value")
+
+      log = capture_log(fn -> Encryption.encrypt_fields(%{"api_key" => "k-1234567890"}) end)
+
+      refute log =~ "PLAINTEXT"
     end
   end
 

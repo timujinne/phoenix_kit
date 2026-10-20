@@ -8,7 +8,9 @@ defmodule PhoenixKit.Modules.Storage.Library do
   (`PhoenixKit.Modules.Storage.Libraries.media_uuid/0`). **User** libraries
   (V203) belong to a user, are `private`, and may have members
   (`PhoenixKit.Modules.Storage.LibraryMember`). A trashed user library may
-  outlive its owner (`owner_uuid` NULL) until it is purged.
+  outlive its owner (`owner_uuid` NULL) until it is purged. A system library
+  is `site`, except a **hidden** one a module keeps its own files in, which is
+  `private` (`PhoenixKit.Modules.Storage.Libraries.hidden?/1`).
 
   `key_prefix` is the first segment of the object key for files stored in the
   library from now on. `nil` keeps the historical layout, which is what Media
@@ -69,7 +71,10 @@ defmodule PhoenixKit.Modules.Storage.Library do
     timestamps(type: :utc_datetime)
   end
 
-  @doc "A new system library: a name, a URL slug and an object-key prefix."
+  @doc """
+  A new system library: a name, a URL slug and an object-key prefix. Always
+  `site`; `Libraries.create_system_library/2` makes a hidden one `private`.
+  """
   def create_system_changeset(library, attrs) do
     library
     |> cast(attrs, [:name, :key_prefix, :slug])
@@ -84,15 +89,24 @@ defmodule PhoenixKit.Modules.Storage.Library do
     |> unique_constraint(:slug, name: :phoenix_kit_storage_libraries_owner_slug_index)
   end
 
+  defp requested_visibility(attrs) when is_map(attrs),
+    do: Map.get(attrs, :visibility) || Map.get(attrs, "visibility")
+
   @doc """
   A new user library: a name, its owner, a URL slug (unique among the
-  owner's libraries) and an object-key prefix. Always `private`.
+  owner's libraries) and an object-key prefix. `private` unless the caller says
+  `visibility: "site"` (a public library, see `Libraries.create_user_library/3`,
+  which is where that is allowed or refused: this changeset trusts its attrs).
   """
   def create_user_changeset(library, attrs) do
+    # Read from the attrs, never from the changeset: the struct's own default is
+    # "site", so a changeset that was not asked for "site" would still say it.
+    visibility = if requested_visibility(attrs) == "site", do: "site", else: "private"
+
     library
     |> cast(attrs, [:name, :owner_uuid, :key_prefix, :slug, :is_default])
     |> put_change(:kind, "user")
-    |> put_change(:visibility, "private")
+    |> put_change(:visibility, visibility)
     |> validate_name()
     |> validate_required([:owner_uuid, :key_prefix, :slug])
     |> validate_format(:key_prefix, ~r/\A[a-z0-9][a-z0-9_-]{0,63}\z/)

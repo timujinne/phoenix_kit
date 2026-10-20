@@ -76,6 +76,7 @@ defmodule PhoenixKit.Users.Auth do
   alias PhoenixKit.Users.Auth.{User, UserNotifier, UserToken}
   alias PhoenixKit.Users.{CustomFields, RateLimiter, Role, Roles, Sessions, WelcomeEmail}
   alias PhoenixKit.Utils.Date, as: UtilsDate
+  alias PhoenixKit.Utils.FileHash
   alias PhoenixKit.Utils.Geolocation
   alias PhoenixKit.Utils.Pagination
   alias PhoenixKit.Utils.Routes
@@ -2582,12 +2583,7 @@ defmodule PhoenixKit.Users.Auth do
   ## Returns
   - String containing the lowercase hexadecimal SHA256 hash
   """
-  def calculate_file_hash(file_path) do
-    file_path
-    |> File.read!()
-    |> then(fn data -> :crypto.hash(:sha256, data) end)
-    |> Base.encode16(case: :lower)
-  end
+  def calculate_file_hash(file_path), do: FileHash.sha256!(file_path)
 
   @doc """
   Bulk update multiple users with the same field values.

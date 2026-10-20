@@ -31,6 +31,7 @@ defmodule PhoenixKit.ModuleRegistry do
       ModuleRegistry.all_email_settings_sections() # Collect Emails Transactional page sections
       ModuleRegistry.all_email_templates()   # Collect emails for the admin email preview
       ModuleRegistry.all_api_tools()         # Collect API tools of enabled modules
+      ModuleRegistry.all_header_widgets()    # Collect admin header widgets of enabled modules
       ModuleRegistry.all_user_dashboard_tabs() # Collect user dashboard tabs
       ModuleRegistry.all_children()          # Collect supervisor child specs
       ModuleRegistry.all_permission_metadata() # Collect permission metadata
@@ -44,6 +45,7 @@ defmodule PhoenixKit.ModuleRegistry do
 
   alias PhoenixKit.API.Tool
   alias PhoenixKit.Dashboard.Tab
+  alias PhoenixKit.HeaderWidget
   alias PhoenixKit.Integrations.Providers
 
   require Logger
@@ -849,20 +851,28 @@ defmodule PhoenixKit.ModuleRegistry do
   Collect the API tools (`c:PhoenixKit.Module.api_tools/0`) of the **enabled** modules,
   each tagged with `:module`, the module that declared it.
 
-  A disabled module's tools cannot be called, so they are left out (`disabled_api_tool?/2`
-  is the other side of that). An entry that is not a valid `PhoenixKit.API.Tool`
-  (`PhoenixKit.API.Tool.validate/1`) is dropped with one warning per module, and so is a
-  tool in core's `system.` namespace (those skip the scope and permission checks and belong
-  to `PhoenixKit.API.CoreTools` alone). A name declared twice for one audience keeps the
-  first (registration order), again with one warning. A module whose `api_tools/0` raises
-  contributes nothing and is reported once.
+  A disabled module's tools cannot be called, so they are left out (`disabled_api_tool?/3`
+  is the other side of that). So are the tools of a module whose key is in `hidden_keys`
+  (the install's `api_disabled_modules` setting: the module's API is switched off). An entry
+  that is not a valid `PhoenixKit.API.Tool` (`PhoenixKit.API.Tool.validate/1`) is dropped
+  with one warning per module, and so is a tool in core's `system.` namespace (those skip
+  the scope and permission checks and belong to `PhoenixKit.API.CoreTools` alone). A name
+  declared twice for one audience keeps the first (registration order), again with one
+  warning; the keys are removed before that, so switching the first module off hands the
+  name to the second. A module whose `api_tools/0` raises contributes nothing and is
+  reported once.
+
+  This is not a gate. With the default `hidden_keys` it returns the tools of modules whose
+  API is switched off; only `PhoenixKit.API.Registry` applies the install's settings, so a
+  transport must ask it for tools.
 
   Every call asks every module again (`enabled?/0` and `api_tools/0` are not cached), so a
   caller that serves requests should call it once per request and keep the result.
   """
-  @spec all_api_tools() :: [Tool.t()]
-  def all_api_tools do
+  @spec all_api_tools([String.t()]) :: [Tool.t()]
+  def all_api_tools(hidden_keys \\ []) do
     enabled_modules()
+    |> Enum.reject(&api_hidden?(&1, hidden_keys))
     |> Enum.flat_map(&module_api_tools/1)
     |> drop_duplicate_api_tools()
   end
@@ -873,11 +883,14 @@ defmodule PhoenixKit.ModuleRegistry do
 
   This is the "module disabled" test of `PhoenixKit.API.Registry.find/2`. It asks only the
   disabled modules for their tools, and it looks at the audience, so an anonymous caller
-  cannot learn that an admin tool exists by asking for it on the public side.
+  cannot learn that an admin tool exists by asking for it on the public side. A module
+  whose key is in `hidden_keys` (its API is switched off) does not count: its tools answer
+  like a name nobody has.
   """
-  @spec disabled_api_tool?(String.t(), :admin | :public) :: boolean()
-  def disabled_api_tool?(name, audience) do
+  @spec disabled_api_tool?(String.t(), :admin | :public, [String.t()]) :: boolean()
+  def disabled_api_tool?(name, audience, hidden_keys \\ []) do
     (all_modules() -- enabled_modules())
+    |> Enum.reject(&api_hidden?(&1, hidden_keys))
     |> Enum.flat_map(&module_api_tools/1)
     |> Enum.any?(&(&1.name == name and &1.audience == audience))
   end
@@ -900,6 +913,221 @@ defmodule PhoenixKit.ModuleRegistry do
     |> Enum.map(& &1.name)
     |> Enum.uniq()
     |> Enum.sort()
+  end
+
+  @doc """
+  The registered modules that declare at least one valid API tool, switched on or off,
+  sorted by name: `%{module, key, name, enabled?, tools, audiences}` (`tools` is how many,
+  `audiences` the audiences they serve).
+
+  For the screens that list them (the API switch per module in Settings -> API, the badge
+  on the Modules page). It is not a gate: `PhoenixKit.API.Registry` decides what is callable.
+  """
+  @spec api_modules() :: [
+          %{
+            module: module(),
+            key: String.t(),
+            name: String.t(),
+            enabled?: boolean(),
+            tools: pos_integer(),
+            audiences: [Tool.audience()]
+          }
+        ]
+  def api_modules do
+    enabled = enabled_modules()
+
+    all_modules()
+    |> Enum.flat_map(fn mod ->
+      case {module_api_tools(mod), api_module_key(mod)} do
+        {[_ | _] = tools, key} when is_binary(key) ->
+          [
+            %{
+              module: mod,
+              key: key,
+              name: api_module_name(mod),
+              enabled?: mod in enabled,
+              tools: length(tools),
+              audiences: tools |> Enum.map(& &1.audience) |> Enum.uniq() |> Enum.sort()
+            }
+          ]
+
+        {[_ | _], _no_key} ->
+          warn_once(
+            {:api_module_without_key, mod},
+            "[ModuleRegistry] #{inspect(mod)} declares API tools but has no usable " <>
+              "module_key/0, so its API cannot be switched off"
+          )
+
+          []
+
+        {[], _key} ->
+          []
+      end
+    end)
+    |> Enum.sort_by(&String.downcase(&1.name))
+  end
+
+  @doc """
+  Collect the admin header widgets (`c:PhoenixKit.Module.header_widgets/0`) of the
+  **enabled** modules, as `PhoenixKit.HeaderWidget` structs tagged with `:module`.
+
+  Only a module that defines `header_widgets/0` is asked (and only then is its `enabled?/0`
+  called), so an install without such modules pays nothing for this on the layout's render
+  path. An entry that is not a valid widget is dropped with one warning per module, a widget
+  whose id was already taken by an earlier one is dropped with one warning, and a module
+  whose `header_widgets/0` raises contributes nothing and is reported once.
+  """
+  @spec all_header_widgets() :: [HeaderWidget.t()]
+  def all_header_widgets do
+    all_modules()
+    |> Enum.filter(&(header_widgets_exported?(&1) and header_widgets_enabled?(&1)))
+    |> Enum.flat_map(&module_header_widgets/1)
+    |> drop_duplicate_header_widgets()
+  end
+
+  @doc """
+  The header widgets to render for one layout render: `all_header_widgets/0`, each with
+  `:session` computed by its session function from `assigns` (the layout's assigns).
+
+  A widget whose session function returns `nil` is dropped without a word (no widget for
+  this user); one whose session function raises, or returns something that is not a map with
+  string keys, is dropped with one warning. The keys the cookie session owns
+  (`PhoenixKit.HeaderWidget.reserved_session_keys/0`) are removed from the session, with one
+  warning per module and widget.
+  """
+  @spec header_widgets_for(map()) :: [HeaderWidget.t()]
+  def header_widgets_for(assigns) when is_map(assigns) do
+    Enum.flat_map(all_header_widgets(), fn widget ->
+      case HeaderWidget.resolve_session(widget, assigns) do
+        {:ok, resolved, dropped} ->
+          warn_reserved_session_keys(widget, dropped)
+          [resolved]
+
+        :skip ->
+          []
+
+        {:error, reason} ->
+          warn_once(
+            {:header_widget_session, widget.module, widget.id},
+            "[ModuleRegistry] #{inspect(widget.module)} header widget #{inspect(widget.id)} " <>
+              "skipped: #{reason}"
+          )
+
+          []
+      end
+    end)
+  end
+
+  defp warn_reserved_session_keys(_widget, []), do: :ok
+
+  defp warn_reserved_session_keys(widget, dropped) do
+    warn_once(
+      {:header_widget_reserved_keys, widget.module, widget.id},
+      "[ModuleRegistry] #{inspect(widget.module)} header widget #{inspect(widget.id)} " <>
+        "session keys dropped, they belong to the cookie session: #{Enum.join(dropped, ", ")}"
+    )
+  end
+
+  defp header_widgets_exported?(mod) do
+    Code.ensure_loaded?(mod) and function_exported?(mod, :header_widgets, 0)
+  end
+
+  defp header_widgets_enabled?(mod) do
+    function_exported?(mod, :enabled?, 0) and safe_enabled?(mod)
+  end
+
+  defp module_header_widgets(mod) do
+    mod
+    |> call_header_widgets()
+    |> List.wrap()
+    |> Enum.flat_map(fn entry ->
+      case HeaderWidget.new(entry) do
+        {:ok, widget} ->
+          [%{widget | module: mod}]
+
+        {:error, reason} ->
+          warn_once(
+            {:bad_header_widget, mod},
+            "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 returned an invalid " <>
+              "widget, ignored: #{reason}"
+          )
+
+          []
+      end
+    end)
+  end
+
+  # Like `call_api_tools/1`: this runs on every render of the admin layout, so a failing
+  # callback is reported once per module.
+  defp call_header_widgets(mod) do
+    mod.header_widgets()
+  rescue
+    error ->
+      warn_header_widgets_failed(mod, Exception.message(error))
+  catch
+    kind, reason ->
+      warn_header_widgets_failed(mod, inspect({kind, reason}))
+  end
+
+  defp warn_header_widgets_failed(mod, detail) do
+    warn_once(
+      {:header_widgets_failed, mod},
+      "[ModuleRegistry] #{inspect(mod)}.header_widgets/0 failed: #{detail}"
+    )
+
+    []
+  end
+
+  defp drop_duplicate_header_widgets(widgets) do
+    {kept, _seen} =
+      Enum.reduce(widgets, {[], MapSet.new()}, fn widget, {kept, seen} ->
+        if MapSet.member?(seen, widget.id) do
+          warn_once(
+            {:duplicate_header_widget, widget.id},
+            "[ModuleRegistry] #{inspect(widget.module)} declares the header widget " <>
+              "#{inspect(widget.id)} that another module already declared, ignored"
+          )
+
+          {kept, seen}
+        else
+          {[widget | kept], MapSet.put(seen, widget.id)}
+        end
+      end)
+
+    Enum.reverse(kept)
+  end
+
+  defp api_module_name(mod) do
+    case safe_call(mod, :module_name, nil) do
+      name when is_binary(name) -> name
+      _ -> inspect(mod)
+    end
+  end
+
+  defp api_hidden?(_mod, []), do: false
+  defp api_hidden?(mod, hidden_keys), do: api_module_key(mod) in hidden_keys
+
+  # Like `call_api_tools/1`, a failing `module_key/0` is reported once per module: the
+  # switch is read on the request path, where `safe_call/3` would log on every request.
+  defp api_module_key(mod) do
+    if Code.ensure_loaded?(mod) and function_exported?(mod, :module_key, 0) do
+      mod.module_key()
+    end
+  rescue
+    error ->
+      warn_module_key_failed(mod, Exception.message(error))
+  catch
+    kind, reason ->
+      warn_module_key_failed(mod, inspect({kind, reason}))
+  end
+
+  defp warn_module_key_failed(mod, detail) do
+    warn_once(
+      {:module_key_failed, mod},
+      "[ModuleRegistry] #{inspect(mod)}.module_key/0 failed: #{detail}"
+    )
+
+    nil
   end
 
   defp module_api_tools(mod) do

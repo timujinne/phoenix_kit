@@ -3137,10 +3137,54 @@ if (typeof window.Chart === "undefined") {
   };
 
   // ---------------------------------------------------------------------------
+  // PkHashHighlight — lights the element the URL fragment names.
+  //
+  // The CSS `:target` variant only follows a fragment the browser itself
+  // navigated to: a page reached through `push_navigate` (a bell notice, for
+  // one) is entered by `history.pushState`, which leaves `:target` unset. The
+  // hook sets `data-highlight` on the element inside its root whose id the
+  // fragment names, on mount, after every patch and on `hashchange`; the
+  // markup styles it (`data-[highlight]:ring-2`) next to `target:ring-2` for
+  // pages loaded directly.
+  //
+  //   <div id="page" phx-hook="PkHashHighlight"> <div id="item-1" …> </div>
+  // ---------------------------------------------------------------------------
+  function hashTargetId(hash) {
+    if (typeof hash !== "string" || hash.length < 2 || hash.charAt(0) !== "#") return null;
+    try { return decodeURIComponent(hash.slice(1)); } catch (_e) { return null; }
+  }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports.hashTargetId = hashTargetId;
+  }
+
+  window.PhoenixKitHooks.PkHashHighlight = {
+    mounted() {
+      const self = this;
+      self._onHashChange = function() { self._mark(); };
+      window.addEventListener("hashchange", self._onHashChange);
+      self._mark();
+    },
+    updated() { this._mark(); },
+    destroyed() { window.removeEventListener("hashchange", this._onHashChange); },
+    _mark() {
+      const id = hashTargetId(window.location.hash);
+      this.el.querySelectorAll("[data-highlight]").forEach(function(el) {
+        if (el.id !== id) el.removeAttribute("data-highlight");
+      });
+      if (id === null) return;
+      const target = document.getElementById(id);
+      if (target && this.el.contains(target)) target.setAttribute("data-highlight", "");
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // PkDateInput — the hook behind `<.date_input>` (core/date_input.ex): a
   // visible text input in the site's date format plus a real
   // `<input type="date" data-date-value>` that carries the caller's name and
-  // the ISO value. See the component's moduledoc for the contract.
+  // the ISO value. The server renders the native date input as the visible
+  // control (what a page with no LiveView keeps); `enhance` swaps the roles.
+  // See the component's moduledoc for the contract.
   //
   // The pure parts (format table, parser, formatter) are exported for
   // test/js/date_input.test.cjs.
@@ -3212,6 +3256,13 @@ if (typeof window.Chart === "undefined") {
     if (order === "ymd") return { y: parts[0], m: parts[1], d: parts[2] };
     if (order === "mdy") return { m: parts[0], d: parts[1], y: parts[2] };
     return { d: parts[0], m: parts[1], y: parts[2] };
+  }
+
+  // What a date input's `value` is for an attribute text: the date itself when
+  // it is a real `YYYY-MM-DD`, else "" (the browser's sanitising).
+  function isoOrEmpty(text) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(text || ""));
+    return m ? validYmd(+m[1], +m[2], +m[3]) || "" : "";
   }
 
   // Text → "YYYY-MM-DD", or null when it is not a date (or lies outside
@@ -3302,13 +3353,23 @@ if (typeof window.Chart === "undefined") {
     return { top: top, left: left };
   }
 
+  // The grid is Gregorian whatever the language's default calendar is (`th`,
+  // `ar-SA`, `fa`): without it the month and year headings would not match.
+  function calendarLocale(tag) {
+    tag = tag || "en";
+    return /-u-/i.test(tag) ? tag : tag + "-u-ca-gregory";
+  }
+
   if (typeof module === "object" && module.exports) {
+    module.exports.calendarLocale = calendarLocale;
     module.exports.popupPlacement = popupPlacement;
     module.exports.dateOrder = dateOrder;
     module.exports.parseDateText = parseDateText;
     module.exports.checkDateText = checkDateText;
     module.exports.formatDateIso = formatDateIso;
   }
+
+  var warnedNoUtilities = false;
 
   window.PhoenixKitHooks.PkDateInput = {
     mounted() {
@@ -3319,6 +3380,8 @@ if (typeof window.Chart === "undefined") {
       this.rejected = null;
       this.pendingSync = false;
       this.gone = false;
+      this.serverAttr = this.valueEl().getAttribute("value");
+      this.enhance(true);
 
       this.onEvent = function(e) { self.handle(e); };
       ["input", "change", "click", "mousedown", "keydown", "focusin", "focusout"].forEach(function(type) {
@@ -3333,14 +3396,59 @@ if (typeof window.Chart === "undefined") {
       };
       if (this.form) this.form.addEventListener("reset", this.onReset);
 
-      // Text that differs from what the server rendered was typed before the
-      // socket connected. Still typing in it: leave it to blur/Enter (a
-      // partial `16.10.20` must not be committed under the caret).
-      if (t.value !== t.defaultValue) {
+      // A date picked in the native input before the socket connected: the
+      // server has not heard of it, the text is still the old date. A browser
+      // sanitises a non-ISO `value` to "", so the default to compare with is
+      // the sanitised one: a value the server echoed as given (`03.05.2024`)
+      // is not a pick.
+      var v = this.valueEl();
+      var pick = v.value !== isoOrEmpty(v.defaultValue);
+      // A half-edited native control (`badInput`) holds no date yet: not a pick.
+      if (pick && v.validity && v.validity.badInput) pick = false;
+      if (pick && v.value === "" && this.el.dataset.required === "true") {
+        // Emptied during the connect window, on a required field: that is not
+        // a value. Keep the server's date (put back into the date input) and say so.
+        v.value = isoOrEmpty(v.defaultValue);
+        this.reject("format");
+      } else if (pick) {
+        this.syncText();
+        v.dispatchEvent(new Event("input", { bubbles: true }));
+      } else if (t.value !== t.defaultValue) {
+        // Text that differs from what the server rendered was typed before the
+        // socket connected. Still typing in it: leave it to blur/Enter (a
+        // partial `16.10.20` must not be committed under the caret).
         if (document.activeElement === t) this.baseText = t.defaultValue;
         else this.commit();
+      } else if (v.value === "" && t.value.trim() !== "") {
+        this.adoptStored();
       }
       this.refresh();
+
+      // `autofocus` sits on the text field, which was `hidden` when the
+      // browser looked for something to focus. The socket connects after the
+      // person may have started typing elsewhere: take the focus only when
+      // nothing holds it (the date input's own focus went to the text field in
+      // `enhance`).
+      var active = document.activeElement;
+      if (t.hasAttribute("autofocus") && (!active || active === document.body)) t.focus();
+    },
+
+    // The server echoed a stored value the date input cannot hold (`03.05.2024`,
+    // a changeset's bad input): the text shows it, the date input is empty, and
+    // a save would erase it without a word. A text that is a date in the site
+    // format is taken into the date input (no event: the server has it); any
+    // other is marked, so the person corrects or clears it. A field nobody can
+    // edit is not marked.
+    adoptStored() {
+      var t = this.textEl();
+      var v = this.valueEl();
+      var res = this.check(t.value);
+      if (!res.error) {
+        v.value = res.iso;
+        this.lastIso = res.iso;
+      } else if (!(t.matches && t.matches(":disabled")) && !t.readOnly) {
+        this.reject(res.error);
+      }
     },
 
     updated() {
@@ -3348,13 +3456,24 @@ if (typeof window.Chart === "undefined") {
       var t = this.textEl();
       if (!v || !t) return;
       var focused = document.activeElement === t;
-      var changed = v.value !== this.lastIso;
+      // The server's own value (the attribute): a stored text the date input
+      // cannot hold sanitises to "" however the server moves it.
+      var attr = v.getAttribute("value");
+      var attrMoved = attr !== this.serverAttr;
+      this.serverAttr = attr;
+      // The echo of the value the hook itself sent is not the server moving it.
+      if (attrMoved && (attr || "") === this.sentIso) attrMoved = false;
+      var stored = !!attr && isoOrEmpty(attr) === "";
+      // The same stored text again: keep the date taken from it at mount.
+      if (stored && !attrMoved && v.value === "" && this.lastIso) v.value = this.lastIso;
+      var changed = v.value !== this.lastIso || attrMoved;
       this.lastIso = v.value;
 
       if (changed) {
         // The server moved the date: it wins over rejected text.
         this.rejected = null;
         if (focused) this.pendingSync = true;
+        else if (stored) this.adoptStored();
         else this.syncText();
       } else if (this.rejected && !focused) {
         // A patch rewrote the field from the server's (unchanged) date: the
@@ -3369,6 +3488,43 @@ if (typeof window.Chart === "undefined") {
       this.gone = true;
       this.closePopup(false);
       if (this.form) this.form.removeEventListener("reset", this.onReset);
+    },
+
+    // The server renders the native date input as the visible control and the
+    // text field `hidden`. From here on the text field is the control and the
+    // date input is its invisible value element: the wrapper's `data-enhanced`
+    // flips the classes, and `required` moves to the text field (a `required`
+    // control that is not displayed would block the form's submit). A patch
+    // puts the server's markup back, so `refresh` does this again.
+    enhance(atMount) {
+      var t = this.textEl();
+      var v = this.valueEl();
+      if (!t || !v || this.degraded) return;
+      this.el.setAttribute("data-enhanced", "");
+      if (atMount) {
+        // A host stylesheet without the swap utilities leaves the text field
+        // undisplayed: keep the browser's date input (visible, focusable,
+        // `required`) instead of an invisible one.
+        var css = typeof window.getComputedStyle === "function" ? window.getComputedStyle(t) : null;
+        if (css && css.display === "none") {
+          this.el.removeAttribute("data-enhanced");
+          this.degraded = true;
+          if (!warnedNoUtilities && typeof console !== "undefined") console.warn("PkDateInput: the stylesheet lacks the group-data-[enhanced] utilities; rebuild the CSS. Using the browser's date input.");
+          warnedNoUtilities = true;
+          return;
+        }
+        // Sticky across patches: morphdom would strip a plain attribute the
+        // server does not render, and the text field would blink away.
+        if (typeof this.js === "function") this.js().setAttribute(this.el, "data-enhanced", "");
+      }
+      v.setAttribute("tabindex", "-1");
+      v.setAttribute("aria-hidden", "true");
+      v.removeAttribute("required");
+      t.required = this.el.dataset.required === "true";
+      // The date input that was displayed (and focused) until now is invisible
+      // from here on: the keystrokes go to the field the person sees. Only at
+      // mount: later it holds the focus for its own picker.
+      if (atMount && document.activeElement === v) t.focus();
     },
 
     textEl() { return this.el.querySelector("[data-date-text]"); },
@@ -3504,6 +3660,7 @@ if (typeof window.Chart === "undefined") {
       if (!v || v.value === iso) return;
       v.value = iso;
       this.lastIso = iso;
+      this.sentIso = iso;
       v.dispatchEvent(new Event("input", { bubbles: true }));
     },
 
@@ -3621,7 +3778,7 @@ if (typeof window.Chart === "undefined") {
       popup.appendChild(tpl.content.cloneNode(true));
       var cal = popup.querySelector("calendar-date");
       if (!cal) return false;
-      cal.setAttribute("locale", this.el.dataset.locale || "en");
+      cal.setAttribute("locale", calendarLocale(this.el.dataset.locale));
       cal.setAttribute("first-day-of-week", this.el.dataset.weekStart || "1");
       if (this.el.dataset.today) cal.setAttribute("today", this.el.dataset.today);
       // `change` does not bubble out of Cally: listen on the element.
@@ -3646,6 +3803,7 @@ if (typeof window.Chart === "undefined") {
       else cal.removeAttribute("min");
       if (d.max) cal.setAttribute("max", d.max);
       else cal.removeAttribute("max");
+      this.syncFooter(popup);
       // Cally pins the month it was last paged to; start on the date's.
       cal.focusedDate = v || d.today || undefined;
 
@@ -3664,6 +3822,17 @@ if (typeof window.Chart === "undefined") {
           if (typeof cal.focus === "function") cal.focus();
         });
       });
+    },
+
+    // The footer buttons live in a <template> LiveView never patches, so they
+    // follow the wrapper's `data-*` each time the calendar opens: "Today" is
+    // off when today lies outside min/max, "Clear" shows for a clearable field.
+    syncFooter(popup) {
+      var d = this.el.dataset;
+      var today = popup.querySelector("[data-popup-today]");
+      var clear = popup.querySelector("[data-popup-clear]");
+      if (today) today.disabled = parseDateText(d.today, "Y-m-d", d.min, d.max) === null;
+      if (clear) clear.classList.toggle("hidden", d.clearable !== "true");
     },
 
     position() {
@@ -3697,8 +3866,13 @@ if (typeof window.Chart === "undefined") {
           if (e.target.closest && e.target.closest("[data-open]") && self.el.contains(e.target)) return;
           self.closePopup(false);
         }, true],
-        // A scroll of any ancestor moves the field away from the popup.
-        [window, "scroll", function(e) { if (!popup.contains(e.target)) close(); }, true],
+        // A scroll of the page or of an ancestor of the field moves the field
+        // away from the popup; an unrelated panel scrolling does not.
+        [window, "scroll", function(e) {
+          var t = e.target;
+          if (popup.contains(t)) return;
+          if (t === document || t === document.documentElement || (t.contains && t.contains(self.el))) close();
+        }, true],
         [window, "resize", close, false],
         [window, "pagehide", close, false]
       ];
@@ -3763,14 +3937,36 @@ if (typeof window.Chart === "undefined") {
       t.setCustomValidity(expected || "invalid");
       t.setAttribute("aria-invalid", "true");
       t.classList.add("input-error");
-      if (expected) t.setAttribute("title", expected);
+      if (expected) {
+        var cur = t.getAttribute("title");
+        if (!this.ownTitle(cur)) this.callerTitle = cur;
+        t.setAttribute("title", expected);
+      }
+      this.say(expected);
+    },
+
+    // Is this title one the hook wrote (rather than the caller's)?
+    ownTitle(title) {
+      var d = this.el.dataset;
+      return title == null || title === d.expected || title === d.rangeMessage;
+    },
+
+    // The rejection hint is a live region: a screen reader announces the text
+    // that appears in it, and the text input points at it (aria-describedby).
+    say(message) {
+      var hint = this.el.querySelector("[data-date-hint]");
+      if (hint && hint.textContent !== message) hint.textContent = message;
     },
 
     markValid() {
       var t = this.textEl();
       if (!t) return;
       t.setCustomValidity("");
-      t.removeAttribute("title");
+      if (this.ownTitle(t.getAttribute("title"))) {
+        if (this.callerTitle != null) t.setAttribute("title", this.callerTitle);
+        else t.removeAttribute("title");
+      }
+      this.say("");
       // Errors the server rendered stay.
       if (!t.hasAttribute("data-has-errors")) {
         t.removeAttribute("aria-invalid");
@@ -3782,6 +3978,7 @@ if (typeof window.Chart === "undefined") {
     refresh() {
       var t = this.textEl();
       if (!t) return;
+      this.enhance();
       if (this.rejected) this.markInvalid();
       else this.markValid();
       this.toggleClear();

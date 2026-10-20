@@ -39,11 +39,11 @@ defmodule PhoenixKit.API.Flow do
   the schema validates it like the field. Both given and different, or the header sent
   twice, is a validation error. A read tool ignores the header, and so does a request
   that does not read it (`idempotency_header?: false`, the MCP transport: its key is the
-  argument).
+  argument), and a write tool that cannot replay (`ControlFields.replay_tool?/1`).
   """
   def merge_header(%{tool: tool, input: input, conn: conn, idempotency_header?: true} = state)
       when is_map(input) do
-    if ControlFields.write_tool?(tool) do
+    if ControlFields.replay_tool?(tool) do
       case Plug.Conn.get_req_header(conn, "idempotency-key") do
         [] -> {:ok, state}
         [value] -> merge_key(state, value)

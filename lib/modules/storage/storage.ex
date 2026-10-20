@@ -122,6 +122,7 @@ defmodule PhoenixKit.Modules.Storage do
   alias PhoenixKit.Modules.Storage.Profiles
   alias PhoenixKit.Modules.Storage.ProviderRegistry
   alias PhoenixKit.Modules.Storage.Providers.Local
+  alias PhoenixKit.Modules.Storage.Reconciler
   alias PhoenixKit.Modules.Storage.RemoteFetch
   alias PhoenixKit.Modules.Storage.Shape
   alias PhoenixKit.Modules.Storage.Sniff
@@ -134,6 +135,7 @@ defmodule PhoenixKit.Modules.Storage do
   alias PhoenixKit.Modules.Storage.VariantSets
   alias PhoenixKit.Modules.Storage.Workers.ReconcileJob
   alias PhoenixKit.Settings
+  alias PhoenixKit.Utils.FileHash
   alias PhoenixKit.Utils.TreeQuery
 
   @default_path "priv/uploads"
@@ -468,7 +470,10 @@ defmodule PhoenixKit.Modules.Storage do
     {profile, opts} = Keyword.pop(opts, :profile, :default)
 
     repo().transaction(fn ->
-      with {:ok, bucket} <- %Bucket{} |> Bucket.changeset(attrs) |> repo().insert(),
+      # `log: false` on every bucket write: the row carries `access_key_id` and
+      # the `enc:v1:` ciphertext of `secret_access_key`, which Ecto's SQL debug
+      # logger would otherwise print as bound parameters.
+      with {:ok, bucket} <- %Bucket{} |> Bucket.changeset(attrs) |> repo().insert(log: false),
            :ok <- place_new_bucket(bucket, profile, opts) do
         bucket
       else
@@ -535,7 +540,7 @@ defmodule PhoenixKit.Modules.Storage do
     |> Bucket.owned_changeset(attrs, owner_uuid,
       connection_owned?: &owns_connection?(owner_uuid, &1)
     )
-    |> repo().insert()
+    |> repo().insert(log: false)
     |> tap(&bucket_changed/1)
   end
 
@@ -602,7 +607,7 @@ defmodule PhoenixKit.Modules.Storage do
 
   defp update_bucket_row(changeset, opts) do
     repo().transaction(fn ->
-      case repo().update(changeset) do
+      case repo().update(changeset, log: false) do
         {:ok, updated} ->
           updated
 
@@ -899,7 +904,8 @@ defmodule PhoenixKit.Modules.Storage do
   here (`%{uuid, name, files, objects, bytes}`, largest first). Shared keys
   count once in each library using them, but only once in the bucket totals.
   A user's libraries are private to them, so they are only counted in `personal`
-  (`%{libraries, files, objects, bytes}`), never named.
+  (`%{libraries, files, objects, bytes}`), never named; so is a hidden system
+  library (`Libraries.hidden?/1`).
 
   Reads every location row of the bucket: call it off the render path.
   """
@@ -965,14 +971,18 @@ defmodule PhoenixKit.Modules.Storage do
     libraries =
       from(l in Library,
         where: l.uuid in ^Enum.map(rows, & &1.library_uuid),
-        select: {l.uuid, %{name: l.name, kind: l.kind}}
+        select: {l.uuid, %{name: l.name, kind: l.kind, visibility: l.visibility}}
       )
       |> repo().all()
       |> Map.new(fn {uuid, info} -> {to_string(uuid), info} end)
 
     {personal, site} =
       Enum.split_with(rows, fn row ->
-        match?(%{kind: "user"}, Map.get(libraries, to_string(row.library_uuid)))
+        case Map.get(libraries, to_string(row.library_uuid)) do
+          %{kind: "user"} -> true
+          %{kind: "system", visibility: "private"} -> true
+          _ -> false
+        end
       end)
 
     sum = fn rows, key -> rows |> Enum.map(&Map.fetch!(&1, key)) |> Enum.sum() end
@@ -1316,6 +1326,7 @@ defmodule PhoenixKit.Modules.Storage do
           applies_to: "video",
           enabled: true,
           alternative_formats: [],
+          keep_hdr: true,
           order: 8,
           inserted_at: now,
           updated_at: now
@@ -2598,7 +2609,7 @@ defmodule PhoenixKit.Modules.Storage do
     - `:page` — page number (default 1).
     - `:per_page` — page size (default 20).
     - `:library_uuid` — only files in this storage library. Omitted means
-      every library that is not private (`Libraries.exclude_private/1`).
+      every library that is not a user library (`Libraries.exclude_user_libraries/1`).
     - `:bounds` — only pictures with a GPS position inside this box on the map:
       `{south, west, north, east}` in degrees (`PhoenixKit.Modules.Storage.Geo`; a box that
       crosses the antimeridian has `west > east`).
@@ -3267,7 +3278,7 @@ defmodule PhoenixKit.Modules.Storage do
   # /admin/media, in host embeds that name no library, and in orphan
   # cleanup — which would then delete them, since nothing in the site
   # references a user library's files.
-  defp where_library(query, nil), do: Libraries.exclude_private(query)
+  defp where_library(query, nil), do: Libraries.exclude_user_libraries(query)
   defp where_library(query, library_uuid), do: where(query, [r], r.library_uuid == ^library_uuid)
 
   # A restricted viewer's view of a site library (`:viewer_uuid`, see
@@ -3372,9 +3383,10 @@ defmodule PhoenixKit.Modules.Storage do
   def viewer_can_see_folder?(viewer_uuid, folder_uuid, library_uuid),
     do: to_string(folder_uuid) in viewer_folder_uuids(viewer_uuid, library_uuid)
 
+  # User libraries and hidden ones: not the site's folders.
   defp in_library(folders, nil) do
-    private = folders |> Enum.map(& &1.library_uuid) |> Libraries.private_among()
-    Enum.reject(folders, &(to_string(&1.library_uuid) in private))
+    dropped = folders |> Enum.map(& &1.library_uuid) |> Libraries.user_or_hidden_among()
+    Enum.reject(folders, &(to_string(&1.library_uuid) in dropped))
   end
 
   defp in_library(folders, library_uuid) do
@@ -3462,7 +3474,9 @@ defmodule PhoenixKit.Modules.Storage do
   Gets a file by its original content checksum (file_checksum).
 
   This can find files uploaded by any user with the same content.
-  Useful for popularity queries.
+  Useful for popularity queries. It looks in every library, private ones (a
+  user's, a hidden one) included: what it finds is not yet a file the caller
+  may show (`Libraries.can?/3`).
   """
   def get_file_by_checksum(file_checksum) do
     repo().get_by(PhoenixKit.Modules.Storage.File, file_checksum: file_checksum)
@@ -4150,7 +4164,7 @@ defmodule PhoenixKit.Modules.Storage do
     # whatever library a caller names: nothing in the site references them,
     # so every file at a user library's root would look unreferenced and
     # "Delete all orphaned" inside that library would delete them all.
-    base = Libraries.exclude_private(base)
+    base = Libraries.exclude_user_libraries(base)
 
     # Exclude UUIDs that the parent app has explicitly marked as protected
     base =
@@ -4654,6 +4668,12 @@ defmodule PhoenixKit.Modules.Storage do
           label: "Use their own storage",
           description:
             "Keep a library they create on their own S3-compatible bucket, when the site allows it (also needs the Integrations permission, for the bucket's keys)"
+        },
+        %{
+          key: "public_library",
+          label: "Make libraries public",
+          description:
+            "Create a library that anyone can browse without signing in. It is chosen when the library is created and cannot be changed afterwards"
         }
       ]
     }
@@ -4891,7 +4911,7 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   @doc """
-  Retrieves a file by its hash.
+  Retrieves a file by its hash, in any library (see `get_file_by_checksum/1`).
   """
   def retrieve_file_by_hash(hash) do
     case get_file_by_checksum(hash) do
@@ -4967,40 +4987,52 @@ defmodule PhoenixKit.Modules.Storage do
 
   @doc false
   # Deletes the objects at `keys` from every bucket — each only if no instance
-  # row references it (ignoring the rows of `:exclude_file_uuids`). The check
-  # and the deletion happen together under the key's directory lock, because
-  # keys are content-addressed and can be written again: a job that stores
-  # the same bytes and publishes a row for them takes the same lock and
-  # checks the object still exists, so it either sees the deletion or keeps
-  # the key referenced.
+  # row references it (ignoring the rows of `:exclude_file_uuids`) and no
+  # upload of the same bytes is writing it. The check and the deletion happen
+  # together under the key's directory lock, because keys are content-addressed
+  # and can be written again: a job that stores the same bytes and publishes a
+  # row for them takes the same lock and checks the object still exists, so it
+  # either sees the deletion or keeps the key referenced; an original upload
+  # writes the object before it records it, and its row (`processing`, and
+  # recent: see `in_flight_keys/3`) is what holds the key until it has.
+  #
+  # `:ignore_uploads_of` names files that stay (their instances still count as
+  # references) but whose own upload does not hold a key: the caller is that
+  # file, deleting keys of its own instances. `:exclude_file_uuids` (files
+  # about to go) are ignored as uploads too.
   #
   # Callers pass the keys whose rows they removed, after their transaction
   # committed. Best-effort: a failure is logged and the rest still go. `:ok`
   # when every unreferenced key went (or there were none).
   def delete_stored_objects(keys, opts \\ []) do
     excluded = Keyword.get(opts, :exclude_file_uuids, [])
+    ignored_uploads = excluded ++ Keyword.get(opts, :ignore_uploads_of, [])
 
     results =
       keys
       |> Enum.reject(&is_nil/1)
       |> Enum.uniq()
       |> Enum.group_by(&Path.dirname/1)
-      |> Enum.flat_map(fn {dir, dir_keys} -> delete_unreferenced(dir, dir_keys, excluded) end)
+      |> Enum.flat_map(fn {dir, dir_keys} ->
+        delete_unreferenced(dir, dir_keys, excluded, ignored_uploads)
+      end)
 
     if Enum.all?(results, &(&1 == :ok)),
       do: :ok,
       else: {:error, "Failed to delete some objects"}
   end
 
-  defp delete_unreferenced(dir, keys, excluded) do
+  defp delete_unreferenced(dir, keys, excluded, ignored_uploads) do
     repo().transaction(
       fn ->
         lock_storage_paths([dir])
 
         owned = owned_buckets_for_dir(dir)
+        unreferenced = unreferenced_keys(keys, exclude_file_uuids: excluded)
+        held = in_flight_keys(dir, unreferenced, ignored_uploads)
 
-        keys
-        |> unreferenced_keys(exclude_file_uuids: excluded)
+        unreferenced
+        |> Enum.reject(&(&1 in held))
         |> Enum.map(&delete_stored_object(&1, owned))
       end,
       timeout: :infinity
@@ -5065,27 +5097,54 @@ defmodule PhoenixKit.Modules.Storage do
       upload_in_flight?(key, nil)
   end
 
-  # An upload into the key's directory whose row exists and whose instance
-  # does not yet: an upload writes the object before it records it. Its own
-  # row (`own_file_uuid`) does not count.
-  defp upload_in_flight?(key, own_file_uuid) do
-    dir = Path.dirname(key)
+  # Whether an upload is writing `key`: see `in_flight_keys/3`.
+  defp upload_in_flight?(key, ignored) do
+    key in in_flight_keys(Path.dirname(key), [key], ignored)
+  end
 
-    query =
+  # Of `keys` (all in directory `dir`), those an upload is writing: a row of
+  # that directory that is still `processing` and whose instance for the key
+  # does not exist yet — an upload writes the object before it records it.
+  # The rows of `ignored` (a uuid, a list of them, or nil) do not count: the
+  # caller's own upload, the files being deleted.
+  #
+  # Only a recent row counts. Nothing marks a processing row failed (a file
+  # type the processing job does not handle, a run that gave up stays
+  # `processing`), so one older than the reconciler's grace period
+  # (`Reconciler.processing_grace_seconds/0`, after which it treats the file
+  # as no longer being processed) holds nothing: it would otherwise keep every
+  # key of its directory forever.
+  #
+  # One query for the directory's uploads (none, the usual answer, ends it),
+  # one for what they have recorded.
+  defp in_flight_keys(dir, keys, ignored) do
+    ignored = ignored |> List.wrap() |> Enum.reject(&is_nil/1)
+    fresh_after = DateTime.add(DateTime.utc_now(), -Reconciler.processing_grace_seconds())
+
+    uploads =
       from(f in PhoenixKit.Modules.Storage.File,
-        as: :file,
         where:
-          f.file_path == ^dir and f.status == "processing" and
-            not exists(
-              from(i in FileInstance,
-                where: i.file_uuid == parent_as(:file).uuid and i.file_name == ^key,
-                select: 1
-              )
-            )
+          f.file_path == ^dir and f.status == "processing" and f.updated_at >= ^fresh_after and
+            f.uuid not in ^ignored,
+        select: f.uuid
       )
+      |> repo().all()
 
-    query = if own_file_uuid, do: where(query, [f], f.uuid != ^own_file_uuid), else: query
-    repo().exists?(query)
+    if uploads == [] or keys == [] do
+      []
+    else
+      recorded =
+        from(i in FileInstance,
+          where: i.file_uuid in ^uploads and i.file_name in ^keys,
+          select: {i.file_uuid, i.file_name}
+        )
+        |> repo().all()
+        |> MapSet.new()
+
+      Enum.filter(keys, fn key ->
+        Enum.any?(uploads, &(not MapSet.member?(recorded, {&1, key})))
+      end)
+    end
   end
 
   @doc false
@@ -5142,7 +5201,7 @@ defmodule PhoenixKit.Modules.Storage do
       unreferenced_keys(keys)
     end)
     |> case do
-      {:ok, keys} -> delete_stored_objects(keys)
+      {:ok, keys} -> delete_stored_objects(keys, ignore_uploads_of: [file.uuid])
       {:error, reason} -> {:error, reason}
     end
   end
@@ -5725,6 +5784,36 @@ defmodule PhoenixKit.Modules.Storage do
       prefix. A duplicate the same uploader already has is returned as it
       is, in whatever library it is in — compare `library_uuid` if that
       matters to you.
+    * `:dedup` — `true` (the default) keeps one row per uploader and library
+      for the same bytes: a second upload comes back as
+      `{:ok, existing_file, :duplicate}`, and another uploader's active copy
+      is cloned. `false` makes the upload a row of its own whatever is
+      stored: the uploader's earlier copy and anybody's active one are not
+      looked for, so the answer is always `{:ok, file}` and the file is
+      stored and processed like a first upload. Use it when the rows are
+      separate records that happen to hold the same bytes (the same
+      attachment on two submissions), so that renaming, moving or deleting
+      one cannot touch the other. `file_checksum` is stored as given. The
+      row's dedup key (`user_file_checksum`) is one no upload can compute, so
+      a later plain upload never comes back as this very row (it is a new
+      row, or a clone of this one once it is active, like any active file).
+      An image edit gives the row the key of the edited bytes, and a revert
+      the key of the original's (each only when the uploader has no other row
+      with that key), so the row is back in dedup after either.
+      The stored objects are content-addressed, so the rows of one uploader
+      still name the same keys; they go when the last row naming them is
+      deleted (`delete_file_completely/1`). Nothing limits how many such rows
+      there are: each adds a row, its instances and a variant job, and
+      another uploader's copy is written out in full. That is the caller's
+      to bound. The row is inserted under the advisory lock of the object's
+      directory, which a call inside a transaction of your own holds until
+      that transaction ends: call it outside one; if several files must go
+      in one transaction, upload them in a stable order (by checksum, say),
+      or two such transactions can deadlock (Postgres `40P01`). Only an
+      insert that takes the lock is safe against a deletion of another row of
+      the same bytes in the moment before its object is recorded, and a plain
+      upload does not take it: the guarantee holds when every concurrent
+      writer of those bytes passes `dedup: false`.
 
   Whatever `file_type` the caller claims is cross-checked against the mime
   evidence before the row is written (see `determine_file_type/2`) — a
@@ -5754,16 +5843,32 @@ defmodule PhoenixKit.Modules.Storage do
         {:error, :no_buckets_configured}
 
       true ->
-        # Proceed with storage
-        store_file_with_buckets_available(
-          source_path,
-          file_type,
-          user_uuid,
-          file_checksum,
-          ext,
-          original_filename,
-          opts
-        )
+        if opts[:dedup] == false do
+          # Neither the uploader's own copy nor another's active one is
+          # looked for. No dedup key either (`nil`): the row gets one of its
+          # own, see `row_user_file_checksum/2`.
+          store_new_file_in_buckets(
+            source_path,
+            file_type,
+            user_uuid,
+            file_checksum,
+            nil,
+            ext,
+            original_filename,
+            opts
+          )
+        else
+          # Proceed with storage
+          store_file_with_buckets_available(
+            source_path,
+            file_type,
+            user_uuid,
+            file_checksum,
+            ext,
+            original_filename,
+            opts
+          )
+        end
     end
   end
 
@@ -5895,11 +6000,7 @@ defmodule PhoenixKit.Modules.Storage do
          opts
        ) do
     # Calculate MD5 hash for path structure
-    md5_hash =
-      source_path
-      |> Elixir.File.read!()
-      |> then(fn data -> :crypto.hash(:md5, data) end)
-      |> Base.encode16(case: :lower)
+    md5_hash = FileHash.md5!(source_path)
 
     # Generate UUIDv7 for file UUID
     file_uuid = UUIDv7.generate()
@@ -5939,7 +6040,7 @@ defmodule PhoenixKit.Modules.Storage do
       file_type: file_type,
       ext: ext,
       file_checksum: file_checksum,
-      user_file_checksum: user_file_checksum,
+      user_file_checksum: row_user_file_checksum(user_file_checksum, file_uuid),
       size: get_file_size(source_path),
       status: "processing",
       user_uuid: user_uuid
@@ -5947,7 +6048,19 @@ defmodule PhoenixKit.Modules.Storage do
 
     file_attrs = put_library(file_attrs, library_uuid)
 
-    case create_file(file_attrs) do
+    # The row holds the key from here until the original's instance exists
+    # (`delete_stored_objects/2` leaves a key a recent processing row is
+    # writing). With `dedup: false` it goes in under the directory's lock,
+    # which a deletion of another row of the same bytes takes too: it either
+    # ran before this row (and the object is written after it) or sees this
+    # row and leaves the object. Rows of the same bytes are made on purpose
+    # there; a plain upload keeps its insert as it was.
+    created =
+      if opts[:dedup] == false,
+        do: create_file_locked(file_attrs, file_path),
+        else: create_file(file_attrs)
+
+    case created do
       {:ok, file} ->
         # Store in buckets with redundancy - use MD5 hash for organized structure
         original_path = "#{file_path}/#{md5_hash}_original.#{ext}"
@@ -5982,8 +6095,10 @@ defmodule PhoenixKit.Modules.Storage do
                 {:ok, file}
 
               {:error, changeset} ->
-                # Clean up if instance creation fails
-                # Only if nothing else names the key (content-addressed).
+                # Clean up if instance creation fails: the row first (it
+                # would hold its own key), then the object, only if nothing
+                # else names or is writing the key (content-addressed).
+                repo().delete(file)
                 delete_stored_objects([original_path])
                 {:error, changeset}
             end
@@ -5998,6 +6113,37 @@ defmodule PhoenixKit.Modules.Storage do
         {:error, changeset}
     end
   end
+
+  # `create_file/1` under the directory's lock. Held to the end of the
+  # transaction this runs in, the caller's when it has one. The answer is
+  # `create_file/1`'s as it is: nothing is rolled back, so an invalid row does
+  # not spoil a transaction the caller opened. The insert runs in a savepoint:
+  # a constraint the database enforces (the uploader or the library is gone)
+  # would otherwise leave the transaction aborted, and its commit would answer
+  # `{:error, :rollback}` instead of the changeset.
+  defp create_file_locked(file_attrs, file_path) do
+    {:ok, created} =
+      repo().transaction(fn ->
+        lock_storage_paths([file_path])
+
+        %PhoenixKit.Modules.Storage.File{}
+        |> PhoenixKit.Modules.Storage.File.changeset(file_attrs)
+        |> repo().insert(mode: :savepoint)
+      end)
+
+    created
+  end
+
+  # The `user_file_checksum` a new row is inserted with. A real dedup key
+  # when the upload went through the dedup lookups; `nil` means it skipped
+  # them (`dedup: false`), and the row gets a value of its own instead: the
+  # column is NOT NULL under a unique index, so two rows of the same bytes
+  # cannot share the real key, and a real key would make the row the
+  # duplicate a later upload resolves to. The uuid makes it unique; the
+  # prefix keeps it from ever equalling a hash (like `ApplyImageEditJob`'s
+  # `"edited:"`, `"reverted:"` and `"unedited:"`).
+  defp row_user_file_checksum(nil, file_uuid), do: "nodedup:#{file_uuid}"
+  defp row_user_file_checksum(user_file_checksum, _file_uuid), do: user_file_checksum
 
   # ===== CROSS-USER DEDUPLICATION =====
 
@@ -6497,8 +6643,7 @@ defmodule PhoenixKit.Modules.Storage do
           filename = opts[:filename] || name
           ext = mime |> MIME.extensions() |> List.first() || "bin"
 
-          checksum =
-            :sha256 |> :crypto.hash(Elixir.File.read!(path)) |> Base.encode16(case: :lower)
+          checksum = FileHash.sha256!(path)
 
           store_file_in_buckets(
             path,
@@ -7002,12 +7147,7 @@ defmodule PhoenixKit.Modules.Storage do
     end
   end
 
-  defp calculate_file_hash(file_path) do
-    file_path
-    |> Elixir.File.read!()
-    |> then(fn data -> :crypto.hash(:sha256, data) end)
-    |> Base.encode16(case: :lower)
-  end
+  defp calculate_file_hash(file_path), do: FileHash.sha256!(file_path)
 
   # Extensions the browser and `MIME.from_path/1` both routinely hand back as
   # `application/octet-stream` — `.m4a` (what an iPhone records), `.flac`,

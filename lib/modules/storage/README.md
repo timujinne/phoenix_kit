@@ -481,6 +481,23 @@ stops serving them, and the ones made stay stored.
   now say 28, 25 and 23 so that new installs and "Reset to Defaults" keep that
   quality. Videos already made are not remade by this: a rendition is remade
   when its spec changes.
+- **HDR video is tone-mapped to SDR** (`VideoSource`). `ffprobe` reads the source
+  once per rendition: a transfer of HLG (`arib-std-b67`) or PQ (`smpte2084`)
+  makes it HDR, and its renditions and poster get `zscale`/`tonemap` (Hable, 203
+  nit reference white) to BT.709, after the resize so it runs on the small
+  picture. Every H.264 / VP9 rendition is `-pix_fmt yuv420p`, because a browser
+  plays 8-bit 4:2:0 and refuses "High 10". The original is untouched. Keeping the
+  HDR in a rendition (10-bit HEVC) is not done. A poster is taken one second in,
+  or halfway for a clip under two seconds (`VideoSource.poster_second/1`), and a
+  run of FFmpeg that wrote no file is an error rather than a later `:enoent`.
+  A tone-mapping that fails falls back to the ordinary rendition with a warning.
+- **The poster of an HLG video is an HDR photo** (`VideoHdrPoster`) when its size keeps
+  HDR (`keep_hdr`, on for the seeded `video_thumbnail`) and `hdr_renditions` is on:
+  `VariantGenerator.hdr_frame_args/4` has ffmpeg write one frame as linear light in
+  BT.709 (a PFM of floats, 1.0 = 1000 nits), and libvips' `uhdrsave` writes the JPEG
+  with its gain map (scaled so SDR white, 203 nits, is 1.0). Anything that fails, a
+  missing `vix` or `uhdrsave` (libvips 8.17+) included, makes the tone-mapped SDR poster
+  instead. PQ and Dolby Vision profile 5 sources keep the SDR poster.
 - **Cropping around the subject** (V210, `Storage.FocalPoint`). A fixed image
   rendition (a box the photo is scaled to fill and cropped to) has a
   `crop_mode`: `center` (the default: every existing rendition) or `focus`, which
@@ -704,6 +721,14 @@ stored under `_tiles/<uuid>/<v>/`. A version that is not the current one is
 a 404. The legacy `/tiles/<token>/<uuid>.dzi` resolves to the current version
 and is never cached.
 
+An iPhone's HEIC (and HEIF, AVIF) has no tiles cut from it directly: libvips as
+shipped with `vix` can read its size but has no HEVC decoder, so it cannot read a
+pixel. The first tile request makes one full-resolution JPEG of the original with
+ImageMagick (`ImageProcessor.full_jpeg/3`), stores it as `_tiles/<uuid>/<v>/<uuid>_source.jpg`
+(a system-managed file of the original) and cuts every tile from it
+(`PhoenixKit.Modules.Storage.TileSource`). A copy of a size other than the file's
+is refused, so tiles are never misplaced.
+
 ### HDR and camera metadata in renditions
 
 V217 stores each rendition's options in `Dimension.options` (`DimensionOptions`),
@@ -747,6 +772,24 @@ exists, is not system-managed or trashed, and a private file's time-window
 token is still valid). **That is not authorization**: check the viewer's
 rights to the uuid separately. Only the path is checked, never the scheme or
 host — act on the returned uuid, never fetch or render the string itself.
+
+## Large files are read from disk, never into memory
+
+A video can be gigabytes. Every checksum of a file on disk is taken in 1 MiB chunks
+(`PhoenixKit.Utils.FileHash`: `sha256/2`, `md5/2`, `hashes/3` for several digests in one
+pass, and the `!` forms that raise `File.Error` as `File.read!/1` did): the original's
+SHA-256 and MD5 at upload (`Storage.store_file_in_buckets/7`, `Auth.calculate_file_hash/1`),
+each rendition's, `Storage.store_from_url/2`, the dedup backfill and `POST /api/upload`.
+What a hash costs in memory is the chunk, not the file. Bytes move the same way: a bucket
+download is streamed to a file (`ExAws.S3.download_file`), a local bucket writes to a
+temporary name and renames, and S3 uploads of 5 MB or more are multipart streams. A test
+stores a 160 MiB file and fails if binary memory rises by more than 64 MiB.
+
+`POST /api/upload` takes the types the image pipeline renders (JPEG, PNG, WebP, GIF, HEIC,
+HEIF, AVIF, TIFF, BMP), MP4, WebM, QuickTime and PDF, and its size cap is the
+`storage_max_upload_size_mb` setting (default 500), like the media browser's uploads. A host
+endpoint's `Plug.Parsers` multipart `:length` still bounds the request body before the
+controller sees it.
 
 ## Storing a file from a URL
 
@@ -848,18 +891,58 @@ when it is renamed (`Libraries.get_system_library_by_slug/1`).
   as before.
 - **Access:** `Storage.Libraries.can?(scope, file, :read | :edit)` is the
   single per-file check: the uploader, an Owner/Admin, the `"media"` key
-  (edit, system libraries only), and a user library's owner and members.
+  (edit, system libraries only), `media.view_all` (read) — neither opens a
+  hidden library (see "Hidden system libraries" below) — and a user library's
+  owner and members.
 - **Dedup is per library:** one copy per uploader per library. Media keeps
   the key it always had; any other library folds itself into
   `user_file_checksum` (`Storage.calculate_user_file_checksum/3`).
+  `store_file_in_buckets(..., dedup: false)` opts one upload out: it is always
+  a row of its own (`{:ok, file}`, never `:duplicate`, no cross-user clone) with
+  a `user_file_checksum` no upload can match (`"nodedup:<file uuid>"`), for
+  records that merely hold the same bytes. The stored objects are still
+  content-addressed, so the rows name the same keys and the last delete removes
+  them.
+
+### Hidden system libraries
+
+A module that keeps files of its own (a chat's attachments, say) creates a
+**hidden** system library: `Libraries.create_system_library(%{"name" => …,
+"slug" => …}, hidden: true)`. No migration: it is a system library with
+`visibility: "private"` (`Libraries.hidden?/1`), which the `"visibility"` in
+`attrs` cannot ask for. Without one, nothing about Storage changes.
+
+- **Finding it again:** `Libraries.get_hidden_library_by_slug/1` (or
+  `get_library/1`). The slug is required and never derived — a taken one is an
+  error on `:slug`, not `"<slug>-2"`. Names and slugs of system libraries share
+  one namespace, so prefix both with the module's own name. Its creation is
+  in the Storage history by name unless `audit: false` is passed; its renames,
+  deletion, settings, profile and variant-set changes are never written there.
+- **Not shown:** not in `list_system_libraries/0` (Media's switcher, Settings
+  → Media → Libraries), not found by `get_system_library/1` /
+  `get_system_library_by_slug/1` (so `/admin/media/library/<slug>` is "Library
+  not found"), its files and folders out of every listing that names no library
+  (`exclude_user_libraries/1`: the media browser, the pickers, orphan cleanup).
+  Health's stale files, a bucket's contents, a profile's libraries and job
+  titles count it with the private libraries and never name it.
+- **Access:** its files are private (expiring URLs; the permanent token is
+  refused) and are read or edited by their uploader and an Owner/Admin only —
+  `"media"` + `"media.view_all"` opens none of them. Bytes reach anyone else
+  only through the module.
+- **Dedup:** inside it, as in any library. Outside it, the same bytes are a new
+  file: the dedup key folds the library in, so an upload to Media never comes
+  back as the hidden copy (and an upload to it never as a Media file).
+  `Storage.get_file_by_checksum/1` and `retrieve_file_by_hash/1` still look in
+  every library.
 
 ### User libraries (V203)
 
 Off until the install turns them on (`storage_user_libraries_enabled`,
 Settings → Media → Libraries). A user with the `"storage"` permission uses
 the libraries they own or are a member of; `"storage.create_library"`
-creates them, up to `storage_user_library_limit`. Each is `private`, and its
-members are `manager`, `contributor` or `viewer` (`Libraries.allows?/2`).
+creates them, up to `storage_user_library_limit`. Each is `private` unless its
+owner makes it **public** when creating it (below), and its members are `manager`,
+`contributor` or `viewer` (`Libraries.allows?/2`).
 
 - **API:** `Libraries.create_user_library/2`, `list_user_libraries/1`,
   `get_user_library/2` (by uuid, or the owner's own slug), `add_member/4`,
@@ -869,6 +952,27 @@ members are `manager`, `contributor` or `viewer` (`Libraries.allows?/2`).
 - **Pages:** users manage their libraries on the profile's Media tab
   (`/profile/settings/media`); `/admin/libraries` browses them (moderation
   and testing). `phoenix_kit_photos` is the end-user surface.
+- **Public libraries:** a holder of `"storage.public_library"` (nobody, until the site
+  grants it) may create a library with `"visibility" => "public"`
+  (`Libraries.create_user_library/3`; stored as `visibility: "site"`). It is chosen once,
+  at creation, and cannot be changed; writing it to the history (`storage.library_published`).
+  **Anyone, signed in or not, may read what is in it**: `Libraries.can?(scope_or_nil, file,
+  :read)` and `Libraries.can_read_library?/2` say yes, and every feature built on a library
+  asks them, never its own check. Editing stays with the owner and managers. Its files get
+  ordinary (permanent) links, like Media's. It never appears in the site's media
+  (`Libraries.exclude_user_libraries/1`, which replaced `exclude_private/1` for the media
+  browser, the pickers, the folder listing and the orphan cleanup; the old name still works).
+  An Owner or Admin can **suspend** one (`suspend_library/3`, `unsuspend_library/2`, the
+  Suspend button on Settings → Media → Libraries): it then answers as private (expiring links,
+  no anonymous reading) with nothing deleted, and the history records who and why. Plan:
+  `dev_docs/plans/2026-10-18-public-user-libraries.md`.
+- **A personal library, if the host wants one:** `Libraries.ensure_personal_library/2`
+  gives a user a private library on the site's storage, made by the system (no
+  permission, no room under the limit; refused while user libraries are off), marked so it is never made twice, not even
+  after the user trashed theirs; `backfill_personal_libraries/1` does it for every
+  existing active account. **Nothing in PhoenixKit calls them**: whether accounts get
+  one is the host's call (Fotki makes one for every new account, from the
+  `:user_created` event).
 - **Trash and deletion:** a trashed library frees its name at once and is
   purged, bytes included, after `trash_retention_days` (`PurgeLibraryJob`,
   queued by the daily prune). Deleting a user trashes the libraries they own
@@ -890,16 +994,23 @@ picker only while the setting is on).
 
 - **Created with the library**, on the profile's Media tab, in one transaction:
   `Libraries.create_user_library/3` with a `"storage"` map (`mode` `only` or
-  `backup`, the user's connection, provider, bucket, region/endpoint). The bucket
-  is probed first (list, write, delete); a failure creates nothing. **The choice
-  is final**: `Profiles.set_library_profile/2` refuses to move a library off or
-  onto user storage.
-- **`only`**: the user's bucket is the profile's one `primary`. **`backup`**: the
+  `backup`, and `targets`: up to three buckets, each one of the user's
+  `object_storage` integrations plus a bucket name). The provider, region and
+  endpoint are the integration's own (`Libraries.integration_summary/2`) and are
+  not asked for. Every bucket is probed first (list, write, delete); a failure
+  creates nothing. The form lists an integration's buckets on request
+  (`Libraries.list_own_buckets/3`, S3 `ListBuckets`; a key limited to one bucket
+  is refused and the user types the name). **The choice is final**:
+  `Profiles.set_library_profile/2` refuses to move a library off or onto user
+  storage.
+- **`only`**: the user's first bucket is the profile's one `primary`; any further
+  bucket is a `backup` (a copy of every file, never served, made by the
+  reconciler). **`backup`**: the
   site's buckets keep their roles (a **snapshot of the Default profile at
   creation**; a site bucket added later is not used) and the user's bucket holds a
   `backup` of every file, including sizes and tiles. Every file gets a copy on
   each writable snapshotted site bucket, counted per kind, plus a cloud copy on
-  the backup (at most 5 copies, so four site buckets, active first). Uploads
+  the backup, one per bucket of the user's (at most 5 copies in all, so four site buckets for one backup bucket, active first). Uploads
   succeed on the Default's terms counting the site's
   copies only (`min_copies_on_write` ignores a backup: it is never served); the
   reconciler makes a backup the write missed.
@@ -1052,10 +1163,14 @@ made from is still the file's (`Storage.original_key?/2`).
 
 **Deleting stored objects.** An object is deleted exactly when no instance
 row references its key any more (an edited file and its backup share a
-directory; cross-user copies share keys). `Storage.delete_stored_objects/2`
-re-checks the references under the directory's advisory lock and deletes
-inside it; publishing a new object takes the same lock and checks the object
-still exists. Never delete a stored object any other way.
+directory; cross-user copies share keys) and no upload is still writing it: a
+`processing` row of the directory younger than the reconciler's grace period
+(`Reconciler.processing_grace_seconds/0`) with no instance for the key yet holds
+the key, because an upload writes the object before it records it. A caller
+that is that file passes `ignore_uploads_of:`. `Storage.delete_stored_objects/2`
+re-checks both under the directory's advisory lock and deletes inside it;
+publishing a new object takes the same lock and checks the object still exists.
+Never delete a stored object any other way.
 
 **Annotations** are drawn in pixel space, so an image with annotations
 refuses edits that change its geometry (crop, turn, mirror, straighten);

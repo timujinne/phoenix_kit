@@ -39,6 +39,9 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
   alias PhoenixKit.Modules.Storage.PdfProcessor
   alias PhoenixKit.Modules.Storage.Shape
   alias PhoenixKit.Modules.Storage.VariantSets
+  alias PhoenixKit.Modules.Storage.VideoHdrPoster
+  alias PhoenixKit.Modules.Storage.VideoSource
+  alias PhoenixKit.Utils.FileHash
 
   require Logger
 
@@ -542,13 +545,13 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
     end)
     |> case do
       {:ok, {instance, stale_keys}} ->
-        _ = Storage.delete_stored_objects(stale_keys)
+        _ = Storage.delete_stored_objects(stale_keys, ignore_uploads_of: [file.uuid])
         {:ok, instance}
 
       {:error, :stale_source} ->
         Logger.info("Variant #{variant_name} of #{file.uuid} dropped: the original changed")
 
-        _ = Storage.delete_stored_objects([storage_path])
+        _ = Storage.delete_stored_objects([storage_path], ignore_uploads_of: [file.uuid])
 
         {:error, :stale_source}
 
@@ -878,14 +881,117 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
     end
   end
 
-  defp process_video_variant(input_path, output_path, _mime_type, dimension) do
-    # Build FFmpeg command
-    args = ffmpeg_args(input_path, output_path, dimension)
+  @doc false
+  def process_video_variant(input_path, output_path, _mime_type, dimension) do
+    source = VideoSource.probe(input_path)
 
+    case hdr_poster(input_path, output_path, dimension, source) do
+      {:ok, _path} = ok -> ok
+      :skip -> video_variant(input_path, output_path, dimension, source)
+    end
+  end
+
+  defp video_variant(input_path, output_path, dimension, source) do
+    case run_ffmpeg(ffmpeg_args(input_path, output_path, dimension, source), output_path) do
+      {:ok, _path} = ok ->
+        ok
+
+      # An HDR source the tone-mapping could not be applied to (an unusual
+      # colour tag, a build without the filters): a rendition that plays, if
+      # not perfectly, is better than none.
+      {:error, reason} when source.hdr? ->
+        Logger.warning(
+          "HDR tone-mapping of #{Path.basename(input_path)} failed, " <>
+            "making the ordinary rendition: #{String.slice(reason, 0, 300)}"
+        )
+
+        run_ffmpeg(
+          ffmpeg_args(input_path, output_path, dimension, %{source | hdr?: false}),
+          output_path
+        )
+
+      error ->
+        error
+    end
+  end
+
+  # The poster of an HLG video as an HDR photo (a JPEG with a gain map), when the size
+  # keeps HDR (`Dimension.keep_hdr?/1`, the size's option) and the site has HDR
+  # renditions on. Anything that goes wrong is a warning and `:skip`: the SDR poster,
+  # tone-mapped, is made as it always was.
+  defp hdr_poster(input_path, output_path, dimension, source) do
+    if hdr_poster?(dimension, source) do
+      frame = output_path <> ".pfm"
+
+      try do
+        with {:ok, _path} <-
+               run_ffmpeg(hdr_frame_args(input_path, frame, dimension, source), frame),
+             {:ok, _size} <-
+               VideoHdrPoster.from_pfm(frame, output_path, quality: dimension.quality || 85),
+             true <- File.regular?(output_path) do
+          {:ok, output_path}
+        else
+          other ->
+            Logger.warning(
+              "HDR poster of #{Path.basename(input_path)} not made " <>
+                "(#{inspect(other) |> String.slice(0, 300)}); making the ordinary one"
+            )
+
+            :skip
+        end
+      after
+        File.rm(frame)
+      end
+    else
+      :skip
+    end
+  end
+
+  defp hdr_poster?(dimension, source) do
+    Application.get_env(:phoenix_kit, :hdr_renditions, true) and
+      Map.get(source, :hlg?, false) and
+      Dimension.keep_hdr?(dimension) and
+      String.downcase(to_string(dimension.format)) in ["jpg", "jpeg"] and
+      VideoHdrPoster.available?()
+  end
+
+  @doc false
+  # The FFmpeg arguments for the poster's frame as linear-light floats (a PFM): the
+  # same size and time as the SDR poster, no tone-mapping.
+  def hdr_frame_args(input_path, output_path, dimension, source) do
+    chain =
+      case video_filter_args(dimension) do
+        ["-vf", scale] -> scale <> "," <> VideoSource.linear_filter()
+        [] -> VideoSource.linear_filter()
+      end
+
+    [
+      "-i",
+      input_path,
+      "-y",
+      "-ss",
+      VideoSource.poster_second(source),
+      "-vframes",
+      "1",
+      "-vf",
+      chain,
+      "-pix_fmt",
+      "gbrpf32le",
+      "-c:v",
+      "pfm",
+      output_path
+    ]
+  end
+
+  defp run_ffmpeg(args, output_path) do
     case System.cmd("ffmpeg", args, stderr_to_stdout: true) do
-      {_output, 0} ->
-        # FFmpeg succeeded - dimensions are enforced by the scale filter
-        {:ok, output_path}
+      {output, 0} ->
+        # FFmpeg succeeded - dimensions are enforced by the scale filter. It
+        # can also succeed having written nothing (a frame asked for past the
+        # end of the clip), which must not be left to fail later as `:enoent`.
+        if File.regular?(output_path),
+          do: {:ok, output_path},
+          else: {:error, "FFmpeg wrote no output file: #{String.slice(output, -300, 300)}"}
 
       {output, exit_code} ->
         {:error, "FFmpeg failed with exit code #{exit_code}: #{output}"}
@@ -907,8 +1013,12 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
   # **Quality** is the CRF for a video format (0-51, lower is better) and the
   # 1-100 image scale for a rendition that is a still frame (`jpg`, `png`,
   # `webp`: the video thumbnail).
-  @spec ffmpeg_args(String.t(), String.t(), struct()) :: [String.t()]
-  def ffmpeg_args(input_path, output_path, dimension) do
+  #
+  # **HDR.** `source` is what `VideoSource.probe/1` found. An HDR source is
+  # tone-mapped to SDR after the resize (so it is done on the small picture),
+  # and a video rendition is always 8-bit 4:2:0, which is what a browser plays.
+  @spec ffmpeg_args(String.t(), String.t(), struct(), VideoSource.t() | map()) :: [String.t()]
+  def ffmpeg_args(input_path, output_path, dimension, source \\ %{}) do
     # A blank format preserves the original container. FFmpeg infers it from
     # the output extension; use the same format to select the quality options.
     dimension =
@@ -918,16 +1028,26 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
 
     # -y to overwrite output file
     base = ["-i", input_path, "-y"]
-    filter = video_filter_args(dimension)
+    filter = dimension |> video_filter_args() |> tonemap_args(source)
 
     if still_frame?(dimension) do
       base ++
-        ["-ss", "00:00:01.000", "-vframes", "1"] ++
+        ["-ss", VideoSource.poster_second(source), "-vframes", "1"] ++
         filter ++ still_quality_args(dimension) ++ [output_path]
     else
       base ++ filter ++ video_quality_args(dimension) ++ [output_path]
     end
   end
+
+  # The tone-mapping goes last in the filter chain, after any resize.
+  defp tonemap_args(filter, %{hdr?: true}) do
+    case filter do
+      ["-vf", chain] -> ["-vf", chain <> "," <> VideoSource.tonemap_filter()]
+      [] -> ["-vf", VideoSource.tonemap_filter()]
+    end
+  end
+
+  defp tonemap_args(filter, _source), do: filter
 
   defp still_frame?(%{format: format}) when is_binary(format),
     do: String.downcase(format) in @still_formats
@@ -973,9 +1093,14 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
         else: Integer.to_string(quality)
 
     case format && String.downcase(format) do
-      "webm" -> ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", crf]
-      container when container in ["mp4", "mov"] -> ["-c:v", "libx264", "-crf", crf]
-      _other -> []
+      "webm" ->
+        ["-c:v", "libvpx-vp9", "-b:v", "0", "-crf", crf, "-pix_fmt", "yuv420p"]
+
+      container when container in ["mp4", "mov"] ->
+        ["-c:v", "libx264", "-crf", crf, "-pix_fmt", "yuv420p"]
+
+      _other ->
+        []
     end
   end
 
@@ -998,12 +1123,7 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
 
   defp still_quality_args(_dimension), do: []
 
-  defp calculate_file_checksum(file_path) do
-    file_path
-    |> File.read!()
-    |> then(fn data -> :crypto.hash(:sha256, data) end)
-    |> Base.encode16(case: :lower)
-  end
+  defp calculate_file_checksum(file_path), do: FileHash.sha256!(file_path)
 
   # HDR keeps the camera's orientation tag instead of turning its pixels.
   # Rendition dimensions describe what viewers display, including the full

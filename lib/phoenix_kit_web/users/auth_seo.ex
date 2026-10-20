@@ -9,7 +9,7 @@ defmodule PhoenixKitWeb.Users.AuthSEO do
   `config :phoenix_kit, :canonical_host_resolver, {mod, fun}` MFA (nil or
   absent ⇒ the site-wide `PhoenixKit.Utils.Routes.base_url/0`, today's
   behavior). On a language's own resolved host the locale segment is dropped
-  (`Routes.path(url_path, locale: :none)`) — the domain itself carries the
+  (`Routes.canonical_url/2` does both) — the domain itself carries the
   language, so a `/en` (or any other) prefix on top of it would be redundant.
 
   Deliberately excludes every token-bearing auth page (email confirmation,
@@ -25,8 +25,6 @@ defmodule PhoenixKitWeb.Users.AuthSEO do
   renders anything itself.
   """
 
-  require Logger
-
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Modules.Languages.DialectMapper
   alias PhoenixKit.Utils.Routes
@@ -41,7 +39,7 @@ defmodule PhoenixKitWeb.Users.AuthSEO do
   @spec seo_assigns(String.t()) :: %{canonical_url: String.t(), hreflang_links: [map()]}
   def seo_assigns(url_path) when is_binary(url_path) do
     %{
-      canonical_url: canonical_absolute_url(current_language(), url_path),
+      canonical_url: Routes.canonical_url(url_path, current_language()),
       hreflang_links: hreflang_links(url_path)
     }
   end
@@ -51,7 +49,7 @@ defmodule PhoenixKitWeb.Users.AuthSEO do
       enabled_languages()
       |> Enum.map(&DialectMapper.extract_base(&1.code))
       |> Enum.uniq()
-      |> Enum.map(&%{code: &1, url: canonical_absolute_url(&1, url_path)})
+      |> Enum.map(&%{code: &1, url: Routes.canonical_url(url_path, &1)})
 
     if length(links) < 2, do: [], else: links
   end
@@ -71,43 +69,5 @@ defmodule PhoenixKitWeb.Users.AuthSEO do
     PhoenixKitWeb.Gettext
     |> Gettext.get_locale()
     |> DialectMapper.extract_base()
-  end
-
-  defp canonical_absolute_url(language, url_path) do
-    case resolve_canonical_host(language) do
-      nil ->
-        Routes.base_url() <> Routes.path(url_path, locale: language)
-
-      host ->
-        # The language's own home domain implies the language — no locale
-        # segment needed on top of it, for the primary language or any other.
-        "https://#{host}" <> Routes.path(url_path, locale: :none)
-    end
-  end
-
-  defp resolve_canonical_host(language) do
-    case Application.get_env(:phoenix_kit, :canonical_host_resolver) do
-      {mod, fun} -> apply(mod, fun, [language])
-      _ -> nil
-    end
-  rescue
-    error ->
-      Logger.warning(
-        "[AuthSEO] canonical_host_resolver raised, falling back to site base: " <>
-          Exception.message(error)
-      )
-
-      nil
-  catch
-    # A connection-pool failure under the host's resolver EXITS rather than
-    # raising (see `Routes.get_default_language_base/0` for the same class of
-    # bug) — `rescue` alone does not catch it.
-    :exit, reason ->
-      Logger.warning(
-        "[AuthSEO] canonical_host_resolver exited, falling back to site base: " <>
-          inspect(reason)
-      )
-
-      nil
   end
 end

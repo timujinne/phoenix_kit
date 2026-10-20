@@ -39,6 +39,16 @@ defmodule PhoenixKit.API.Tool do
       generic batch-size rule for admin writes), `:always`, or `{module, function}`, a
       check `function(input, ctx) :: boolean()` called with a dry-run context. Any other
       value is refused by `validate/1`.
+    * `:replay` - whether a retry of a write call with the same `idempotency_key` gets the
+      first answer back. `true` by default. Set `false` on a write tool whose answer carries a
+      credential (a cart token, a claim URL): such an answer is never stored
+      (`PhoenixKit.API.Idempotency.credential_bearing?/1`), so the key could not be honoured.
+      The tool then takes no `idempotency_key`: the schemas, MCP and OpenAPI do not offer it, a
+      body that sends it is a `422`, and the `Idempotency-Key` header is ignored, as it is on a
+      read tool. Say in the description that a repeated call is not the same call.
+      The field is newer than core 2.63.0, where `new/1` refuses it. A module that must also
+      run there passes it only when `Code.ensure_loaded?(PhoenixKit.API.ControlFields) and
+      function_exported?(PhoenixKit.API.ControlFields, :replay_tool?, 1)`.
     * `:max_items` - the largest batch the tool accepts, or `nil`.
     * `:cost` - the rate-limit units one call costs. `nil` (default) means the executor's
       rule: 1, or for a non-read-only admin tool `max(1, ceil(longest list / 50))`. A
@@ -95,6 +105,7 @@ defmodule PhoenixKit.API.Tool do
     :module,
     annotations: @default_annotations,
     danger: nil,
+    replay: true,
     max_items: nil,
     cost: nil
   ]
@@ -171,6 +182,7 @@ defmodule PhoenixKit.API.Tool do
       &check_schemas/1,
       &check_annotations/1,
       &check_danger/1,
+      &check_replay/1,
       &check_max_items/1,
       &check_cost/1
     ]
@@ -395,6 +407,11 @@ defmodule PhoenixKit.API.Tool do
   end
 
   defp check_annotations(_tool), do: ["annotations must be a map"]
+
+  defp check_replay(%{replay: replay}) when is_boolean(replay), do: []
+
+  defp check_replay(%{replay: replay}),
+    do: ["replay must be true or false, got #{inspect(replay)}"]
 
   defp check_danger(%{danger: danger}) when danger in [nil, :always], do: []
 

@@ -44,7 +44,7 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
 
   require Logger
 
-  alias PhoenixKit.Dashboard.{Group, Registry, Tab, TabHelpers}
+  alias PhoenixKit.Dashboard.{AdminTabs, Group, Registry, Tab, TabHelpers}
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKitWeb.Components.Dashboard.TabItem
   alias PhoenixKitWeb.Users.Auth
@@ -160,6 +160,7 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
       Registry.get_admin_tabs(scope: scope)
       |> expand_dynamic_children(scope, locale)
       |> reachable_tabs(scope)
+      |> AdminTabs.with_scope_badges(scope)
     else
       []
     end
@@ -293,7 +294,8 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
       >
         <div class="pk-sidebar-flyout-title">{Tab.localized_label(@tab)}</div>
         <%= for subtab <- @subtabs do %>
-          <TabItem.tab_item tab={subtab} active={subtab.active} locale={@locale} />
+          <% {flyout_tab, flyout_active} = subtab_link(subtab, @all_tabs) %>
+          <TabItem.tab_item tab={flyout_tab} active={flyout_active} locale={@locale} />
         <% end %>
       </div>
 
@@ -333,20 +335,7 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
       children != [] and
         (Tab.show_subtabs?(assigns.subtab, assigns.subtab.active) or child_active)
 
-    highlight_with_subtabs = Map.get(assigns.subtab, :highlight_with_subtabs, false)
-
-    subtab_active =
-      if child_active and not highlight_with_subtabs do
-        false
-      else
-        assigns.subtab.active
-      end
-
-    # A subtab may itself carry `redirect_to_first_subtab: true` (a 3-level
-    # section like Settings › Integrations). Point its link at the first child
-    # the user can reach, while keeping active-state off the original subtab's
-    # own match — the same split the top-level tab uses.
-    display_subtab = maybe_redirect_to_first_subtab(assigns.subtab, children)
+    {display_subtab, subtab_active} = subtab_link(assigns.subtab, assigns.all_tabs)
 
     assigns =
       assigns
@@ -378,6 +367,25 @@ defmodule PhoenixKitWeb.Components.Dashboard.AdminSidebar do
   end
 
   # --- Helpers ---
+
+  # How a subtab is linked and lit, wherever it is drawn (the inline list
+  # and the compact-mode flyout). A subtab may itself carry
+  # `redirect_to_first_subtab: true` (a 3-level section, e.g. a module's
+  # Projects › API keys › Keys / Usage): its link points at the first child
+  # the user can reach, and while one of its children is the open page it
+  # is not lit itself unless it asks to be (`highlight_with_subtabs`) — the
+  # same split the top-level tab uses.
+  defp subtab_link(subtab, all_tabs) do
+    children = get_subtabs_for(subtab.id, all_tabs)
+    child_active = any_descendant_active?(subtab.id, all_tabs)
+
+    active =
+      if child_active and not Map.get(subtab, :highlight_with_subtabs, false),
+        do: false,
+        else: subtab.active
+
+    {maybe_redirect_to_first_subtab(subtab, children), active}
+  end
 
   defp expand_dynamic_children(tabs, scope, locale) do
     # Find tabs with dynamic_children (arity 1 or 2) and expand them.

@@ -179,6 +179,25 @@ defmodule PhoenixKit.API.ExecutorGateTest do
       assert ApiFlowStore.items() == @all_items
     end
 
+    test "a code issued before the tool's module was switched off is refused, and works again once it is back on",
+         %{token: token} do
+      input = %{"ids" => ["a"]}
+      code = token |> call(@delete, input) |> code_of()
+
+      put_setting("api_disabled_modules", "api_flow_tools")
+      conn = call(token, @delete, Map.put(input, "confirm_token", code))
+
+      assert conn.status == 404
+      assert json(conn)["code"] == "not_found"
+      assert ApiFlowStore.items() == @all_items
+      assert real_run_messages() == []
+      assert hd(rows("token")).status == "unused"
+
+      put_setting("api_disabled_modules", "")
+      assert call(token, @delete, Map.put(input, "confirm_token", code)).status == 200
+      assert ApiFlowStore.items() == Map.delete(@all_items, "a")
+    end
+
     test "values that changed since the preview: 409 with the new values, nothing written", %{
       token: token
     } do

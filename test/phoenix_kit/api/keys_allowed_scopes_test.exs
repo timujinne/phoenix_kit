@@ -35,6 +35,21 @@ defmodule PhoenixKit.API.KeysAllowedScopesTest do
       assert Keys.allowed_scopes_for(nobody) == []
     end
 
+    test "a module switched off in api_disabled_modules offers no scopes, the others keep theirs",
+         ctx do
+      ModuleRegistry.register(SharedScopeModule)
+      on_exit(fn -> ModuleRegistry.unregister(SharedScopeModule) end)
+      shared = SharedScopeModule.scope()
+      assert shared in Keys.allowed_scopes_for(ctx.owner)
+
+      {:ok, _} = Settings.update_setting("api_disabled_modules", "apikeytest")
+
+      assert Keys.allowed_scopes_for(ctx.owner) == [shared]
+
+      {:ok, _} = Settings.update_setting("api_disabled_modules", "")
+      assert Keys.allowed_scopes_for(ctx.owner) == Enum.sort([shared | all_scopes()])
+    end
+
     test "a scope shared by tools of different permissions needs all of those permissions" do
       ModuleRegistry.register(SharedScopeModule)
       on_exit(fn -> ModuleRegistry.unregister(SharedScopeModule) end)

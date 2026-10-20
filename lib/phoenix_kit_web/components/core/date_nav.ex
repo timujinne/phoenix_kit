@@ -59,7 +59,7 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
   use Phoenix.Component
   use Gettext, backend: PhoenixKitWeb.Gettext
 
-  import PhoenixKitWeb.Components.Core.DateInput, only: [date_input: 1]
+  import PhoenixKitWeb.Components.Core.DateInput, only: [date_input: 1, site_format: 0]
   import PhoenixKitWeb.Components.Core.Icon, only: [icon: 1]
 
   alias PhoenixKit.Utils.Date, as: UtilsDate
@@ -125,6 +125,7 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
       # A label replaces the date between the arrows, and with it the picker:
       # a date input picks a day, which is not what a week is.
       |> assign(:show_picker?, assigns.picker and is_nil(assigns.label))
+      |> assign(:picker_width, picker_width(site_format()))
 
     ~H"""
     <div id={@id} class={["flex flex-wrap items-center gap-2", @class]} {@rest}>
@@ -156,7 +157,7 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
             bare
             size="sm"
             label={gettext("Date")}
-            class="join-item rounded-none w-38"
+            class={["join-item rounded-none", @picker_width]}
           />
         </form>
         <span :if={!@show_picker?} class="btn btn-sm join-item pointer-events-none font-normal">
@@ -263,6 +264,11 @@ defmodule PhoenixKitWeb.Components.Core.DateNav do
 
   defp clamp_max(date, nil), do: date
   defp clamp_max(date, max), do: if(Date.compare(date, max) == :gt, do: max, else: date)
+
+  # `w-38` fits "16.10.2026" next to the calendar button; "September 30, 2026"
+  # (format `F j, Y`) needs more room or it is clipped.
+  defp picker_width("F j, Y"), do: "w-52"
+  defp picker_width(_format), do: "w-38"
 
   defp before_min?(_date, nil), do: false
   defp before_min?(date, min), do: Date.compare(date, min) == :lt

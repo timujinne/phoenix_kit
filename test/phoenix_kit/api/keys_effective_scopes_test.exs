@@ -45,6 +45,28 @@ defmodule PhoenixKit.API.KeysEffectiveScopesTest do
       refute write_scope() in Keys.allowed_scopes_for(ctx.owner)
     end
 
+    test "a module switched off in api_disabled_modules stops granting its scopes, and back on it grants them again",
+         ctx do
+      {key, token} =
+        create_key!(ctx.owner, ctx.owner_scope, %{scopes: [read_scope(), write_scope()]})
+
+      put_setting("api_disabled_modules", "apikeytest")
+
+      assert Keys.effective_scopes(key) == []
+      assert Keys.allowed_scopes_for(ctx.owner) == []
+      assert {:ok, actor} = Keys.verify(token, nil)
+      assert actor.scopes == []
+
+      assert Enum.sort(Repo.get!(Key, key.uuid).scopes) ==
+               Enum.sort([read_scope(), write_scope()])
+
+      put_setting("api_disabled_modules", "")
+
+      assert Keys.effective_scopes(key) == Enum.sort([read_scope(), write_scope()])
+      assert {:ok, actor} = Keys.verify(token, nil)
+      assert actor.scopes == Enum.sort([read_scope(), write_scope()])
+    end
+
     test "effective_scopes/1 follows the owner's permissions live" do
       {user, role, scope} = api_holder(["media", "media.manage"])
       {key, _} = create_key!(user, scope, %{scopes: [read_scope(), write_scope()]})

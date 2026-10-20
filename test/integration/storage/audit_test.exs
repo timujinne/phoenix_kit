@@ -369,6 +369,35 @@ defmodule PhoenixKit.Modules.Storage.AuditTest do
                newest("storage.library.deleted")
     end
 
+    test "a module's setting is recorded under its namespace, and an unchanged one is not", ctx do
+      {:ok, library} =
+        Libraries.create_system_library(%{name: "Module history #{ctx.n}"}, ctx.actor)
+
+      {:ok, library} =
+        Libraries.put_module_setting(library, "photos", "viewer", "classic", ctx.actor)
+
+      assert %Entry{
+               metadata: %{
+                 "changes" => %{"photos.viewer" => %{"from" => "not set", "to" => "classic"}}
+               }
+             } = newest("storage.library.setting_changed")
+
+      count = length(entries("storage.library.setting_changed"))
+
+      {:ok, library} =
+        Libraries.put_module_setting(library, "photos", "viewer", "classic", ctx.actor)
+
+      assert length(entries("storage.library.setting_changed")) == count
+
+      {:ok, _} = Libraries.put_module_setting(library, "photos", "viewer", nil, ctx.actor)
+
+      assert %Entry{
+               metadata: %{
+                 "changes" => %{"photos.viewer" => %{"from" => "classic", "to" => "not set"}}
+               }
+             } = newest("storage.library.setting_changed")
+    end
+
     test "deep zoom history names the rendition profile as its inherited default", ctx do
       {:ok, library} =
         Libraries.create_system_library(%{name: "Zoom history #{ctx.n}"}, ctx.actor)

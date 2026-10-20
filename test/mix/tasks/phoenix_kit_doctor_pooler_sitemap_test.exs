@@ -112,6 +112,107 @@ defmodule Mix.Tasks.PhoenixKit.DoctorPoolerSitemapTest do
       assert finding =~ "/llms.txt"
     end
 
+    test "the guide and the API catalog are checked too" do
+      routes = [
+        route("/mcp", HostWeb.McpController),
+        route("/mcp", PhoenixKitWeb.Controllers.ApiDiscovery),
+        route("/.well-known/api-catalog", HostWeb.CatalogController),
+        route("/.well-known/api-catalog", PhoenixKitWeb.Controllers.ApiDiscovery)
+      ]
+
+      assert [catalog, guide] = Doctor.duplicate_root_route_findings(routes)
+      assert guide =~ "GET /mcp is declared 2 times"
+      assert guide =~ "HostWeb.McpController answers it"
+      assert catalog =~ "GET /.well-known/api-catalog is declared 2 times"
+    end
+
+    test "the pre-2.0 hint is for the sitemap paths only" do
+      routes = [
+        route("/sitemap.xml", HostWeb.SitemapController),
+        route("/sitemap.xml", PhoenixKit.Modules.Sitemap.Web.Controller),
+        route("/mcp", HostWeb.McpController),
+        route("/mcp", PhoenixKitWeb.Controllers.ApiDiscovery),
+        route("/.well-known/api-catalog", HostWeb.CatalogController),
+        route("/.well-known/api-catalog", PhoenixKitWeb.Controllers.ApiDiscovery)
+      ]
+
+      findings = Doctor.duplicate_root_route_findings(routes)
+      assert length(findings) == 3
+
+      for finding <- findings do
+        if finding =~ "/sitemap.xml",
+          do: assert(finding =~ "pre-2.0 copy"),
+          else: refute(finding =~ "pre-2.0")
+      end
+    end
+
+    test "a host POST or forward at /mcp declared after the kit's routes is reported" do
+      kit = PhoenixKitWeb.Controllers.ApiDiscovery
+
+      for {host_route, label} <- [
+            {%{verb: :post, path: "/mcp", plug: HostWeb.McpController}, "POST /mcp"},
+            {%{verb: :*, path: "/mcp", plug: HostWeb.McpPlug, metadata: %{forward: ["mcp"]}},
+             "forward /mcp"}
+          ] do
+        routes = [route("/mcp", kit), %{verb: :*, path: "/mcp", plug: kit}, host_route]
+
+        assert [finding] = Doctor.duplicate_root_route_findings(routes)
+        assert finding =~ label
+        assert finding =~ inspect(host_route.plug)
+        assert finding =~ "answer /mcp"
+        assert finding =~ "guide"
+        assert finding =~ "405"
+        assert finding =~ "unreachable"
+        refute finding =~ "pre-2.0"
+      end
+    end
+
+    test "a real router: the host's POST and forward after the kit's routes, in declaration order" do
+      defmodule ShadowedMcpRouter do
+        use Phoenix.Router
+
+        get "/mcp", PhoenixKitWeb.Controllers.ApiDiscovery, :guide
+        match :*, "/mcp", PhoenixKitWeb.Controllers.ApiDiscovery, :not_allowed
+
+        post "/mcp", HostWeb.McpController, :call
+        forward "/mcp", HostWeb.McpPlug
+      end
+
+      assert [finding] = Doctor.duplicate_root_route_findings(ShadowedMcpRouter.__routes__())
+      assert finding =~ "POST /mcp"
+      assert finding =~ "forward /mcp"
+      assert finding =~ "unreachable"
+    end
+
+    test "a host route at /mcp declared before the kit's, or the kit's own routes, is not shadowed" do
+      kit = PhoenixKitWeb.Controllers.ApiDiscovery
+
+      routes = [
+        %{verb: :post, path: "/mcp", plug: HostWeb.McpController},
+        route("/mcp", kit),
+        %{verb: :*, path: "/mcp", plug: kit}
+      ]
+
+      assert Doctor.duplicate_root_route_findings(routes) == []
+    end
+
+    test "a host GET at /mcp after the kit's is reported once, as shadowed" do
+      kit = PhoenixKitWeb.Controllers.ApiDiscovery
+      routes = [route("/mcp", kit), route("/mcp", HostWeb.McpController)]
+
+      assert [finding] = Doctor.duplicate_root_route_findings(routes)
+      assert finding =~ "unreachable"
+    end
+
+    test "other paths keep the GET-only check: a host POST after the kit's route is fine" do
+      routes = [
+        route("/sitemap.xml", PhoenixKit.Modules.Sitemap.Web.Controller),
+        %{verb: :post, path: "/sitemap.xml", plug: HostWeb.SitemapController}
+      ]
+
+      assert Doctor.duplicate_root_route_findings(routes) == []
+    end
+
     test "a repeat that points at the same controller and action is not reported" do
       # A host declares /sitemap.xml ahead of `scope "/:locale"` (otherwise
       # `:locale` captures "sitemap.xml"); the kit declares it again. Both lead

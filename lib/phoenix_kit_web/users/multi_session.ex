@@ -86,6 +86,30 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   end
 
   @doc """
+  True when the session's active account is not the root of its stack: the browser is
+  acting inside an account that joined the session after the original login.
+
+  An impersonation is always such an account (`impersonate/2` appends to the stack and
+  makes the borrowed account active). The stack does not record how an account joined
+  it, so an account added with its own password answers `true` as well: a caller that
+  must never act inside a borrowed account (an assistant spending the account's limits,
+  reading its history) errs on the safe side. Takes the string-keyed session map, so
+  it works in a plug and in a LiveView mount alike; reads no database.
+
+  A nested (sticky) LiveView calls it itself, with the session LiveView hands it: the
+  cookie session is merged into the session of every LiveView, in the connected mount
+  and in the static render alike (`SessionRef.from_session/1` follows the same rule), so
+  the answer is the same in both. Act on it only in the connected mount.
+  """
+  @spec impersonated?(map()) :: boolean()
+  def impersonated?(session) when is_map(session) do
+    case {session["user_token"], stack_tokens(session)} do
+      {active, [root | _]} when is_binary(active) -> active != root
+      _no_active_account -> false
+    end
+  end
+
+  @doc """
   True when the root session belongs to ANY authenticated user AND the
   `multi_session_enabled` setting is on. Evaluated against the root so the
   switcher stays visible even when a secondary account is active.
@@ -760,6 +784,8 @@ defmodule PhoenixKitWeb.Users.MultiSession do
   Tokens that no longer resolve to an active user are dropped *and* pruned from
   the cookie: this is the only pass that ever looks at them, so without it a
   revoked account would be re-offered for the cookie's full life.
+  The root must still resolve too: an added account cannot revive a remembered
+  identity whose session expired, was revoked, or belongs to an inactive user.
 
   Restores nothing while `multi_session_enabled` is off, and takes the cookie
   with it — turning the feature off should not leave a browser quietly holding
@@ -782,7 +808,11 @@ defmodule PhoenixKitWeb.Users.MultiSession do
         forget_persisted_accounts(conn)
 
       {tokens, active} ->
-        live = Enum.filter(tokens, &resolves_to_active_user?/1)
+        live =
+          if resolves_to_active_user?(root_token),
+            do: Enum.filter(tokens, &resolves_to_active_user?/1),
+            else: []
+
         active = if active in live, do: active
 
         conn

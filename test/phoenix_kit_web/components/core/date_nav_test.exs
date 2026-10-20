@@ -50,7 +50,8 @@ defmodule PhoenixKitWeb.Components.Core.DateNavTest do
 
   test "the picker is required (clearing it would only mean today) and bounded by min/max" do
     html = render_nav(~D[2026-09-20], %{min: ~D[2026-09-01], max: ~D[2026-09-30]})
-    assert html =~ ~r/<input[^>]*type="text"[^>]*\brequired\b/
+    assert html =~ ~r/<input[^>]*type="date"[^>]*\brequired\b/
+    assert html =~ ~s(data-required="true")
     refute html =~ "data-clear"
     assert html =~ ~s(data-min="2026-09-01")
     assert html =~ ~s(data-max="2026-09-30")

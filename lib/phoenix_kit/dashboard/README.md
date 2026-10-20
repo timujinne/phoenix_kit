@@ -305,7 +305,7 @@ config :phoenix_kit, :user_dashboard_tabs, [
 ]
 ```
 
-> **Note:** The user dashboard supports one level of nesting (parent → subtab). The admin sidebar supports two levels of nesting (parent → subtab → sub-subtab) for cases like Settings > Media > Dimensions.
+> **Note:** The user dashboard supports one level of nesting (parent → subtab). The admin sidebar supports two levels of nesting (parent → subtab → sub-subtab): a subtab that groups pages of its own sets `redirect_to_first_subtab: true` and no `live_view`, and its children set `parent:` to it — a full example is in `usage-rules.md`, "Admin Pages: Navigation and Components". Use this for separate pages of a section; for views within one page use `<.nav_tabs>`.
 
 ### Subtab Display Options
 

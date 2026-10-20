@@ -23,11 +23,13 @@ defmodule PhoenixKit.API.MCP do
     * `tools/list`: the tools the caller may use, with `_` in their names;
     * `tools/call`: runs a tool through `PhoenixKit.API.Executor`. Both name
       forms are accepted. A failure of the tool is a result with `isError`,
-      not a JSON-RPC error;
+      not a JSON-RPC error; an unknown tool name is the JSON-RPC error `-32602`;
     * anything else: JSON-RPC `-32601`.
 
   `GET`, `DELETE` and every other method are `405` with `Allow: POST`: there
-  is no event stream and no session to close. No session id is issued; every
+  is no event stream and no session to close. The public endpoint's `405` also
+  carries `Link: <guide>; rel="service-doc"` while the guide is published
+  (`PhoenixKit.API.PublicDiscovery`). No session id is issued; every
   request carries its own key. No CORS headers are sent.
 
   ## Protocol revisions
@@ -59,8 +61,10 @@ defmodule PhoenixKit.API.MCP do
   refuses before its limiter (an unknown, hidden, forbidden or disabled-module
   tool) is charged one unit here; the public audience is charged by the
   executor before the lookup and before the name is mapped from its MCP form
-  (`PhoenixKit.API.MCP.Names.resolve/2`). A rate limit is HTTP `429`, every
-  other failure of the tool is an `isError` result.
+  (`PhoenixKit.API.MCP.Names.resolve/2`). A rate limit is HTTP `429`, a name
+  that no tool has (or that the caller's switches hide: `api_disabled_tools`) is
+  a JSON-RPC `-32602` error with HTTP `200`, every other failure of the tool is
+  an `isError` result.
 
   Malformed JSON never reaches this plug: `PhoenixKit.API.BodyGuard` answers
   it with a JSON-RPC parse error in the endpoint.
@@ -81,7 +85,9 @@ defmodule PhoenixKit.API.MCP do
   alias PhoenixKit.API.MCP.Shape
   alias PhoenixKit.API.MCP.Versions
   alias PhoenixKit.API.Problem
+  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.API.RateLimit
+  alias PhoenixKit.API.Registry
 
   @doc "The protocol revisions this server speaks, most preferred first (`PhoenixKit.API.MCP.Versions.supported/0`)."
   @spec supported_versions() :: [String.t()]
@@ -108,11 +114,14 @@ defmodule PhoenixKit.API.MCP do
   end
 
   defp route(%Plug.Conn{path_info: [], method: "POST"} = conn, audience), do: post(conn, audience)
-  defp route(%Plug.Conn{path_info: []} = conn, _audience), do: method_not_allowed(conn)
+  defp route(%Plug.Conn{path_info: []} = conn, audience), do: method_not_allowed(conn, audience)
   defp route(conn, _audience), do: Problem.send(conn, :not_found, "No such MCP path.", %{})
 
-  defp method_not_allowed(conn) do
+  # A client that GETs the server URL may be looking for how to connect: the
+  # public endpoint points to the guide while the guide is published.
+  defp method_not_allowed(conn, audience) do
     conn
+    |> put_service_doc(audience)
     |> put_resp_header("allow", "POST")
     |> Problem.send(
       :method_not_allowed,
@@ -120,6 +129,9 @@ defmodule PhoenixKit.API.MCP do
       %{allow: "POST"}
     )
   end
+
+  defp put_service_doc(conn, :public), do: PublicDiscovery.put_service_doc_link(conn)
+  defp put_service_doc(conn, :admin), do: conn
 
   # --- one POST ---------------------------------------------------------------
 
@@ -311,8 +323,9 @@ defmodule PhoenixKit.API.MCP do
 
   defp call_params(_other), do: {:error, "tools/call needs params.name, a tool name."}
 
-  # Runs the tool as REST would. Every error becomes an `isError` result,
-  # except a rate limit: that is HTTP 429, so a client library backs off.
+  # Runs the tool as REST would. Every error becomes an `isError` result, except
+  # a rate limit (HTTP 429, so a client library backs off) and an unknown tool
+  # name (JSON-RPC -32602, which every revision in `Versions` prescribes for it).
   defp tools_call(conn, id, audience, version, name, arguments) do
     request_id = conn.assigns[:phoenix_kit_api_request_id]
 
@@ -327,12 +340,29 @@ defmodule PhoenixKit.API.MCP do
       {:error, :rate_limited, detail, context, headers} ->
         conn |> put_headers(headers) |> Problem.send(:rate_limited, detail, context)
 
+      {:error, :not_found, _detail, %{tool: _clipped}, headers} = outcome ->
+        conn = put_headers(conn, headers)
+
+        if unknown_tool?(name, audience),
+          do: Rpc.send_error(conn, 200, id, :invalid_params, unknown_tool_text(name)),
+          else: reply(conn, id, Shape.call_result(outcome, version, request_id))
+
       outcome ->
         conn
         |> put_headers(outcome_headers(outcome))
         |> reply(id, Shape.call_result(outcome, version, request_id))
     end
   end
+
+  # A tool can answer `not_found` for its own subject (a missing record), and that stays a
+  # tool result. The executor's `not_found` for the tool itself is told apart by asking the
+  # registry again, on this failure path only and after the public charge, so the repeat is
+  # bounded by the rate limit. The outcome alone cannot tell the two apart (a handler may
+  # answer a context with a `tool` key too), and REST pins the executor's context.
+  defp unknown_tool?(name, audience),
+    do: Registry.find(Names.resolve(name, audience), audience) == {:error, :not_found}
+
+  defp unknown_tool_text(name), do: "Unknown tool: #{LogSafe.take_codepoints(name, 80)}"
 
   defp outcome_headers({:ok, _result, headers}), do: headers
   defp outcome_headers({:error, _code, _detail, _context, headers}), do: headers

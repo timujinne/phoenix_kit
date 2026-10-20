@@ -69,6 +69,15 @@ defmodule PhoenixKit.Modules.Storage.Reconciler do
   @processing_grace_seconds 3600
 
   @doc """
+  How long a file may stay `"processing"` after its last change before it
+  counts as no longer being processed. `Storage` uses it for the same
+  question about an upload: a processing row older than this holds no object
+  key.
+  """
+  @spec processing_grace_seconds() :: pos_integer()
+  def processing_grace_seconds, do: @processing_grace_seconds
+
+  @doc """
   The files that are not where, or not what, their library's profile and
   variant set want — **and that the reconciler may work on now**: not a file
   an upload is still processing, nor one with an image edit pending, nor one
@@ -199,7 +208,8 @@ defmodule PhoenixKit.Modules.Storage.Reconciler do
   @doc """
   Up to `limit` stale site-library files for the Health page: the file, its
   library's name, and whether its copies (`:placement`) or its sizes
-  (`:variants`) are what is out of date. Personal-library contents are private;
+  (`:variants`) are what is out of date. The contents of a private library (a
+  user's, or a hidden system library, `Libraries.hidden?/1`) are not listed;
   they remain included in aggregate counts and the reconciler's work queries.
   """
   @spec stale_files(pos_integer()) :: [map()]
@@ -208,7 +218,7 @@ defmodule PhoenixKit.Modules.Storage.Reconciler do
     set = VariantSets.default_uuid()
 
     from([f, l, p, s] in stale_query(),
-      where: l.kind == "system" or is_nil(f.library_uuid),
+      where: (l.kind == "system" and l.visibility == "site") or is_nil(f.library_uuid),
       order_by: [asc: f.original_file_name, asc: f.uuid],
       limit: ^limit,
       select: %{

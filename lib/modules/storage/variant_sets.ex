@@ -360,6 +360,8 @@ defmodule PhoenixKit.Modules.Storage.VariantSets do
 
   # A system library moving to another variant set, by name. A user's library is
   # theirs and private, and is not in the history.
+  defp audit_library_set(%Library{visibility: "private"}, _updated, _opts), do: :ok
+
   defp audit_library_set(%Library{kind: "system"} = before, %Library{} = updated, opts) do
     if set_uuid_for(before) != set_uuid_for(updated) do
       Audit.log("storage.library.variant_set_changed", "storage_library", updated.uuid, opts, %{

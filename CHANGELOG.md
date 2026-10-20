@@ -1,3 +1,88 @@
+## Unreleased
+
+### Changed
+
+- **The profile's Media tab is rebuilt on core's own components.** The libraries are a `table_default` (name with its
+  Default badge, where it is stored, visibility: Public or Private) with the usual toolbar (count, **Create library**) and a ⋮ row
+  menu (Open, Rename, Make default, Members, Renditions, Trash; Leave for a shared one), as the Integrations tab. Rename,
+  members, renditions and the new-library form are `<.modal>` dialogs with `<.input>` / `<.select>`; an empty list is an
+  `<.empty_state>` with the create button; the trash is a small table with Restore. With own storage the form asks for what
+  the integration does not already know: an **integration** (the word is used throughout; the form said "connection") and a
+  **bucket**. The provider, region and endpoint fields are gone: the bucket takes them from the integration, and the
+  integration's service and endpoint are shown under its select. With one integration it is already chosen; with none the
+  form sends the user to add one (new tab) and picks the list up again when the window regains focus.
+- **`Libraries.create_user_library/3` / `probe_own_storage/3`:** the `"storage"` map takes `"targets"` (a list, or the
+  `targets[0]` map a form posts); a single bucket given flat (`integration_uuid`, `bucket_name`, …) still works, and a
+  provider, region or endpoint sent anyway wins over the integration's.
+- **`Profiles.user_storage_for/1`** adds `buckets` (every one of the user's buckets, main first) beside `bucket`; `mode` is
+  `:only` when one of them is the primary. **`Profiles.create_user_profile/3`** takes a bucket or a list.
+
+### Added
+
+- **A library can use several of the user's integrations (V206 storage).** In "only here" the first is the main storage and
+  the others hold a copy of every file (never served); in "the site's storage, backed up here" each is a backup. Up to
+  `Profiles.max_user_buckets/0` (3), five copies in all. The library row says `Your bucket: a (+1 copy)`; purge and the
+  object clean-up already covered every bucket of a library's profile.
+- **Public user libraries (phase 1 of `dev_docs/plans/2026-10-18-public-user-libraries.md`).** A user with the new
+  `storage.public_library` sub-permission (granted to nobody by default) can create a library as **Public** (a Private or
+  Public choice in the create dialog, with a warning; final once made). Anyone, signed in or not, can read what is in it
+  (`Libraries.can?/3` with a `nil` scope, `can_read_library?/2`, `public?/1`); editing is unchanged. Its files get ordinary
+  links; it never appears in site media (`Libraries.exclude_user_libraries/1` replaces `exclude_private/1`, which still
+  works, in the media browser, the pickers, the folder listing and the orphan cleanup). An Owner or Admin can suspend one
+  (`suspend_library/3`, `unsuspend_library/2`, a Suspend/Restore button in the admin list): it answers as private until
+  restored. Publishing and suspending are in the history. Nothing is public unless a user with the permission makes it so.
+- **`Libraries.ensure_personal_library/2` and `backfill_personal_libraries/1`** — for a host that wants every account to
+  have a private library of its own. The system makes it (no permission, no room under the per-user limit), marked so a
+  user who trashed theirs is not given another. **Nothing in PhoenixKit calls them**, they make nothing while "Allow user libraries" is off
+  (`{:error, :user_libraries_off}`), and registration is unchanged; the host decides whether, when and what to call it.
+- **A "List buckets" button** on the create form: `Libraries.list_own_buckets/3` asks the integration's key for its buckets
+  (S3 `ListBuckets`, under the integration check's deadline, via `S3.list_remote_buckets/1`) and the bucket field becomes a
+  dropdown. A key limited to one bucket is usually refused; the text field stays and the message says to type the name.
+- `Libraries.integration_summary/2`: what a user's integration says about itself (service, bucket provider, region,
+  endpoint), never a secret.
+- **A module can keep its own settings for a library (`Libraries.module_setting/3`, `put_module_setting/5`).** A package that
+  is not core has settings of its own for a library (the photos package's choice of viewer, say), and core should not have to
+  name them. `put_module_setting(library, "photos", "viewer", "classic")` keeps the value under the module's namespace in the
+  library's `settings` (`settings["modules"]["photos"]["viewer"]`), nil removes it (and the namespace when it was the last
+  key). Core keeps the namespacing, the update of only that key, the lock and the history (`photos.viewer`, from and to); it
+  knows no key and checks no value beyond a boolean, a number or a string of at most 255 bytes. The namespace and key are
+  lowercase words (`{:error, :invalid_namespace | :invalid_key | :invalid_value}` otherwise). Needs no migration.
+- **The poster of an HDR video is an HDR photo.** For an HLG video (every iPhone recording) whose `video_thumbnail` size keeps
+  HDR, the poster is a JPEG with a gain map (Ultra HDR, ISO 21496-1): an HDR screen shows the highlights above white, any other
+  shows the ordinary picture. `VideoHdrPoster` makes it with libvips' `uhdrsave` (in the library `vix` ships; nothing to
+  install): ffmpeg writes the frame as linear-light floats, scaled so SDR white (203 nits) is 1.0, and libvips computes the map.
+  The switches are the photos' own: the size's `keep_hdr` option (now **on by default** for `video_thumbnail`, and offered in the
+  size form for a video JPEG size) and `config :phoenix_kit, hdr_renditions`. Without `vix`, with a libvips older than 8.17, or
+  if anything fails, the ordinary tone-mapped poster is made and a warning logged. PQ sources and Dolby Vision profile 5 keep the
+  ordinary poster. Existing sites keep what their size says until `keep_hdr` is turned on; videos already made are remade by
+  regenerating them.
+
+### Fixed
+
+- **An HDR video no longer makes renditions a browser cannot play, nor a washed-out poster.** A phone records HDR as 10-bit HEVC
+  (HLG or PQ, BT.2020). Its renditions were encoded as 10-bit H.264 ("High 10"), which most browsers refuse, and its poster was
+  a raw frame grab with the HDR signal squeezed into an SDR picture (flat colours, blown highlights). `VideoSource.probe/1`
+  reads the source once with `ffprobe`; an HDR source is **tone-mapped to SDR** (`zscale`/`tonemap`, Hable, 203 nit reference
+  white, BT.709, 8-bit) after the resize, for every rendition and the poster. Every H.264 and VP9 rendition is now `yuv420p`
+  whatever the source (a 10-bit video that is not HDR no longer comes out as High 10). If the tone-mapping fails the ordinary
+  rendition is made and a warning logged. The original is stored untouched. SDR sources are unchanged apart from `yuv420p`.
+  Keeping the HDR in a rendition (10-bit HEVC) is not done.
+- **A video thumbnail of a clip about a second long is made.** The poster was always taken at 1.000 s; a clip of exactly one
+  second (a Live Photo's) has no frame there, and FFmpeg answered success without writing a file, so the variant failed later
+  as a bare `:enoent`. It is taken one second in, or halfway for a clip under two seconds, and an FFmpeg run that wrote no file
+  is now an error that says so.
+- **Large files are no longer read into memory to be hashed.** Every checksum of a file on disk (the original's SHA-256 and MD5
+  at upload, each rendition's, a URL import, the dedup backfill, `POST /api/upload`) read the whole file with `File.read!/1`
+  and held it, twice over, while it hashed; a video of a few gigabytes cost a few gigabytes. They go through the new
+  `PhoenixKit.Utils.FileHash` (1 MiB chunks, several digests in one pass), so what a hash costs in memory is the chunk. A test
+  stores a 160 MiB file and fails if binary memory rises by more than 64 MiB (the old code rose by 293 MiB).
+- **An iPhone's HEIC (and HEIF, AVIF) zooms to the last pixel.** libvips as shipped with `vix` reads a HEIC's size but has no HEVC
+  decoder, so no deep-zoom tile could be cut from one and the viewer stopped at the 1920 px rendition. The first tile request
+  now makes one full-resolution JPEG of the original with ImageMagick (`ImageProcessor.full_jpeg/3`), keeps it beside the tiles
+  (`TileSource`), and cuts every tile from it.
+- **`POST /api/upload` takes HEIC, HEIF, AVIF, TIFF and BMP** (it turned them away as "not allowed"), and its size cap follows the
+  `storage_max_upload_size_mb` setting (default 500) instead of a fixed 100 MB.
+
 ## 2.63.0 - 2026-10-17
 
 **Migrations V218, V219 and V220** (run `mix phoenix_kit.update`). Ships PR #932 (profile-form hardening), #933 (chart and

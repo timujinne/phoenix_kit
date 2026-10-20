@@ -1302,7 +1302,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   # A folder (or file) of another library is not opened in, or shown by,
   # this one. With no library named, the listing has already dropped
-  # private libraries (`Libraries.exclude_private/1`).
+  # private libraries (`Libraries.exclude_user_libraries/1`).
   # A restricted viewer (`:viewer_uuid` among the options) also opens only a
   # folder they may see (`Storage.viewer_folder_uuids/2`).
   defp in_shown_library?(folder_or_file, opts) do

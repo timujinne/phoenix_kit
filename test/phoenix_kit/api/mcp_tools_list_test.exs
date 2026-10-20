@@ -153,6 +153,19 @@ defmodule PhoenixKit.API.MCPToolsListTest do
       refute Enum.any?(names, &String.starts_with?(&1, "testkit_"))
     end
 
+    test "a module whose API is switched off drops out, core's tool stays, and it comes back", %{
+      token: token
+    } do
+      put_setting("api_disabled_modules", "api_test_tools")
+
+      names = token |> list() |> tool_names()
+      assert "system_get_identity" in names
+      refute Enum.any?(names, &String.starts_with?(&1, "testkit_"))
+
+      put_setting("api_disabled_modules", "")
+      assert "testkit_read_items" in (token |> list() |> tool_names())
+    end
+
     test "a tool in api_disabled_tools drops out", %{token: token} do
       put_setting("api_disabled_tools", "testkit.write_item")
 

@@ -81,6 +81,31 @@ defmodule PhoenixKit.DataCase do
   end
 
   @doc """
+  Runs `fun` and returns what the logger printed at `:debug`, Ecto's SQL log
+  included.
+
+  The suite's logger sits at `:warning` (`config/test.exs`), so a plain
+  `capture_log([level: :debug], ...)` sees no query at all, and any
+  `refute log =~ ...` on it passes vacuously. The primary level is lowered for
+  the duration of `fun` (a process-level override does not let Ecto's query
+  log through), so call this only from `async: false` tests, and assert the
+  capture saw SQL before refuting anything on it.
+  """
+  def capture_debug_log(fun) do
+    previous = Logger.level()
+
+    ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+      Logger.configure(level: :debug)
+
+      try do
+        fun.()
+      after
+        Logger.configure(level: previous)
+      end
+    end)
+  end
+
+  @doc """
   A helper that transforms changeset errors into a map of messages.
 
       assert {:error, changeset} = Accounts.create_user(%{password: "short"})

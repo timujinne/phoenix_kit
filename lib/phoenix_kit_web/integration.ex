@@ -397,7 +397,9 @@ defmodule PhoenixKitWeb.Integration do
       # llms.txt rides along: same public, session-free shape, and policy files
       # must stay fetchable even by bots the Crawlers module blocks.
       scope unquote(url_prefix) do
-        get "/llms.txt", PhoenixKit.Modules.Crawlers.Web.Controller, :llms_txt
+        get "/llms.txt", PhoenixKit.Modules.Crawlers.Web.Controller, :llms_txt,
+          metadata: %{sitemap: false}
+
         get "/sitemap.xml", PhoenixKit.Modules.Sitemap.Web.Controller, :xml
         get "/sitemap.html", PhoenixKit.Modules.Sitemap.Web.Controller, :html
         get "/sitemaps/:filename", PhoenixKit.Modules.Sitemap.Web.Controller, :module_sitemap
@@ -407,6 +409,9 @@ defmodule PhoenixKitWeb.Integration do
         get "/assets/sitemap-index/:style",
             PhoenixKit.Modules.Sitemap.Web.Controller,
             :xsl_index_stylesheet
+
+        unquote(api_guide_routes())
+        unquote(api_catalog_route(url_prefix))
       end
 
       # The same endpoints at the site root. Crawlers look for /sitemap.xml,
@@ -631,6 +636,11 @@ defmodule PhoenixKitWeb.Integration do
       # API keys, service users and the shop API switches (gated by "api").
       live "/admin/settings/api", Live.Settings.Api, :index
       live "/admin/settings/api/approvals", Live.Settings.ApiApprovals, :index
+      live "/admin/settings/api/guide", Live.Settings.ApiGuide, :index
+
+      # The approvals queue of API keys: a menu entry of its own (gated by "api"); the old
+      # Settings path above redirects here.
+      live "/admin/approvals", Live.Approvals, :index
 
       # "email-sending", not "emails" — the optional emails module registers its
       # own routable "Emails" settings tab at /admin/settings/emails (via
@@ -1682,7 +1692,9 @@ defmodule PhoenixKitWeb.Integration do
   defp root_sitemap_routes(_url_prefix) do
     quote do
       scope "/" do
-        get "/llms.txt", PhoenixKit.Modules.Crawlers.Web.Controller, :llms_txt
+        get "/llms.txt", PhoenixKit.Modules.Crawlers.Web.Controller, :llms_txt,
+          metadata: %{sitemap: false}
+
         get "/sitemap.xml", PhoenixKit.Modules.Sitemap.Web.Controller, :xml
         get "/sitemap.html", PhoenixKit.Modules.Sitemap.Web.Controller, :html
         get "/sitemaps/:filename", PhoenixKit.Modules.Sitemap.Web.Controller, :module_sitemap
@@ -1692,7 +1704,39 @@ defmodule PhoenixKitWeb.Integration do
         get "/assets/sitemap-index/:style",
             PhoenixKit.Modules.Sitemap.Web.Controller,
             :xsl_index_stylesheet
+
+        unquote(api_guide_routes())
+        unquote(api_catalog_route(:root))
       end
+    end
+  end
+
+  # The public guide of the shop API, `GET /mcp`; any other method is a 405
+  # that points to the MCP server (`/mcp/shop`). Declared with the files above:
+  # same session-free shape, at the kit prefix and at the site root. The
+  # discovery pages are answered by `PhoenixKitWeb.Controllers.ApiDiscovery`.
+  defp api_guide_routes do
+    quote do
+      get "/mcp", PhoenixKitWeb.Controllers.ApiDiscovery, :guide, metadata: %{sitemap: false}
+      match :*, "/mcp", PhoenixKitWeb.Controllers.ApiDiscovery, :not_allowed
+    end
+  end
+
+  # RFC 9727 wants the API catalog at the site root: the root scope of a
+  # prefixed install, the kit scope of a root-mounted one, never both and
+  # never under a prefix.
+  defp api_catalog_route(:root) do
+    quote do
+      get "/.well-known/api-catalog", PhoenixKitWeb.Controllers.ApiDiscovery, :api_catalog,
+        metadata: %{sitemap: false}
+    end
+  end
+
+  defp api_catalog_route(url_prefix) when url_prefix in ["/", ""],
+    do: api_catalog_route(:root)
+
+  defp api_catalog_route(_url_prefix) do
+    quote do
     end
   end
 

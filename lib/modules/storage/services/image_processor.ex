@@ -296,27 +296,33 @@ defmodule PhoenixKit.Modules.Storage.ImageProcessor do
   """
   @spec preview_jpeg(String.t(), String.t(), pos_integer()) ::
           {:ok, String.t()} | {:error, String.t()}
-  def preview_jpeg(input_path, output_path, max_edge \\ 512) do
+  def preview_jpeg(input_path, output_path, max_edge \\ 512),
+    do: jpeg(input_path, output_path, "#{max_edge}x#{max_edge}>", 80)
+
+  @doc """
+  The first frame of `input_path` as an upright JPEG **at its full resolution**,
+  with the EXIF orientation applied and any transparency flattened onto white.
+
+  For a tool that needs every pixel but cannot decode the original: the deep-zoom
+  tiles of an iPhone's HEIC are cut from this, because libvips as shipped with the
+  `vix` package has no HEVC decoder and ImageMagick has. Same decoder pinning and
+  resource limits as every other call here. `:quality` is 1–100 (default 92).
+  Returns `{:ok, output_path}` or `{:error, reason}`.
+  """
+  @spec full_jpeg(String.t(), String.t(), keyword()) :: {:ok, String.t()} | {:error, String.t()}
+  def full_jpeg(input_path, output_path, opts \\ []),
+    do: jpeg(input_path, output_path, nil, Keyword.get(opts, :quality, 92))
+
+  defp jpeg(input_path, output_path, resize, quality) do
     with {:ok, input} <- pinned_input(input_path, "[0]"),
          {:ok, {width, height}} <- extract_dimensions(input_path),
          :ok <- check_pixel_budget(width, height, @resize_max_pixels) do
       args =
         @limit_args ++
           read_args(input) ++
-          [
-            "-auto-orient",
-            "-background",
-            "white",
-            "-alpha",
-            "remove",
-            "-alpha",
-            "off",
-            "-resize",
-            "#{max_edge}x#{max_edge}>",
-            "-quality",
-            "80",
-            "jpeg:#{output_path}"
-          ]
+          ["-auto-orient", "-background", "white", "-alpha", "remove", "-alpha", "off"] ++
+          if(resize, do: ["-resize", resize], else: []) ++
+          ["-quality", Integer.to_string(quality), "jpeg:#{output_path}"]
 
       case System.cmd("convert", args, stderr_to_stdout: true) do
         {_output, 0} -> {:ok, output_path}
@@ -326,7 +332,7 @@ defmodule PhoenixKit.Modules.Storage.ImageProcessor do
       {:error, reason} -> {:error, "Failed to read the image: #{reason}"}
     end
   rescue
-    e -> {:error, "Image preview failed: #{inspect(e)}"}
+    e -> {:error, "Image conversion failed: #{inspect(e)}"}
   end
 
   @doc """

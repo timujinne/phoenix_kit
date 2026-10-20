@@ -97,6 +97,9 @@
   # Same reason for anything else whose spec names Scope.t(): the struct carries
   # an opaque MapSet field, so declaring it in a contract is flagged.
   {"lib/phoenix_kit/test/fixtures.ex", :contract_with_opaque},
+  # `Keys.actor/3` returns an `Actor`, which carries the owner's `Scope.t()` (`:scope`).
+  # Only that spec: another contract in the file still reports.
+  ~r{^lib/phoenix_kit/api/keys\.ex:\d+(:\d+)?:contract_with_opaque The @spec for actor has},
   # Callers of Scope.admin?/1 inherit the opaque mismatch from Scope.for_user/1
   {"lib/modules/maintenance/web/plugs/maintenance_mode.ex", :call_without_opaque},
   # Same inheritance: the storage API controllers build a scope from the
@@ -119,6 +122,9 @@
   # from, so it builds one with Scope.for_user/1 and passes it straight to
   # Scope.holds_all_enabled_permissions?/1.
   {"lib/phoenix_kit/users/referrals.ex", :call_without_opaque},
+  # Same inheritance: SessionRef.scope_for_session/2 builds the session's scope with
+  # Scope.for_user/1 and asks the invite-only gate about it (Referrals.access_satisfied?/1).
+  ~r{^lib/phoenix_kit/users/auth/session_ref\.ex:\d+(:\d+)?:call_without_opaque .* in (referral_satisfied|access_satisfied\?)\.},
   # Same inheritance: the API key code builds the owner's scope with
   # Scope.for_user/2, asks Scope.can?/2 about the permission of each tool and
   # turns Scope.accessible_modules/1 into a list.
@@ -184,6 +190,11 @@
   # Integrations — URI authority is opaque, cond guard false positive
   {"lib/phoenix_kit_web/live/settings/integration_form.ex", :opaque_guard},
 
+  # `Settings.modify_setting_with_module/4` starts its transaction with
+  # `Ecto.Multi.run(Ecto.Multi.new(), ...)`: dialyzer sees the fresh multi's
+  # `MapSet` through its opaque `names` field and flags the call. A regex on the
+  # called function, not file-wide, so another opaque misuse in settings.ex shows.
+  ~r{^lib/phoenix_kit/settings/settings\.ex:\d+(:\d+)?:call_without_opaque .* in run\.},
   # `Task.Supervisor.async_nolink/2` hands back a `%Task{}` whose fields
   # dialyzer knows structurally, and `Task.yield/2` declares `Task.t()`
   # opaque — so the call is flagged for peeking into the opacity it never

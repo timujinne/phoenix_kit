@@ -241,7 +241,7 @@ defmodule PhoenixKit.Modules.Storage.ImageEditing do
 
     case result do
       {:ok, {file, keys}} ->
-        _ = Storage.delete_stored_objects(keys)
+        _ = Storage.delete_stored_objects(keys, ignore_uploads_of: [file.uuid])
         Storage.broadcast_file_processed(file.uuid)
         {:ok, file}
 

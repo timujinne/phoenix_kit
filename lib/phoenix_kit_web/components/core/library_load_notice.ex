@@ -5,7 +5,7 @@ defmodule PhoenixKitWeb.Components.Core.LibraryLoadNotice do
   `console.error` to find.
 
   The libraries (Fresco, Tessera, Etcher, Leaf, SortableJS, Panzoom,
-  wavesurfer) load lazily in the browser through the shared `loadLibrary`
+  wavesurfer, Cally) load lazily in the browser through the shared `loadLibrary`
   in `phoenix_kit.js`, which records each final failure and announces it as
   a `pk:library-failed` window event. This component renders a hidden shell
   carrying all the translated copy in `data-*` attributes; the

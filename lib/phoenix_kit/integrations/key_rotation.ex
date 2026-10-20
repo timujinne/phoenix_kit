@@ -1,12 +1,13 @@
 defmodule PhoenixKit.Integrations.KeyRotation do
   @moduledoc """
-  Re-encrypts every stored integration connection, and every restricted
+  Re-encrypts every stored integration connection, every restricted
   `PhoenixKit.Settings` value (`oauth_*_client_secret`, `aws_*` — see
-  `PhoenixKit.Settings.restricted_setting_keys/0`), under a new encryption
-  secret. Both are encrypted by `PhoenixKit.Integrations.Encryption` under
-  the SAME resolved key, so they must rotate together — a rotation that
-  swept only the integrations rows would silently strand the restricted
-  settings under the old key.
+  `PhoenixKit.Settings.restricted_setting_keys/0`) and every storage
+  bucket's `secret_access_key` under a new encryption secret. All three are
+  encrypted by `PhoenixKit.Integrations.Encryption` under the SAME resolved
+  key, so they must rotate together — a rotation that swept only the
+  integrations rows would silently strand the restricted settings and the
+  bucket keys under the old key.
 
   Needed any time the secret backing `PhoenixKit.Integrations.Encryption`
   changes:
@@ -84,9 +85,10 @@ defmodule PhoenixKit.Integrations.KeyRotation do
   rotation feature should carry). Neither is attempted here.
 
   **Practical consequence: nothing should write to `phoenix_kit_settings`
-  rows where `module = "integrations"`, OR to any restricted setting key
+  rows where `module = "integrations"`, to any restricted setting key
   (`PhoenixKit.Settings.restricted_setting_keys/0` — the Authorization
-  settings page), from before you start a real rotation until the app has
+  settings page), OR to a storage bucket's `secret_access_key` (the bucket
+  edit form), from before you start a real rotation until the app has
   been restarted onto the new key** — not just for the few seconds
   `rotate/2` itself is running. A write landing anywhere in that whole
   span, including well after `rotate/2` has already returned `{:ok, _}`,
@@ -123,6 +125,13 @@ defmodule PhoenixKit.Integrations.KeyRotation do
   restarts. In the window between those two events, on top of the
   concurrent-write race above:
 
+    * **S3 buckets that carry their own keys stop working** once the
+      storage manager's bucket cache (5-minute TTL) reloads the rotated row:
+      the old key can no longer decrypt the bucket's `secret_access_key`, so
+      the S3 credentials come back without a secret until the app restarts
+      onto the new key. Moving a bucket's keys into Integrations
+      (`PhoenixKit.Modules.Storage.BucketCredentials`) is a writer like any
+      other here: pause it until the restart.
     * **Reads** of a rotated connection do not raise or crash — a field
       that can't be decrypted under the still-active old key is logged
       (`Logger.error`) and silently dropped from whatever asked for it
@@ -162,6 +171,7 @@ defmodule PhoenixKit.Integrations.KeyRotation do
   import Ecto.Query, only: [from: 2]
 
   alias PhoenixKit.Integrations.Encryption
+  alias PhoenixKit.Modules.Storage.Bucket
   alias PhoenixKit.Settings
   alias PhoenixKit.Settings.Setting
 
@@ -171,7 +181,9 @@ defmodule PhoenixKit.Integrations.KeyRotation do
   @type failure_reason :: :decrypt_failed_under_current_key
 
   @doc """
-  Re-encrypts every stored integration connection under `new_secret`.
+  Re-encrypts every stored integration connection, restricted setting and
+  storage bucket `secret_access_key` under `new_secret` — all in one
+  transaction, so either every one of them rotates or none does.
 
   `opts`:
 
@@ -179,7 +191,8 @@ defmodule PhoenixKit.Integrations.KeyRotation do
       against every row and writes nothing. Unlike a real rotation, this
       does NOT take row locks — it's a plain read, safe to run against live
       traffic — and does not require `new_secret` to be a real value the
-      caller intends to use.
+      caller intends to use. It reads the settings rows and the buckets with
+      two separate SELECTs, so it is not one consistent snapshot of both.
 
   Returns:
 
@@ -248,19 +261,42 @@ defmodule PhoenixKit.Integrations.KeyRotation do
     )
   end
 
+  # The third source feeding the same key: `phoenix_kit_buckets.secret_access_key`
+  # (`Bucket.changeset/2` encrypts it through `Encryption.encrypt_value/1`, the
+  # same cipher and key as the two sources above). Only rows that actually
+  # carry a secret — a local bucket, or one on an integration connection
+  # (`integration_uuid`), has none and is left alone. Same lock rule as
+  # `locked_rows_query/0`: a real rotation locks these, a dry run does not.
+  # The lock is `FOR NO KEY UPDATE`, not `FOR UPDATE`: other tables point at a
+  # bucket by foreign key (files, profile links), and an insert of such a row
+  # takes `FOR KEY SHARE` on the bucket, which `FOR UPDATE` would block — an
+  # upload would stall for the whole rotation. `FOR NO KEY UPDATE` still
+  # blocks a concurrent bucket update, and the key columns are never changed.
+  @doc false
+  @spec rotate_buckets_query() :: Ecto.Query.t()
+  def rotate_buckets_query do
+    from(b in Bucket, where: not is_nil(b.secret_access_key) and b.secret_access_key != "")
+  end
+
+  @doc false
+  @spec locked_buckets_query() :: Ecto.Query.t()
+  def locked_buckets_query do
+    from(b in rotate_buckets_query(), lock: "FOR NO KEY UPDATE")
+  end
+
   # ---------------------------------------------------------------------------
   # Private
   # ---------------------------------------------------------------------------
 
   # Dry-run is a plain, unlocked read: it writes nothing and needs no
-  # transactional consistency guarantee beyond "one consistent snapshot of
-  # the table right now" (which a single SELECT already gives), so it must
+  # transactional consistency guarantee beyond a per-table snapshot (it is two
+  # SELECTs now, settings then buckets, not one snapshot of both), so it must
   # not take FOR UPDATE locks or hold anything open against live traffic —
   # the whole point of a dry run is that running it has no side effects an
   # operator needs to reason about.
   defp do_rotate(_new_secret, true = _dry_run) do
     repo = PhoenixKit.RepoHelper.repo()
-    rows = repo.all(rotate_rows_query())
+    rows = repo.all(rotate_rows_query()) ++ repo.all(rotate_buckets_query())
 
     case decrypt_all(rows) do
       {:error, uuid, reason} ->
@@ -275,7 +311,7 @@ defmodule PhoenixKit.Integrations.KeyRotation do
     repo = PhoenixKit.RepoHelper.repo()
 
     repo.transaction(fn ->
-      rows = repo.all(locked_rows_query())
+      rows = repo.all(locked_rows_query()) ++ repo.all(locked_buckets_query())
 
       case decrypt_all(rows) do
         {:error, uuid, reason} ->
@@ -312,15 +348,22 @@ defmodule PhoenixKit.Integrations.KeyRotation do
   end
 
   defp has_sensitive_field?({:value, _setting, decrypted}), do: present?(decrypted)
+  defp has_sensitive_field?({:bucket, _bucket, decrypted}), do: present?(decrypted)
 
   defp present?(value), do: is_binary(value) and value != ""
 
+  # `log: false` on both writes, for the same reason as
+  # `PhoenixKit.Settings.Queries.update_setting/2`: Ecto's SQL debug logger
+  # prints the bound params, and every row written here is a secret — so an
+  # unsilenced rotation printed the fresh ciphertext of EVERY integration
+  # connection and restricted setting in one go. The reads above stay
+  # logged: their params are key names, and result rows are never logged.
   defp rotate_row({:fields, setting, decrypted}, new_secret, repo) do
     new_value = Encryption.encrypt_fields_with_secret(decrypted, new_secret)
 
     setting
     |> Setting.update_changeset(%{value_json: new_value})
-    |> repo.update!()
+    |> repo.update!(log: false)
   end
 
   defp rotate_row({:value, setting, decrypted}, new_secret, repo) do
@@ -328,7 +371,20 @@ defmodule PhoenixKit.Integrations.KeyRotation do
 
     setting
     |> Setting.update_changeset(%{value: new_value})
-    |> repo.update!()
+    |> repo.update!(log: false)
+  end
+
+  # `change/2`, not `Bucket.changeset/2`: rotation rewrites one column of a row
+  # it did not load for editing, and the changeset would re-run the whole
+  # row's validations (credentials present, endpoint, ...) on data that may
+  # predate them, failing the transaction for reasons unrelated to the key.
+  # `log: false` for the reason above.
+  defp rotate_row({:bucket, bucket, decrypted}, new_secret, repo) do
+    new_value = Encryption.encrypt_value_with_secret(decrypted, new_secret)
+
+    bucket
+    |> Ecto.Changeset.change(secret_access_key: new_value)
+    |> repo.update!(log: false)
   end
 
   defp normalize_result({:ok, count}), do: {:ok, %{rotated: count, dry_run: false}}
@@ -342,12 +398,19 @@ defmodule PhoenixKit.Integrations.KeyRotation do
   # leaving others on the old one, which is the exact mixed state atomicity
   # is meant to prevent.
   defp decrypt_all(rows) do
-    Enum.reduce_while(rows, {:ok, []}, fn setting, {:ok, acc} ->
-      case decrypt_row(setting) do
+    Enum.reduce_while(rows, {:ok, []}, fn row, {:ok, acc} ->
+      case decrypt_row(row) do
         {:ok, plan} -> {:cont, {:ok, [plan | acc]}}
-        {:error, reason} -> {:halt, {:error, setting.uuid, reason}}
+        {:error, reason} -> {:halt, {:error, row.uuid, reason}}
       end
     end)
+  end
+
+  defp decrypt_row(%Bucket{} = bucket) do
+    case Encryption.decrypt_value(bucket.secret_access_key) do
+      {:ok, decrypted} -> {:ok, {:bucket, bucket, decrypted}}
+      {:error, _reason} -> {:error, :decrypt_failed_under_current_key}
+    end
   end
 
   defp decrypt_row(%Setting{module: @settings_module} = setting) do

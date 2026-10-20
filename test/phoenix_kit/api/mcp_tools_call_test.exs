@@ -55,6 +55,32 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
     end
   end
 
+  defmodule NotFoundTools do
+    @moduledoc false
+    alias PhoenixKit.API.Tool
+
+    def module_key, do: "api_not_found_tools"
+    def module_name, do: "Not found tools"
+    def enabled?, do: true
+
+    def api_tools do
+      [
+        Tool.new!(
+          name: "notfound.get_thing",
+          audience: :admin,
+          scope: "testkit.items:read",
+          permission: "dashboard",
+          description: "A read whose subject does not exist.",
+          handler: {__MODULE__, :get_thing},
+          annotations: %{read_only: true}
+        )
+      ]
+    end
+
+    def get_thing(_input, _ctx),
+      do: {:error, :not_found, "No such thing.", %{tool: "notfound.get_thing"}}
+  end
+
   defmodule CountingTools do
     @moduledoc false
     alias PhoenixKit.API.Tool
@@ -233,7 +259,7 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
     end
 
     test "the id of the request is echoed in an isError result too", %{token: token} do
-      conn = post_rpc(:admin, call_message("testkit_nope", %{}, "abc"), token: token)
+      conn = post_rpc(:admin, call_message("testkit_fail_write", %{}, "abc"), token: token)
 
       assert %{"id" => "abc", "result" => %{"isError" => true}} = json(conn)
     end
@@ -256,20 +282,52 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
       refute_received {:write_item, _}
     end
 
-    test "an unknown tool, in either form", %{token: token} do
+    test "an unknown tool, in either form, is a JSON-RPC -32602 error and not a tool result", %{
+      token: token
+    } do
       for name <- ["testkit_nope", "testkit.nope", "nope"] do
-        result = token |> call(name) |> result()
+        conn = call(token, name, %{}, [])
 
-        assert result["isError"] == true, name
-        assert text(result) =~ "[not_found] ", name
+        assert conn.status == 200, name
+        assert %{"jsonrpc" => "2.0", "id" => 1} = body = json(conn)
+        refute Map.has_key?(body, "result"), name
+        assert %{"code" => -32_602, "message" => "Unknown tool: " <> ^name} = body["error"]
       end
     end
 
-    test "a very long name is clipped in the answer", %{token: token} do
-      result = token |> call(String.duplicate("a", 5_000)) |> result()
+    test "an unknown tool name is clipped by code points, not graphemes", %{token: token} do
+      # One letter and 200000 combining marks is a single grapheme.
+      name = "a" <> String.duplicate("\u0301", 200_000)
+      conn = call(token, name, %{}, [])
 
-      assert text(result) =~ "[not_found] "
-      assert String.length(text(result)) < 400
+      assert %{"code" => -32_602, "message" => "Unknown tool: " <> echoed} = json(conn)["error"]
+      assert String.length(echoed) == 1
+      assert length(String.to_charlist(echoed)) == 80
+    end
+
+    test "the id of the request is echoed in an unknown tool error", %{token: token} do
+      conn = post_rpc(:admin, call_message("testkit_nope", %{}, "abc"), token: token)
+
+      assert %{"id" => "abc", "error" => %{"code" => -32_602}} = json(conn)
+    end
+
+    test "a very long name is clipped in the answer", %{token: token} do
+      conn = call(token, String.duplicate("a", 5_000))
+
+      assert %{"code" => -32_602, "message" => message} = error(conn)
+      assert String.length(message) < 120
+    end
+
+    test "a handler that answers not_found stays an isError result", %{token: token} do
+      :ok = ModuleRegistry.register(NotFoundTools)
+      on_exit(fn -> ModuleRegistry.unregister(NotFoundTools) end)
+
+      conn = call(token, "notfound_get_thing")
+
+      assert conn.status == 200
+      refute Map.has_key?(json(conn), "error")
+      assert result(conn)["isError"] == true
+      assert text(result(conn)) =~ "[not_found] No such thing."
     end
 
     test "a disabled module's tool is module_disabled in either form, not not_found", %{
@@ -287,10 +345,27 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
       refute_received {:read_items, _, _}
     end
 
-    test "a tool in api_disabled_tools is not_found", %{token: token} do
+    test "a tool in api_disabled_tools is unknown", %{token: token} do
       put_setting("api_disabled_tools", "testkit.read_items")
 
-      assert text(token |> call("testkit_read_items") |> result()) =~ "[not_found] "
+      assert %{"code" => -32_602, "message" => "Unknown tool: testkit_read_items"} =
+               token |> call("testkit_read_items") |> error()
+    end
+
+    test "a tool of a module whose API is switched off is unknown in either form", %{
+      token: token
+    } do
+      put_setting("api_disabled_modules", "api_test_tools")
+
+      for name <- ["testkit_read_items", "testkit.read_items"] do
+        assert %{"code" => -32_602, "message" => "Unknown tool: " <> ^name} =
+                 token |> call(name) |> error()
+      end
+
+      refute_received {:read_items, _, _}
+
+      put_setting("api_disabled_modules", "")
+      refute token |> call("testkit_read_items") |> result() |> Map.get("isError")
     end
 
     test "a handler that returns an error: its code and context", %{token: token} do
@@ -335,20 +410,20 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
 
       assert_received {:unknown, unknown}
       assert_received {:invalid, invalid}
-      assert text(result(unknown)) =~ "[not_found] "
+      assert %{"code" => -32_602} = json(unknown)["error"]
       assert text(result(invalid)) =~ "[validation_failed] "
 
       refute log =~ "zz-sentinel"
       refute log =~ "zz_sentinel"
     end
 
-    test "an admin tool on the public endpoint, and a public tool on the admin one, are not_found",
+    test "an admin tool on the public endpoint, and a public tool on the admin one, are unknown",
          %{token: token} do
       public = post_rpc(:public, call_message("testkit_read_items"))
-      assert text(result(public)) =~ "[not_found] "
+      assert %{"code" => -32_602} = error(public)
 
       admin = call(token, "testkit_public_echo", %{"text" => "x"})
-      assert text(result(admin)) =~ "[not_found] "
+      assert %{"code" => -32_602} = error(admin)
     end
 
     test "the public endpoint does not reveal admin tools: a real admin tool and an invented name get the same answer" do
@@ -360,11 +435,11 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
         real_conn = post_rpc(:public, call_message(real))
         ghost_conn = post_rpc(:public, call_message(ghost))
 
-        real_text = real_conn |> result() |> text()
-        ghost_text = ghost_conn |> result() |> text()
+        real_message = error(real_conn)["message"]
+        ghost_message = error(ghost_conn)["message"]
 
-        assert real_text =~ "[not_found] ", real
-        assert real_text == String.replace(ghost_text, ghost, real), real
+        assert real_message =~ "Unknown tool: ", real
+        assert real_message == String.replace(ghost_message, ghost, real), real
 
         # The dotted name of an admin tool is never printed for an underscore name.
         unless String.contains?(real, ".") do
@@ -377,10 +452,10 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
       ApiTools.set_enabled(false)
 
       for name <- ["testkit_write_item", "testkit.write_item"] do
-        text = post_rpc(:public, call_message(name)) |> result() |> text()
+        message = post_rpc(:public, call_message(name)) |> error() |> Map.fetch!("message")
 
-        assert text =~ "[not_found] ", name
-        refute text =~ "module_disabled", name
+        assert message =~ "Unknown tool: ", name
+        refute message =~ "module_disabled", name
       end
     end
 
@@ -486,7 +561,7 @@ defmodule PhoenixKit.API.MCPToolsCallTest do
 
       unknown = call(read_only, "testkit_nope")
       assert unknown.status == 200
-      assert text(result(unknown)) =~ "[not_found] "
+      assert %{"code" => -32_602} = error(unknown)
       assert [_] = get_resp_header(unknown, "ratelimit-remaining")
 
       forbidden = call(read_only, "testkit_write_item", %{"name" => "x"})

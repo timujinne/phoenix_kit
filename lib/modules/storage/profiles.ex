@@ -648,7 +648,8 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
   @doc """
   The names of the site libraries on `profile_uuid` (the Default's include
   those that name no profile), and how many user libraries are on it besides.
-  A user's library is private to its owner, so it is counted, never named.
+  A user's library is private to its owner, so it is counted, never named; a
+  hidden system library (`Libraries.hidden?/1`) is counted with them.
   """
   @spec library_names_using(term()) :: %{names: [String.t()], user_libraries: non_neg_integer()}
   def library_names_using(profile_uuid) do
@@ -662,13 +663,16 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
 
     names =
       from(l in base,
-        where: l.kind != "user",
+        where: l.kind != "user" and l.visibility == "site",
         order_by: fragment("lower(?)", l.name),
         select: l.name
       )
       |> repo().all()
 
-    users = repo().one(from(l in base, where: l.kind == "user", select: count()))
+    users =
+      repo().one(
+        from(l in base, where: l.kind == "user" or l.visibility == "private", select: count())
+      )
 
     %{names: names, user_libraries: users}
   end
@@ -712,6 +716,8 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
 
   # A system library moving to another profile: from and to, by name. A user's
   # library is theirs and private, and is not in the history.
+  defp audit_library_profile(%Library{visibility: "private"}, _before, _opts), do: :ok
+
   defp audit_library_profile(%Library{kind: "system"} = library, before_uuid, opts) do
     now = profile_uuid_for(library)
 
@@ -795,32 +801,67 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
 
   # ===== A user's own storage (V206) =====
 
+  # One main bucket and up to two copies; with the copy count capped at 5 in all.
+  @max_user_buckets 3
+  @max_copies 5
+
   @doc """
   Creates the profile of a user's own storage, in one of two modes:
 
-    * `:only` — the user's bucket is the profile's one `primary`: everything
-      the library stores lives there.
-    * `:backup` — the site's buckets stay and the user's bucket is a `backup`
-      of every file, including sizes and tiles. The site buckets are a
-      **snapshot of the Default profile taken now**: a site bucket added later
-      is not used by this library (removing or disabling one already reaches
-      every profile). Every file gets a copy on each writable site bucket,
-      counted per kind, plus one cloud copy for the user's backup. There are at
-      most 5 copies in all, so the site rows are limited to four, active first.
-      An upload succeeds on the Default's terms, counting the site's copies
-      only; the reconciler makes a backup copy the write missed. A site with
-      no writable bucket has nothing to back up: `{:error, :no_site_storage}`.
+    * `:only` — the first bucket is the profile's one `primary`: everything
+      the library stores lives there and is served from there. Any further
+      bucket is a `backup`: a copy of every file (sizes and tiles included),
+      never served.
+    * `:backup` — the site's buckets stay and every one of the user's buckets
+      is a `backup` of every file, including sizes and tiles. The site buckets
+      are a **snapshot of the Default profile taken now**: a site bucket added
+      later is not used by this library (removing or disabling one already
+      reaches every profile). Every file gets a copy on each writable site
+      bucket, counted per kind, plus one cloud copy per user bucket. There are
+      at most 5 copies in all, so the site rows are limited to what the user's
+      buckets leave (four for one bucket), active first. An upload succeeds on
+      the Default's terms, counting the site's copies only; the reconciler makes
+      a backup copy the write missed. A site with no writable bucket has
+      nothing to back up: `{:error, :no_site_storage}`.
 
-  The profile is the user's (`owner_uuid`), named by its own uuid (the name is
-  never shown), and `bucket` must be theirs. Returns `{:error, :no_site_storage}`
-  for `:backup` on a site with no site bucket to back up.
+  `buckets` is one bucket or a list of up to `max_user_buckets/0`, in order of
+  importance. The profile is the user's (`owner_uuid`), named by its own uuid
+  (the name is never shown), and every bucket must be theirs
+  (`{:error, :foreign_bucket}`); more than the maximum is
+  `{:error, :too_many_buckets}`.
   """
-  @spec create_user_profile(String.t(), PhoenixKit.Modules.Storage.Bucket.t(), :only | :backup) ::
-          {:ok, StorageProfile.t()} | {:error, :no_site_storage | :foreign_bucket | term()}
-  def create_user_profile(owner_uuid, %{owner_uuid: owner_uuid} = bucket, mode)
+  @spec create_user_profile(
+          String.t(),
+          PhoenixKit.Modules.Storage.Bucket.t() | [PhoenixKit.Modules.Storage.Bucket.t()],
+          :only | :backup
+        ) ::
+          {:ok, StorageProfile.t()}
+          | {:error, :no_site_storage | :foreign_bucket | :too_many_buckets | term()}
+  def create_user_profile(owner_uuid, buckets, mode)
       when is_binary(owner_uuid) and mode in [:only, :backup] do
+    case List.wrap(buckets) do
+      [] ->
+        {:error, :foreign_bucket}
+
+      buckets when length(buckets) > @max_user_buckets ->
+        {:error, :too_many_buckets}
+
+      buckets ->
+        if Enum.all?(buckets, &match?(%{owner_uuid: ^owner_uuid}, &1)),
+          do: do_create_user_profile(owner_uuid, buckets, mode),
+          else: {:error, :foreign_bucket}
+    end
+  end
+
+  def create_user_profile(_owner_uuid, _buckets, _mode), do: {:error, :foreign_bucket}
+
+  @doc "How many of their own buckets one library may use (one main, the rest copies)."
+  @spec max_user_buckets() :: pos_integer()
+  def max_user_buckets, do: @max_user_buckets
+
+  defp do_create_user_profile(owner_uuid, buckets, mode) do
     transact(fn ->
-      with {:ok, rows, copies} <- user_profile_plan(mode, bucket),
+      with {:ok, rows, copies} <- user_profile_plan(mode, buckets),
            {:ok, profile} <- insert_user_profile(owner_uuid, copies),
            :ok <- insert_user_profile_rows(profile, rows) do
         {:ok, profile.uuid}
@@ -832,39 +873,43 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
     end
   end
 
-  def create_user_profile(_owner_uuid, _bucket, _mode), do: {:error, :foreign_bucket}
-
-  defp user_profile_plan(:only, bucket) do
-    row = %{
-      bucket_uuid: bucket.uuid,
+  defp user_profile_plan(:only, [first | rest] = buckets) do
+    primary = %{
+      bucket_uuid: first.uuid,
       role: "primary",
       write_priority: nil,
       serve_order: 1,
       status: "active"
     }
 
-    {:ok, [row], %{copies_local: 0, copies_cloud: 1, min_copies_on_write: 1}}
+    backups =
+      rest
+      |> Enum.with_index(2)
+      |> Enum.map(fn {bucket, order} -> user_backup_row(bucket, order) end)
+
+    # Every copy is a cloud copy; only the first has to be written for an
+    # upload to succeed, the reconciler makes the others.
+    {:ok, [primary | backups],
+     %{copies_cloud: length(buckets), copies_local: 0, min_copies_on_write: 1}}
   end
 
   # Placement writes every primary before any backup, up to the copy count, so
   # a backup only gets a copy when the profile wants MORE copies than it has
   # writable primaries and replicas. The profile therefore wants a copy on every
   # writable site bucket, local ones on local and cloud ones on cloud, plus one
-  # more cloud copy for the backup (at most 5 copies, so four site buckets, kept:
-  # active before read-only, then by serve order). An upload succeeds on the
-  # Default's terms: `min_copies_on_write` counts the site's copies only
-  # (`Manager`), because a backup is never served; a backup the write missed is
-  # made by the reconciler.
-  @max_site_rows 4
-
-  defp user_profile_plan(:backup, bucket) do
+  # more cloud copy per user bucket (at most 5 copies, so the site rows are what
+  # the user's buckets leave, kept: active before read-only, then by serve
+  # order). An upload succeeds on the Default's terms: `min_copies_on_write`
+  # counts the site's copies only (`Manager`), because a backup is never served;
+  # a backup the write missed is made by the reconciler.
+  defp user_profile_plan(:backup, buckets) do
     case default_profile() do
       %StorageProfile{buckets: [_ | _] = rows} = default ->
         site_rows =
           rows
           |> Enum.filter(&(&1.status in ["active", "read_only"] and &1.bucket.owner_uuid == nil))
           |> Enum.sort_by(&{&1.status != "active", &1.serve_order})
-          |> Enum.take(@max_site_rows)
+          |> Enum.take(@max_copies - length(buckets))
 
         writable = Enum.filter(site_rows, &(&1.status == "active"))
 
@@ -874,19 +919,19 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
         if writable == [] do
           {:error, :no_site_storage}
         else
-          backup = %{
-            bucket_uuid: bucket.uuid,
-            role: "backup",
-            write_priority: nil,
-            serve_order: Enum.max(Enum.map(site_rows, & &1.serve_order)) + 1,
-            status: "active"
-          }
+          after_site = Enum.max(Enum.map(site_rows, & &1.serve_order))
 
-          {:ok, Enum.map(site_rows, &site_row/1) ++ [backup],
+          backups =
+            buckets
+            |> Enum.with_index(1)
+            |> Enum.map(fn {bucket, n} -> user_backup_row(bucket, after_site + n) end)
+
+          {:ok, Enum.map(site_rows, &site_row/1) ++ backups,
            %{
              copies_local: Enum.count(writable, &(Bucket.group(&1.bucket) == :local)),
-             # The user's bucket is S3-compatible: the backup is a cloud copy.
-             copies_cloud: Enum.count(writable, &(Bucket.group(&1.bucket) == :cloud)) + 1,
+             # The user's buckets are S3-compatible: each backup is a cloud copy.
+             copies_cloud:
+               Enum.count(writable, &(Bucket.group(&1.bucket) == :cloud)) + length(buckets),
              min_copies_on_write: min(default.min_copies_on_write, length(writable))
            }}
         end
@@ -894,6 +939,16 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
       _ ->
         {:error, :no_site_storage}
     end
+  end
+
+  defp user_backup_row(bucket, serve_order) do
+    %{
+      bucket_uuid: bucket.uuid,
+      role: "backup",
+      write_priority: nil,
+      serve_order: serve_order,
+      status: "active"
+    }
   end
 
   defp site_row(row) do
@@ -926,11 +981,19 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
 
   @doc """
   What each of these libraries keeps its files on, for the ones on a user's own
-  storage (V206): `%{library_uuid => %{mode: :only | :backup, bucket: Bucket.t()}}`.
-  A library on the site's storage has no entry. One query.
+  storage (V206):
+  `%{library_uuid => %{mode: :only | :backup, bucket: Bucket.t(), buckets: [%{role: String.t(), bucket: Bucket.t()}]}}`.
+  `buckets` is every one of the user's buckets, main first; `bucket` is the
+  first of them. `mode` is `:only` when one of them is the library's primary, and
+  `:backup` when they are all copies of the site's storage. A library on the
+  site's storage has no entry. One query.
   """
   @spec user_storage_for([Library.t()]) :: %{
-          String.t() => %{mode: :only | :backup, bucket: PhoenixKit.Modules.Storage.Bucket.t()}
+          String.t() => %{
+            mode: :only | :backup,
+            bucket: PhoenixKit.Modules.Storage.Bucket.t(),
+            buckets: [%{role: String.t(), bucket: PhoenixKit.Modules.Storage.Bucket.t()}]
+          }
         }
   def user_storage_for([]), do: %{}
 
@@ -945,13 +1008,21 @@ defmodule PhoenixKit.Modules.Storage.Profiles do
       join: b in PhoenixKit.Modules.Storage.Bucket,
       on: b.uuid == pb.bucket_uuid and not is_nil(b.owner_uuid),
       where: l.uuid in ^uuids,
+      order_by: [asc: pb.serve_order],
       select: {l.uuid, pb.role, b}
     )
     |> repo().all()
     |> Enum.group_by(fn {library_uuid, _role, _bucket} -> to_string(library_uuid) end)
     |> Map.new(fn {library_uuid, rows} ->
-      {_uuid, role, bucket} = hd(rows)
-      {library_uuid, %{mode: if(role == "backup", do: :backup, else: :only), bucket: bucket}}
+      buckets = Enum.map(rows, fn {_uuid, role, bucket} -> %{role: role, bucket: bucket} end)
+      primary? = Enum.any?(buckets, &(&1.role == "primary"))
+
+      {library_uuid,
+       %{
+         mode: if(primary?, do: :only, else: :backup),
+         bucket: hd(buckets).bucket,
+         buckets: buckets
+       }}
     end)
   end
 

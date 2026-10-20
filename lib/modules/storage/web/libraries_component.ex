@@ -119,6 +119,18 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.LibrariesComponent do
     end
   end
 
+  # Take a public library offline (it answers as private) or bring it back. Only
+  # an Owner or Admin, which `Libraries` checks again.
+  def handle_event("suspend", %{"uuid" => uuid, "action" => action}, socket)
+      when action in ~w(suspend unsuspend) do
+    with %{library: library} <- Enum.find(socket.assigns.user_rows, &(&1.library.uuid == uuid)),
+         {:ok, _} <- toggle_suspension(action, socket.assigns.scope, library) do
+      {:noreply, socket |> load() |> flash(:info, suspension_message(action))}
+    else
+      _ -> {:noreply, flash(socket, :error, gettext("The library could not be changed"))}
+    end
+  end
+
   def handle_event("save_user_libraries", %{"user_libraries" => params}, socket) do
     enabled? = params["enabled"] == "true"
     buckets? = params["own_buckets"] == "true"
@@ -149,6 +161,14 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.LibrariesComponent do
       _ -> {:noreply, flash(socket, :error, gettext("User library settings could not be saved"))}
     end
   end
+
+  defp toggle_suspension("suspend", scope, library), do: Libraries.suspend_library(scope, library)
+
+  defp toggle_suspension("unsuspend", scope, library),
+    do: Libraries.unsuspend_library(scope, library)
+
+  defp suspension_message("suspend"), do: gettext("The library is suspended")
+  defp suspension_message("unsuspend"), do: gettext("The library is back online")
 
   # Who is acting, for the history (`Storage.Audit`).
   defp actor(socket), do: PhoenixKitWeb.Actor.opts(socket.assigns.scope)
@@ -436,6 +456,7 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.LibrariesComponent do
                 <tr>
                   <th>{gettext("Name")}</th>
                   <th>{gettext("Owner")}</th>
+                  <th>{gettext("Visibility")}</th>
                   <th>{gettext("Storage")}</th>
                   <th class="text-right">{gettext("Members")}</th>
                   <th class="text-right">{gettext("Files")}</th>
@@ -452,11 +473,53 @@ defmodule PhoenixKitWeb.Live.Modules.Storage.LibrariesComponent do
                     </span>
                   </td>
                   <td class="text-sm">{(library.owner && library.owner.email) || "—"}</td>
+                  <td class="text-sm">
+                    <span :if={Libraries.suspended?(library)} class="badge badge-warning badge-sm">
+                      {gettext("Suspended")}
+                    </span>
+                    <span
+                      :if={!Libraries.suspended?(library) and library.visibility == "site"}
+                      class="badge badge-info badge-soft badge-sm"
+                    >
+                      {gettext("Public")}
+                    </span>
+                    <span
+                      :if={!Libraries.suspended?(library) and library.visibility == "private"}
+                      class="badge badge-ghost badge-sm"
+                    >
+                      {gettext("Private")}
+                    </span>
+                  </td>
                   <td class="text-sm">{storage_label(row.own_storage)}</td>
                   <td class="text-right">{row.members}</td>
                   <td class="text-right">{row.files}</td>
                   <td class="text-right">{Format.bytes(row.bytes)}</td>
                   <td class="text-right">
+                    <button
+                      :if={library.visibility == "site" and is_nil(library.trashed_at)}
+                      type="button"
+                      phx-click="suspend"
+                      phx-target={@myself}
+                      phx-value-uuid={library.uuid}
+                      phx-value-action={
+                        if Libraries.suspended?(library), do: "unsuspend", else: "suspend"
+                      }
+                      data-confirm={
+                        if Libraries.suspended?(library),
+                          do: gettext("Bring “%{name}” back online?", name: library.name),
+                          else:
+                            gettext(
+                              "Take the public library “%{name}” offline? It answers as private until you bring it back; nothing is deleted.",
+                              name: library.name
+                            )
+                      }
+                      class="btn btn-xs btn-ghost"
+                    >
+                      <.icon name="hero-no-symbol" class="w-4 h-4" />
+                      {if Libraries.suspended?(library),
+                        do: gettext("Restore"),
+                        else: gettext("Suspend")}
+                    </button>
                     <.link
                       :if={is_nil(library.trashed_at)}
                       navigate={Routes.path("/admin/libraries/#{library.uuid}")}

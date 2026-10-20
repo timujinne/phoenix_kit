@@ -11,8 +11,8 @@ defmodule PhoenixKit.API.Executor do
     4. **Tool visible.** The tool exists for this audience (`404 not_found`),
        its module is enabled (`404 module_disabled`), and the key's effective
        scopes include the tool's scope (`403 forbidden`). A tool listed in
-       `api_disabled_tools` does not exist for `PhoenixKit.API.Registry`, so
-       it is `not_found` too.
+       `api_disabled_tools`, or of a module listed in `api_disabled_modules`,
+       does not exist for `PhoenixKit.API.Registry`, so it is `not_found` too.
     5. **Rate limit**, cost weighted (`PhoenixKit.API.RateLimit`, `cost/2`):
        a call costs 1 unit; only a **write** tool of the admin audience (not
        read-only) costs 1 per 50 rows of its longest top-level list, counted
@@ -66,11 +66,11 @@ defmodule PhoenixKit.API.Executor do
   in `execute/4`. A step may also end the request with `{:done, state}`: the
   body is already set (a preview, a replay) and the handler does not run.
   The executor adds the control fields `dry_run`, `confirm_token` and
-  `idempotency_key` to the schema of every write tool
-  (`PhoenixKit.API.ControlFields`) and closes every schema; a read tool has
-  none of them, so a client that sends one gets `422 validation_failed`: a
-  field that would change what a write does is refused, never silently
-  ignored.
+  `idempotency_key` to the schema of every write tool and closes every schema
+  (`PhoenixKit.API.ControlFields`; a write tool with `replay: false` gets no
+  `idempotency_key`). A read tool has none of them, so a client that sends one
+  gets `422 validation_failed`: a field that would change what a write does is
+  refused, never silently ignored.
 
   ## Scopes and work per request
 
@@ -97,8 +97,15 @@ defmodule PhoenixKit.API.Executor do
   The context is a map:
 
     * `:actor` the `PhoenixKit.API.Actor`; `:scopes` its effective scopes;
+    * `:scope`, the `PhoenixKit.Users.Auth.Scope` behind those scopes, for a handler that
+      filters rows by the caller's rights: the key owner's full scope
+      (`Scope.for_user(owner, narrow: false)`) for a key, the session's scope for a live
+      session, `nil` for a public caller (a handler answers nothing it would filter by it).
+      A key's own scopes do not narrow it: rows filtered by `ctx.scope` are the ones the
+      owner sees, whatever the key's scopes;
     * `:audience`, `:language`, `:currency`, `:hosts`, `:base_url` (see
-      `PhoenixKit.API.RequestContext`);
+      `PhoenixKit.API.RequestContext`); `:base_url` is `nil` for a live session whose
+      caller passed none;
     * `:request_id`;
     * `:dry_run?`, `true` while the danger gate asks for a preview (the handler
       must then write nothing and answer `{:preview, preview, fingerprint}`, where `fingerprint`
@@ -111,6 +118,38 @@ defmodule PhoenixKit.API.Executor do
       keeps an approved operation alive: one that runs longer than 15 minutes without
       calling it is marked `failed` (`interrupted`) by the stuck-operation sweep, so a
       long handler calls it at least every few minutes.
+
+  ## On behalf of a live session
+
+  `visible_for/3` and `execute_as/5` run the same flow in process, without a
+  `Plug.Conn`, for a person's live browser session (`PhoenixKit.Users.Auth.SessionRef`,
+  an `Actor` of kind `:user`). What differs from a key:
+
+    * the scope is rebuilt from the session **on every call**
+      (`SessionRef.scope_for_session/2`): a logged-out or revoked session, a blocked
+      user, a user the web's account gate would stop (unconfirmed email, missing
+      referral code), a session of another user, or a reference that is not a
+      `{session_token_uuid, user_uuid}` pair is `401 unauthorized`, and the scope is
+      narrowed to the role the session acts as;
+    * the effective scopes are `PhoenixKit.API.Keys.held_scopes_of/1` of that scope, and
+      the tool's own permission is checked too (`Scope.can?/2`); a tool without a
+      permission (`system.*`, which describe the calling key) is not callable;
+    * only read tools: `allow: :read` (the default, and the only value in this version)
+      refuses a write tool (`PhoenixKit.API.ControlFields.write_tool?/1`) before
+      validation and before `Flow.gate/1`, so nothing runs; `visible_for/3` lists none;
+    * the request context comes from the `:request_context` option, not from a
+      connection, and the host's `:api_request_context` hook (which expects a
+      `Plug.Conn`) is not called;
+    * the rate limit is the user's own bucket (`RateLimit.check_user/2`), shared by the
+      user's sessions; `api_admin_enabled` does not apply (it switches the HTTP API);
+    * reads are not audited, as for a key;
+    * maintenance mode is not checked on this path: the web shows the maintenance layout
+      at mount, where nothing that calls the Executor is rendered.
+
+  The `{session_token_uuid, user_uuid}` pair is not a secret, but it is an in-process
+  credential: whatever code passes it to `execute_as/5` or `visible_for/3` acts as that
+  session. Take it only from the signed session of the LiveView that runs in that session
+  (`SessionRef.from_session/1` in its connected mount), never from params or client events.
   """
 
   import Plug.Conn
@@ -122,6 +161,7 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.API.Confirm.Confirmation
   alias PhoenixKit.API.ControlFields
   alias PhoenixKit.API.Flow
+  alias PhoenixKit.API.Keys
   alias PhoenixKit.API.LogSafe
   alias PhoenixKit.API.OutputShape
   alias PhoenixKit.API.Problem
@@ -130,6 +170,8 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.API.RequestContext
   alias PhoenixKit.API.Tool
   alias PhoenixKit.API.Validator
+  alias PhoenixKit.Users.Auth.Scope
+  alias PhoenixKit.Users.Auth.SessionRef
   alias PhoenixKit.Utils.IpAddress
 
   @empty_schema %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
@@ -253,18 +295,144 @@ defmodule PhoenixKit.API.Executor do
     end
   end
 
+  @doc """
+  The tools the live session `session_ref` (`{session_token_uuid, user_uuid}`, see
+  `PhoenixKit.Users.Auth.SessionRef`) may call, for the admin audience: the read tools
+  whose scope the session's scope holds (`PhoenixKit.API.Keys.held_scopes_of/1`) and whose
+  permission it holds. No write tool and no `system.*` tool. Costs one unit of the user's
+  rate-limit bucket.
+
+  Options: `:allow`, only `:read` (the default); any other value raises `ArgumentError`.
+
+  Returns `{:ok, tools, headers}`, or `{:error, code, detail, context, headers}`
+  (`:unauthorized` with `context.reason` from `t:SessionRef.refusal/0` when the session
+  cannot act, `:rate_limited`).
+  """
+  @spec visible_for(SessionRef.t(), :admin, keyword()) ::
+          {:ok, [Tool.t()], headers()} | {:error, atom(), String.t(), map(), headers()}
+  def visible_for(session_ref, :admin, opts \\ []) do
+    :read = allow!(opts)
+    state = session_state(session_ref, nil, %{}, opts)
+
+    with {:ok, state} <- session_actor(state),
+         {:ok, state} <- take_scopes(state),
+         {:ok, state} <- rate_limit(state) do
+      tools =
+        :admin
+        |> Registry.visible_tools(state.scopes)
+        |> Enum.filter(&session_may_call?(state.actor.scope, &1))
+
+      {:ok, tools, state.headers}
+    else
+      {:error, code, detail, context, state} -> {:error, code, detail, context, state.headers}
+    end
+  end
+
+  @doc """
+  Runs tool `tool_name` with `input` on behalf of the live session `session_ref`
+  (`{session_token_uuid, user_uuid}`), in process, and returns the outcome as
+  `execute/5` does. The session's scope is rebuilt for this call; see "On behalf of a
+  live session" above for what differs from a key.
+
+  Options:
+
+    * `:allow` - only `:read` (the default); a write tool is refused with `403
+      forbidden` before anything runs. Any other value raises `ArgumentError`.
+    * `:request_context` - keyword list: `:language`, `:base_url`, `:hosts`, `:currency`
+      (the handler context, `PhoenixKit.API.RequestContext.from_options/1`),
+      `:request_id` (the context's `:request_id`) and `:ip` (the actor's `ip`).
+  """
+  @spec execute_as(SessionRef.t(), :admin, String.t(), term(), keyword()) :: outcome()
+  def execute_as(session_ref, :admin, tool_name, input, opts \\ []) do
+    :read = allow!(opts)
+    state = session_state(session_ref, tool_name, input, opts)
+
+    with {:ok, state} <- session_actor(state),
+         {:ok, state} <- find_tool(state),
+         {:ok, state} <- take_scopes(state),
+         {:ok, state} <- check_scope(state),
+         {:ok, state} <- check_permission(state),
+         {:ok, state} <- reads_only(state),
+         {:ok, state} <- charge_after_lookup(state),
+         {:ok, state} <- validate(state),
+         {:ok, state} <- Flow.split_control(state),
+         {:ok, state} <- Flow.idempotency(state),
+         {:ok, state} <- Flow.gate(state),
+         {:ok, state} <- run(state) do
+      complete(state)
+    else
+      {:done, state} -> complete(state)
+      {:error, code, detail, context, state} -> refused(state, code, detail, context)
+    end
+  end
+
+  defp allow!(opts) do
+    case Keyword.get(opts, :allow, :read) do
+      :read ->
+        :read
+
+      other ->
+        raise ArgumentError,
+              "allow: #{inspect(other)} is not supported: a session may only read (allow: :read)"
+    end
+  end
+
   # --- state ----------------------------------------------------------------
 
   defp new_state(conn, audience, tool_name, input, opts) do
+    audience
+    |> base_state(tool_name, input, opts)
+    |> Map.merge(%{conn: conn, actor: actor_for(conn, audience, input)})
+  end
+
+  # A call on behalf of a live session: no connection, so the request context is taken
+  # from the options (never from the host hook, which expects a `Plug.Conn`) and the
+  # actor is resolved from the session by `session_actor/1`.
+  # A reference that is not a `{session_token_uuid, user_uuid}` pair names no session:
+  # `session_actor/1` refuses it as gone.
+  defp session_state(session_ref, tool_name, input, opts) do
+    request = request_options(Keyword.get(opts, :request_context, []))
+
+    :admin
+    |> base_state(tool_name, input, idempotency_header: false)
+    |> Map.merge(%{
+      session_ref: session_pair(session_ref),
+      client_ip: binary_option(request, :ip),
+      request_id: binary_option(request, :request_id),
+      request_context: RequestContext.from_options(request)
+    })
+  end
+
+  defp session_pair({_token_uuid, _user_uuid} = session_ref), do: session_ref
+  defp session_pair(_other), do: nil
+
+  # Only `{atom, value}` pairs count: anything else in the list (or a list that is not a
+  # keyword list at all) is dropped, so a malformed context gets the defaults.
+  defp request_options(options) when is_list(options) or is_map(options),
+    do: Enum.filter(options, &match?({key, _value} when is_atom(key), &1))
+
+  defp request_options(_other), do: []
+
+  defp binary_option(options, key) do
+    case Keyword.get(options, key) do
+      value when is_binary(value) -> value
+      _other -> nil
+    end
+  end
+
+  defp base_state(audience, tool_name, input, opts) do
     %{
-      conn: conn,
+      conn: nil,
+      session_ref: nil,
+      client_ip: nil,
+      request_id: nil,
       audience: audience,
       name: tool_name,
       resolve_name: Keyword.get(opts, :resolve_name),
       idempotency_header?: Keyword.get(opts, :idempotency_header, true),
       input: input,
       rows: rows(input),
-      actor: actor_for(conn, audience, input),
+      actor: nil,
       tool: nil,
       scopes: [],
       headers: [],
@@ -313,6 +481,38 @@ defmodule PhoenixKit.API.Executor do
   defp require_actor(state),
     do: {:error, :unauthorized, "Authentication is required.", %{}, state}
 
+  # The scope of a live session, rebuilt for this call: the session must still be alive,
+  # belong to the user named in the reference, and its user be active and pass the
+  # account gate of the web (`SessionRef.scope_for_session/2`).
+  defp session_actor(%{session_ref: {token_uuid, user_uuid}} = state) do
+    case SessionRef.scope_for_session(token_uuid, user_uuid) do
+      {:ok, %Scope{} = scope} ->
+        actor = %Actor{
+          kind: :user,
+          user_uuid: scope.user.uuid,
+          scopes: Keys.held_scopes_of(scope),
+          scope: scope,
+          ip: state.client_ip
+        }
+
+        {:ok, %{state | actor: actor}}
+
+      {:error, reason} ->
+        session_refused(state, reason)
+    end
+  end
+
+  defp session_actor(state), do: session_refused(state, :session_gone)
+
+  defp session_refused(state, reason),
+    do: {:error, :unauthorized, session_refusal(reason), %{reason: reason}, state}
+
+  defp session_refusal(:session_gone), do: "The session has ended."
+  defp session_refusal(:mismatch), do: "The session belongs to another user."
+  defp session_refusal(:inactive), do: "The user is blocked."
+  defp session_refusal(:unconfirmed), do: "The user's email is not confirmed."
+  defp session_refusal(:referral_required), do: "The user has not entered a referral code."
+
   defp find_tool(%{name: name} = state) when not is_binary(name),
     do: {:error, :not_found, "Unknown tool.", %{}, state}
 
@@ -335,12 +535,14 @@ defmodule PhoenixKit.API.Executor do
     end
   end
 
-  # The effective scopes are the key's scopes filtered by its owner's
-  # permissions right now. `Keys.verify/2` computed them for this very
-  # request (never cached: blocking the owner or removing a role takes effect
-  # on the next call) and put them on the actor; they are not computed again.
-  defp take_scopes(%{actor: %Actor{kind: :key, scopes: scopes}} = state),
-    do: {:ok, %{state | scopes: scopes}}
+  # The effective scopes are already on the actor and are not computed again. For a
+  # `:key`, `Keys.verify/2` filtered the key's scopes by its owner's permissions for this
+  # very request (never cached: blocking the owner or removing a role takes effect on the
+  # next call). For a `:user`, `session_actor/1` took `Keys.held_scopes_of/1` of the
+  # session's scope on this call.
+  defp take_scopes(%{actor: %Actor{kind: kind, scopes: scopes}} = state)
+       when kind in [:key, :user],
+       do: {:ok, %{state | scopes: scopes}}
 
   defp take_scopes(state), do: {:ok, state}
 
@@ -350,7 +552,41 @@ defmodule PhoenixKit.API.Executor do
     if scope in scopes do
       {:ok, state}
     else
-      {:error, :forbidden, "This key lacks #{scope}.", %{required_scope: scope}, state}
+      {:error, :forbidden, "#{holder(state)} lacks #{scope}.", %{required_scope: scope}, state}
+    end
+  end
+
+  defp holder(%{actor: %Actor{kind: :user}}), do: "This session"
+  defp holder(_state), do: "This key"
+
+  # A session's own check of the tool's permission, besides the scope: the scope rule
+  # already demands every permission behind a scope, this keeps the tool called by name
+  # to its own. A tool without a permission (`system.*`) describes the calling key and is
+  # not for a session.
+  defp check_permission(%{actor: %Actor{scope: scope}, tool: %Tool{} = tool} = state) do
+    if session_may_hold?(scope, tool) do
+      {:ok, state}
+    else
+      {:error, :forbidden, "This session may not call #{tool.name}.", %{tool: tool.name}, state}
+    end
+  end
+
+  defp session_may_hold?(scope, %Tool{scope: tool_scope, permission: permission})
+       when is_binary(tool_scope) and is_binary(permission),
+       do: Scope.can?(scope, permission)
+
+  defp session_may_hold?(_scope, _tool), do: false
+
+  defp session_may_call?(scope, %Tool{} = tool),
+    do: not write?(tool) and session_may_hold?(scope, tool)
+
+  # `allow: :read`: a write tool is refused here, before validation and `Flow.gate/1`.
+  defp reads_only(%{tool: %Tool{} = tool} = state) do
+    if write?(tool) do
+      {:error, :forbidden, "#{tool.name} writes; this call allows reads only.",
+       %{tool: tool.name}, state}
+    else
+      {:ok, state}
     end
   end
 
@@ -377,6 +613,12 @@ defmodule PhoenixKit.API.Executor do
       _no_extra ->
         {:ok, state}
     end
+  end
+
+  defp rate_limit(%{audience: :admin, actor: %Actor{kind: :user, user_uuid: user_uuid}} = state) do
+    user_uuid
+    |> RateLimit.check_user(cost(state.tool, state.input))
+    |> limited(state)
   end
 
   defp rate_limit(%{audience: :admin, actor: actor} = state) do
@@ -468,6 +710,7 @@ defmodule PhoenixKit.API.Executor do
     %{
       actor: actor,
       scopes: Map.get(fields, :scopes) || (actor && actor.scopes) || [],
+      scope: Map.get(fields, :scope) || actor_scope(actor),
       audience: Map.get(fields, :audience) || :admin,
       language: Map.get(fields, :language),
       currency: Map.get(fields, :currency),
@@ -480,6 +723,9 @@ defmodule PhoenixKit.API.Executor do
       progress: Map.get(fields, :progress) || fn _partial -> :ok end
     }
   end
+
+  defp actor_scope(%Actor{scope: scope}), do: scope
+  defp actor_scope(_actor), do: nil
 
   @doc false
   @spec context_keys() :: [atom()]
@@ -612,18 +858,33 @@ defmodule PhoenixKit.API.Executor do
     do: failed(state, :rate_limited, detail, context)
 
   # An admin call the lookup or the scope check refused never met the limiter
-  # (`charged?` is still false and the caller is a key; nothing else can end an
-  # admin request there). It pays one unit, as a `ping` does, so unknown names
-  # are not free; an empty budget turns the refusal into `429`. `charged?`
-  # stays false: a refusal writes no audit entry.
+  # (`charged?` is still false and the caller is a key or a live session; nothing
+  # else can end an admin request there). It pays one unit, as a `ping` does, so
+  # unknown names are not free; an empty budget turns the refusal into `429`.
+  # `charged?` stays false: a refusal writes no audit entry. A session that could
+  # not act at all (gone, blocked) has no actor and pays nothing.
   defp refused(
          %{audience: :admin, charged?: false, actor: %Actor{kind: :key, key_uuid: key_uuid}} =
            state,
          code,
          detail,
          context
-       ) do
-    case RateLimit.check_admin(key_uuid, 1) do
+       ),
+       do: key_uuid |> RateLimit.check_admin(1) |> refusal_charged(state, code, detail, context)
+
+  defp refused(
+         %{audience: :admin, charged?: false, actor: %Actor{kind: :user, user_uuid: user_uuid}} =
+           state,
+         code,
+         detail,
+         context
+       ),
+       do: user_uuid |> RateLimit.check_user(1) |> refusal_charged(state, code, detail, context)
+
+  defp refused(state, code, detail, context), do: failed(state, code, detail, context)
+
+  defp refusal_charged(charge, state, code, detail, context) do
+    case charge do
       {:ok, headers} ->
         failed(%{state | headers: headers}, code, detail, context)
 
@@ -636,8 +897,6 @@ defmodule PhoenixKit.API.Executor do
         )
     end
   end
-
-  defp refused(state, code, detail, context), do: failed(state, code, detail, context)
 
   # A refused or failed request releases its idempotency claim, so the same
   # key can be retried.
@@ -744,7 +1003,8 @@ defmodule PhoenixKit.API.Executor do
     })
   end
 
-  defp request_id(state), do: state.conn.assigns[:phoenix_kit_api_request_id]
+  defp request_id(%{conn: %Plug.Conn{} = conn}), do: conn.assigns[:phoenix_kit_api_request_id]
+  defp request_id(state), do: Map.get(state, :request_id)
 
   defp visible_scopes(%{audience: :admin, scopes: scopes}), do: scopes
   defp visible_scopes(%{audience: :public}), do: :all

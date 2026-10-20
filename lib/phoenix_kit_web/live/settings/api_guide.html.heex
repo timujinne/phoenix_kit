@@ -1,0 +1,345 @@
+<PhoenixKitWeb.Components.LayoutWrapper.app_layout
+  socket={@socket}
+  flash={@flash}
+  phoenix_kit_current_scope={assigns[:phoenix_kit_current_scope]}
+  page_title={@page_title}
+  page_subtitle={@page_subtitle}
+  page_section={@page_section}
+  page_section_path={@page_section_path}
+  current_path={@current_path}
+  project_title={@project_title}
+  current_locale={@current_locale}
+>
+  <div id="api-guide-page" class="px-4 py-6 space-y-6">
+    <%!-- Status --%>
+    <div id="guide-status" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-3">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <h2 class="card-title text-lg">
+            <.icon name="hero-power" class="w-5 h-5" /> {gettext("Status")}
+          </h2>
+          <.button
+            id="guide-switches-link"
+            variant="outline"
+            size="sm"
+            navigate={@settings_path}
+          >
+            {gettext("Open the switches")}
+          </.button>
+        </div>
+        <div class="flex flex-wrap gap-6 text-sm">
+          <div id="guide-status-admin" data-enabled={to_string(@admin_enabled)}>
+            <span class="font-medium">{gettext("Admin API")}</span>
+            <span class={[
+              "badge badge-sm ml-2",
+              if(@admin_enabled, do: "badge-success", else: "badge-ghost")
+            ]}>
+              {if @admin_enabled, do: gettext("Enabled"), else: gettext("Disabled")}
+            </span>
+          </div>
+          <div id="guide-status-public" data-enabled={to_string(@public_enabled)}>
+            <span class="font-medium">{gettext("Public API")}</span>
+            <span class={[
+              "badge badge-sm ml-2",
+              if(@public_enabled, do: "badge-success", else: "badge-ghost")
+            ]}>
+              {if @public_enabled, do: gettext("Enabled"), else: gettext("Disabled")}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Endpoints --%>
+    <div id="guide-endpoints" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-4">
+        <h2 class="card-title text-lg">
+          <.icon name="hero-globe-alt" class="w-5 h-5" /> {gettext("Endpoints")}
+        </h2>
+        <dl class="grid grid-cols-1 sm:grid-cols-[12rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt class="font-medium">{gettext("Base URL")}</dt>
+          <dd><code id="guide-base-url" class="font-mono break-all">{@base_url}</code></dd>
+          <dt class="font-medium">{gettext("REST")}</dt>
+          <dd><code id="guide-rest-url" class="font-mono break-all">{@rest_url}</code></dd>
+          <dt class="font-medium">{gettext("MCP server")}</dt>
+          <dd><code id="guide-mcp-url" class="font-mono break-all">{@mcp_url}</code></dd>
+          <dt class="font-medium">{gettext("OpenAPI document")}</dt>
+          <dd>
+            <code id="guide-openapi-url" class="font-mono break-all">{@openapi_url}</code>
+            <p class="text-base-content/70">
+              {gettext("With a key it lists only the tools that key unlocks.")}
+            </p>
+          </dd>
+        </dl>
+        <p id="guide-domains-note" class="text-sm text-base-content/70">
+          {gettext(
+            "On a site with several domains every domain serves the same API; use the one your program can reach."
+          )}
+        </p>
+
+        <div id="guide-headers" class="space-y-2">
+          <h3 class="font-medium">{gettext("Headers")}</h3>
+          <dl class="grid grid-cols-1 sm:grid-cols-[18rem_1fr] gap-x-4 gap-y-2 text-sm">
+            <dt><code class="font-mono">Authorization: Bearer &lt;your key&gt;</code></dt>
+            <dd>
+              {gettext(
+                "The API key, as a Bearer token. Never put a key in a URL: such a request is refused."
+              )}
+            </dd>
+            <dt><code class="font-mono">Idempotency-Key</code></dt>
+            <dd>
+              {gettext(
+                "Makes the retry of a write call safe. Over MCP, send idempotency_key as an argument instead."
+              )}
+            </dd>
+            <dt>
+              <code class="font-mono">RateLimit-Limit</code>
+              <code class="font-mono">RateLimit-Remaining</code>
+              <code class="font-mono">RateLimit-Reset</code>
+              <code class="font-mono">Retry-After</code>
+            </dt>
+            <dd>
+              {gettext(
+                "How many calls the key has left in the window and when it resets. After a 429, Retry-After says how many seconds to wait."
+              )}
+            </dd>
+          </dl>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Connect a client --%>
+    <div id="guide-connect" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-4">
+        <h2 class="card-title text-lg">
+          <.icon name="hero-link" class="w-5 h-5" /> {gettext("Connect a client")}
+        </h2>
+        <p class="text-sm text-base-content/70">
+          {gettext(
+            "Give the program a key that holds only the scopes it needs. Create it on Settings -> API."
+          )}
+        </p>
+        <div id="guide-key-warning" role="note" class="alert alert-warning text-sm">
+          <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
+          <span>
+            {gettext(
+              "Replace <your key> with the key. Never commit a key to a repository or paste it into a file others can read."
+            )}
+          </span>
+        </div>
+        <p class="text-sm text-base-content/70">
+          {gettext(
+            "The server name ends in -admin so that it does not clash with the public shop server of this site."
+          )}
+        </p>
+
+        <div class="space-y-1">
+          <h3 class="font-medium">{gettext("Claude Code")}</h3>
+          <p class="text-sm text-base-content/70">
+            {gettext(
+              "Run this in your project folder. It is saved in your local scope, not in the file the team shares."
+            )}
+          </p>
+          <pre class="bg-base-200 rounded-lg p-3 text-xs overflow-x-auto"><code id="guide-claude-code-command">{@claude_code_command}</code></pre>
+        </div>
+
+        <div class="space-y-1">
+          <h3 class="font-medium">{gettext("Cursor")}</h3>
+          <p class="text-sm text-base-content/70">
+            {gettext("Cursor reads this user file for every project, so no repository holds it:")}
+            <code id="guide-cursor-file" class="font-mono">~/.cursor/mcp.json</code>
+          </p>
+          <pre class="bg-base-200 rounded-lg p-3 text-xs overflow-x-auto"><code id="guide-cursor-config">{@cursor_config}</code></pre>
+        </div>
+
+        <div class="space-y-1">
+          <h3 class="font-medium">{gettext("VS Code")}</h3>
+          <p class="text-sm text-base-content/70">
+            {gettext("Save it in your project folder as:")}
+            <code id="guide-vscode-file" class="font-mono">.vscode/mcp.json</code>. {gettext(
+              "VS Code asks for the key when the server starts and keeps it out of the file."
+            )}
+          </p>
+          <pre class="bg-base-200 rounded-lg p-3 text-xs overflow-x-auto"><code id="guide-vscode-config">{@vscode_config}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Tools --%>
+    <div id="guide-tools" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-4">
+        <div>
+          <h2 class="card-title text-lg">
+            <.icon name="hero-wrench-screwdriver" class="w-5 h-5" /> {gettext("Tools")}
+          </h2>
+          <p id="guide-tools-note" class="text-sm text-base-content/70">
+            {gettext("A key sees only the tools its scopes unlock.")}
+            {gettext(
+              "Tools switched off one by one, and the tools of a module whose API is switched off, are not listed."
+            )}
+            {gettext(
+              "Any write tool may also ask for confirmation when a call touches more rows than the limit under Dangerous operations."
+            )}
+          </p>
+        </div>
+
+        <div :for={group <- @tool_groups} id={group.dom_id} class="space-y-2">
+          <h3 class="font-medium">{group.label}</h3>
+          <div class="overflow-x-auto">
+            <table class="table table-sm">
+              <tbody>
+                <tr :for={tool <- group.tools} id={tool.dom_id}>
+                  <td class="align-top">
+                    <div :if={tool.title}>{tool.title}</div>
+                    <div class="font-mono text-xs text-base-content/60">
+                      <code class="guide-tool-name">{tool.name}</code>
+                      <code class="guide-tool-mcp-name">{tool.mcp_name}</code>
+                    </div>
+                  </td>
+                  <td class="align-top">
+                    <code :if={tool.scope} class="font-mono text-xs">{tool.scope}</code>
+                  </td>
+                  <td class="align-top space-x-1">
+                    <span
+                      :if={tool.writes?}
+                      class="guide-tool-writes badge badge-sm badge-warning"
+                    >
+                      {gettext("Writes")}
+                    </span>
+                    <span :if={not tool.writes?} class="badge badge-sm badge-ghost">
+                      {gettext("Read only")}
+                    </span>
+                    <span
+                      :if={tool.confirms?}
+                      class="guide-tool-confirm badge badge-sm badge-info"
+                    >
+                      {gettext("May ask for confirmation")}
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Keys --%>
+    <div id="guide-keys" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-3">
+        <h2 class="card-title text-lg">
+          <.icon name="hero-key" class="w-5 h-5" /> {gettext("Keys")}
+        </h2>
+        <ul class="list-disc pl-5 space-y-1 text-sm">
+          <li>
+            {gettext(
+              "A key acts as its owner. A call may do what the key's scopes allow and the owner's permissions allow at that moment: take a permission from the owner and the key loses it on the next call."
+            )}
+          </li>
+          <li>
+            {gettext(
+              "For a program, give the key to a service user: an account without a login that holds only the roles you choose."
+            )}
+          </li>
+          <li>
+            {gettext(
+              "A key is shown once, when it is created. If it leaks, revoke it. To replace it, rotate it: the old key can keep working for a grace period you choose."
+            )}
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <%!-- Dangerous operations --%>
+    <div id="guide-danger" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-3">
+        <h2 class="card-title text-lg">
+          <.icon name="hero-shield-exclamation" class="w-5 h-5" /> {gettext(
+            "Dangerous operations"
+          )}
+        </h2>
+        <p class="text-sm text-base-content/70">
+          {gettext(
+            "A write tool takes three optional fields: in the body over REST, as arguments over MCP."
+          )}
+        </p>
+        <dl class="grid grid-cols-1 sm:grid-cols-[10rem_1fr] gap-x-4 gap-y-2 text-sm">
+          <dt><code class="font-mono">dry_run</code></dt>
+          <dd>{gettext("Runs the tool without changing anything and returns a preview.")}</dd>
+          <dt><code class="font-mono">confirm_token</code></dt>
+          <dd>
+            {ngettext(
+              "A dangerous operation first returns a preview and a one-time code. Repeat the same call with confirm_token set to that code within %{count} second.",
+              "A dangerous operation first returns a preview and a one-time code. Repeat the same call with confirm_token set to that code within %{count} seconds.",
+              @confirm_ttl_seconds
+            )}
+            {ngettext(
+              "Any write that touches more than %{count} row is dangerous too.",
+              "Any write that touches more than %{count} rows is dangerous too.",
+              @confirm_batch_over
+            )}
+          </dd>
+          <dt><code class="font-mono">idempotency_key</code></dt>
+          <dd>
+            {ngettext(
+              "16 to 128 characters: letters, digits, - and _. The same key with the same arguments returns the first answer instead of running twice; answers are kept for %{count} hour.",
+              "16 to 128 characters: letters, digits, - and _. The same key with the same arguments returns the first answer instead of running twice; answers are kept for %{count} hours.",
+              @idempotency_ttl_hours
+            )}
+          </dd>
+        </dl>
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <p class="text-sm">
+            {ngettext(
+              "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it.",
+              "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it.",
+              @approval_ttl_hours
+            )}
+          </p>
+          <.button
+            id="guide-approvals-link"
+            variant="outline"
+            size="sm"
+            navigate={@approvals_path}
+          >
+            {gettext("Review approvals")}
+          </.button>
+        </div>
+      </div>
+    </div>
+
+    <%!-- Errors --%>
+    <div id="guide-errors" class="card bg-base-100 shadow-lg border border-base-200">
+      <div class="card-body space-y-3">
+        <div>
+          <h2 class="card-title text-lg">
+            <.icon name="hero-exclamation-circle" class="w-5 h-5" /> {gettext("Errors")}
+          </h2>
+          <p class="text-sm text-base-content/70">
+            {gettext(
+              "An error is a problem+json document with a stable code. Branch on the code, not on the text."
+            )}
+          </p>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>{gettext("Status")}</th>
+                <th>{gettext("Code")}</th>
+                <th>{gettext("What to do")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={error <- @errors} id={"guide-error-#{error.code}"}>
+                <td class="font-mono">{error.status}</td>
+                <td><code class="font-mono">{error.code}</code></td>
+                <td>{error.advice}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</PhoenixKitWeb.Components.LayoutWrapper.app_layout>

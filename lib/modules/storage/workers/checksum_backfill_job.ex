@@ -9,6 +9,8 @@ defmodule PhoenixKit.Modules.Storage.Workers.ChecksumBackfillJob do
   stored before (a 32-hex-character checksum), reads each file's original,
   and records its SHA-256 and the matching `user_file_checksum`
   (`Storage.calculate_user_file_checksum/3`, library-aware).
+  An upload made with `dedup: false` keeps its independent `nodedup:` key;
+  normalizing its content checksum must not opt it back into deduplication.
 
   A row whose uploader already has the same bytes in the same library would
   collide on the dedup index: it is left as it is (it keeps not deduping,
@@ -35,6 +37,7 @@ defmodule PhoenixKit.Modules.Storage.Workers.ChecksumBackfillJob do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
   alias PhoenixKit.Modules.Storage.Jobs.ChecksumBackfill
+  alias PhoenixKit.Utils.FileHash
 
   @batch_size 20
 
@@ -119,7 +122,7 @@ defmodule PhoenixKit.Modules.Storage.Workers.ChecksumBackfillJob do
     case Storage.retrieve_original(file.uuid) do
       {:ok, path, _file, _instance} ->
         try do
-          sha = :sha256 |> :crypto.hash(Elixir.File.read!(path)) |> Base.encode16(case: :lower)
+          sha = FileHash.sha256!(path)
           record(file, sha)
         after
           Elixir.File.rm(path)
@@ -131,12 +134,18 @@ defmodule PhoenixKit.Modules.Storage.Workers.ChecksumBackfillJob do
   end
 
   defp record(file, sha) do
-    user_checksum = Storage.calculate_user_file_checksum(file.user_uuid, sha, file.library_uuid)
+    user_checksum =
+      case file.user_file_checksum do
+        "nodedup:" <> _ -> file.user_file_checksum
+        _ -> Storage.calculate_user_file_checksum(file.user_uuid, sha, file.library_uuid)
+      end
 
     {count, _} =
       repo().update_all(
         from(f in StorageFile,
-          where: f.uuid == ^file.uuid and f.file_checksum == ^file.file_checksum
+          where:
+            f.uuid == ^file.uuid and f.file_checksum == ^file.file_checksum and
+              f.user_file_checksum == ^file.user_file_checksum
         ),
         set: [file_checksum: sha, user_file_checksum: user_checksum]
       )

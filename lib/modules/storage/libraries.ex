@@ -14,6 +14,39 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   parent) and gives the files stored in it an object-key prefix of its own
   (`key_prefix`).
 
+  ## Hidden system libraries
+
+  A module that keeps files of its own (a chat's attachments, say) can create a
+  **hidden** one: `create_system_library(attrs, hidden: true)` with a `"slug"`
+  of its own. It is a system library with `visibility: "private"`, and the site
+  neither lists it nor opens it:
+
+    * it is not listed with the site's libraries (`list_system_libraries/0`, so
+      not in Media's switcher nor in Settings), and `get_system_library/1` and
+      `get_system_library_by_slug/1`, which check a URL, do not find it; the
+      module finds it again with `get_hidden_library_by_slug/1` or
+      `get_library/1`;
+    * its files and folders are left out of every listing that names no library
+      (`exclude_user_libraries/1`: the media pickers, orphan cleanup) and are only
+      browsed where the module names the library;
+    * the Settings pages that name libraries (Health's stale files, a bucket's
+      contents, a storage profile's libraries) and the job titles count it with
+      the private libraries and never name it;
+    * its files are private (`private?/1`): their URLs carry a time-window token
+      and the permanent one is refused, and the repair log writes nothing about
+      them;
+    * `can?/3` grants its files to their uploader and to an Owner/Admin
+      (`Scope.system_role?/1`) only: `media.view_all` opens none of them. An
+      Owner/Admin reads any file of Storage by design, a hidden one included.
+
+  Its name and slug are not secret: the Storage history records its creation by
+  name (unless the module passes `audit: false`), and they are taken in the one
+  namespace all system libraries share (see `create_system_library/2`).
+
+  Dedup keys fold the library in (`Storage.calculate_user_file_checksum/3`), so
+  an upload outside the hidden library never comes back as one of its files.
+  Without a hidden library, nothing about Storage changes.
+
   ## User libraries (V203)
 
   When the install turns them on (`user_libraries_enabled?/0`), a user with
@@ -40,6 +73,8 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
   require Logger
 
+  alias PhoenixKit.Integrations
+  alias PhoenixKit.Integrations.{ObjectStorageServices, Probe}
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.Audit
   alias PhoenixKit.Modules.Storage.File, as: StorageFile
@@ -85,16 +120,50 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   @doc """
-  The live system libraries, the default (Media) first, then by name.
+  The live system libraries, the default (Media) first, then by name. A hidden
+  one (`hidden?/1`) is not among them.
   """
   @spec list_system_libraries() :: [Library.t()]
   def list_system_libraries do
     from(l in Library,
-      where: l.kind == "system" and is_nil(l.trashed_at),
+      where: l.kind == "system" and l.visibility == "site" and is_nil(l.trashed_at),
       order_by: [desc: l.is_default, asc: fragment("lower(?)", l.name)]
     )
     |> repo().all()
   end
+
+  @doc """
+  Whether a library is a hidden system library (`create_system_library/2` with
+  `hidden: true`). Takes a library or a uuid; Media and anything that is not a
+  library are not.
+  """
+  @spec hidden?(Library.t() | term()) :: boolean()
+  def hidden?(%Library{kind: "system", visibility: "private"}), do: true
+  def hidden?(%Library{}), do: false
+  def hidden?(nil), do: false
+
+  def hidden?(uuid) when is_binary(uuid) do
+    if media?(uuid), do: false, else: hidden?(get_library(uuid))
+  end
+
+  def hidden?(_), do: false
+
+  @doc """
+  The live hidden system library whose slug is `slug`, or nil — how the module
+  that created it finds it again.
+  """
+  @spec get_hidden_library_by_slug(term()) :: Library.t() | nil
+  def get_hidden_library_by_slug(slug) when is_binary(slug) do
+    repo().one(
+      from(l in Library,
+        where:
+          l.kind == "system" and l.visibility == "private" and is_nil(l.trashed_at) and
+            l.slug == ^slug
+      )
+    )
+  end
+
+  def get_hidden_library_by_slug(_slug), do: nil
 
   @doc """
   `list_system_libraries/0` with what each one holds: `files` (live,
@@ -187,24 +256,28 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   @doc """
   The live system library with this uuid, or nil — what a URL-supplied
   library id is checked against before anything is listed or stored in it.
+  A hidden one (`hidden?/1`) is nil here.
   """
   @spec get_system_library(term()) :: Library.t() | nil
   def get_system_library(uuid) do
     case get_library(uuid) do
-      %Library{kind: "system", trashed_at: nil} = library -> library
+      %Library{kind: "system", visibility: "site", trashed_at: nil} = library -> library
       _ -> nil
     end
   end
 
   @doc """
   The live system library whose URL slug is `slug`, or nil. The default
-  library has no slug (it is the bare `/admin/media`).
+  library has no slug (it is the bare `/admin/media`). A hidden one is not
+  found here (`get_hidden_library_by_slug/1`).
   """
   @spec get_system_library_by_slug(term()) :: Library.t() | nil
   def get_system_library_by_slug(slug) when is_binary(slug) do
     repo().one(
       from(l in Library,
-        where: l.kind == "system" and is_nil(l.trashed_at) and l.slug == ^slug
+        where:
+          l.kind == "system" and l.visibility == "site" and is_nil(l.trashed_at) and
+            l.slug == ^slug
       )
     )
   end
@@ -216,6 +289,17 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   slug comes from the name (`"Brand Assets"` → `"brand-assets"`, then
   `"brand-assets-2"` … while one is taken) and the object-key prefix is
   generated, unless either is given.
+
+  `hidden: true` among the options makes it a hidden library (see "Hidden
+  system libraries" above), for a module's own files. Only this option hides
+  one: a `"visibility"` in `attrs` is ignored. A hidden library needs its
+  `"slug"` in `attrs`: it is not derived, and a taken one is an error (on
+  `:slug`), never `"<slug>-2"`, so the module finds the library again with
+  `get_hidden_library_by_slug/1`. System libraries share one namespace of
+  names and of slugs, so give both a prefix of the module's own
+  (`"phoenix-kit-ai"`, say); a site library cannot then take that name later
+  without "is already the name of another library". `audit: false` among the
+  options leaves the creation out of the Storage history, which names it.
   """
   @spec create_system_library(map(), keyword()) ::
           {:ok, Library.t()} | {:error, Ecto.Changeset.t()}
@@ -227,9 +311,17 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     attrs = Map.new(attrs, fn {k, v} -> {to_string(k), v} end)
     attrs = Map.put_new_lazy(attrs, "key_prefix", &generate_key_prefix/0)
 
+    hidden? = Keyword.get(opts, :hidden) == true
+
     with {:ok, storage} <- creation_storage(attrs) do
+      storage = if hidden?, do: Keyword.put(storage, :visibility, "private"), else: storage
+
       case attrs do
         %{"slug" => _} ->
+          insert_system_library(attrs, storage)
+
+        # A hidden one is found again by its slug: none is made up for it.
+        _ when hidden? ->
           insert_system_library(attrs, storage)
 
         _ ->
@@ -293,6 +385,21 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   # The site's libraries are in the history; a user's library is theirs and private.
+  # A hidden one is named only when it is created (and `audit: false` skips that).
+  defp audit_library(
+         action,
+         %Library{kind: "system", visibility: "private"} = library,
+         opts,
+         metadata
+       )
+       when action == "storage.library.created" do
+    Audit.log(action, "storage_library", library.uuid, opts, metadata)
+    :ok
+  end
+
+  defp audit_library(_action, %Library{kind: "system", visibility: "private"}, _opts, _metadata),
+    do: :ok
+
   defp audit_library(action, %Library{kind: "system"} = library, opts, metadata) do
     Audit.log(action, "storage_library", library.uuid, opts, metadata)
     :ok
@@ -397,10 +504,12 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   @doc """
-  Whether files in a library are private (`visibility: "private"`, every
-  user library): their URLs carry a time-window token and are never
-  answered with a redirect to a public object URL. Media is answered
-  without a query; anything that is not a library is not private.
+  Whether files in a library are private (`visibility: "private"`, every user
+  library except a public one, a hidden system library, and a public one while
+  it is suspended or in the trash): their
+  URLs carry a time-window token and are never answered with a redirect to a
+  public object URL. Media is answered without a query; anything that is not a
+  library is not private.
   """
   @spec private?(term()) :: boolean()
   def private?(nil), do: false
@@ -411,7 +520,9 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     else
       case Ecto.UUID.cast(uuid) do
         {:ok, uuid} ->
-          repo().exists?(from(l in Library, where: l.uuid == ^uuid and l.visibility == "private"))
+          repo().exists?(
+            from(l in Library, where: ^dynamic([l], l.uuid == ^uuid and ^private_condition()))
+          )
 
         :error ->
           false
@@ -419,12 +530,34 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     end
   end
 
+  # A library is private when it says so, or while it is a public one an admin has
+  # suspended or its owner has trashed: it then answers as private until it is
+  # restored. Trashing a library leaves its files `active`, so without this the
+  # permanent links of a trashed public library would keep serving.
+  defp private_condition do
+    dynamic(
+      [l],
+      l.visibility == "private" or not is_nil(l.trashed_at) or
+        fragment("(?->>'suspended') = 'true'", l.settings)
+    )
+  end
+
   @doc """
   Which of `library_uuids` are private, in one query — for a page that
   builds URLs for many files at once.
   """
   @spec private_among([term()]) :: [String.t()]
-  def private_among(library_uuids) do
+  def private_among(library_uuids), do: among(library_uuids, private_condition())
+
+  @doc """
+  Which of `library_uuids` are user libraries or hidden system libraries
+  (`hidden?/1`), in one query — the ones a site's folder tree leaves out.
+  """
+  @spec user_or_hidden_among([term()]) :: [String.t()]
+  def user_or_hidden_among(library_uuids),
+    do: among(library_uuids, dynamic([l], l.kind == "user" or l.visibility == "private"))
+
+  defp among(library_uuids, condition) do
     uuids =
       library_uuids
       |> Enum.reject(&(is_nil(&1) or media?(&1)))
@@ -434,10 +567,28 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     if uuids == [] do
       []
     else
-      from(l in Library,
-        where: l.uuid in ^uuids and l.visibility == "private",
-        select: l.uuid
-      )
+      from(l in Library, where: ^dynamic([l], l.uuid in ^uuids and ^condition), select: l.uuid)
+      |> repo().all()
+      |> Enum.map(&to_string/1)
+    end
+  end
+
+  @doc """
+  Which of `library_uuids` are user libraries (private or public), in one query —
+  for a site listing that must not mix them in.
+  """
+  @spec user_among([term()]) :: [String.t()]
+  def user_among(library_uuids) do
+    uuids =
+      library_uuids
+      |> Enum.reject(&(is_nil(&1) or media?(&1)))
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+
+    if uuids == [] do
+      []
+    else
+      from(l in Library, where: l.uuid in ^uuids and l.kind == "user", select: l.uuid)
       |> repo().all()
       |> Enum.map(&to_string/1)
     end
@@ -583,6 +734,7 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
   defp check_type(_type, nil), do: :ok
   defp check_type(:boolean, value) when is_boolean(value), do: :ok
+
   defp check_type(_type, _value), do: {:error, :invalid_value}
 
   defp stored(settings, key) do
@@ -598,42 +750,231 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
     end
   end
 
+  # ---------------------------------------------------------------------------
+  # A module's own per-library settings
+  #
+  # A module that is not core (a package: photos, say) has settings of its own for a
+  # library, and core must not have to name them. They live in the same `settings` map,
+  # under `"modules"` and the module's namespace: `settings["modules"]["photos"]["viewer"]`.
+  # Core keeps the namespacing, the update of only that key, the lock and the history; it
+  # knows no key and checks no value beyond being a plain scalar. Which keys exist, what
+  # they may be, and what none means is the module's to say.
+  # ---------------------------------------------------------------------------
+
+  @module_namespace ~r/\A[a-z][a-z0-9_]{0,31}\z/
+  @module_key ~r/\A[a-z][a-z0-9_]{0,63}\z/
+  @module_value_bytes 255
+
+  @typedoc "A module setting's value: a boolean, a number, or a string of at most 255 bytes."
+  @type module_value :: boolean() | number() | String.t()
+
+  @doc """
+  A module's own value of `key` for a library, or nil when it has none. `namespace` is
+  the module's (`"photos"`); a library, a library uuid, or nil for Media.
+  """
+  @spec module_setting(Library.t() | term(), String.t(), String.t()) :: module_value() | nil
+  def module_setting(%Library{settings: settings}, namespace, key),
+    do: stored_module_value(settings, namespace, key)
+
+  def module_setting(nil, namespace, key), do: module_setting(@media_uuid, namespace, key)
+
+  def module_setting(uuid, namespace, key) do
+    with {:ok, uuid} <- Ecto.UUID.cast(uuid),
+         %Library{} = library <- repo().get(Library, uuid) do
+      module_setting(library, namespace, key)
+    else
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Sets a module's own value of `key` for a library; nil removes it. Only that key
+  changes (another key of the module, or another module's, is not lost). The value is
+  a boolean, a number or a string of at most 255 bytes; the namespace and the key are
+  lowercase words (`[a-z][a-z0-9_]*`, up to 32 and 64 characters).
+
+  Returns `{:error, :invalid_namespace | :invalid_key | :invalid_value | :not_found}`
+  and changes nothing when refused.
+  """
+  @spec put_module_setting(Library.t(), String.t(), String.t(), module_value() | nil, keyword()) ::
+          {:ok, Library.t()}
+          | {:error, :invalid_namespace | :invalid_key | :invalid_value | :not_found}
+  def put_module_setting(%Library{} = library, namespace, key, value, opts \\ []) do
+    with :ok <- check_module_namespace(namespace),
+         :ok <- check_module_key(key),
+         :ok <- check_module_value(value) do
+      Audit.change(library, &do_put_module_setting(&1, namespace, key, value, opts))
+    end
+  end
+
+  defp do_put_module_setting(%Library{uuid: uuid} = library, namespace, key, value, opts) do
+    {count, _} =
+      if is_nil(value) do
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              settings:
+                fragment("? #- array['modules', ?::text, ?::text]", l.settings, ^namespace, ^key)
+            ]
+          ]
+        )
+        |> repo().update_all([])
+      else
+        patch = %{key => value}
+
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              # First make sure `modules` exists, then set the module's map to itself merged with the patch.
+              # credo:disable-for-next-line Credo.Check.Readability.MaxLineLength
+              settings:
+                fragment(
+                  "jsonb_set(jsonb_set(?, '{modules}', coalesce(? -> 'modules', '{}'::jsonb)), array['modules', ?::text], coalesce(? #> array['modules', ?::text], '{}'::jsonb) || ?)",
+                  l.settings,
+                  l.settings,
+                  ^namespace,
+                  l.settings,
+                  ^namespace,
+                  type(^patch, :map)
+                )
+            ]
+          ]
+        )
+        |> repo().update_all([])
+      end
+
+    if count == 1 do
+      if is_nil(value), do: prune_module_namespace(uuid, namespace)
+      updated = get_library(uuid)
+      audit_module_setting(library, updated, namespace, key, opts)
+      {:ok, updated}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  # A module whose last key was removed leaves nothing behind.
+  defp prune_module_namespace(uuid, namespace) do
+    from(l in Library,
+      where: l.uuid == ^uuid,
+      where: fragment("(? #> array['modules', ?::text]) = '{}'::jsonb", l.settings, ^namespace),
+      update: [
+        set: [settings: fragment("? #- array['modules', ?::text]", l.settings, ^namespace)]
+      ]
+    )
+    |> repo().update_all([])
+
+    from(l in Library,
+      where: l.uuid == ^uuid,
+      where: fragment("(? -> 'modules') = '{}'::jsonb", l.settings),
+      update: [set: [settings: fragment("? - 'modules'", l.settings)]]
+    )
+    |> repo().update_all([])
+  end
+
+  defp audit_module_setting(%Library{} = before, %Library{} = updated, namespace, key, opts) do
+    old = module_setting(before, namespace, key)
+    new = module_setting(updated, namespace, key)
+
+    if old != new do
+      audit_library("storage.library.setting_changed", updated, opts, %{
+        "library" => updated.name,
+        PhoenixKit.Activity.changes_key() => %{
+          "#{namespace}.#{key}" => %{"from" => old || "not set", "to" => new || "not set"}
+        }
+      })
+    end
+
+    :ok
+  end
+
+  defp check_module_namespace(namespace) when is_binary(namespace),
+    do:
+      if(Regex.match?(@module_namespace, namespace), do: :ok, else: {:error, :invalid_namespace})
+
+  defp check_module_namespace(_namespace), do: {:error, :invalid_namespace}
+
+  defp check_module_key(key) when is_binary(key),
+    do: if(Regex.match?(@module_key, key), do: :ok, else: {:error, :invalid_key})
+
+  defp check_module_key(_key), do: {:error, :invalid_key}
+
+  defp check_module_value(nil), do: :ok
+  defp check_module_value(value) when is_boolean(value) or is_number(value), do: :ok
+
+  defp check_module_value(value) when is_binary(value) do
+    if byte_size(value) <= @module_value_bytes and String.valid?(value),
+      do: :ok,
+      else: {:error, :invalid_value}
+  end
+
+  defp check_module_value(_value), do: {:error, :invalid_value}
+
+  defp stored_module_value(settings, namespace, key) do
+    with :ok <- check_module_namespace(namespace),
+         :ok <- check_module_key(key),
+         %{} = modules <- Map.get(settings || %{}, "modules"),
+         %{} = own <- Map.get(modules, namespace),
+         value when not is_nil(value) <- Map.get(own, key),
+         :ok <- check_module_value(value) do
+      value
+    else
+      _ -> nil
+    end
+  end
+
   @doc "Whether `file` (anything with a `library_uuid`) is in a private library."
   @spec private_file?(map()) :: boolean()
   def private_file?(%{library_uuid: library_uuid}), do: private?(library_uuid)
   def private_file?(_file), do: false
 
   @doc """
-  Drops rows whose library is private.
+  Drops rows whose library is a user library, private or public, or a hidden
+  system library (any private library).
 
   The file or folder is the query's first binding. Site listings
   (`/admin/media`, the media pickers, orphan cleanup) use this so a user
   library is not mixed into the site's media; pass that library's uuid to
-  read it. A private library's files are not orphans: nothing in the site
-  references them, and treating them as unreferenced would delete them.
+  read it. A user library's files are not orphans: nothing in the site
+  references them, and treating them as unreferenced would delete them. A
+  public library is not private, but it is still its owner's, not the site's.
   """
-  @spec exclude_private(Ecto.Query.t()) :: Ecto.Query.t()
-  def exclude_private(query) do
-    private = from(l in Library, where: l.visibility == "private", select: l.uuid)
-    where(query, [row], row.library_uuid not in subquery(private))
+  @spec exclude_user_libraries(Ecto.Query.t()) :: Ecto.Query.t()
+  def exclude_user_libraries(query) do
+    user =
+      from(l in Library,
+        where: ^dynamic([l], l.kind == "user" or ^private_condition()),
+        select: l.uuid
+      )
+
+    where(query, [row], row.library_uuid not in subquery(user))
   end
+
+  @doc "The old name of `exclude_user_libraries/1`, from when every user library was private."
+  @spec exclude_private(Ecto.Query.t()) :: Ecto.Query.t()
+  def exclude_private(query), do: exclude_user_libraries(query)
 
   @doc """
   Whether `scope` may do `action` to `file`. One predicate for every
   per-file check, so they stop drifting apart:
 
     * `:read` — the file's info and signed URLs: its uploader, an
-      Owner/Admin (`Scope.system_role?/1`), or — for a file in a user
-      library — that library's owner or any of its members. Deliberately
+      Owner/Admin (`Scope.system_role?/1`, whatever library the file is in, a
+      hidden one included), or — for a file in a user
+      library — that library's owner or any of its members, or **anyone**,
+      signed in or not, when the library is public (`public?/1`). Deliberately
       NOT the `"media"` permission: a single permission must not open every
       other user's file metadata (issue #687).
     * `:edit` — change the picture (image editing, annotation burn-in, the
       unedited original): the uploader, an Owner/Admin, a holder of the
       `"media"` permission with `"media.view_all"` when the file is in a system
-      library, or the
+      library that is not hidden (`hidden?/1`), or the
       owner or a manager of the user library it is in.
 
-  Anything else, and a scope without a user, is refused.
+  Anything else is refused, and a scope without a user, or none at all (`nil`),
+  can only read a file of a public library.
   """
   @spec can?(Scope.t() | nil, map(), :read | :edit) :: boolean()
   def can?(%Scope{} = scope, %{} = file, action) when action in [:read, :edit] do
@@ -643,6 +984,7 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       library_grants?(scope, library_uuid, action)
   end
 
+  def can?(nil, %{} = file, :read), do: public?(Map.get(file, :library_uuid))
   def can?(_scope, _file, _action), do: false
 
   defp library_grants?(scope, library_uuid, action) do
@@ -658,11 +1000,13 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       action == :edit and Scope.has_module_access?(scope, "media") and
         Scope.can?(scope, "media.view_all")
 
+  # A hidden library is a module's own: nothing beyond its uploader and an Owner/Admin.
+  defp grants?(_scope, %Library{kind: "system", visibility: "private"}, _action), do: false
   defp grants?(scope, %Library{kind: "system"}, action), do: grants?(scope, :media, action)
 
   defp grants?(scope, %Library{kind: "user", trashed_at: nil} = library, action) do
     role = role(library, Scope.user_uuid(scope))
-    if action == :read, do: role != nil, else: role in [:owner, :manager]
+    if action == :read, do: role != nil or public?(library), else: role in [:owner, :manager]
   end
 
   defp grants?(_scope, _library, _action), do: false
@@ -915,18 +1259,23 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       %{"name" => "Photos",
         "storage" => %{
           "mode" => "only",               # or "backup"
-          "integration_uuid" => "…",      # one of the user's own connections
-          "provider" => "s3",             # s3 | b2 | r2 | tigris
-          "bucket_name" => "my-photos",
-          "region" => "eu-central-1",     # and/or
-          "endpoint" => "https://…"}}
+          "targets" => [
+            %{"integration_uuid" => "…",  # one of the user's own integrations
+              "bucket_name" => "my-photos"},
+            %{"integration_uuid" => "…",  # optional: a copy on a second one
+              "bucket_name" => "my-photos-copy"}]}}
 
-  `"only"` keeps everything in their bucket; `"backup"` keeps the site's
-  storage as it is and copies the originals to theirs (see
-  `Profiles.create_user_profile/3`). Needs `may_use_own_storage?/1`
-  (`{:error, :not_allowed}` otherwise).
+  Each target is a bucket on one of the user's Object Storage integrations. The
+  provider, region and endpoint are the integration's own and need not be sent
+  (one sent anyway wins). A single bucket may also be given flat, as
+  `"integration_uuid"` and `"bucket_name"` beside `"mode"`.
 
-  The bucket is probed first, reading, writing and deleting a small object
+  `"only"` keeps everything in the first bucket and copies it to the others;
+  `"backup"` keeps the site's storage as it is and copies the originals to every
+  target (see `Profiles.create_user_profile/3`). Up to `Profiles.max_user_buckets/0`
+  targets. Needs `may_use_own_storage?/1` (`{:error, :not_allowed}` otherwise).
+
+  Every bucket is probed first, reading, writing and deleting a small object
   (`:probe`, a function of the bucket params, `Storage.test_connection/1` by
   default): a library that could not store anything is not created, and the
   reason is `{:error, {:storage, message}}`. A bucket, profile or library that
@@ -944,9 +1293,11 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   def create_user_library(scope, attrs, opts \\ []) do
     attrs = Map.new(attrs, fn {k, v} -> {to_string(k), v} end)
     {storage, attrs} = Map.pop(attrs, "storage")
+    {visibility, attrs} = Map.pop(attrs, "visibility")
 
     with true <- may_create_library?(scope) || {:error, :not_allowed},
          user_uuid when is_binary(user_uuid) <- Scope.user_uuid(scope) || {:error, :not_allowed},
+         {:ok, visibility} <- visibility_request(scope, visibility),
          {:ok, own} <- own_storage_request(scope, user_uuid, storage, opts) do
       repo().transaction(fn ->
         # One creation per user at a time, so two tabs cannot both pass the
@@ -957,12 +1308,38 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
         if owned >= user_library_limit() do
           repo().rollback(:limit_reached)
         else
-          library = insert_owned(attrs, user_uuid, owned == 0)
+          library = insert_owned(Map.put(attrs, "visibility", visibility), user_uuid, owned == 0)
           attach_own_storage(library, user_uuid, own)
         end
       end)
+      |> tap(fn result -> log_published(result, scope) end)
     end
   end
+
+  # What the user asked for. Private is the default and needs nothing; public
+  # needs the `storage.public_library` permission, and anything else is refused.
+  defp visibility_request(_scope, nil), do: {:ok, "private"}
+  defp visibility_request(_scope, "private"), do: {:ok, "private"}
+
+  defp visibility_request(scope, "public"),
+    do: if(may_create_public_library?(scope), do: {:ok, "site"}, else: {:error, :not_allowed})
+
+  defp visibility_request(_scope, _other), do: {:error, :not_allowed}
+
+  # Making a library public is written to the history: who, which, when.
+  defp log_published({:ok, %Library{visibility: "site"} = library}, scope) do
+    Audit.log(
+      "storage.library_published",
+      "library",
+      library.uuid,
+      [actor_uuid: Scope.user_uuid(scope)],
+      %{"name" => library.name}
+    )
+
+    :ok
+  end
+
+  defp log_published(_result, _scope), do: :ok
 
   # No `"storage"` (or the site's own): the library stays on the Default.
   defp own_storage_request(_scope, _user_uuid, nil, _opts), do: {:ok, nil}
@@ -979,36 +1356,239 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
         {:error, :not_allowed}
 
       true ->
-        params = Map.take(storage, ~w(integration_uuid provider bucket_name region endpoint))
-        probe = Keyword.get(opts, :probe, &Storage.test_connection/1)
-
-        case probe_owned(params, user_uuid, probe) do
-          :ok -> {:ok, %{mode: String.to_existing_atom(mode), params: params}}
-          {:error, message} -> {:error, {:storage, message}}
+        with {:ok, targets} <- storage_targets(storage, user_uuid),
+             :ok <- probe_targets(targets, user_uuid, Keyword.get(opts, :probe)) do
+          {:ok, %{mode: String.to_existing_atom(mode), targets: targets}}
+        else
+          {:error, %Ecto.Changeset{}} = error -> wrap_storage_error(error)
+          {:error, message} when is_binary(message) -> {:error, {:storage, message}}
         end
     end
   end
 
   defp own_storage_request(_scope, _user_uuid, _storage, _opts), do: {:error, :not_allowed}
 
-  @doc """
-  Checks a bucket for `scope`'s user to put a library on (what the wizard's "Test
-  the bucket" asks, and what creating the library asks again): they may use their
-  own storage at all, the fields pass `Bucket.owned_changeset/4` (an S3-protocol
-  provider, their own connection, a host the server may reach), and a small
-  object can be written, read back and deleted.
+  defp wrap_storage_error({:error, %Ecto.Changeset{} = changeset}),
+    do: {:error, {:storage, changeset}}
 
-  Returns `:ok`, `{:error, :not_allowed}`, `{:error, message}` from the bucket, or
-  `{:error, %Ecto.Changeset{}}` for the fields. `:probe` replaces the network
-  check (a function of the bucket params), for tests.
+  @target_fields ~w(integration_uuid provider bucket_name region endpoint)
+
+  # The buckets a `"storage"` map asks for, as the params of a bucket each:
+  # `"targets"` (a list, or the map a form posts as `targets[0]`, `targets[1]`),
+  # else the map itself as the one target. What an integration already knows
+  # (its service, region, endpoint) fills what is left blank. A target with
+  # neither an integration nor a bucket is an empty row of the form and is left
+  # out.
+  defp storage_targets(storage, user_uuid) do
+    targets =
+      storage
+      |> raw_targets()
+      |> Enum.map(&Map.take(stringify(&1), @target_fields))
+      |> drop_empty_rows(storage)
+      |> Enum.map(&fill_from_integration(&1, user_uuid))
+
+    cond do
+      targets == [] ->
+        {:error, "Choose an integration and a bucket"}
+
+      length(targets) > Profiles.max_user_buckets() ->
+        {:error,
+         "A library can use at most #{Profiles.max_user_buckets()} integrations (one main, the rest copies)"}
+
+      duplicate_targets?(targets) ->
+        {:error, "The same bucket is chosen twice"}
+
+      true ->
+        {:ok, targets}
+    end
+  end
+
+  # Empty rows only exist in the form's list; a single bucket given flat is kept
+  # as it is so the bucket's own validation says what is missing from it.
+  defp drop_empty_rows(targets, %{"targets" => _}),
+    do: Enum.reject(targets, &(blank?(&1["integration_uuid"]) and blank?(&1["bucket_name"])))
+
+  defp drop_empty_rows(targets, _flat), do: targets
+
+  defp raw_targets(%{"targets" => targets}) when is_list(targets), do: targets
+
+  defp raw_targets(%{"targets" => %{} = targets}) do
+    targets
+    |> Enum.sort_by(fn {key, _} -> sort_index(key) end)
+    |> Enum.map(fn {_key, target} -> target end)
+  end
+
+  defp raw_targets(storage), do: [storage]
+
+  defp sort_index(key) do
+    case Integer.parse(to_string(key)) do
+      {n, ""} -> n
+      _ -> 0
+    end
+  end
+
+  defp stringify(%{} = map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
+  defp stringify(_other), do: %{}
+
+  defp blank?(value), do: value in [nil, ""]
+
+  defp duplicate_targets?(targets) do
+    keys = Enum.map(targets, &{&1["integration_uuid"], &1["bucket_name"]})
+    length(Enum.uniq(keys)) != length(keys)
+  end
+
+  # What the user's integration says about itself, for the fields the target
+  # left blank. A connection that cannot be read here is not an error: the
+  # bucket changeset refuses a connection that is not the user's.
+  defp fill_from_integration(%{"integration_uuid" => uuid} = target, user_uuid)
+       when is_binary(uuid) and uuid != "" do
+    case integration_summary(user_uuid, uuid) do
+      nil ->
+        target
+
+      summary ->
+        target
+        |> put_blank("provider", summary.provider)
+        |> put_blank("region", summary.region)
+        |> put_blank("endpoint", summary.endpoint)
+    end
+  end
+
+  defp fill_from_integration(target, _user_uuid), do: target
+
+  defp put_blank(target, key, value) do
+    if blank?(target[key]) and not blank?(value), do: Map.put(target, key, value), else: target
+  end
+
+  @doc """
+  What one of `user_uuid`'s Object Storage integrations says about itself, for the
+  form that picks it: `%{provider: …, service: …, region: …, endpoint: …}`
+  (`provider` is the bucket provider the service is created as), or nil when it is
+  not theirs. Nothing secret.
+  """
+  @spec integration_summary(String.t(), term()) ::
+          %{
+            provider: String.t(),
+            service: String.t() | nil,
+            label: String.t() | nil,
+            region: String.t() | nil,
+            endpoint: String.t() | nil
+          }
+          | nil
+  def integration_summary(user_uuid, uuid) when is_binary(user_uuid) and is_binary(uuid) do
+    case Integrations.get_integration_by_uuid(uuid, {:user, user_uuid}) do
+      {:ok, %{provider: "object_storage", data: data}} ->
+        service = ObjectStorageServices.current(data)
+
+        %{
+          provider: ObjectStorageServices.bucket_provider(service),
+          service: service,
+          label: ObjectStorageServices.label(data),
+          region: presence(data["region"]),
+          endpoint: presence(data["endpoint"])
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  def integration_summary(_user_uuid, _uuid), do: nil
+
+  defp presence(value) when is_binary(value),
+    do: if(String.trim(value) == "", do: nil, else: value)
+
+  defp presence(_value), do: nil
+
+  # Every bucket is probed, in order, and the first that fails ends it. With
+  # several, the message names the bucket.
+  defp probe_targets(targets, user_uuid, probe) do
+    probe = probe || (&Storage.test_connection/1)
+
+    Enum.reduce_while(targets, :ok, fn target, :ok ->
+      case probe_owned(target, user_uuid, probe) do
+        :ok -> {:cont, :ok}
+        {:error, %Ecto.Changeset{}} = error -> {:halt, error}
+        {:error, message} -> {:halt, {:error, label_failure(message, target, targets)}}
+      end
+    end)
+  end
+
+  defp label_failure(message, _target, [_single]), do: message
+
+  defp label_failure(message, target, _several) when is_binary(message),
+    do: "#{target["bucket_name"]}: #{message}"
+
+  defp label_failure(message, _target, _several), do: message
+
+  @doc """
+  Checks the buckets for `scope`'s user to put a library on (what the form's "Test"
+  asks, and what creating the library asks again): they may use their own
+  storage at all, the fields pass `Bucket.owned_changeset/4` (an S3-protocol
+  provider, their own integration, a host the server may reach), and a small
+  object can be written, read back and deleted in each.
+
+  `params` is what `create_user_library/3` takes under `"storage"`: a `"targets"`
+  list, or one bucket flat. Returns `:ok`, `{:error, :not_allowed}`,
+  `{:error, message}` from the bucket, or `{:error, %Ecto.Changeset{}}` for the
+  fields. `:probe` replaces the network check (a function of the bucket params),
+  for tests.
   """
   @spec probe_own_storage(Scope.t() | nil, map(), keyword()) ::
           :ok | {:error, :not_allowed | String.t() | Ecto.Changeset.t()}
   def probe_own_storage(scope, params, opts \\ []) do
     with true <- may_use_own_storage?(scope) || {:error, :not_allowed},
-         user_uuid when is_binary(user_uuid) <- Scope.user_uuid(scope) || {:error, :not_allowed} do
-      fields = Map.take(params, ~w(integration_uuid provider bucket_name region endpoint))
-      probe_owned(fields, user_uuid, Keyword.get(opts, :probe, &Storage.test_connection/1))
+         user_uuid when is_binary(user_uuid) <- Scope.user_uuid(scope) || {:error, :not_allowed},
+         {:ok, targets} <- storage_targets(stringify(params), user_uuid) do
+      probe_targets(targets, user_uuid, Keyword.get(opts, :probe))
+    end
+  end
+
+  @doc """
+  The names of the buckets one of the user's integrations can see (S3's
+  `ListBuckets`), for the form's "List buckets" button: `{:ok, names}` or
+  `{:error, message}`. A key limited to one bucket is usually refused, and the
+  message then says to type the name instead; that is not a broken integration.
+  `:list` replaces the network call (a function of the bucket description), for
+  tests.
+  """
+  @spec list_own_buckets(Scope.t() | nil, term(), keyword()) ::
+          {:ok, [String.t()]} | {:error, :not_allowed | String.t()}
+  def list_own_buckets(scope, integration_uuid, opts \\ []) do
+    with true <- may_use_own_storage?(scope) || {:error, :not_allowed},
+         user_uuid when is_binary(user_uuid) <- Scope.user_uuid(scope) || {:error, :not_allowed},
+         %{} = summary <-
+           integration_summary(user_uuid, integration_uuid) ||
+             {:error, "That integration is not yours"} do
+      described = %Storage.Bucket{
+        name: "list",
+        provider: summary.provider,
+        region: summary.region,
+        endpoint: summary.endpoint,
+        integration_uuid: integration_uuid,
+        owner_uuid: user_uuid
+      }
+
+      list = Keyword.get(opts, :list, &list_with_deadline/1)
+      list.(described)
+    end
+  end
+
+  # Under the same hard deadline as every connection check
+  # (`Integrations.Probe`), which only carries text back: the names go through it
+  # one to a line (a bucket name cannot hold a newline).
+  defp list_with_deadline(bucket) do
+    check = fn ->
+      case S3.list_remote_buckets(bucket) do
+        {:ok, names} -> {:ok, Enum.join(names, "\n")}
+        {:error, _} = error -> error
+      end
+    end
+
+    case Probe.run(check) do
+      {:ok, names} when is_binary(names) -> {:ok, String.split(names, "\n", trim: true)}
+      {:error, message} when is_binary(message) -> {:error, message}
+      other -> {:error, "Could not list the buckets: #{inspect(other, limit: 3)}"}
     end
   end
 
@@ -1030,20 +1610,37 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       else: {:error, changeset}
   end
 
-  # Inside the creation transaction: the bucket, its profile, then the library
+  # Inside the creation transaction: the buckets, their profile, then the library
   # pointed at it. Any failure rolls the whole library back.
   defp attach_own_storage(library, _user_uuid, nil), do: library
 
-  defp attach_own_storage(library, user_uuid, %{mode: mode, params: params}) do
-    attrs = Map.put(params, "name", library.name)
-
-    with {:ok, bucket} <- Storage.create_owned_bucket(user_uuid, attrs),
-         {:ok, profile} <- Profiles.create_user_profile(user_uuid, bucket, mode),
+  defp attach_own_storage(library, user_uuid, %{mode: mode, targets: targets}) do
+    with {:ok, buckets} <- create_owned_buckets(library, user_uuid, targets),
+         {:ok, profile} <- Profiles.create_user_profile(user_uuid, buckets, mode),
          {:ok, library} <- Profiles.assign_user_profile(library, profile) do
       library
     else
       {:error, %Ecto.Changeset{} = changeset} -> repo().rollback({:storage, changeset})
       {:error, reason} -> repo().rollback(reason)
+    end
+  end
+
+  # One bucket row per target, in order. The first carries the library's name;
+  # the others a number after it (the name is never shown to the user).
+  defp create_owned_buckets(library, user_uuid, targets) do
+    targets
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {params, n}, {:ok, acc} ->
+      name = if n == 1, do: library.name, else: "#{library.name} (#{n})"
+
+      case Storage.create_owned_bucket(user_uuid, Map.put(params, "name", name)) do
+        {:ok, bucket} -> {:cont, {:ok, [bucket | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, buckets} -> {:ok, Enum.reverse(buckets)}
+      error -> error
     end
   end
 
@@ -1133,6 +1730,232 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   def default_user_library(_user_uuid), do: nil
+
+  # ===== Public user libraries =====
+
+  @doc """
+  Whether a library is **public**: a user library whose owner made it so when they
+  created it (`visibility: "site"`), not in the trash and not suspended. Anyone,
+  signed in or not, may read what is in it (`can?/3` with `:read`,
+  `can_read_library?/2`). Media is the site's own library, not a public one in this
+  sense: its files have ordinary links but only their uploader and the admins may
+  list them.
+
+  Takes a library or a uuid.
+  """
+  @spec public?(Library.t() | term()) :: boolean()
+  def public?(%Library{kind: "user", visibility: "site", trashed_at: nil} = library),
+    do: not suspended?(library)
+
+  def public?(%Library{}), do: false
+  def public?(nil), do: false
+
+  def public?(uuid) do
+    if media?(uuid), do: false, else: public?(get_library(uuid))
+  end
+
+  @doc "Whether an admin has suspended a (public) library: it then answers as private."
+  @spec suspended?(Library.t() | nil) :: boolean()
+  def suspended?(%Library{settings: %{"suspended" => true}}), do: true
+  def suspended?(_library), do: false
+
+  @doc """
+  Whether `scope` may create a **public** library: `may_create_library?/1` and the
+  `"storage.public_library"` permission. Nobody has that until the site grants it.
+  """
+  @spec may_create_public_library?(Scope.t() | nil) :: boolean()
+  def may_create_public_library?(%Scope{} = scope) do
+    may_create_library?(scope) and Scope.can?(scope, "storage.public_library")
+  end
+
+  def may_create_public_library?(_scope), do: false
+
+  @doc """
+  Whether `scope` (or nobody, `nil`) may see the library as a whole, to list it:
+  anyone for a public library, otherwise an Owner/Admin or one of its members. The
+  one question a feature built on a library (timeline, albums, map…) asks before it
+  shows a library's contents; `can?/3` is the same question for one file.
+  """
+  @spec can_read_library?(Scope.t() | nil, Library.t() | nil) :: boolean()
+  def can_read_library?(_scope, nil), do: false
+
+  def can_read_library?(scope, %Library{} = library) do
+    public?(library) or
+      (match?(%Scope{}, scope) and
+         (Scope.system_role?(scope) or role(library, Scope.user_uuid(scope)) != nil))
+  end
+
+  @doc """
+  Suspends a public library, for an Owner or Admin: it answers as private (expiring
+  links, no anonymous reading) until `unsuspend_library/2`, with nothing deleted.
+  The reason is kept with the entry in the history.
+  """
+  @spec suspend_library(Scope.t() | nil, Library.t(), String.t() | nil) ::
+          {:ok, Library.t()} | {:error, :not_allowed}
+  def suspend_library(scope, %Library{} = library, reason \\ nil) do
+    if Scope.system_role?(scope) and library.kind == "user" and library.visibility == "site" do
+      set_suspended(scope, library, true, reason, "storage.library_suspended")
+    else
+      {:error, :not_allowed}
+    end
+  end
+
+  @doc "Lifts a suspension, for an Owner or Admin."
+  @spec unsuspend_library(Scope.t() | nil, Library.t()) ::
+          {:ok, Library.t()} | {:error, :not_allowed}
+  def unsuspend_library(scope, %Library{} = library) do
+    if Scope.system_role?(scope) and suspended?(library),
+      do: set_suspended(scope, library, false, nil, "storage.library_unsuspended"),
+      else: {:error, :not_allowed}
+  end
+
+  defp set_suspended(scope, library, suspended?, reason, action) do
+    settings =
+      if suspended? do
+        Map.merge(library.settings || %{}, %{"suspended" => true, "suspended_reason" => reason})
+      else
+        Map.drop(library.settings || %{}, ["suspended", "suspended_reason"])
+      end
+
+    Audit.transaction(fn ->
+      with {:ok, updated} <-
+             library |> Ecto.Changeset.change(settings: settings) |> repo().update(),
+           {:ok, _entry} <-
+             Audit.log(
+               action,
+               "library",
+               library.uuid,
+               [actor_uuid: Scope.user_uuid(scope)],
+               %{
+                 "name" => library.name,
+                 "owner_uuid" => to_string(library.owner_uuid),
+                 "reason" => reason
+               }
+             ) do
+        {:ok, updated}
+      end
+    end)
+  end
+
+  # ===== A personal library, made by the system for a host that wants one =====
+
+  @personal_key "personal"
+  @personal_name_default "My library"
+
+  @doc """
+  Gives `user_uuid` a private library of their own, once, on behalf of the host.
+
+  **Nothing in PhoenixKit calls this**: whether accounts get such a library, when,
+  and what it is called is the host's decision (a photo app may make one for every
+  new account; most apps do not need it). This is only the part a host cannot do
+  with the public API, because `create_user_library/3` is the user's own act and
+  needs their permission and room under their limit.
+
+  It is governed by the same switch as every user library
+  (`user_libraries_enabled?/0`, off by default): while that is off it makes nothing
+  and returns `{:error, :user_libraries_off}`.
+
+  The system acts here, so it needs neither `may_create_library?/1` nor
+  `user_library_limit/0`. The library is marked as the personal one, and a user is
+  never given a second: one they have since renamed, or trashed, still counts, so
+  deleting it is final. It is the user's default when they have no library yet, a
+  private library on the site's storage like any made without a choice.
+
+  `:name` is its name (default "My library"); when the user already has a live
+  library of that name, a number is added.
+
+  Returns `{:ok, %Library{}}` when one was made, `{:ok, :exists}` when the user
+  already had theirs, or `{:error, reason}`.
+  """
+  @spec ensure_personal_library(String.t(), keyword()) ::
+          {:ok, Library.t() | :exists} | {:error, :user_libraries_off | term()}
+  def ensure_personal_library(user_uuid, opts \\ []) when is_binary(user_uuid) do
+    if user_libraries_enabled?(),
+      do: do_ensure_personal_library(user_uuid, personal_name(Keyword.get(opts, :name))),
+      else: {:error, :user_libraries_off}
+  end
+
+  defp do_ensure_personal_library(user_uuid, base) do
+    repo().transaction(fn ->
+      lock_user(user_uuid)
+
+      if personal_library?(user_uuid) do
+        :exists
+      else
+        owned = count_owned(user_uuid)
+        name = free_library_name(user_uuid, base)
+        library = insert_owned(%{"name" => name}, user_uuid, owned == 0)
+
+        library
+        |> Ecto.Changeset.change(settings: Map.put(library.settings || %{}, @personal_key, true))
+        |> repo().update!()
+      end
+    end)
+  end
+
+  defp personal_name(name) when is_binary(name) do
+    if String.trim(name) == "", do: @personal_name_default, else: String.trim(name)
+  end
+
+  defp personal_name(_name), do: @personal_name_default
+
+  defp personal_library?(user_uuid) do
+    repo().exists?(
+      from(l in Library,
+        where:
+          l.kind == "user" and l.owner_uuid == ^user_uuid and
+            fragment("(?->>'personal') = 'true'", l.settings)
+      )
+    )
+  end
+
+  # `base`, or `base 2`, `base 3`… when the user already has a live library of that name.
+  defp free_library_name(user_uuid, base) do
+    taken =
+      from(l in Library,
+        where: l.kind == "user" and l.owner_uuid == ^user_uuid and is_nil(l.trashed_at),
+        select: fragment("lower(?)", l.name)
+      )
+      |> repo().all()
+      |> MapSet.new()
+
+    Enum.find_value(Stream.concat([base], Stream.map(2..1000, &"#{base} #{&1}")), base, fn name ->
+      not MapSet.member?(taken, String.downcase(name)) && name
+    end)
+  end
+
+  @doc """
+  `ensure_personal_library/2` for every active, non-guest, non-API account, for a
+  host that wants the accounts that existed before it started making them to have
+  one too. Safe to repeat. Takes the same `:name`. Returns the counts
+  `%{created: n, existing: n, failed: n}`, or `{:error, :user_libraries_off}` while
+  user libraries are off (nothing is made).
+  """
+  @spec backfill_personal_libraries(keyword()) ::
+          %{created: non_neg_integer(), existing: non_neg_integer(), failed: non_neg_integer()}
+          | {:error, :user_libraries_off}
+  def backfill_personal_libraries(opts \\ []) do
+    if user_libraries_enabled?(),
+      do: do_backfill_personal_libraries(opts),
+      else: {:error, :user_libraries_off}
+  end
+
+  defp do_backfill_personal_libraries(opts) do
+    from(u in User,
+      where:
+        u.is_active and not u.api_only and
+          fragment("coalesce(?->>'source', '') <> 'guest_checkout'", u.custom_fields),
+      select: u.uuid
+    )
+    |> repo().all()
+    |> Enum.reduce(%{created: 0, existing: 0, failed: 0}, fn uuid, counts ->
+      case ensure_personal_library(uuid, opts) do
+        {:ok, :exists} -> Map.update!(counts, :existing, &(&1 + 1))
+        {:ok, %Library{}} -> Map.update!(counts, :created, &(&1 + 1))
+        {:error, _reason} -> Map.update!(counts, :failed, &(&1 + 1))
+      end
+    end)
+  end
 
   @doc """
   Trashes a user library, for its owner. Its members lose it at once; its
@@ -1524,12 +2347,14 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
       own ->
         reachable? =
-          Enum.all?(own, fn {_uuid, %{bucket: bucket}} ->
-            match?(
-              {key, secret}
-              when is_binary(key) and key != "" and is_binary(secret) and secret != "",
-              S3.resolve_credentials(bucket)
-            )
+          Enum.all?(own, fn {_uuid, %{buckets: buckets}} ->
+            Enum.all?(buckets, fn %{bucket: bucket} ->
+              match?(
+                {key, secret}
+                when is_binary(key) and key != "" and is_binary(secret) and secret != "",
+                S3.resolve_credentials(bucket)
+              )
+            end)
           end)
 
         if not reachable?,

@@ -48,6 +48,9 @@ defmodule PhoenixKit.API.MCP.Origin do
 
   require Logger
 
+  @last_resort_origin "http://localhost:4000"
+  @fallback_flag {__MODULE__, :fallback_warned}
+
   @doc """
   Passes `conn` when it has no `Origin` header or an allowed one; otherwise
   sends `403 origin_not_allowed` and halts.
@@ -87,7 +90,115 @@ defmodule PhoenixKit.API.MCP.Origin do
 
   # --- the list of hosts ------------------------------------------------------
 
-  defp known_hosts(conn), do: Enum.uniq(canonical_hosts() ++ hook_hosts(conn))
+  @doc """
+  The hostnames this install is known to serve, lowercase and without ports:
+  the canonical host first, then the hosts the `:api_request_context` hook
+  explicitly returns (see the moduledoc). The request's own `Host` header is
+  never on the list.
+
+  Public for the other documents the install publishes about itself
+  (`PhoenixKit.API.PublicDiscovery`), which must not trust the `Host` header
+  either.
+  """
+  @spec known_hosts(Plug.Conn.t()) :: [String.t()]
+  def known_hosts(conn) do
+    (canonical_hosts() ++ hook_hosts(conn))
+    |> Enum.map(&hostname/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  @doc """
+  The canonical origin, `scheme://host[:port]`: that of the `site_url` setting
+  (read through the settings cache), else of the endpoint's URL, else of the
+  static configuration, else `http://localhost:4000`. A rung that is set but
+  unusable (no scheme, not `http(s)`, no host) is skipped. The host is
+  lowercase and a default port is left out.
+
+  The last two rungs mean the install never said what its public address is:
+  that is logged once per boot. It never raises.
+
+  The same source as `PhoenixKit.Utils.Routes.base_url/0`, but without its
+  uncached database read, so a public request can use it.
+  """
+  @spec canonical_origin() :: String.t()
+  def canonical_origin do
+    site_url_origin() || endpoint_origin() || fallback_origin()
+  rescue
+    _ -> fallback_origin()
+  end
+
+  @doc """
+  `origin` (as `canonical_origin/0` returns it) with `host` in place of its
+  host: the scheme and the port are kept.
+  """
+  @spec origin_with_host(String.t(), String.t()) :: String.t()
+  def origin_with_host(origin, host) when is_binary(origin) and is_binary(host) do
+    %URI{scheme: scheme, port: port} = URI.parse(origin)
+    "#{scheme}://#{host_text(host)}#{port_suffix(scheme, port)}"
+  end
+
+  defp site_url_origin do
+    case cached_site_url() do
+      site_url when is_binary(site_url) and site_url != "" -> origin_of(site_url)
+      _unset -> nil
+    end
+  end
+
+  defp endpoint_origin do
+    case PhoenixKit.Config.get_parent_endpoint_url() do
+      {:ok, url} -> origin_of(url)
+      :error -> nil
+    end
+  end
+
+  defp fallback_origin do
+    {rung, origin} =
+      try do
+        case origin_of(PhoenixKit.Config.get_base_url()) do
+          nil -> {"the built-in default", @last_resort_origin}
+          origin -> {"the static configuration", origin}
+        end
+      rescue
+        _ -> {"the built-in default", @last_resort_origin}
+      end
+
+    warn_once(rung, origin)
+    origin
+  end
+
+  defp warn_once(rung, origin) do
+    unless :persistent_term.get(@fallback_flag, false) do
+      :persistent_term.put(@fallback_flag, true)
+
+      Logger.warning(
+        "MCP.Origin: the canonical origin is #{origin}, from #{rung}: the site_url " <>
+          "setting is unset or unusable and the endpoint has no usable URL. The public " <>
+          "API guide, catalog and llms.txt name this address; set site_url to the site's " <>
+          "public address."
+      )
+    end
+  end
+
+  defp origin_of(url) when is_binary(url) do
+    case URI.new(url) do
+      {:ok, %URI{scheme: scheme, host: host, port: port}}
+      when scheme in ["http", "https"] and is_binary(host) and host != "" ->
+        "#{scheme}://#{host_text(host)}#{port_suffix(scheme, port)}"
+
+      _unusable ->
+        nil
+    end
+  end
+
+  defp host_text(host) do
+    host = String.downcase(host)
+    if String.contains?(host, ":"), do: "[" <> host <> "]", else: host
+  end
+
+  defp port_suffix(scheme, port) do
+    if port in [nil, URI.default_port(scheme)], do: "", else: ":#{port}"
+  end
 
   # Not `Routes.base_url/0`: it reads the `site_url` setting uncached, and this
   # check runs for every request that carries an Origin, before any limiter.
@@ -102,7 +213,7 @@ defmodule PhoenixKit.API.MCP.Origin do
   end
 
   defp base_url do
-    case Settings.get_setting_cached("site_url", "") do
+    case cached_site_url() do
       site_url when is_binary(site_url) and site_url != "" ->
         String.trim_trailing(site_url, "/")
 
@@ -110,6 +221,8 @@ defmodule PhoenixKit.API.MCP.Origin do
         PhoenixKit.Config.get_dynamic_base_url()
     end
   end
+
+  defp cached_site_url, do: Settings.get_setting_cached("site_url", "")
 
   # The hosts the host app's hook EXPLICITLY returns, else []. Never the Host
   # header: `RequestContext.resolve/1` is not used here because its merge

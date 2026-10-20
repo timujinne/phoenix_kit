@@ -327,7 +327,15 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3 do
   # every object on an S3/R2 bucket read as missing and every download
   # (which starts with a HEAD) failed (#882; ex-aws/ex_aws#1255).
   @doc false
-  def aws_config(bucket) do
+  def aws_config(bucket), do: build_config(bucket, virtual_host?(bucket), true)
+
+  # The config for a call on the SERVICE rather than on one bucket (listing
+  # the buckets an account holds): the endpoint's own host, never a bucket's
+  # name in front of it, and no bucket name to validate.
+  @doc false
+  def service_config(bucket), do: build_config(bucket, false, false)
+
+  defp build_config(bucket, virtual_host, bucket_scoped?) do
     {access_key_id, secret_access_key} = resolve_credentials(bucket)
 
     config = [
@@ -337,8 +345,8 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3 do
       http_client: ExAws.Request.Req
     ]
 
-    config = if virtual_host?(bucket), do: config ++ [virtual_host: true], else: config
-    ensure_bucket_name!(bucket)
+    config = if virtual_host, do: config ++ [virtual_host: true], else: config
+    if bucket_scoped?, do: ensure_bucket_name!(bucket)
 
     case endpoint(bucket) do
       nil ->
@@ -354,7 +362,7 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3 do
         # The host a request really goes to: a virtual-host bucket (Tigris) puts
         # its name in front of the endpoint's host, and it is THAT host the
         # policy must see — a name can resolve somewhere the base host does not.
-        request = %{endpoint | host: request_host(bucket, host)}
+        request = %{endpoint | host: if(virtual_host, do: request_host(bucket, host), else: host)}
 
         # An IP literal in a metadata/link-local/reserved range is never a
         # storage endpoint, whoever set it. Names are not resolved here for the
@@ -369,6 +377,38 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3 do
                   "bucket #{bucket.name}: the endpoint #{Endpoint.error_message(reason)}"
         end
     end
+  end
+
+  @doc """
+  The names of the buckets the credentials of `bucket` (its integration) can
+  see, sorted: S3's `ListBuckets`, the account-level call.
+
+  `bucket` is only the connection's description here (`provider`, `region`,
+  `endpoint`, `integration_uuid`, `owner_uuid`); it needs no bucket name.
+  A key limited to one bucket is usually refused, and that is not a failure of
+  the connection, so the reason says what to do instead.
+  """
+  @spec list_remote_buckets(map()) :: {:ok, [String.t()]} | {:error, String.t()}
+  def list_remote_buckets(bucket) do
+    config = service_config(bucket)
+
+    case ExAws.S3.list_buckets() |> ExAws.request(config) do
+      {:ok, %{body: %{buckets: buckets}}} when is_list(buckets) ->
+        {:ok, buckets |> Enum.map(& &1.name) |> Enum.filter(&is_binary/1) |> Enum.sort()}
+
+      {:ok, _other} ->
+        {:error, "The service answered, but not with a list of buckets"}
+
+      {:error, {:http_error, status, _}} when status in [401, 403] ->
+        {:error,
+         "This key is not allowed to list buckets (a key limited to one bucket cannot). " <>
+           "Type the bucket name instead."}
+
+      {:error, reason} ->
+        {:error, "Could not list the buckets: #{inspect(reason, limit: 5)}"}
+    end
+  rescue
+    error -> {:error, "Could not list the buckets: #{Exception.message(error)}"}
   end
 
   # Where a request for `bucket` is sent: its name in front of the endpoint's

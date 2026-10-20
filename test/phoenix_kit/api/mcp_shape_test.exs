@@ -386,12 +386,39 @@ defmodule PhoenixKit.API.MCP.ShapeTest do
       assert Shape.instructions(:admin) =~ "system_get_identity"
     end
 
+    test "the admin instructions name the control fields of a write tool in one sentence" do
+      sentence =
+        :admin
+        |> Shape.instructions()
+        |> String.split(~r/(?<=\.) /)
+        |> Enum.find(&(&1 =~ "dry_run"))
+
+      assert sentence =~ "confirm_token"
+      assert sentence =~ "idempotency_key"
+    end
+
     test "the public side" do
       info = Shape.server_info(:public, @new)
 
       assert info["title"] =~ "shop API"
       refute Shape.instructions(:public) =~ "system_get_identity"
       assert Shape.instructions(:public) != ""
+    end
+
+    test "the public instructions are pinned: no key, the domain's language and currency, the error code" do
+      assert Shape.instructions(:public) ==
+               "This endpoint needs no key. List the tools with tools/list. Answers follow the language " <>
+                 "and currency of the domain you call, unless a tool takes a language or currency field and " <>
+                 "the call sets it. A failed call of a tool comes back as a result with isError set (an " <>
+                 "unknown tool name is a JSON-RPC error, -32602); the code in square brackets is stable and " <>
+                 "the second text item is the full problem document."
+    end
+
+    test "the public instructions name no URL, no admin tool and no approval" do
+      instructions = Shape.instructions(:public)
+
+      refute instructions =~ "http"
+      refute instructions =~ ~r/approval|admin|Bearer|scope/i
     end
 
     test "an older revision gets no title" do

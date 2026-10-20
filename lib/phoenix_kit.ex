@@ -173,11 +173,39 @@ defmodule PhoenixKit do
   # way to quiet it short of configuring one. `Encryption.warn_if_insecure/0`
   # itself still runs unconditionally from `mix phoenix_kit.doctor` and the
   # admin-only system page, so the diagnosis stays available on demand — this
-  # only silences the boot-time push. Opt in with
+  # only leaves out the boot-time push. Opt in with
   # `config :phoenix_kit, integration_encryption_warn_on_boot: true`.
+  #
+  # The flag has three settings. `true` logs this report for every state that
+  # is not healthy. Unset (or `nil`) logs it only when credentials are being
+  # stored as plaintext (`:disabled_no_key`, `:disabled_explicit`), so that
+  # state is loud by default. An explicit `false` logs nothing at boot (and
+  # `Encryption.encrypt_fields/1` skips its one-time plaintext warning), for an
+  # install that turned encryption off on purpose and knows it.
+  #
+  # Unless the flag is `false`, `Encryption.status/0` below resolves the key on
+  # every boot, so the one-time error "a key store IS configured but its secret
+  # could not be read" may appear at boot even when the report itself is off.
+  #
+  # A config value that is not a boolean (`nil` from an unset
+  # `System.get_env/1`, or a string) must not raise here: only the boolean
+  # `false` silences, and any other truthy value, the string "false" included,
+  # enables the full report.
   defp warn_if_integrations_encryption_insecure do
-    if Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot, false) do
-      Encryption.warn_if_insecure()
+    flag = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+
+    cond do
+      flag == false ->
+        :ok
+
+      flag ->
+        Encryption.warn_if_insecure()
+
+      Encryption.status() in [:disabled_no_key, :disabled_explicit] ->
+        Encryption.warn_if_insecure()
+
+      true ->
+        :ok
     end
   rescue
     error ->

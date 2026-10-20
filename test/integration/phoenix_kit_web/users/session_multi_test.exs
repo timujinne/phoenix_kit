@@ -403,6 +403,65 @@ defmodule PhoenixKitWeb.Users.SessionMultiTest do
       assert get_session(restarted)["user_token"] == other_token
     end
 
+    for invalidation <- [:revoked, :expired, :deactivated] do
+      test "a #{invalidation} root cannot restore the active added account" do
+        Settings.update_boolean_setting("multi_session_enabled", true)
+        root = make(nil)
+        other = make(nil)
+        {logged_in, added} = added_account_conn(root, other)
+        [root_token, other_token] = get_session(added)["pk_session_accounts"]
+
+        case unquote(invalidation) do
+          :revoked ->
+            Auth.delete_user_session_token(root_token)
+
+          :expired ->
+            root_token
+            |> Auth.get_session_token_record()
+            |> Ecto.Changeset.change(
+              inserted_at:
+                DateTime.utc_now() |> DateTime.add(-61, :day) |> DateTime.truncate(:second)
+            )
+            |> Repo.update!()
+
+          :deactivated ->
+            root |> Ecto.Changeset.change(is_active: false) |> Repo.update!()
+        end
+
+        assert Auth.get_user_by_session_token(other_token).uuid == other.uuid
+
+        restarted =
+          restart_browser(%{
+            @remember_me_cookie => cookie_value(logged_in, @remember_me_cookie),
+            @accounts_cookie => cookie_value(added, @accounts_cookie)
+          })
+
+        refute restarted.assigns.phoenix_kit_current_user
+        refute get_session(restarted)["pk_session_accounts"]
+        assert %{max_age: 0} = restarted.resp_cookies[@accounts_cookie]
+      end
+    end
+
+    test "a revoked active added account falls back to the valid root" do
+      Settings.update_boolean_setting("multi_session_enabled", true)
+      root = make(nil)
+      other = make(nil)
+      {logged_in, added} = added_account_conn(root, other)
+      [root_token, other_token] = get_session(added)["pk_session_accounts"]
+      Auth.delete_user_session_token(other_token)
+
+      restarted =
+        restart_browser(%{
+          @remember_me_cookie => cookie_value(logged_in, @remember_me_cookie),
+          @accounts_cookie => cookie_value(added, @accounts_cookie)
+        })
+
+      assert restarted.assigns.phoenix_kit_current_user.uuid == root.uuid
+      assert get_session(restarted)["user_token"] == root_token
+      refute get_session(restarted)["pk_session_accounts"]
+      assert %{max_age: 0} = restarted.resp_cookies[@accounts_cookie]
+    end
+
     test "removing the active account resumes on the root" do
       Settings.update_boolean_setting("multi_session_enabled", true)
       root = make(nil)

@@ -174,6 +174,89 @@ config :phoenix_kit, :dashboard_context_selector,
   tab_loader: {MyApp.Contexts, :get_tabs_for_context}  # Returns tab definitions
 ```
 
+### Admin Pages: Navigation and Components (USE THESE - DON'T BUILD CUSTOM)
+
+Before you build navigation or a UI pattern in a module or host app, check
+this section. Core already has most of what an admin page needs, and a
+hand-rolled copy drifts from the rest of the admin: it looks different, it
+misses compact mode, translations, dark themes and accessibility, and the
+next fix to the real component never reaches it.
+
+- **If you are unsure whether core supports something, read the component's
+  `@moduledoc` before you build around it.** Every component below is in
+  `lib/phoenix_kit_web/components/core/<file>.ex` (or the path given) and
+  documents itself with examples.
+- **A module's own older pages are not the standard; core is.** Copying a
+  pattern from elsewhere in the same module is how a hand-rolled one spreads.
+
+**Separate pages of one section → sidebar subtabs, not a tab bar on the page.**
+A module's `admin_tabs/0` returns `%PhoenixKit.Dashboard.Tab{}` structs; a tab
+with `parent:` is a subtab. The admin sidebar nests up to three levels:
+section → subtab → sub-subtab. A subtab that only groups others has no
+`live_view`, links to its first child, and is not lit while a child is open:
+
+```elixir
+def admin_tabs do
+  [
+    %Tab{id: :admin_projects, label: "Projects", path: "projects", icon: "hero-folder",
+         priority: 600, level: :admin, permission: "projects",
+         subtab_display: :when_active, highlight_with_subtabs: false,
+         live_view: {MyModule.Web.ProjectsLive, :index}},
+    # the middle level: a group with no page of its own
+    %Tab{id: :admin_projects_api_keys, label: "API keys", path: "projects/api-keys",
+         icon: "hero-key", priority: 610, level: :admin, permission: "projects",
+         parent: :admin_projects, match: :prefix,
+         subtab_display: :when_active, redirect_to_first_subtab: true,
+         highlight_with_subtabs: false},
+    %Tab{id: :admin_projects_api_keys_list, label: "Keys", path: "projects/api-keys",
+         icon: "hero-key", priority: 611, level: :admin, permission: "projects",
+         parent: :admin_projects_api_keys, match: :exact,
+         live_view: {MyModule.Web.ApiKeysLive, :index}},
+    %Tab{id: :admin_projects_api_keys_usage, label: "Usage", path: "projects/api-keys/usage",
+         icon: "hero-chart-bar", priority: 612, level: :admin, permission: "projects",
+         parent: :admin_projects_api_keys, match: :exact,
+         live_view: {MyModule.Web.ApiKeysLive, :usage}}
+  ]
+end
+```
+
+Routes are generated from tabs with a `live_view`, in declaration order: put
+literal paths (`projects/api-keys/usage`) before parameterised ones
+(`projects/:id`), or the parameter takes them. A tab with `visible: false`
+gets a route but no sidebar entry (a detail page, a redirect). Options:
+`lib/phoenix_kit/dashboard/tab.ex` and `lib/phoenix_kit/dashboard/README.md`.
+
+**Views within one page** (one URL, several panels, or `?tab=` in the query)
+→ `<.nav_tabs>` (`nav_tabs.ex`), with `navigate` / `patch` links or an
+`on_change` event.
+
+| Need | Use | File |
+|---|---|---|
+| Page title, back link, actions | `<.admin_page_header>` | `admin_page_header.ex` |
+| A table | `<.table_default>` with `sort_header_cell`, `search_toolbar`; `<.empty_state>` for no rows | `table_default.ex`, `empty_state.ex` |
+| Row actions, a clickable row | `<.table_row_menu>`, `<.row_link>`, `<.context_menu>` | `table_row_menu.ex`, `row_link.ex`, `context_menu.ex` |
+| Select rows and act on them | `<.bulk_select_*>`, `<.bulk_actions_toolbar>` | `bulk_select.ex` |
+| Choose and order columns | `<.column_settings_modal>` | `column_settings.ex` |
+| Drag to reorder | `<.sortable_tbody>` / `<.sortable_row>`, `<.draggable_list>` | `sortable.ex`, `draggable_list.ex` |
+| Paging, a sort bar | `<.pagination>`, `<.load_more>`, `<.sort_selector>` | `pagination.ex`, `sort_selector.ex` |
+| Form fields | `<.input>`, `<.select>`, `<.textarea>`, `<.checkbox>`, `<.date_input>` (site date format), `<.decimal_input>` (comma and dot) | `input.ex`, `select.ex`, … |
+| Search a source and pick an entry | `<.search_picker>` | `search_picker.ex` |
+| Form layout and saving | `<.form_section>`, `<.form_actions>`, `<.save_button>` | `form_section.ex`, `form_actions.ex`, `save_button.ex` |
+| Charts | `<.bar_chart>` (stacked with `parts:`, fixed scale with `y_max`), `<.line_chart>`, `<.sparkline>`, `<.chart_lanes>` | `chart.ex`, `chart_lanes.ex` |
+| Figures and states | `<.stat_card>`, `<.hero_stat_card>`, `<.status_dot>`, the badges | `stat_card.ex`, `hero_stat_card.ex`, `status_dot.ex`, `badge.ex` |
+| Times and durations | `<.time_ago>`, `<.duration_display>`, `<.age_badge>` | `time_display.ex` |
+| One day at a time, in the URL | `<.date_nav>` | `date_nav.ex` |
+| Dialogs and pop-overs | `<.modal>`, `<.confirm_modal>`, `<.alert_modal>`, `<.popover_panel>` | `modal.ex`, `popover_panel.ex` |
+| Collapsible section | `<.accordion>` | `accordion.ex` |
+| Switch to a sibling from the breadcrumb | `<.crumb_switcher>` | `crumb_switcher.ex` |
+| A slice of the Activity log | `<.activity_list>` | `activity_list.ex` |
+| Internal links (prefix and locale applied) | `<.pk_link>` / `Routes.path/1` | `pk_link.ex` |
+| Switching organisation / team / project | the context selector, above | config |
+
+If core really has nothing for it, build it as a component in your module
+(see "Component-Based Helpers" below), and say in its `@moduledoc` what you
+checked in core, so the next person can tell whether that has changed.
+
 ### Dashboard Theme Switcher
 
 Built-in theme switcher with 35+ daisyUI themes. Auto-renders in dashboard header.

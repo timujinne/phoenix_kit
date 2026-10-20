@@ -74,7 +74,9 @@ defmodule PhoenixKit.Utils.SessionFingerprint do
 
   Delegates to `PhoenixKit.Utils.IpAddress.extract_from_conn/1`: a forwarded
   header is trusted only when `conn.remote_ip` is itself a loopback or
-  private address (a proxy on the same box or network), and only the LAST
+  private address (a proxy on the same box or network) — or, when
+  `config :phoenix_kit, :trusted_proxies` is set, only an address inside it
+  — and only the LAST
   `x-forwarded-for` entry — the one a proxy appends, not the one a client
   sent — is used. The previous implementation trusted `x-forwarded-for`
   unconditionally and took the FIRST entry, so anyone could spoof this

@@ -95,6 +95,46 @@ defmodule PhoenixKit.API.ValidatorArrayTest do
                )
     end
 
+    test "an enum on the items is enforced, with the allowed list, like an enum on a scalar" do
+      fields = %{
+        "type" => "array",
+        "items" => %{"type" => "string", "enum" => ["id", "title", "price"]}
+      }
+
+      schema = %{"type" => "object", "properties" => %{"fields" => fields}}
+
+      assert {:ok, %{"fields" => ["id", "price"]}} =
+               Validator.validate(schema, %{"fields" => ["id", "price"]})
+
+      assert [
+               %{
+                 path: "fields[1]",
+                 message: "must be one of: id, title, price",
+                 allowed: ["id", "title", "price"]
+               }
+             ] = errors(schema, %{"fields" => ["id", "nope", "title"]})
+    end
+
+    test "an enum on the items of an array inside an array of objects reports the full path" do
+      schema = %{
+        "type" => "object",
+        "properties" => %{
+          "queries" => %{
+            "type" => "array",
+            "items" => %{
+              "type" => "object",
+              "properties" => %{
+                "fields" => %{"type" => "array", "items" => %{"enum" => ["id", "title"]}}
+              }
+            }
+          }
+        }
+      }
+
+      assert [%{path: "queries[1].fields[0]", allowed: ["id", "title"]}] =
+               errors(schema, %{"queries" => [%{"fields" => ["id"]}, %{"fields" => ["nope"]}]})
+    end
+
     test "a missing items schema leaves elements unchecked" do
       assert {:ok, [1, "a", nil]} = Validator.validate(%{"type" => "array"}, [1, "a", nil])
     end
