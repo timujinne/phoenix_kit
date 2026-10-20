@@ -43,6 +43,7 @@ defmodule PhoenixKit.Modules.Storage.Jobs.Reconcile do
 
   @batch_size 10
   @pause_seconds 2
+  @unnamed_title "Bring a library up to date with its storage settings"
 
   @impl true
   def kind, do: "storage.reconcile"
@@ -53,11 +54,13 @@ defmodule PhoenixKit.Modules.Storage.Jobs.Reconcile do
   @impl true
   def title(_args, {"library", uuid}) do
     case Libraries.get_library(uuid) do
+      # A hidden one is a module's own and is not named either.
+      %{kind: "system", visibility: "private"} -> @unnamed_title
       %{kind: "system", name: name} -> "Bring \"#{name}\" up to date with its storage settings"
       # A user's library is theirs and private: its name is not written into a title that
       # the Jobs page, the Libraries tab and the History tab show to site managers.
       %{kind: "user"} -> "Bring a user's library up to date with its storage settings"
-      nil -> "Bring a library up to date with its storage settings"
+      nil -> @unnamed_title
     end
   end
 

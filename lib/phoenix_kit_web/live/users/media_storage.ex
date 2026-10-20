@@ -219,7 +219,9 @@ defmodule PhoenixKitWeb.Live.Users.MediaStorage do
       else: Routes.path("/admin/settings/media?tab=renditions&set=#{set.uuid}")
   end
 
-  # A site library has a settings page; a user's own library does not.
+  # A site library has a settings page; a user's own library and a hidden one do not.
+  defp library_path(%{kind: "system", visibility: "private"}), do: nil
+
   defp library_path(%{kind: "system", uuid: uuid}),
     do: Routes.path("/admin/settings/media/libraries/#{uuid}")
 
