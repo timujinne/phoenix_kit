@@ -191,7 +191,11 @@ defmodule PhoenixKit.Modules.Storage.Endpoint do
   The class of an address: `:public`, or what makes it not one
   (`:unspecified`, `:loopback`, `:private`, `:shared`, `:link_local`,
   `:unique_local`, `:multicast`, `:reserved`). An IPv4 address wrapped in IPv6
-  (`::ffff:a.b.c.d`, NAT64 `64:ff9b::/96`) is classified as the IPv4 address.
+  (IPv4-mapped `::ffff:a.b.c.d`, IPv4-compatible `::a.b.c.d`, NAT64
+  `64:ff9b::/96`, 6to4 `2002::/16`) is classified as the IPv4 address.
+  Local-use NAT64 `64:ff9b:1::/48` and site-local `fec0::/10` count as
+  `:unique_local`; Teredo `2001::/32` and documentation `2001:db8::/32` are
+  `:reserved`.
   """
   @spec classify(:inet.ip_address()) :: atom()
   def classify({0, _, _, _}), do: :unspecified
@@ -210,9 +214,22 @@ defmodule PhoenixKit.Modules.Storage.Endpoint do
   def classify({0, 0, 0, 0, 0, 0, 0, 0}), do: :unspecified
   def classify({0, 0, 0, 0, 0, 0, 0, 1}), do: :loopback
   def classify({0, 0, 0, 0, 0, 0xFFFF, hi, lo}), do: classify(embedded_v4(hi, lo))
+  # IPv4-compatible (::a.b.c.d, deprecated but still routed by some stacks).
+  def classify({0, 0, 0, 0, 0, 0, hi, lo}), do: classify(embedded_v4(hi, lo))
+  # NAT64: the well-known prefix carries the IPv4 address in its last 32 bits.
+  # The local-use 64:ff9b:1::/48 (RFC 8215) lets the operator place it anywhere
+  # in the /48, so the prefix as a whole is local to the network.
   def classify({0x64, 0xFF9B, 0, 0, 0, 0, hi, lo}), do: classify(embedded_v4(hi, lo))
+  def classify({0x64, 0xFF9B, 1, _, _, _, _, _}), do: :unique_local
+  # 6to4 carries the IPv4 address in the 16 bits after the prefix.
+  def classify({0x2002, hi, lo, _, _, _, _, _}), do: classify(embedded_v4(hi, lo))
+  # Teredo tunnels to anywhere; the documentation range is never a real host.
+  def classify({0x2001, 0, _, _, _, _, _, _}), do: :reserved
+  def classify({0x2001, 0xDB8, _, _, _, _, _, _}), do: :reserved
   def classify({first, _, _, _, _, _, _, _}) when (first &&& 0xFE00) == 0xFC00, do: :unique_local
   def classify({first, _, _, _, _, _, _, _}) when (first &&& 0xFFC0) == 0xFE80, do: :link_local
+  # Deprecated site-local (RFC 3879): local to a site, so read as unique-local.
+  def classify({first, _, _, _, _, _, _, _}) when (first &&& 0xFFC0) == 0xFEC0, do: :unique_local
   def classify({first, _, _, _, _, _, _, _}) when (first &&& 0xFF00) == 0xFF00, do: :multicast
   def classify({_, _, _, _, _, _, _, _}), do: :public
 
