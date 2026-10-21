@@ -214,15 +214,17 @@ defmodule PhoenixKit.Utils.SessionFingerprint do
   proxy's own loopback or private address. Read correctly now, every
   request of such a session would be a changed IP: a warning each time, a
   sign-out under strict mode. A request that came through a proxy (its
-  peer is loopback/private), from the same browser, for a session stored
-  with a loopback/private address and now read as a public one, is that
+  peer is a trusted proxy — by default loopback/private, see
+  `PhoenixKit.Utils.IpAddress.trusted_proxy?/1`), from the same browser,
+  for a session stored with a loopback/private address and now read as a
+  public one, is that
   session — it moves to the current address once and is checked as usual
   from then on.
 
   This is a deliberate, one-off loosening, not a defence: a user agent is
   easy to copy, so a stolen token with the browser's user agent, sent
   through the proxy, is moved too. What bounds it: a session stored with a
-  private/loopback address, used again through a private peer (a proxy)
+  private/loopback address, used again through a trusted proxy
   from a public address, moves once — after it, the stored address is
   public and never moves again. That includes a LAN client that signed in
   through the same proxy (its forwarded address private too). A request
@@ -233,7 +235,7 @@ defmodule PhoenixKit.Utils.SessionFingerprint do
   def proxy_rebind_address(conn, stored_ip, stored_ua_hash) do
     current_ip = get_ip_address(conn)
 
-    if IpAddress.local_address?(conn.remote_ip) and IpAddress.local_address?(stored_ip) and
+    if IpAddress.trusted_proxy?(conn.remote_ip) and IpAddress.local_address?(stored_ip) and
          PublicAddress.public?(current_ip) and stored_ua_hash in [nil, hash_user_agent(conn)] do
       current_ip
     end

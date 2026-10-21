@@ -141,9 +141,9 @@ defmodule PhoenixKit.API.RequestContext do
   end
 
   # Behind a TLS-terminating proxy the connection itself is plain HTTP. The
-  # forwarded protocol is believed only from a local peer, the default rule
-  # of `PhoenixKit.Utils.IpAddress.client_address/1`. It does not follow
-  # `config :phoenix_kit, :trusted_proxies`.
+  # forwarded protocol is believed only from a trusted proxy, the same rule
+  # as the forwarded address (`PhoenixKit.Utils.IpAddress.trusted_proxy?/1`,
+  # which follows `config :phoenix_kit, :trusted_proxies`).
   defp scheme(conn) do
     forwarded =
       conn
@@ -151,7 +151,7 @@ defmodule PhoenixKit.API.RequestContext do
       |> List.first()
       |> forwarded_scheme()
 
-    if forwarded && IpAddress.local_address?(conn.remote_ip) do
+    if forwarded && IpAddress.trusted_proxy?(conn.remote_ip) do
       forwarded
     else
       Atom.to_string(conn.scheme)

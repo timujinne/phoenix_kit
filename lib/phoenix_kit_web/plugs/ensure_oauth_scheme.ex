@@ -3,9 +3,16 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
   Ensures correct HTTPS scheme for OAuth callback URL generation behind reverse proxies.
 
   This plug checks (in order):
-  1. `X-Forwarded-Proto` header (nginx/apache standard)
+  1. `X-Forwarded-Proto` header (nginx/apache standard), believed only from a
+     trusted proxy (`PhoenixKit.Utils.IpAddress.trusted_proxy?/1`, which
+     follows `config :phoenix_kit, :trusted_proxies`); from any other peer
+     the header is ignored
   2. Explicit `:phoenix_kit, :oauth_base_url` config
   3. Endpoint URL configuration
+
+  Known gap: with `:oauth_base_url` unset, `PhoenixKit.Config.get_string/2`
+  answers `""`, which is truthy, so step 2 always applies and forces https
+  and port 443; step 3 is not reached.
 
   ## Usage
 
@@ -21,6 +28,8 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
   """
 
   import Plug.Conn
+
+  alias PhoenixKit.Utils.IpAddress
 
   def init(opts), do: opts
 
@@ -42,8 +51,11 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
 
   defp get_forwarded_proto(conn) do
     case get_req_header(conn, "x-forwarded-proto") do
-      [proto | _] when proto in ["https", "http"] -> proto
-      _ -> nil
+      [proto | _] when proto in ["https", "http"] ->
+        if IpAddress.trusted_proxy?(conn.remote_ip), do: proto
+
+      _ ->
+        nil
     end
   end
 
