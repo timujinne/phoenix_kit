@@ -179,29 +179,35 @@ defmodule PhoenixKit do
   # The flag has three settings. `true` logs this report for every state that
   # is not healthy. Unset (or `nil`) logs it only when credentials are being
   # stored as plaintext (`:disabled_no_key`, `:disabled_explicit`), so that
-  # state is loud by default. An explicit `false` logs nothing at boot (and
-  # `Encryption.encrypt_fields/1` skips its one-time plaintext warning), for an
+  # state is loud by default. An explicit `false` silences the report for
+  # every state but `:disabled_no_key` (and `Encryption.encrypt_fields/1`
+  # skips its one-time plaintext warning for `:disabled_explicit`), for an
   # install that turned encryption off on purpose and knows it.
+  # `:disabled_no_key` means encryption is on and the key went missing, so it
+  # is reported whatever the flag says.
   #
-  # Unless the flag is `false`, `Encryption.status/0` below resolves the key on
-  # every boot, so the one-time error "a key store IS configured but its secret
-  # could not be read" may appear at boot even when the report itself is off.
+  # `Encryption.status/0` below resolves the key on every boot, so the
+  # one-time error "a key store IS configured but its secret could not be
+  # read" may appear at boot even when the report itself is off.
   #
   # A config value that is not a boolean (`nil` from an unset
   # `System.get_env/1`, or a string) must not raise here: only the boolean
-  # `false` silences, and any other truthy value, the string "false" included,
+  # `false` silences anything, and any other truthy value, the string "false" included,
   # enables the full report.
   defp warn_if_integrations_encryption_insecure do
     flag = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+    # Resolved once: a key store that cannot be read is not memoized, so each
+    # extra call would read it again.
+    status = Encryption.status()
 
     cond do
-      flag == false ->
+      flag == false and status != :disabled_no_key ->
         :ok
 
       flag ->
         Encryption.warn_if_insecure()
 
-      Encryption.status() in [:disabled_no_key, :disabled_explicit] ->
+      status in [:disabled_no_key, :disabled_explicit] ->
         Encryption.warn_if_insecure()
 
       true ->
