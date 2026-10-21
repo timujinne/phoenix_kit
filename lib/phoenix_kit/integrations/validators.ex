@@ -31,6 +31,7 @@ defmodule PhoenixKit.Integrations.Validators do
   alias PhoenixKit.AWS.CredentialsVerifier
   alias PhoenixKit.Integrations.Probe
   alias PhoenixKit.Integrations.Telegram
+  alias PhoenixKit.Mailer.SmtpEndpointPolicy
   alias PhoenixKit.Mailer.SmtpTransport
   alias PhoenixKit.Modules.Storage.Endpoint
   alias PhoenixKit.Utils.Number
@@ -285,12 +286,21 @@ defmodule PhoenixKit.Integrations.Validators do
   password stays `never` for the same reason as an explicit `never`. A relay that
   advertises no `AUTH` verb at all is a different case, and is treated as a pass
   — see the module doc.
+
+  `opts[:owner]` is the connection's owner (`:system` or `{:user, uuid}`). When
+  the host has enabled `PhoenixKit.Mailer.SmtpEndpointPolicy`, a personal
+  connection's host and port are checked — inside the probe, so a slow lookup
+  is bounded too — and the session opens to the checked address; nothing
+  connects to an internal host or a non-mail port. A missing owner gets the
+  strict policy; `:system` is never checked.
   """
-  @spec smtp(map()) :: verdict()
-  def smtp(data) do
+  @spec smtp(map(), keyword()) :: verdict()
+  def smtp(data, opts \\ []) do
+    policy = SmtpEndpointPolicy.policy_for(data, Keyword.get(opts, :owner))
+
     case SmtpTransport.config(data) do
       {:ok, options} ->
-        Probe.run(fn -> open_smtp(options) end)
+        Probe.run(fn -> check_and_open_smtp(options, policy) end)
 
       {:error, {:invalid_smtp_port, port}} ->
         {:error, gettext("Invalid port: %{port}", port: inspect(port))}
@@ -325,6 +335,13 @@ defmodule PhoenixKit.Integrations.Validators do
   end
 
   # --- SMTP -----------------------------------------------------------------
+
+  defp check_and_open_smtp(options, policy) do
+    case SmtpEndpointPolicy.enforce(options, policy) do
+      {:ok, options} -> open_smtp(options)
+      {:error, {:smtp_endpoint_refused, reason}} -> {:error, SmtpEndpointPolicy.message(reason)}
+    end
+  end
 
   # `never` is the operator saying there are no credentials to prove, so leave it
   # alone; anything else becomes `always` so a wrong password fails the check

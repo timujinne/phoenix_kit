@@ -322,6 +322,66 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
     end
   end
 
+  describe "smtp/2 with the personal SMTP policy on" do
+    setup do
+      Application.put_env(:phoenix_kit, :personal_smtp_policy, :restricted)
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :personal_smtp_policy) end)
+    end
+
+    defp relay_creds(port),
+      do: %{"host" => "127.0.0.1", "port" => port, "username" => "", "password" => ""}
+
+    test "a personal connection to a local relay is refused before any socket opens" do
+      port = relay_without_auth(self())
+
+      assert {:error, _message} = Validators.smtp(relay_creds(port), owner: {:user, "u-1"})
+      refute_receive :relay_accepted, 200
+    end
+
+    test "a personal connection to an internal address on a mail port is refused" do
+      assert {:error, message} = Validators.smtp(relay_creds(587), owner: {:user, "u-1"})
+      assert message =~ "public address"
+    end
+
+    test "a personal connection on a non-mail port is refused" do
+      creds = %{"host" => "8.8.8.8", "port" => "5432", "username" => "u", "password" => "p"}
+
+      assert {:error, message} = Validators.smtp(creds, owner: {:user, "u-1"})
+      assert message =~ "25, 465, 587"
+    end
+
+    test "a personal connection to an internal name is refused" do
+      creds = %{"host" => "pgbouncer", "port" => "587", "username" => "u", "password" => "p"}
+
+      assert {:error, message} = Validators.smtp(creds, owner: {:user, "u-1"})
+      assert message =~ "public address"
+    end
+
+    test "no owner means the strict policy" do
+      port = relay_without_auth(self())
+
+      assert {:error, _} = Validators.smtp(relay_creds(port))
+      refute_receive :relay_accepted, 200
+    end
+
+    test "a system connection is not affected" do
+      port = relay_without_auth(self())
+
+      assert :ok == Validators.smtp(relay_creds(port), owner: :system)
+      assert_receive :relay_accepted
+    end
+  end
+
+  describe "smtp/2 with the personal SMTP policy off (the default)" do
+    test "a personal connection still reaches an internal relay, as before" do
+      port = relay_without_auth(self())
+      creds = %{"host" => "127.0.0.1", "port" => port, "username" => "", "password" => ""}
+
+      assert :ok == Validators.smtp(creds, owner: {:user, "u-1"})
+      assert_receive :relay_accepted
+    end
+  end
+
   # --- helpers ---------------------------------------------------------------
 
   # Answers the given results in order. A plain closure beats a mocking library here:
@@ -1191,12 +1251,13 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
   end
 
   # Greets, answers EHLO, and advertises no AUTH — an IP-authenticated smarthost.
-  defp relay_without_auth do
+  defp relay_without_auth(notify \\ nil) do
     listener = listen()
 
     server =
       spawn(fn ->
         {:ok, socket} = :gen_tcp.accept(listener)
+        if notify, do: send(notify, :relay_accepted)
         :gen_tcp.send(socket, "220 relay.internal ESMTP\r\n")
         {:ok, _ehlo} = :gen_tcp.recv(socket, 0, 5_000)
         :gen_tcp.send(socket, "250-relay.internal\r\n250-8BITMIME\r\n250 SIZE 10240000\r\n")

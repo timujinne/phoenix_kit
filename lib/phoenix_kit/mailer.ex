@@ -29,6 +29,7 @@ defmodule PhoenixKit.Mailer do
   alias PhoenixKit.Email.CoreTemplates
   alias PhoenixKit.Email.Provider
   alias PhoenixKit.Integrations
+  alias PhoenixKit.Mailer.SmtpEndpointPolicy
   alias PhoenixKit.Mailer.SmtpTransport
   alias PhoenixKit.Users.Auth.User
 
@@ -594,6 +595,12 @@ defmodule PhoenixKit.Mailer do
     scratch, some Alpine builds) never noticed they had no CA store. Install one
     (e.g. `ca-certificates`) to restore sending. A relay with no credentials to
     protect still degrades rather than failing.
+  - `{:error, {:smtp_endpoint_refused, :blocked_port | :blocked_host}}` — SMTP
+    only, and only when the host enabled
+    `config :phoenix_kit, :personal_smtp_policy, :restricted`: a personal
+    (user-owned) connection points at a non-mail port, or at a host that is
+    internal or does not resolve, and no socket was opened.
+    `PhoenixKit.Mailer.SmtpEndpointPolicy.message/1` gives the sentence to show.
   """
   @spec deliver_via_integration(Swoosh.Email.t(), String.t(), keyword()) ::
           {:ok, term()} | {:error, term()}
@@ -708,8 +715,13 @@ defmodule PhoenixKit.Mailer do
     # that decides whether a connection is ready to actually send. That
     # check belongs here, before the (secret-bearing) config reaches
     # `Swoosh.Mailer.deliver/2`. See `require_fields/2`.
+    #
+    # A personal connection's host is checked (and pinned) here, right before
+    # every send — see `SmtpEndpointPolicy`. A no-op unless the host opted in.
     with :ok <- require_fields(creds, ~w(host)),
-         {:ok, options} <- SmtpTransport.config(creds) do
+         {:ok, options} <- SmtpTransport.config(creds),
+         {:ok, options} <-
+           SmtpEndpointPolicy.enforce(options, SmtpEndpointPolicy.policy_for(creds, :system)) do
       {:ok, {Swoosh.Adapters.SMTP, options}}
     end
   end

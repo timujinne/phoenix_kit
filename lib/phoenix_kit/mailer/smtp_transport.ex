@@ -9,6 +9,11 @@ defmodule PhoenixKit.Mailer.SmtpTransport do
   `PhoenixKit.Integrations`, which would otherwise close a
   Integrations → Validators → Mailer → Integrations cycle).
 
+  It does not decide *where* a connection may go: options for a personal
+  connection must pass `PhoenixKit.Mailer.SmtpEndpointPolicy.enforce/3` before
+  a socket opens, as `PhoenixKit.Mailer` and `PhoenixKit.Integrations.Validators`
+  do.
+
   ## Operator settings
 
   Everything below is derived from the `smtp` provider's setup fields. All of
