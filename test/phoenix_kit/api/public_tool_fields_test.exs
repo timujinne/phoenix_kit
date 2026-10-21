@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.PublicToolFieldsTest do
   @moduledoc """
-  A public tool declares `language`, `currency` and `cart_token` itself: core
+  A public tool declares `language`, `currency` and `session_token` itself: core
   reserves only the control fields of a write tool. The tool passes the checks,
   is listed on every surface with those properties, validates them like any
   other property and hands them to the handler unchanged.
@@ -27,19 +27,21 @@ defmodule PhoenixKit.API.PublicToolFieldsTest do
         name: "pubfields.search_things",
         audience: :public,
         title: "Search things",
-        description: "Test tool: a public tool that declares language and currency.",
+        description:
+          "Test tool: a public tool that declares language, currency and a client token.",
         input_schema: %{
           "type" => "object",
           "properties" => %{
             "language" => %{"type" => "string", "enum" => ["en", "de"]},
             "currency" => %{"type" => "string", "pattern" => "^[A-Z]{3}$"},
-            "cart_token" => %{"type" => "string"}
+            "session_token" => %{"type" => "string"}
           },
           "additionalProperties" => false
         },
         output_schema: %{"type" => "object"},
         handler: {__MODULE__, :search},
-        annotations: %{read_only: true, idempotent: true}
+        annotations: %{read_only: true, idempotent: true},
+        client_token: "session_token"
       ]
     end
 
@@ -77,7 +79,7 @@ defmodule PhoenixKit.API.PublicToolFieldsTest do
       |> Map.fetch!("tools")
       |> Enum.find(&(&1["name"] == "pubfields_search_things"))
 
-    assert declared(tool["inputSchema"]) == ["cart_token", "currency", "language"]
+    assert declared(tool["inputSchema"]) == ["currency", "language", "session_token"]
     assert tool["inputSchema"]["additionalProperties"] == false
   end
 
@@ -86,11 +88,11 @@ defmodule PhoenixKit.API.PublicToolFieldsTest do
     operation = json(conn)["paths"]["/pubfields.search_things"]["post"]
     schema = operation["requestBody"]["content"]["application/json"]["schema"]
 
-    assert declared(schema) == ["cart_token", "currency", "language"]
+    assert declared(schema) == ["currency", "language", "session_token"]
   end
 
   test "a value reaches the handler unchanged, over REST" do
-    body = %{"language" => "de", "currency" => "EUR", "cart_token" => "abc"}
+    body = %{"language" => "de", "currency" => "EUR", "session_token" => "abc"}
     conn = public_rest("/pubfields.search_things", body: body)
 
     assert conn.status == 200
@@ -126,7 +128,10 @@ defmodule PhoenixKit.API.PublicToolFieldsTest do
 
   test "the executor still refuses the control field names in a tool's schema" do
     for name <- ~w(dry_run confirm_token idempotency_key) do
-      schema = %{"type" => "object", "properties" => %{name => %{"type" => "string"}}}
+      schema = %{
+        "type" => "object",
+        "properties" => %{name => %{"type" => "string"}, "session_token" => %{"type" => "string"}}
+      }
 
       assert {:error, [message]} =
                FieldTools.tool_options() |> Keyword.put(:input_schema, schema) |> Tool.new()

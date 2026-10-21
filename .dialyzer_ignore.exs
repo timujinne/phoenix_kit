@@ -97,6 +97,9 @@
   # Same reason for anything else whose spec names Scope.t(): the struct carries
   # an opaque MapSet field, so declaring it in a contract is flagged.
   {"lib/phoenix_kit/test/fixtures.ex", :contract_with_opaque},
+  # `Phoenix.LiveView.JS.t()` carries an opaque `ops` field: the commands that take and
+  # return one (`open/1`, `close/1`, `toggle/1`) are flagged for their specs.
+  {"lib/phoenix_kit_web/components/admin_dock.ex", :contract_with_opaque},
   # `Keys.actor/3` returns an `Actor`, which carries the owner's `Scope.t()` (`:scope`).
   # Only that spec: another contract in the file still reports.
   ~r{^lib/phoenix_kit/api/keys\.ex:\d+(:\d+)?:contract_with_opaque The @spec for actor has},

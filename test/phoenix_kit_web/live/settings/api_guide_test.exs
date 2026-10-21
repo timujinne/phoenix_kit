@@ -215,11 +215,11 @@ defmodule PhoenixKitWeb.Live.Settings.ApiGuideTest do
                "--transport http abcdefghij-abcdefghij-abcdefghi-admin '"
     end
 
-    test "a title with nothing to slug falls back to shop", %{conn: conn} do
+    test "a title with nothing to slug falls back to site", %{conn: conn} do
       KeyTestSupport.put_setting("project_title", "日本語")
       {:ok, view, _html} = live(conn, @path)
 
-      assert text(view, "#guide-claude-code-command") =~ "--transport http shop-admin '"
+      assert text(view, "#guide-claude-code-command") =~ "--transport http site-admin '"
     end
   end
 

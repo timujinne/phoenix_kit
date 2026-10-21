@@ -435,7 +435,19 @@ defmodule PhoenixKit.API.ExecutorFlowTest do
       second = call(token, @misbehave, %{"mode" => "leak", "idempotency_key" => key})
 
       assert first.status == 200 and second.status == 200
-      refute json(first)["cart_token"] == json(second)["cart_token"]
+      refute json(first)["session_token"] == json(second)["session_token"]
+      assert get_resp_header(second, "idempotent-replayed") == []
+      assert record_count(key) == 0
+    end
+
+    test "an answer that carries a credential the tool declares is never stored", %{token: token} do
+      key = idem()
+
+      first = call(token, @misbehave, %{"mode" => "leak_link", "idempotency_key" => key})
+      second = call(token, @misbehave, %{"mode" => "leak_link", "idempotency_key" => key})
+
+      assert first.status == 200 and second.status == 200
+      refute json(first)["link"] == json(second)["link"]
       assert get_resp_header(second, "idempotent-replayed") == []
       assert record_count(key) == 0
     end
@@ -515,31 +527,33 @@ defmodule PhoenixKit.API.ExecutorFlowTest do
       assert log =~ "ArgumentError"
     end
 
-    test "a public write with a cart token and a key is replayed per cart" do
+    test "a public write with a client token and a key is replayed per client token" do
       key = idem()
-      body = %{"text" => "hi", "cart_token" => "cart-one", "idempotency_key" => key}
+      body = %{"text" => "hi", "session_token" => "session-one", "idempotency_key" => key}
 
       first = public_call("flowkit.public_write", body)
       second = public_call("flowkit.public_write", body)
-      other_cart = public_call("flowkit.public_write", %{body | "cart_token" => "cart-two"})
+
+      other_session =
+        public_call("flowkit.public_write", %{body | "session_token" => "session-two"})
 
       assert second.resp_body == first.resp_body
       assert get_resp_header(second, "idempotent-replayed") == ["true"]
-      assert get_resp_header(other_cart, "idempotent-replayed") == []
+      assert get_resp_header(other_session, "idempotent-replayed") == []
       assert ApiFlowStore.calls() == 2
     end
 
     test "a public tool that cannot replay refuses the idempotency_key field and ignores the header" do
       key = idem()
 
-      refused = public_call("flowkit.mint_cart", %{"idempotency_key" => key})
+      refused = public_call("flowkit.mint_session", %{"idempotency_key" => key})
       assert refused.status == 422
       assert error_paths(refused) == ["idempotency_key"]
-      refute_received {:flow, "flowkit.mint_cart", _, _}
+      refute_received {:flow, "flowkit.mint_session", _, _}
 
       conn = authed(:public, headers: [{"idempotency-key", key}])
-      first = Executor.call(conn, :public, "flowkit.mint_cart", %{})
-      second = Executor.call(conn, :public, "flowkit.mint_cart", %{})
+      first = Executor.call(conn, :public, "flowkit.mint_session", %{})
+      second = Executor.call(conn, :public, "flowkit.mint_session", %{})
 
       assert first.status == 200 and second.status == 200
       refute first.resp_body == second.resp_body
@@ -548,13 +562,27 @@ defmodule PhoenixKit.API.ExecutorFlowTest do
     end
 
     test "a tool that cannot replay still takes dry_run" do
-      conn = public_call("flowkit.mint_cart", %{"dry_run" => true})
+      conn = public_call("flowkit.mint_session", %{"dry_run" => true})
 
       assert conn.status == 200
       assert %{"executed" => false, "dry_run" => true} = json(conn)
     end
 
-    test "a public write without a cart token has no idempotency" do
+    test "a tool that declares no client token but has a cart_token property is still replayed per token (legacy)" do
+      key = idem()
+      body = %{"text" => "hi", "cart_token" => "legacy-one", "idempotency_key" => key}
+
+      first = public_call("flowkit.legacy_write", body)
+      second = public_call("flowkit.legacy_write", body)
+      other = public_call("flowkit.legacy_write", %{body | "cart_token" => "legacy-two"})
+
+      assert second.resp_body == first.resp_body
+      assert get_resp_header(second, "idempotent-replayed") == ["true"]
+      assert get_resp_header(other, "idempotent-replayed") == []
+      assert ApiFlowStore.calls() == 2
+    end
+
+    test "a public write without a client token has no idempotency" do
       key = idem()
       body = %{"text" => "hi", "idempotency_key" => key}
 

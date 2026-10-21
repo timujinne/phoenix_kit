@@ -679,15 +679,27 @@ defmodule PhoenixKit.Integrations.EncryptionTest do
   describe "encrypt_value/1 and decrypt_value/1 when encryption is unavailable" do
     import ExUnit.CaptureLog
 
+    @value_flag_key {Encryption, :plaintext_value_logged}
+    @write_flag_key {Encryption, :plaintext_write_logged}
+
     setup do
       original_flat = Application.get_env(:phoenix_kit, :secret_key_base)
       original_parent = Application.get_env(:phoenix_kit, :parent_module)
+      original_flag = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+      original_enabled = Application.get_env(:phoenix_kit, :integration_encryption_enabled)
       Application.delete_env(:phoenix_kit, :secret_key_base)
       Application.put_env(:phoenix_kit, :parent_module, PhoenixKit.NoSuchApp)
+      Application.delete_env(:phoenix_kit, :integration_encryption_enabled)
+      :persistent_term.erase(@value_flag_key)
+      :persistent_term.erase(@write_flag_key)
 
       on_exit(fn ->
         restore_env(:secret_key_base, original_flat)
         restore_env(:parent_module, original_parent)
+        restore_env(:integration_encryption_warn_on_boot, original_flag)
+        restore_env(:integration_encryption_enabled, original_enabled)
+        :persistent_term.erase(@value_flag_key)
+        :persistent_term.erase(@write_flag_key)
       end)
 
       refute Encryption.enabled?()
@@ -702,8 +714,39 @@ defmodule PhoenixKit.Integrations.EncryptionTest do
         end)
 
       assert log =~ "encrypt_value/1"
-      assert log =~ "no encryption key available"
+      assert log =~ "no encryption key is in use"
+      assert log =~ Encryption.key_report_message(Encryption.key_report())
       refute log =~ "s3-secret-should-not-be-logged"
+    end
+
+    test "encrypt_value/1 logs only once per VM" do
+      first = capture_log(fn -> Encryption.encrypt_value("s3-secret-1") end)
+      second = capture_log(fn -> Encryption.encrypt_value("s3-secret-2") end)
+
+      assert first =~ "encrypt_value/1"
+      refute second =~ "encrypt_value/1"
+    end
+
+    test "encrypt_value/1 is not silenced by an earlier plaintext encrypt_fields/1 write" do
+      capture_log(fn -> Encryption.encrypt_fields(%{"api_key" => "plaintext-api-key"}) end)
+
+      log = capture_log(fn -> Encryption.encrypt_value("s3-secret-must-not-be-logged") end)
+
+      assert log =~ "encrypt_value/1"
+      refute log =~ "s3-secret-must-not-be-logged"
+    end
+
+    test "encrypt_value/1: an explicit warn_on_boot: false silences it only when encryption is off" do
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, false)
+
+      assert Encryption.status() == :disabled_no_key
+      assert capture_log(fn -> Encryption.encrypt_value("s3-secret") end) =~ "encrypt_value/1"
+
+      :persistent_term.erase(@value_flag_key)
+      Application.put_env(:phoenix_kit, :integration_encryption_enabled, false)
+
+      assert Encryption.status() == :disabled_explicit
+      refute capture_log(fn -> Encryption.encrypt_value("s3-secret") end) =~ "encrypt_value/1"
     end
 
     test "decrypt_value/1 returns {:error, :encryption_unavailable} for an already-encrypted value — never the ciphertext or a fabricated plaintext" do
@@ -788,14 +831,30 @@ defmodule PhoenixKit.Integrations.EncryptionTest do
       refute log =~ "hunter2-hunter2"
     end
 
-    test "an explicit warn_on_boot: false silences it" do
+    test "an explicit warn_on_boot: false silences it when encryption is switched off" do
       original_flag = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot)
       on_exit(fn -> restore_env(:integration_encryption_warn_on_boot, original_flag) end)
       Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, false)
+      Application.put_env(:phoenix_kit, :integration_encryption_enabled, false)
+
+      assert Encryption.status() == :disabled_explicit
 
       log = capture_log(fn -> Encryption.encrypt_fields(%{"password" => "hunter2-hunter2"}) end)
 
       refute log =~ "PLAINTEXT"
+    end
+
+    test "an explicit warn_on_boot: false does not silence it when no key resolves" do
+      original_flag = Application.get_env(:phoenix_kit, :integration_encryption_warn_on_boot)
+      on_exit(fn -> restore_env(:integration_encryption_warn_on_boot, original_flag) end)
+      Application.put_env(:phoenix_kit, :integration_encryption_warn_on_boot, false)
+
+      assert Encryption.status() == :disabled_no_key
+
+      log = capture_log(fn -> Encryption.encrypt_fields(%{"password" => "hunter2-hunter2"}) end)
+
+      assert log =~ "PLAINTEXT"
+      refute log =~ "hunter2-hunter2"
     end
 
     test "does not warn when a key resolves" do

@@ -8,7 +8,7 @@ defmodule PhoenixKit.API.Confirm do
   The code is valid only when all of these hold:
 
     * its row is `unused` and has not expired;
-    * it was issued to the same actor (an API key, or a cart-token hash for a public
+    * it was issued to the same actor (an API key, or a client-token hash for a public
       tool);
     * it was issued for the same tool and the same arguments (`input_hash`, a hash of
       the arguments without the control fields);
@@ -46,7 +46,7 @@ defmodule PhoenixKit.API.Confirm do
   A key that repeats the very same call (same tool, arguments and current values) while
   its earlier code is still unused and unexpired gets **that** code again, with the time
   it has left: an agent that polls a dangerous call does not pile up rows. A public actor
-  is bound to a cart token it chose itself, so nothing is shared between two of its calls;
+  is bound to a client token it chose itself, so nothing is shared between two of its calls;
   what keeps that table small is the early prune of never-used codes (`prune/1`) and the
   rate limit of the public API.
   """
@@ -96,7 +96,7 @@ defmodule PhoenixKit.API.Confirm do
   end
 
   # The unused, unexpired code this key already holds for the same call and values. Only a
-  # key is looked up (index `actor_key_uuid, status`); the cart-token binding of a public
+  # key is looked up (index `actor_key_uuid, status`); the client-token binding of a public
   # actor has no index, and the actor is self-chosen anyway.
   defp live_code(%{actor_key_uuid: key_uuid}, tool_name, input_hash, fingerprint, now) do
     repo().one(
@@ -111,7 +111,7 @@ defmodule PhoenixKit.API.Confirm do
     )
   end
 
-  defp live_code(_cart_binding, _tool_name, _input_hash, _fingerprint, _now), do: nil
+  defp live_code(_client_token_binding, _tool_name, _input_hash, _fingerprint, _now), do: nil
 
   defp hand_out_again(%Confirmation{} = row, now) do
     with {:ok, token} <- Token.sign(row.uuid) do
@@ -123,8 +123,8 @@ defmodule PhoenixKit.API.Confirm do
   defp bind_to(%Actor{kind: :key, key_uuid: uuid}) when is_binary(uuid),
     do: {:ok, %{actor_key_uuid: uuid}}
 
-  defp bind_to(%Actor{cart_token_hash: hash}) when is_binary(hash),
-    do: {:ok, %{cart_token_hash: hash}}
+  defp bind_to(%Actor{client_token_hash: hash}) when is_binary(hash),
+    do: {:ok, %{client_token_hash: hash}}
 
   defp bind_to(_actor), do: {:error, :no_binding}
 
@@ -162,10 +162,12 @@ defmodule PhoenixKit.API.Confirm do
   end
 
   defp bound_to(%Confirmation{actor_key_uuid: key}, %Actor{kind: :key, key_uuid: key})
-       when is_binary(key), do: :ok
+       when is_binary(key),
+       do: :ok
 
-  defp bound_to(%Confirmation{cart_token_hash: hash}, %Actor{cart_token_hash: hash})
-       when is_binary(hash), do: :ok
+  defp bound_to(%Confirmation{client_token_hash: hash}, %Actor{client_token_hash: hash})
+       when is_binary(hash),
+       do: :ok
 
   defp bound_to(_row, _actor), do: {:error, :wrong_binding}
 

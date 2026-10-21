@@ -119,6 +119,25 @@ defmodule PhoenixKit.ModuleRegistryHeaderWidgetsTest do
     end
   end
 
+  # The session function gets the layout's assigns (the signed-in user among them), so
+  # a `MatchError`, a `KeyError` or a bad return value can carry a person's data.
+  defmodule LeakyModule do
+    def enabled?, do: true
+
+    def header_widgets do
+      [
+        {PhoenixKitWeb.Test.HeaderWidgetProbeLive, "hw-leaky-match",
+         fn assigns -> {:ok, _} = assigns.marker end},
+        {PhoenixKitWeb.Test.HeaderWidgetProbeLive, "hw-leaky-key",
+         fn assigns -> Map.fetch!(assigns, :absent) end},
+        {PhoenixKitWeb.Test.HeaderWidgetProbeLive, "hw-leaky-throw",
+         fn assigns -> throw({:oops, assigns.marker}) end},
+        {PhoenixKitWeb.Test.HeaderWidgetProbeLive, "hw-leaky-return",
+         fn assigns -> [assigns.marker] end}
+      ]
+    end
+  end
+
   defmodule ReservedKeysModule do
     def enabled?, do: true
 
@@ -255,7 +274,8 @@ defmodule PhoenixKit.ModuleRegistryHeaderWidgetsTest do
             assert [_, _] = mine(widgets, [OnModule])
           end)
 
-        assert log =~ "RaisingModule.header_widgets/0 failed: boom"
+        assert log =~ "RaisingModule.header_widgets/0 raised RuntimeError"
+        refute log =~ "boom"
 
         # Reported once: the layout asks again on every render.
         assert "" == capture_log(fn -> ModuleRegistry.all_header_widgets() end)
@@ -299,11 +319,30 @@ defmodule PhoenixKit.ModuleRegistryHeaderWidgetsTest do
             assert [%{"label" => "ok"}] = Enum.map(widgets, & &1.session)
           end)
 
-        assert log =~ "skipped: the session function raised: nope"
+        assert log =~ "skipped: the session function raised RuntimeError"
+        refute log =~ "nope"
         assert log =~ ~s("hw-s-atom-keys" skipped: the session has a key that is not a string)
 
         # Once per widget, not on every render of the layout.
         assert "" == capture_log(fn -> ModuleRegistry.header_widgets_for(%{}) end)
+      end)
+    end
+
+    test "a failing session function logs the kind of failure, never the assigns or the value" do
+      with_registered([LeakyModule], fn ->
+        sentinel = "user-secret-#{System.unique_integer([:positive])}@example.com"
+
+        log =
+          capture_log(fn ->
+            widgets = ModuleRegistry.header_widgets_for(%{marker: sentinel})
+            assert [] == mine(widgets, [LeakyModule])
+          end)
+
+        assert log =~ ~s("hw-leaky-match" skipped: the session function raised MatchError)
+        assert log =~ ~s("hw-leaky-key" skipped: the session function raised KeyError)
+        assert log =~ ~s|"hw-leaky-throw" skipped: the session function failed (throw)|
+        assert log =~ ~s("hw-leaky-return" skipped: the session is a list, not a map)
+        refute log =~ sentinel
       end)
     end
 

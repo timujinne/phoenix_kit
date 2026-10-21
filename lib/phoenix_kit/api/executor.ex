@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.Executor do
   @moduledoc """
-  The request flow of the shop API: what happens between "this key is
+  The request flow of the machine API: what happens between "this key is
   authentic" and "here is the response".
 
   `PhoenixKit.API.Auth` has already done steps 1 to 3 of the flow (API
@@ -21,13 +21,18 @@ defmodule PhoenixKit.API.Executor do
        the key's budget. Reads and public tools cost 1 however long their
        lists are. A tool that needs another price (1 per
        query of a search batch) declares it with `Tool.cost`. The public
-       audience pays 1 unit BEFORE the tool lookup (a miss in
-       `Registry.find/2` costs about 2 ms, so a flood of unknown names must
-       end in 429 without it) and a tool with a dearer price pays the
-       difference after the lookup; the admin audience is charged once,
-       after the scope check, because its price depends on the tool. A call
-       the lookup or the scope check refuses (unknown, hidden, forbidden or
-       disabled-module tool) never reaches that charge, so it pays one unit
+       audience pays 1 unit of its network bucket BEFORE the tool lookup (a
+       miss in `PhoenixKit.API.Registry.find/2` costs about 2 ms, so a flood of unknown
+       names must end in 429 without it). The caller's client token is read
+       only after the lookup, because the tool declares which input field
+       holds it (`Tool.client_token`): the call then pays its full price to
+       the token's bucket (when it carries a token) and the rest of it (price
+       minus 1) to the network bucket. So a call that the token's bucket
+       refuses has already spent 1 unit of the network's. The admin audience
+       is charged once, after the scope check, because its price depends on
+       the tool. A call the lookup or the scope check refuses (unknown,
+       hidden, forbidden or disabled-module tool) never reaches that charge,
+       so it pays one unit
        instead: a key cannot loop on invented names for free. The answer is
        the same refusal, or `429` when the key's budget is spent; the refusal
        writes no audit entry.
@@ -81,7 +86,7 @@ defmodule PhoenixKit.API.Executor do
   again**: it would only repeat the owner lookup and the scope filtering.
   What a request still scans twice is the module registry
   (`ModuleRegistry.all_api_tools/0`: once inside `verify/2` to know the
-  scopes that exist, once in `Registry.find/2`); that is two walks over a
+  scopes that exist, once in `PhoenixKit.API.Registry.find/2`); that is two walks over a
   handful of modules, and sharing the result would need an API change in
   `Registry`, so 1a accepts it.
 
@@ -90,7 +95,9 @@ defmodule PhoenixKit.API.Executor do
   A tool's handler returns `{:ok, map}`, `{:ok, map, effects}` (the effects
   list is added to the response under `"effects"`) or
   `{:error, code, message, context}` (`code` is an atom from
-  `PhoenixKit.API.Problem.statuses/0`). Anything else, and any exception,
+  `PhoenixKit.API.Problem.statuses/0`: core's own codes plus those the
+  module declares in `c:PhoenixKit.Module.api_problems/0`; an undeclared
+  code answers 500). Anything else, and any exception,
   exit or throw, answers `500 internal_error` with a generic message; the
   detail goes to the log, never to the client.
 
@@ -162,6 +169,7 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.API.ControlFields
   alias PhoenixKit.API.Flow
   alias PhoenixKit.API.Keys
+  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.LogSafe
   alias PhoenixKit.API.OutputShape
   alias PhoenixKit.API.Problem
@@ -243,6 +251,7 @@ defmodule PhoenixKit.API.Executor do
          {:ok, state} <- find_tool(state),
          {:ok, state} <- take_scopes(state),
          {:ok, state} <- check_scope(state),
+         {:ok, state} <- bind_client_token(state),
          {:ok, state} <- charge_after_lookup(state),
          {:ok, state} <- Flow.merge_header(state),
          {:ok, state} <- validate(state),
@@ -382,7 +391,7 @@ defmodule PhoenixKit.API.Executor do
   defp new_state(conn, audience, tool_name, input, opts) do
     audience
     |> base_state(tool_name, input, opts)
-    |> Map.merge(%{conn: conn, actor: actor_for(conn, audience, input)})
+    |> Map.merge(%{conn: conn, actor: actor_for(conn, audience)})
   end
 
   # A call on behalf of a live session: no connection, so the request context is taken
@@ -453,25 +462,49 @@ defmodule PhoenixKit.API.Executor do
     }
   end
 
-  defp actor_for(conn, :public, input) do
-    actor =
-      case conn.assigns[:phoenix_kit_api_actor] do
-        %Actor{} = actor -> actor
-        _none -> %Actor{kind: :anonymous, ip: IpAddress.client_address(conn)}
-      end
-
-    %{actor | cart_token_hash: cart_token_hash(input)}
+  defp actor_for(conn, :public) do
+    case conn.assigns[:phoenix_kit_api_actor] do
+      %Actor{} = actor -> actor
+      _none -> %Actor{kind: :anonymous, ip: IpAddress.client_address(conn)}
+    end
   end
 
-  defp actor_for(conn, :admin, _input), do: conn.assigns[:phoenix_kit_api_actor]
+  defp actor_for(conn, :admin), do: conn.assigns[:phoenix_kit_api_actor]
 
-  # Public cart tools identify a cart by the token in the body. The raw token
-  # is a credential: only its hash is kept on the actor, for rate limiting and
-  # for the cart module to find the cart by.
-  defp cart_token_hash(%{"cart_token" => token}) when is_binary(token) and token != "",
-    do: :crypto.hash(:sha256, token) |> Base.url_encode64(padding: false)
+  # A public tool names the input field that holds its anonymous caller's token
+  # (`Tool.client_token`), so the token can only be read once the tool is known. The raw
+  # token is a credential: only its hash is kept on the actor, for rate limiting, the
+  # scope of an idempotency key and the binding of a confirmation code.
+  defp bind_client_token(
+         %{audience: :public, tool: %Tool{client_token: field}, input: input, actor: actor} =
+           state
+       )
+       when is_binary(field) do
+    {:ok, %{state | actor: %{actor | client_token_hash: client_token_hash(input, field)}}}
+  end
 
-  defp cart_token_hash(_input), do: nil
+  defp bind_client_token(state), do: {:ok, state}
+
+  defp client_token_hash(%{} = input, field) do
+    case Map.get(input, field) do
+      token when is_binary(token) and token != "" ->
+        :crypto.hash(:sha256, token) |> Base.url_encode64(padding: false)
+
+      _no_token ->
+        nil
+    end
+  end
+
+  defp client_token_hash(_input, _field), do: nil
+
+  # A public tool built before `Tool.client_token` existed declares no field;
+  # `PhoenixKit.API.Legacy` still finds the one it used, so such a tool keeps its limits,
+  # its idempotency scope and its danger gate. The tool the request runs carries the
+  # field it is read through.
+  defp with_client_token(%Tool{client_token: nil} = tool),
+    do: %{tool | client_token: Legacy.legacy_client_token(tool)}
+
+  defp with_client_token(%Tool{} = tool), do: tool
 
   # --- steps ----------------------------------------------------------------
 
@@ -521,7 +554,7 @@ defmodule PhoenixKit.API.Executor do
 
     case Registry.find(name, audience) do
       {:ok, %Tool{} = tool} ->
-        {:ok, %{state | tool: tool}}
+        {:ok, %{state | tool: with_client_token(tool)}}
 
       {:error, :not_found} ->
         clipped = clip(name)
@@ -593,25 +626,29 @@ defmodule PhoenixKit.API.Executor do
   # `Registry.find/2` costs about 2 ms on a miss (it asks the switched-off
   # modules), so the public audience, whose callers need no key, is charged
   # BEFORE the lookup: a flood of unknown tool names ends in 429 without the
-  # lookup. A public call costs 1 for every tool (`cost/2`), so charging
-  # early changes no price. The admin audience is charged after the lookup,
-  # because its price depends on the tool and its caller is authenticated.
+  # lookup. What it pays there is 1 unit of the network bucket only: the client
+  # token is not known before the tool is. The admin audience is charged after
+  # the lookup, because its price depends on the tool and its caller is
+  # authenticated.
   defp charge_before_lookup(%{audience: :public} = state), do: rate_limit(state)
   defp charge_before_lookup(state), do: {:ok, state}
 
   defp charge_after_lookup(%{audience: :admin} = state), do: rate_limit(state)
 
-  # The public audience paid 1 unit before the lookup (the tool was not known
-  # yet); a tool with a dearer price (`Tool.cost`) pays the difference now.
-  defp charge_after_lookup(%{audience: :public, tool: %Tool{} = tool, input: input} = state) do
-    case cost(tool, input) - 1 do
-      extra when extra > 0 ->
-        (state.actor.ip || "unknown")
-        |> RateLimit.check_public(state.actor.cart_token_hash, extra)
-        |> limited(state)
-
-      _no_extra ->
+  # The public audience paid 1 unit of the network bucket before the lookup. Now the
+  # tool and its client token are known: the token's bucket is charged the full price and
+  # the network's the rest. A call with no token and a price of 1 has nothing left to pay.
+  defp charge_after_lookup(
+         %{audience: :public, tool: %Tool{} = tool, input: input, actor: actor} = state
+       ) do
+    case {actor.client_token_hash, cost(tool, input)} do
+      {nil, 1} ->
         {:ok, state}
+
+      {hash, cost} ->
+        (actor.ip || "unknown")
+        |> RateLimit.check_public(hash, cost, cost - 1)
+        |> limited(state)
     end
   end
 
@@ -627,9 +664,10 @@ defmodule PhoenixKit.API.Executor do
     |> limited(state)
   end
 
+  # Before the lookup, and for the list of tools: the network bucket, 1 unit.
   defp rate_limit(%{audience: :public, actor: actor} = state) do
     (actor.ip || "unknown")
-    |> RateLimit.check_public(actor.cart_token_hash, cost(state.tool, state.input))
+    |> RateLimit.check_public(nil, 1)
     |> limited(state)
   end
 
@@ -1038,7 +1076,7 @@ defmodule PhoenixKit.API.Executor do
       `PhoenixKit.API.BodyGuard` bounds the work of such a request).
 
   So an admin read with a long `fields` list costs 1, a public call with a
-  50-line cart costs 1 and an admin write of 120 rows costs 3. `nil` (the
+  50-line list costs 1 and an admin write of 120 rows costs 3. `nil` (the
   discovery list) and an input that is not a map cost 1.
 
   A tool that declares `cost:` (`PhoenixKit.API.Tool`) is priced by it

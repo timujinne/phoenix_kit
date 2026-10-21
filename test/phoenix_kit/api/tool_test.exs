@@ -325,6 +325,70 @@ defmodule PhoenixKit.API.ToolTest do
     end
   end
 
+  @token_schema %{
+    "type" => "object",
+    "properties" => %{"session_token" => %{"type" => "string"}, "n" => %{"type" => "integer"}},
+    "additionalProperties" => false
+  }
+
+  defp public_with(attrs),
+    do: Tool.new(Keyword.merge(@public_tool ++ [input_schema: @token_schema], attrs))
+
+  describe "client_token and credentials" do
+    test "default to nil and an empty list" do
+      assert {:ok, %Tool{client_token: nil, credentials: []}} = Tool.new(@public_tool)
+    end
+
+    test "a public tool may name a string property of its input as the client token" do
+      assert {:ok, %Tool{client_token: "session_token"}} =
+               public_with(client_token: "session_token")
+    end
+
+    test "the client token must be a string property of the input schema" do
+      assert {:error, [missing]} = public_with(client_token: "nope")
+      assert missing =~ ~s(client_token "nope" must be a string property of input_schema)
+
+      assert {:error, [not_string]} = public_with(client_token: "n")
+      assert not_string =~ ~s(client_token "n" must be a string property of input_schema)
+
+      assert {:error, [empty]} = public_with(client_token: "")
+      assert empty =~ "client_token must be a non-empty string or nil"
+
+      assert {:error, [wrong]} = public_with(client_token: :session_token)
+      assert wrong =~ "client_token must be a non-empty string or nil"
+    end
+
+    test "an admin tool may not have a client token" do
+      assert {:error, [message]} =
+               Tool.new(
+                 Keyword.merge(@admin_tool,
+                   input_schema: @token_schema,
+                   client_token: "session_token"
+                 )
+               )
+
+      assert message =~ "client_token is for a public tool only"
+    end
+
+    test "credentials are a list of non-empty strings" do
+      assert {:ok, %Tool{credentials: ["url", "claim"]}} =
+               Tool.new(Keyword.put(@admin_tool, :credentials, ["url", "claim"]))
+
+      for bad <- ["url", [""], [:url], [nil], %{}] do
+        assert {:error, [message]} = Tool.new(Keyword.put(@admin_tool, :credentials, bad))
+        assert message =~ "credentials must be a list of non-empty strings"
+      end
+    end
+
+    test "credential_keys/1 lists the credentials and the client token" do
+      {:ok, tool} = public_with(client_token: "session_token", credentials: ["url"])
+      assert Tool.credential_keys(tool) == ["url", "session_token"]
+
+      {:ok, plain} = Tool.new(@public_tool)
+      assert Tool.credential_keys(plain) == []
+    end
+  end
+
   describe "new!/1" do
     test "returns the tool" do
       assert %Tool{name: "catalogue.list_products"} = Tool.new!(@admin_tool)

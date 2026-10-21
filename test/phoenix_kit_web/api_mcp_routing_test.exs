@@ -10,6 +10,9 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
   import PhoenixKit.Test.ApiHarness
 
   alias PhoenixKit.API.MCP
+  alias PhoenixKit.API.MCP.Origin
+  alias PhoenixKit.API.Paths
+  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.WebsiteAccess.AllowedAddresses
   alias PhoenixKit.WebsiteAccess.Gate
@@ -53,27 +56,39 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
       assert forward == prefix_segments() ++ ["mcp", "admin"]
 
       assert %{plug: MCP, plug_opts: [audience: :public], forward: forward} =
-               route_info("POST", "/mcp/shop")
+               route_info("POST", "/mcp/public")
+
+      assert forward == prefix_segments() ++ ["mcp", "public"]
+    end
+
+    test "the deprecated alias is the same plug, with the public audience, and says so" do
+      assert %{plug: MCP, plug_opts: opts, forward: forward} = route_info("POST", "/mcp/shop")
 
       assert forward == prefix_segments() ++ ["mcp", "shop"]
+      assert opts[:audience] == :public
+      assert opts[:deprecated][:path] == "/mcp/shop"
+      assert opts[:deprecated][:successor] == Paths.mcp_path(:public)
+      assert %{plug_opts: [audience: :public]} = route_info("POST", "/mcp/public")
     end
 
     test "every method reaches the plug, which answers 405 itself" do
       for verb <- ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-          path <- ["/mcp/admin", "/mcp/shop"] do
+          path <- ["/mcp/admin", "/mcp/public", "/mcp/shop"] do
         assert %{plug: MCP} = route_info(verb, path), "#{verb} #{path}"
       end
     end
 
     test "they use the empty API pipeline: no session, CSRF or content negotiation" do
       assert %{pipe_through: [:phoenix_kit_api_v1]} = route_info("POST", "/mcp/admin")
-      assert %{pipe_through: [:phoenix_kit_api_v1]} = route_info("POST", "/mcp/shop")
+      assert %{pipe_through: [:phoenix_kit_api_v1]} = route_info("POST", "/mcp/public")
     end
 
     test "they are declared before any route that starts with a :param" do
       routes = @router.__routes__() |> Enum.with_index()
       mcp = for {%{plug: MCP}, index} <- routes, do: index
-      assert length(mcp) == 2
+
+      assert length(mcp) ==
+               Enum.count(Paths.entries(), fn {[first | _], _, _, _} -> first == "mcp" end)
 
       prefix = Routes.prefix_base()
 
@@ -93,13 +108,13 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
                route_info("POST", "/api/admin/v1/system.get_identity")
 
       assert %{plug: PhoenixKit.API.REST, plug_opts: [audience: :public]} =
-               route_info("GET", "/api/shop/v1/openapi.json")
+               route_info("GET", "/api/public/v1/openapi.json")
     end
   end
 
   describe "with the API switched off, which is the default" do
     test "both endpoints are a 404 problem, whatever the method", %{conn: conn} do
-      for path <- ["/mcp/admin", "/mcp/shop"], method <- [:post, :get, :delete, :options] do
+      for path <- ["/mcp/admin", "/mcp/public"], method <- [:post, :get, :delete, :options] do
         conn = conn |> with_client_ip() |> dispatch(@endpoint, method, Routes.path(path), nil)
 
         assert conn.status == 404, "#{method} #{path}"
@@ -126,7 +141,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
     test "a broken or oversized body is still a 404: nothing is read", %{conn: conn} do
       for body <- ["{broken", String.duplicate("x", 3_000_000)] do
         assert rpc(conn, "/mcp/admin", body).status == 404
-        assert rpc(conn, "/mcp/shop", body).status == 404
+        assert rpc(conn, "/mcp/public", body).status == 404
       end
     end
   end
@@ -187,14 +202,14 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
 
     test "no key is a 401 problem; the public endpoint needs none", %{conn: conn} do
       assert rpc(conn, "/mcp/admin", ping()).status == 401
-      assert rpc(conn, "/mcp/shop", ping()).status == 200
+      assert rpc(conn, "/mcp/public", ping()).status == 200
     end
 
     test "bad JSON reaches the client as a JSON-RPC parse error", %{
       conn: conn,
       token: token
     } do
-      for {path, key} <- [{"/mcp/admin", token}, {"/mcp/shop", nil}] do
+      for {path, key} <- [{"/mcp/admin", token}, {"/mcp/public", nil}] do
         conn = rpc(conn, path, "{broken", token: key)
 
         assert conn.status == 400, path
@@ -210,7 +225,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
 
     test "GET is a 405 with Allow: POST and no CORS header, on both", %{conn: conn, token: token} do
       admin = conn |> with_client_ip() |> bearer(token) |> get(Routes.path("/mcp/admin"))
-      shop = conn |> with_client_ip() |> get(Routes.path("/mcp/shop"))
+      shop = conn |> with_client_ip() |> get(Routes.path("/mcp/public"))
 
       for answer <- [admin, shop] do
         assert answer.status == 405
@@ -251,6 +266,68 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
     end
   end
 
+  describe "the deprecated alias /mcp/shop" do
+    setup %{conn: conn} do
+      setup_api()
+      %{conn: conn}
+    end
+
+    defp successor_link,
+      do: "<#{PublicDiscovery.mcp_url(Origin.canonical_origin())}>; rel=\"successor-version\""
+
+    test "is the public MCP server: no key, the same tools", %{conn: conn} do
+      list = %{"jsonrpc" => "2.0", "id" => 2, "method" => "tools/list"}
+
+      tools = fn path ->
+        conn |> rpc(path, list) |> json() |> get_in(["result", "tools"]) |> Enum.map(& &1["name"])
+      end
+
+      assert tools.("/mcp/shop") == tools.("/mcp/public")
+      assert ["testkit_public_echo"] = tools.("/mcp/shop")
+    end
+
+    test "answers with Deprecation and a successor-version Link; the canonical one does not",
+         %{conn: conn} do
+      aliased = rpc(conn, "/mcp/shop", ping())
+
+      assert aliased.status == 200
+      assert ["@1792454400"] = get_resp_header(aliased, "deprecation")
+      assert [link] = get_resp_header(aliased, "link")
+      assert link =~ successor_link()
+
+      canonical = rpc(conn, "/mcp/public", ping())
+      assert [] = get_resp_header(canonical, "deprecation")
+      assert [] = get_resp_header(canonical, "link")
+    end
+
+    test "a 405 keeps its service-doc Link and gains the successor", %{conn: conn} do
+      aliased = conn |> with_client_ip() |> get(Routes.path("/mcp/shop"))
+
+      assert aliased.status == 405
+      assert ["POST"] = get_resp_header(aliased, "allow")
+      assert ["@1792454400"] = get_resp_header(aliased, "deprecation")
+      assert [link] = get_resp_header(aliased, "link")
+      assert link =~ successor_link()
+      assert link =~ ~s(rel="service-doc")
+    end
+
+    test "a parse error from the body guard is still a JSON-RPC one", %{conn: conn} do
+      aliased = rpc(conn, "/mcp/shop", "{broken")
+
+      assert aliased.status == 400
+      assert %{"error" => %{"code" => -32_700}} = json(aliased)
+    end
+
+    test "with the API switched off it is a bare 404 that names nothing", %{conn: conn} do
+      switch(:public, false)
+      aliased = rpc(conn, "/mcp/shop", ping())
+
+      assert aliased.status == 404
+      assert [] = get_resp_header(aliased, "deprecation")
+      assert [] = get_resp_header(aliased, "link")
+    end
+  end
+
   describe "each endpoint follows its own switch, through the real body guard" do
     setup %{conn: conn} do
       setup_api()
@@ -266,7 +343,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
       assert conn1.status == 200
       assert json(conn1)["result"] == %{}
 
-      assert rpc(conn, "/mcp/shop", ping()).status == 404
+      assert rpc(conn, "/mcp/public", ping()).status == 404
     end
 
     test "admin off, public on: the admin endpoint is a 404 even for a broken body", %{
@@ -277,7 +354,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
 
       assert rpc(conn, "/mcp/admin", ping(), token: token).status == 404
       assert rpc(conn, "/mcp/admin", "{broken", token: token).status == 404
-      assert rpc(conn, "/mcp/shop", ping()).status == 200
+      assert rpc(conn, "/mcp/public", ping()).status == 200
     end
   end
 
@@ -304,7 +381,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
       conn: conn,
       token: token
     } do
-      shop = rpc(conn, "/mcp/shop", ping())
+      shop = rpc(conn, "/mcp/public", ping())
       assert shop.status == 404
       assert %{"code" => "not_found"} = json(shop)
       assert_no_browser_plugs(shop)

@@ -75,8 +75,8 @@ defmodule PhoenixKit.API.OutputShapeTest do
     test "the public OpenAPI document of a write tool does not name them either" do
       document =
         OpenAPI.build([tool(:public, @write)], :public,
-          server_url: "https://shop.test/api/shop/v1",
-          title: "Shop API"
+          server_url: "https://shop.test/api/public/v1",
+          title: "Public API"
         )
 
       refute JSON.encode!(document) =~ ~r/approval/i

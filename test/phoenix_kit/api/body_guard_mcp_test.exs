@@ -1,7 +1,7 @@
 defmodule PhoenixKit.API.BodyGuardMCPTest do
   @moduledoc """
   `PhoenixKit.API.BodyGuard` on the MCP paths: which switch decides for
-  `/mcp/admin` and `/mcp/shop`, and the JSON-RPC parse error. The 1a tests of
+  `/mcp/admin` and `/mcp/public`, and the JSON-RPC parse error. The 1a tests of
   the guard (`body_guard_test.exs`) cover the REST paths.
   """
   use PhoenixKit.DataCase, async: false
@@ -22,7 +22,7 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
   end
 
   defp admin_path, do: Routes.prefix_base() <> "/mcp/admin"
-  defp shop_path, do: Routes.prefix_base() <> "/mcp/shop"
+  defp public_path, do: Routes.prefix_base() <> "/mcp/public"
   defp bare_path, do: Routes.prefix_base() <> "/mcp"
   defp rest_path, do: Routes.path("/api/admin/v1/system.get_identity")
 
@@ -46,22 +46,22 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
   end
 
   describe "/mcp/admin follows the admin switch" do
-    test "admin on, public off: /mcp/admin is read, /mcp/shop is not" do
+    test "admin on, public off: /mcp/admin is read, /mcp/public is not" do
       switch(:admin, true)
       switch(:public, false)
 
       assert %{"method" => "ping"} = run(:post, admin_path(), @message).body_params
 
-      shop = run(:post, shop_path(), @message)
+      shop = run(:post, public_path(), @message)
       assert shop.body_params == %{}
       refute shop.halted
     end
 
-    test "admin off, public on: /mcp/shop is read, /mcp/admin is not (not even judged)" do
+    test "admin off, public on: /mcp/public is read, /mcp/admin is not (not even judged)" do
       switch(:admin, false)
       switch(:public, true)
 
-      assert %{"method" => "ping"} = run(:post, shop_path(), @message).body_params
+      assert %{"method" => "ping"} = run(:post, public_path(), @message).body_params
 
       for body <- [@message, "{broken", String.duplicate("x", @max + 10)] do
         admin = run(:post, admin_path(), body)
@@ -75,14 +75,14 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
       switch(:public, true)
 
       assert %{"id" => 1} = run(:post, admin_path(), @message).body_params
-      assert %{"id" => 1} = run(:post, shop_path(), @message).body_params
+      assert %{"id" => 1} = run(:post, public_path(), @message).body_params
     end
 
     test "both off: nothing is read or judged" do
       switch(:admin, false)
       switch(:public, false)
 
-      for path <- [admin_path(), shop_path()] do
+      for path <- [admin_path(), public_path()] do
         conn = run(:post, path, "{broken")
         assert conn.body_params == %{}, path
         refute conn.halted, path
@@ -105,11 +105,11 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
       refute conn.halted
     end
 
-    test "everything below /mcp/shop follows the public switch" do
+    test "everything below /mcp/public follows the public switch" do
       switch(:admin, false)
       switch(:public, true)
 
-      assert %{"id" => 1} = run(:post, shop_path() <> "/anything", @message).body_params
+      assert %{"id" => 1} = run(:post, public_path() <> "/anything", @message).body_params
     end
 
     test "bare /mcp and any other path under /mcp are not guarded: nothing is read or judged, whatever the switches" do
@@ -117,7 +117,7 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
           path <- [
             bare_path(),
             bare_path() <> "/other",
-            bare_path() <> "/shop2",
+            bare_path() <> "/public2",
             bare_path() <> "/administrator"
           ],
           body <- [@message, "{broken", String.duplicate("x", @max + 10)] do
@@ -141,7 +141,7 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
     end
 
     test "on every guarded MCP path" do
-      for path <- [admin_path(), shop_path(), admin_path() <> "/x", shop_path() <> "/x"],
+      for path <- [admin_path(), public_path(), admin_path() <> "/x", public_path() <> "/x"],
           body <- ["{nope", ~s({"a":}), "not json", ~s({"a":1} trailing)] do
         conn = run(:post, path, body)
         parse_error?(conn)
@@ -165,8 +165,8 @@ defmodule PhoenixKit.API.BodyGuardMCPTest do
     end
 
     test "a JSON array or scalar is left for the MCP plug to judge" do
-      assert %{"_json" => [_, _]} = run(:post, shop_path(), "[1,2]").body_params
-      assert %{"_json" => 7} = run(:post, shop_path(), "7").body_params
+      assert %{"_json" => [_, _]} = run(:post, public_path(), "[1,2]").body_params
+      assert %{"_json" => 7} = run(:post, public_path(), "7").body_params
     end
 
     test "an empty body is an empty map" do

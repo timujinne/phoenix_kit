@@ -123,9 +123,17 @@ defmodule PhoenixKit.Migrations.Postgres.V220Test do
       end
     end
 
-    test "a public code is bound to a cart token hash" do
-      assert %Confirmation{} =
-               Repo.insert!(confirmation(cart_token_hash: String.duplicate("c", 43)))
+    test "a public code is bound to a client token hash, stored in the cart_token_hash column" do
+      hash = String.duplicate("c", 43)
+      assert %Confirmation{} = row = Repo.insert!(confirmation(client_token_hash: hash))
+
+      assert [[^hash]] =
+               query(
+                 "SELECT cart_token_hash FROM phoenix_kit_api_confirmations WHERE uuid = $1",
+                 [
+                   Ecto.UUID.dump!(row.uuid)
+                 ]
+               )
     end
 
     test "kind and status are closed lists", %{key: key} do
