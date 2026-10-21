@@ -1183,7 +1183,8 @@ defmodule PhoenixKit.Integrations do
 
       Map.has_key?(provider, :validation) and provider.validation != nil ->
         v = provider.validation
-        headers = [{v.auth_header, "#{v.auth_prefix}#{token}"}]
+        extra_headers = Map.get(v, :extra_headers) || []
+        headers = [{v.auth_header, "#{v.auth_prefix}#{token}"} | extra_headers]
         check_http(v.url, headers)
 
       true ->
@@ -1204,13 +1205,24 @@ defmodule PhoenixKit.Integrations do
   end
 
   defp check_http(url, headers) do
-    case Req.get(url, headers: headers, receive_timeout: @http_timeout) do
+    case Req.get(url, [headers: headers, receive_timeout: @http_timeout] ++ check_req_options()) do
       {:ok, %{status: 200}} -> :ok
       {:ok, %{status: 401}} -> {:error, gettext("Invalid credentials")}
       {:ok, %{status: 403}} -> {:error, gettext("Access denied")}
       {:ok, %{status: status}} -> {:error, gettext("Service error %{status}", status: status)}
       {:error, _reason} -> {:error, gettext("Could not reach the service")}
     end
+  end
+
+  # Extra `Req` options for the generic key check — tests route it through
+  # `Req.Test` with `config :phoenix_kit, :integrations_check_req_options,
+  # plug: ..., retry: false` (`retry: false` keeps a stubbed 429 or transport
+  # error from sleeping through `Req`'s backoff). Only those two get through, so
+  # a stray config key cannot reach a real request. Unset in production.
+  defp check_req_options do
+    :phoenix_kit
+    |> Application.get_env(:integrations_check_req_options, [])
+    |> Keyword.take([:plug, :retry])
   end
 
   @doc """

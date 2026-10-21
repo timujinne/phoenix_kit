@@ -21284,3 +21284,53 @@ msgstr "Persönliche SMTP-Verbindungen dürfen nur die Ports 25, 465, 587 oder 2
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr "Der SMTP-Host muss auf eine öffentliche Adresse auflösen"
+
+#: lib/phoenix_kit/integrations/providers.ex:509
+#, elixir-autogen, elixir-format
+msgid "Anthropic"
+msgstr "Anthropic"
+
+#: lib/phoenix_kit/integrations/providers.ex:511
+#, elixir-autogen, elixir-format
+msgid "AI model access via Anthropic (Claude Opus, Sonnet and Haiku models)"
+msgstr "Zugriff auf KI-Modelle über Anthropic (Claude-Modelle Opus, Sonnet und Haiku)"
+
+#: lib/phoenix_kit/integrations/providers.ex:530
+#, elixir-autogen, elixir-format
+msgid "From platform.claude.com/settings/keys"
+msgstr "Von platform.claude.com/settings/keys"
+
+#: lib/phoenix_kit/integrations/providers.ex:537
+#, elixir-autogen, elixir-format
+msgid "Create an Anthropic account"
+msgstr "Anthropic-Konto erstellen"
+
+#: lib/phoenix_kit/integrations/providers.ex:539
+#, elixir-autogen, elixir-format
+msgid "Go to [platform.claude.com](https://platform.claude.com) and sign up or log in"
+msgstr "Gehen Sie zu [platform.claude.com](https://platform.claude.com) und registrieren Sie sich oder melden Sie sich an"
+
+#: lib/phoenix_kit/integrations/providers.ex:547
+#, elixir-autogen, elixir-format
+msgid "Go to [Billing](https://platform.claude.com/settings/billing) and add a payment method or buy credits"
+msgstr "Gehen Sie zu [Billing](https://platform.claude.com/settings/billing) und fügen Sie eine Zahlungsmethode hinzu oder kaufen Sie Guthaben"
+
+#: lib/phoenix_kit/integrations/providers.ex:550
+#, elixir-autogen, elixir-format
+msgid "Anthropic requires a positive credit balance before the API will answer requests"
+msgstr "Anthropic erfordert ein positives Guthaben, bevor die API Anfragen beantwortet"
+
+#: lib/phoenix_kit/integrations/providers.ex:555
+#, elixir-autogen, elixir-format
+msgid "API credits are billed separately from a Claude.ai subscription — a Pro or Max plan does not include them."
+msgstr "API-Guthaben wird getrennt von einem Claude.ai-Abonnement abgerechnet – ein Pro- oder Max-Tarif enthält es nicht."
+
+#: lib/phoenix_kit/integrations/providers.ex:562
+#, elixir-autogen, elixir-format
+msgid "Go to [API Keys](https://platform.claude.com/settings/keys)"
+msgstr "Gehen Sie zu [API Keys](https://platform.claude.com/settings/keys)"
+
+#: lib/phoenix_kit/integrations/providers.ex:565
+#, elixir-autogen, elixir-format
+msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
+msgstr "Beschränken Sie den Schlüssel auf einen einzelnen Workspace (zum Beispiel Default) – ein Schlüssel ohne Workspace wird abgelehnt"
