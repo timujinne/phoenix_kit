@@ -1126,6 +1126,9 @@ defmodule PhoenixKit.Integrations do
        ),
        do: Validators.object_storage(data, opts)
 
+  defp do_validate(%{auth_type: :credentials, validation: %{strategy: :smtp}}, data, opts),
+    do: Validators.smtp(data, opts)
+
   defp do_validate(provider, data, _opts), do: do_validate(provider, data)
 
   # A provider that another module contributes cannot add a named strategy
@@ -1167,8 +1170,11 @@ defmodule PhoenixKit.Integrations do
   defp do_validate(%{auth_type: :key_secret, validation: %{strategy: :aws_ses}}, data),
     do: Validators.aws_ses(data)
 
+  # Reached without the caller's owner (`validate_connection_without_logging/2`):
+  # a saved personal row still carries its `owner_uuid`, which is what makes
+  # `SmtpEndpointPolicy` treat it as personal.
   defp do_validate(%{auth_type: :credentials, validation: %{strategy: :smtp}}, data),
-    do: Validators.smtp(data)
+    do: Validators.smtp(data, owner: :system)
 
   defp do_validate(%{auth_type: :api_key, validation: %{strategy: :brevo_api}}, data),
     do: Validators.brevo_api(data)

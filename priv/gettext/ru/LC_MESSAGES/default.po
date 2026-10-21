@@ -21354,3 +21354,13 @@ msgstr "Каталог API"
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr "Этот сайт"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Личные SMTP-подключения могут использовать только порты 25, 465, 587 или 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "SMTP-сервер должен указывать на публичный адрес"

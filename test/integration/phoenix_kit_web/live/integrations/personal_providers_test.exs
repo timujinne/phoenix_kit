@@ -132,6 +132,36 @@ defmodule PhoenixKitWeb.Live.Integrations.PersonalProvidersTest do
     end
   end
 
+  describe "the personal SMTP form with the personal SMTP policy on" do
+    setup do
+      Application.put_env(:phoenix_kit, :personal_smtp_policy, :restricted)
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :personal_smtp_policy) end)
+    end
+
+    test "testing an internal host before saving says why it is refused", %{conn: conn} do
+      {:ok, _} = Providers.put_personal_enabled(["smtp"])
+
+      {:ok, view, _html} =
+        live(personal_user(conn), Routes.path("/profile/settings/integrations/new"))
+
+      render_click(view, "select_provider", %{"provider" => "smtp"})
+
+      html =
+        view
+        |> element("#personal-integration-setup-form")
+        |> render_submit(%{
+          "_intent" => "test",
+          "name" => "Mine",
+          "host" => "127.0.0.1",
+          "port" => "587",
+          "username" => "u",
+          "password" => "p"
+        })
+
+      assert html =~ "The SMTP host must resolve to a public address"
+    end
+  end
+
   describe "Settings → Integrations" do
     test "lists every provider that may be personal, ticked as offered", %{conn: conn} do
       {:ok, view, _html} = live(admin(conn), Routes.path("/admin/settings/integrations"))
