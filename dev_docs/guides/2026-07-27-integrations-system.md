@@ -8,7 +8,7 @@ Centralized OAuth / API key / bot token / credential management.
 
 **Files:**
 - `lib/phoenix_kit/integrations/integrations.ex` — main context (CRUD, OAuth, validation)
-- `lib/phoenix_kit/integrations/providers.ex` — provider registry (Google, OpenRouter built-in)
+- `lib/phoenix_kit/integrations/providers.ex` — provider registry (built-ins: Google, Microsoft; the AI providers OpenAI, Anthropic, OpenRouter, Mistral, DeepSeek, xAI, Amazon Bedrock; ElevenLabs, AWS SES, object storage, SMTP, Brevo, Telegram, GitHub, DataForSEO, SerpApi)
 - `lib/phoenix_kit/integrations/oauth.ex` — generic OAuth 2.0 with CSRF state
 - `lib/phoenix_kit/integrations/events.ex` — PubSub events (owner-routed)
 - `lib/phoenix_kit/integrations/telegram.ex` — Telegram bot client (send + one-shot getUpdates)
@@ -37,6 +37,10 @@ A corrupted JSONB `provider`/`name` cannot leak into a new key — no public wri
 **Consumer pattern:** modules store the uuid on their own records (`phoenix_kit_ai_endpoints.integration_uuid`, `document_creator_settings.google_connection`). Lookups via `get_integration_by_uuid/1` or `get_credentials/1`. The system does **not** silently fall back to "any connected row of this provider" — consumers specify which.
 
 **Validation:** `validate_connection/2` calls userinfo (OAuth) or validation endpoint (api_key/bot_token). Success flips `status` → `"connected"` and rewrites `connected_at`. `last_validated_at` is rewritten on every attempt.
+
+**Key check (api_key/bot_token):** one authenticated `GET` to `validation.url`, the key sent in `validation.auth_header` behind `validation.auth_prefix` (`Authorization` / `Bearer ` for most). `200` passes, `401` is "Invalid credentials", `403` "Access denied". A service that needs more than that one header adds `validation.extra_headers` — `{name, value}` pairs sent along with the auth header, unchanged; leaving it out sends the auth header alone. A check that is not a plain `GET` declares `validation.strategy` instead. Types: `t:PhoenixKit.Integrations.Providers.validation/0`.
+
+**Anthropic** (`anthropic`, `:ai_completions`, site-wide and personal): `base_url` is `https://api.anthropic.com/v1` — Anthropic's OpenAI SDK compatibility layer, so AI consumers reach `POST <base_url>/chat/completions` with the same `Authorization: Bearer <key>` they send everywhere. The key *check* uses the native API instead: `GET /v1/models` with `x-api-key` and `extra_headers: [{"anthropic-version", "2023-06-01"}]`. Anthropic documents `Authorization: Bearer` as the main header and `x-api-key` as a legacy fallback that is still supported; `anthropic-version` is required on the native API, which is why the check needs `extra_headers`. A key that is not scoped to one workspace needs an `anthropic-workspace-id` header on every request and is refused with a 400 without it, so the setup instructions have the admin scope the key to a single workspace. The compatibility layer is documented by Anthropic as meant for testing and comparison: prompt caching, extended-thinking output and structured outputs need the native Messages API.
 
 **Events (PubSub):** topic `"phoenix_kit:integrations"`. Events: `integration_setup_saved`, `integration_connected`, `integration_disconnected`, `integration_validated`, `integration_connection_added/removed/renamed`.
 
