@@ -14,7 +14,8 @@ defmodule PhoenixKit.API.Actor do
     * `scope` - the `PhoenixKit.Users.Auth.Scope` those scopes were computed from: the
       owner's `Scope.for_user(owner, narrow: false)` for a key, the session's narrowed
       scope for `:user`, `nil` for an anonymous caller. Handlers read it as `ctx.scope`.
-    * `requires_approval` - the key's dangerous operations wait for a human.
+    * `requires_approval` - every write call of the key (not a read, not a `dry_run`)
+      waits for a human, dangerous or not.
     * `client_token_hash` - the hash of the client token an anonymous public caller sent in the
       field its tool declares (`PhoenixKit.API.Tool`'s `:client_token`); `nil` when the tool
       declares none or the caller sent none. The raw token is never kept.

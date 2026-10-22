@@ -890,9 +890,83 @@ defmodule PhoenixKit.API.ExecutorGateTest do
       assert Repo.aggregate(Record, :count) == 0
     end
 
-    test "a call that is not dangerous runs at once, approval key or not", %{gated: gated} do
-      assert call(gated.token, "flowkit.touch_item", %{"name" => "x"}).status == 200
+    test "a write that is not dangerous is queued too, not run", %{gated: gated} do
+      conn = call(gated.token, "flowkit.touch_item", %{"name" => "x"})
+
+      assert conn.status == 200
+
+      assert %{
+               "executed" => false,
+               "status" => "pending_approval",
+               "approval_id" => approval_id,
+               "preview" => %{"rows" => [%{"ref" => "x", "action" => "touch"}]}
+             } = json(conn)
+
+      refute Map.has_key?(json(conn), "confirm_token")
+      assert ApiFlowStore.calls() == 0
+      assert real_run_messages() == []
+      assert rows("token") == []
+
+      assert [%{uuid: ^approval_id, status: "pending", input: %{"name" => "x"}}] =
+               rows("approval")
+    end
+
+    test "a write whose danger check says no is queued as well", %{gated: gated} do
+      conn =
+        call(gated.token, "flowkit.set_values", %{"changes" => [%{"id" => "a", "value" => 110}]})
+
+      assert conn.status == 200
+      assert %{"status" => "pending_approval"} = json(conn)
+      assert ApiFlowStore.items() == @all_items
+      assert [%{status: "pending"}] = rows("approval")
+    end
+
+    test "approving a write that is not dangerous runs it once", %{gated: gated} do
+      conn = call(gated.token, "flowkit.touch_item", %{"name" => "x"})
+      owner_scope = KeyTestSupport.scope_of(KeyTestSupport.owner_user())
+
+      assert {:ok, %{status: "executed", result: %{"touched" => "x", "call" => 1}}} =
+               Approvals.approve(json(conn)["approval_id"], owner_scope)
+
       assert ApiFlowStore.calls() == 1
+    end
+
+    test "the same write from a key without the flag runs at once", %{token: token} do
+      conn = call(token, "flowkit.touch_item", %{"name" => "x"})
+
+      assert conn.status == 200
+      assert %{"touched" => "x", "call" => 1} = json(conn)
+      assert Repo.aggregate(Confirmation, :count) == 0
+    end
+
+    test "a code sent with a write that is not dangerous is refused, nothing is run", %{
+      gated: gated
+    } do
+      conn = call(gated.token, "flowkit.touch_item", %{"name" => "x", "confirm_token" => "ct_x"})
+
+      assert conn.status == 409
+      assert json(conn)["context"]["reason"] == "approval_required"
+      assert ApiFlowStore.calls() == 0
+      assert rows("approval") == []
+    end
+
+    test "dry_run of a write that is not dangerous is a preview with no approval", %{
+      gated: gated
+    } do
+      conn = call(gated.token, "flowkit.touch_item", %{"name" => "x", "dry_run" => true})
+
+      assert conn.status == 200
+      assert %{"executed" => false, "dry_run" => true, "preview" => _} = json(conn)
+      assert ApiFlowStore.calls() == 0
+      assert Repo.aggregate(Confirmation, :count) == 0
+    end
+
+    test "a read runs at once", %{gated: gated} do
+      conn = call(gated.token, "flowkit.read_items", %{})
+
+      assert conn.status == 200
+      assert json(conn) == %{"items" => @all_items}
+      assert Repo.aggregate(Confirmation, :count) == 0
     end
 
     test "approving it later runs the operation as the key's owner", %{gated: gated} do

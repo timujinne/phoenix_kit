@@ -20460,8 +20460,8 @@ msgstr "Потребує схвалення"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Небезпечні операції цього ключа чекають у черзі схвалення, доки їх не схвалить людина. Використовуйте це для ключів, виданих ШІ-агентам."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Будь-який запис цього ключа, небезпечний чи ні, чекає в черзі схвалення, доки його не схвалить людина; читання виконується одразу. Використовуйте це для ключів, виданих ШІ-агентам."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21189,11 +21189,11 @@ msgstr[2] "Від 16 до 128 символів: літери, цифри, - і _
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Ключ, якому потрібне схвалення, не виконує небезпечну операцію: виклик повертає pending_approval і чекає до %{count} год, поки людина його схвалить."
-msgstr[1] "Ключ, якому потрібне схвалення, не виконує небезпечну операцію: виклик повертає pending_approval і чекає до %{count} год, поки людина його схвалить."
-msgstr[2] "Ключ, якому потрібне схвалення, не виконує небезпечну операцію: виклик повертає pending_approval і чекає до %{count} год, поки людина його схвалить."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Ключ, якому потрібне схвалення, не виконує жодного запису, небезпечного чи ні: виклик повертає pending_approval і чекає до %{count} год, поки людина його схвалить."
+msgstr[1] "Ключ, якому потрібне схвалення, не виконує жодного запису, небезпечного чи ні: виклик повертає pending_approval і чекає до %{count} год, поки людина його схвалить."
+msgstr[2] "Ключ, якому потрібне схвалення, не виконує жодного запису, небезпечного чи ні: виклик повертає pending_approval і чекає до %{count} год, поки людина його схвалить."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format

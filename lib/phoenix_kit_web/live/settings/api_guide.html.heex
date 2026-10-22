@@ -291,8 +291,8 @@
         <div class="flex flex-wrap items-start justify-between gap-3">
           <p class="text-sm">
             {ngettext(
-              "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it.",
-              "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it.",
+              "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it.",
+              "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it.",
               @approval_ttl_hours
             )}
           </p>
