@@ -21336,3 +21336,38 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:598
+#, elixir-autogen, elixir-format
+msgid "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "Agent may act"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:169
+#, elixir-autogen, elixir-format
+msgid "Let the agent act in %{module}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:168
+#, elixir-autogen, elixir-format
+msgid "Stop the agent acting in %{module}"
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.ex:474
+#, elixir-autogen, elixir-format
+msgid "The agent may act in %{module}."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.ex:477
+#, elixir-autogen, elixir-format
+msgid "The agent may no longer act in %{module}."
+msgstr ""
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
+msgstr ""

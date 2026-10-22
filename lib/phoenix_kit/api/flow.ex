@@ -221,15 +221,18 @@ defmodule PhoenixKit.API.Flow do
 
   @doc """
   Step 8. A read tool passes. `dry_run: true` runs the handler with `ctx.dry_run? == true`
-  and answers the preview (no code, no approval). Any other write call of a key that
-  requires approval goes to the approval queue, dangerous or not, and a `confirm_token`
-  from such a key is refused. For every other caller a dangerous call (`dangerous?/1`) goes
-  through the confirmation flow, and any other call passes.
+  and answers the preview (no code, no approval). A write of a person's live session
+  (`kind: :user`) never runs on this call, dangerous or not: it is held for the person to
+  confirm (`session_flow/1`). Any other write call of a key that requires approval goes to
+  the approval queue, dangerous or not, and a `confirm_token` from such a key is refused.
+  For every other caller a dangerous call (`dangerous?/1`) goes through the confirmation
+  flow, and any other call passes.
   """
   def gate(%{tool: tool} = state) do
     cond do
       not ControlFields.write_tool?(tool) -> {:ok, state}
       state.dry_run? -> dry_run_only(state)
+      session?(state) -> session_flow(state)
       approval_key?(state) or dangerous?(state) -> confirm_flow(state)
       true -> {:ok, state}
     end
@@ -376,6 +379,7 @@ defmodule PhoenixKit.API.Flow do
   defp label(reason) when reason in [:malformed, :unknown, :wrong_binding], do: "invalid"
   defp label(:wrong_input), do: "other_arguments"
   defp label(:used), do: "used"
+  defp label(:rejected), do: "rejected"
   defp label(:expired), do: "expired"
   defp label(:changed), do: "changed"
   defp label(:approval_key), do: "approval_required"
@@ -416,6 +420,124 @@ defmodule PhoenixKit.API.Flow do
       {:error, _code, _detail, _context, _state} = error ->
         error
     end
+  end
+
+  # --- a person's live session ----------------------------------------------------------
+
+  defp session?(%{actor: %{kind: :user}}), do: true
+  defp session?(_state), do: false
+
+  # Every write of a session waits for the person, so the values cannot change between the
+  # preview they see and the run they confirm unnoticed. A session holds no code: one sent
+  # anyway is checked as a code and refused (`Confirm.lookup_token/5` never accepts a
+  # session's row).
+  defp session_flow(state) do
+    case state.control["confirm_token"] do
+      token when is_binary(token) -> redeem(state, token)
+      _none -> hold_for_session(state)
+    end
+  end
+
+  # The preview and a new row, answered with the row's uuid, never a code.
+  defp hold_for_session(state) do
+    with {:ok, previewed} <- Executor.preview(state),
+         {:ok, row} <- issue_for_session(state, previewed) do
+      {:done, session_prompt(previewed, row, %{})}
+    end
+  end
+
+  defp issue_for_session(state, previewed) do
+    state.actor
+    |> Confirm.issue_for_user(
+      state.tool.name,
+      state.input_hash,
+      previewed.preview.data,
+      previewed.preview.fingerprint
+    )
+    |> session_row(state)
+  end
+
+  defp session_row({:ok, row}, _state), do: {:ok, row}
+
+  defp session_row({:error, reason}, state) do
+    Logger.error(
+      "[PhoenixKit.API] could not hold #{state.tool.name} for confirmation: #{LogSafe.shape(reason)}"
+    )
+
+    {:error, :internal_error, "The operation could not be held for confirmation.", %{}, state}
+  end
+
+  defp session_prompt(previewed, row, extra) do
+    body =
+      Map.merge(
+        %{
+          "executed" => false,
+          "status" => "confirmation_required",
+          "confirmation_id" => row.uuid,
+          "preview" => previewed.preview.data,
+          "expires_at" => DateTime.to_iso8601(row.expires_at),
+          "expires_in_seconds" => max(DateTime.diff(row.expires_at, DateTime.utc_now()), 0)
+        },
+        extra
+      )
+
+    %{answer(previewed, body, "confirmation_required") | confirmation: row}
+  end
+
+  @doc """
+  The person confirms the write their session's call was held for: the step that takes
+  the place of `gate/1` in `PhoenixKit.API.Executor.redeem_as/6`. The state has passed the
+  whole request path again, so this checks only the row: it must be the person's
+  (`Confirm.lookup_for_user/2`), for the same tool and arguments, still waiting
+  (`Confirm.redeemable/4`); then the handler runs as a dry run for a fresh fingerprint and
+  `Confirm.claim_token/3` spends the row, atomically. `{:ok, state}` goes on to run the
+  handler.
+
+  When the values changed since the preview, nothing runs: the row is replaced by a new
+  one with the fresh preview (`Confirm.reissue_for_user/7`) and the answer is the prompt of
+  the new row with `"reason" => "changed"`. Any other refusal is `409
+  confirm_token_invalid` with `context.reason` `invalid` (unknown or somebody else's),
+  `other_arguments`, `used`, `rejected` or `expired`, without a preview.
+  """
+  def redeem_for_session(state, confirmation_uuid) do
+    with {:ok, row} <- Confirm.lookup_for_user(confirmation_uuid, state.actor.user_uuid),
+         :ok <- Confirm.redeemable(row, state.tool.name, state.input_hash),
+         {:ok, previewed} <- Executor.preview(state) do
+      case Confirm.claim_token(row, previewed.preview.fingerprint) do
+        :ok -> {:ok, %{state | confirmation: row}}
+        {:error, :changed} -> reissue_for_session(state, row, previewed)
+        {:error, reason} -> session_invalid(state, reason)
+      end
+    else
+      {:error, reason} when is_atom(reason) -> session_invalid(state, reason)
+      {:error, _code, _detail, _context, _state} = error -> error
+    end
+  end
+
+  defp reissue_for_session(state, row, previewed) do
+    case Confirm.reissue_for_user(
+           row,
+           state.actor,
+           state.tool.name,
+           state.input_hash,
+           previewed.preview.data,
+           previewed.preview.fingerprint
+         ) do
+      {:ok, new_row} ->
+        {:done, session_prompt(previewed, new_row, %{"reason" => "changed"})}
+
+      {:error, reason} when is_atom(reason) and reason != :no_binding ->
+        session_invalid(state, reason)
+
+      {:error, reason} ->
+        session_row({:error, reason}, state)
+    end
+  end
+
+  defp session_invalid(state, reason) do
+    {:error, :confirm_token_invalid,
+     "The confirmation is not valid (#{label(reason)}). Ask for the operation again to get a new preview.",
+     %{reason: label(reason)}, state}
   end
 
   # Approval queue.

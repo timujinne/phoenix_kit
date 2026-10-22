@@ -24,6 +24,15 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
       end
     end
 
+    def get_by(_schema, key: "api_session_write_modules") do
+      case Process.get(:session_writes_read) do
+        :exit -> exit(:database_unavailable)
+        :raise -> raise DBConnection.ConnectionError, message: "database unavailable"
+        {:value, value} -> %PhoenixKit.Settings.Setting{value: value}
+        _ -> nil
+      end
+    end
+
     def get_by(_schema, _clauses), do: nil
   end
 
@@ -95,6 +104,20 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
     Process.put(:modules_read, :exit)
     assert Config.fetch_disabled_modules() == :unreadable
     assert Registry.all_tools() == []
+  end
+
+  @tag capture_log: true
+  test "a list of the modules a session may write in that cannot be read opens none" do
+    Process.put(:session_writes_read, {:value, "api_session_tools"})
+    assert Config.fetch_session_write_modules() == {:ok, ["api_session_tools"]}
+
+    for failure <- [:raise, :exit] do
+      PhoenixKit.Cache.clear(:settings)
+      Process.put(:session_writes_read, failure)
+
+      assert Config.fetch_session_write_modules() == :unreadable
+      assert Config.session_write_modules() == []
+    end
   end
 
   test "an explicitly empty cached list of hidden modules is readable during a DB outage" do

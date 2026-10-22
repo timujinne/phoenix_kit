@@ -21345,3 +21345,38 @@ msgstr "Las conexiones SMTP personales solo pueden usar los puertos 25, 465, 587
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr "El host SMTP debe resolverse a una dirección pública"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:598
+#, elixir-autogen, elixir-format
+msgid "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
+msgstr "Vigencia de una confirmación en una sesión iniciada, en segundos (de 60 a 86400)"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "Agent may act"
+msgstr "El agente puede actuar"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:169
+#, elixir-autogen, elixir-format
+msgid "Let the agent act in %{module}"
+msgstr "Permitir que el agente actúe en el módulo %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:168
+#, elixir-autogen, elixir-format
+msgid "Stop the agent acting in %{module}"
+msgstr "Dejar de permitir que el agente actúe en el módulo %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:474
+#, elixir-autogen, elixir-format
+msgid "The agent may act in %{module}."
+msgstr "El agente puede actuar en el módulo %{module}."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:477
+#, elixir-autogen, elixir-format
+msgid "The agent may no longer act in %{module}."
+msgstr "El agente ya no puede actuar en el módulo %{module}."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
+msgstr "«El agente puede actuar» permite que un asistente que trabaja en la sesión iniciada de una persona proponga cambios del módulo; cada cambio solo se ejecuta después de que esa persona lo confirme. Está desactivado hasta que lo active y no cambia lo que pueden hacer las claves de API."

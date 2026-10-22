@@ -44,6 +44,7 @@ defmodule PhoenixKit.ModuleRegistry do
 
   use GenServer
 
+  alias PhoenixKit.API.ControlFields
   alias PhoenixKit.API.Problem
   alias PhoenixKit.API.Tool
   alias PhoenixKit.Dashboard.Tab
@@ -955,8 +956,9 @@ defmodule PhoenixKit.ModuleRegistry do
 
   @doc """
   The registered modules that declare at least one valid API tool, switched on or off,
-  sorted by name: `%{module, key, name, enabled?, tools, audiences}` (`tools` is how many,
-  `audiences` the audiences they serve).
+  sorted by name: `%{module, key, name, enabled?, tools, audiences, writes?}` (`tools` is
+  how many, `audiences` the audiences they serve, `writes?` whether one of them is an admin
+  tool that writes, `PhoenixKit.API.ControlFields.write_tool?/1`).
 
   For the screens that list them (the API switch per module in Settings -> API, the badge
   on the Modules page). It is not a gate: `PhoenixKit.API.Registry` decides what is callable.
@@ -968,7 +970,8 @@ defmodule PhoenixKit.ModuleRegistry do
             name: String.t(),
             enabled?: boolean(),
             tools: pos_integer(),
-            audiences: [Tool.audience()]
+            audiences: [Tool.audience()],
+            writes?: boolean()
           }
         ]
   def api_modules do
@@ -985,7 +988,9 @@ defmodule PhoenixKit.ModuleRegistry do
               name: api_module_name(mod),
               enabled?: mod in enabled,
               tools: length(tools),
-              audiences: tools |> Enum.map(& &1.audience) |> Enum.uniq() |> Enum.sort()
+              audiences: tools |> Enum.map(& &1.audience) |> Enum.uniq() |> Enum.sort(),
+              writes?:
+                Enum.any?(tools, &(&1.audience == :admin and ControlFields.write_tool?(&1)))
             }
           ]
 
@@ -1145,9 +1150,17 @@ defmodule PhoenixKit.ModuleRegistry do
   defp api_hidden?(_mod, []), do: false
   defp api_hidden?(mod, hidden_keys), do: api_module_key(mod) in hidden_keys
 
+  @doc """
+  The key a module's API switches are stored under (its `module_key/0`), or `nil` for a
+  module without a usable one. `PhoenixKit.API.Executor` reads it to match a tool's
+  `:module` against `api_session_write_modules`.
+  """
+  @spec api_module_key(module() | nil) :: String.t() | nil
+  def api_module_key(nil), do: nil
+
   # Like `call_api_tools/1`, a failing `module_key/0` is reported once per module: the
   # switch is read on the request path, where `safe_call/3` would log on every request.
-  defp api_module_key(mod) do
+  def api_module_key(mod) do
     if Code.ensure_loaded?(mod) and function_exported?(mod, :module_key, 0) do
       mod.module_key()
     end

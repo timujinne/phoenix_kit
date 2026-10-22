@@ -21398,3 +21398,38 @@ msgstr "Особисті SMTP-з’єднання можуть використ�
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr "SMTP-сервер має вказувати на публічну адресу"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:598
+#, elixir-autogen, elixir-format
+msgid "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
+msgstr "Строк дії підтвердження в сеансі користувача в секундах (від 60 до 86400)"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "Agent may act"
+msgstr "Агент може виконувати дії"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:169
+#, elixir-autogen, elixir-format
+msgid "Let the agent act in %{module}"
+msgstr "Дозволити агенту виконувати дії в модулі %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:168
+#, elixir-autogen, elixir-format
+msgid "Stop the agent acting in %{module}"
+msgstr "Заборонити агенту виконувати дії в модулі %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:474
+#, elixir-autogen, elixir-format
+msgid "The agent may act in %{module}."
+msgstr "Агент може виконувати дії в модулі %{module}."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:477
+#, elixir-autogen, elixir-format
+msgid "The agent may no longer act in %{module}."
+msgstr "Агент більше не може виконувати дії в модулі %{module}."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:118
+#, elixir-autogen, elixir-format
+msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
+msgstr "«Агент може виконувати дії» дозволяє асистенту, що працює в сеансі користувача, який увійшов, пропонувати зміни модуля; кожна зміна виконується лише після підтвердження цим користувачем. Вимкнено, доки ви його не ввімкнете, і не змінює того, що можуть робити API-ключі."

@@ -56,6 +56,29 @@ defmodule PhoenixKit.API.RegistryDisabledModulesTest do
     def run(_input, _ctx), do: {:ok, %{}}
   end
 
+  # Reads only on the admin side; its public tool writes, which a session never calls.
+  defmodule ReaderFake do
+    def module_key, do: "regmod_reader"
+    def module_name, do: "Reader"
+    def enabled?, do: true
+
+    def api_tools do
+      [
+        Tool.new!(
+          name: "regmod_reader.list_things",
+          audience: :admin,
+          scope: "regmod_reader.things:read",
+          permission: "regmod",
+          handler: {__MODULE__, :run},
+          annotations: %{read_only: true}
+        ),
+        Tool.new!(name: "regmod_reader.submit", audience: :public, handler: {__MODULE__, :run})
+      ]
+    end
+
+    def run(_input, _ctx), do: {:ok, %{}}
+  end
+
   # Declares no tools: it must not be listed as an API module.
   defmodule QuietFake do
     def module_key, do: "regmod_quiet"
@@ -198,6 +221,15 @@ defmodule PhoenixKit.API.RegistryDisabledModulesTest do
 
       assert %{audiences: [:admin, :public]} = Enum.find(modules, &(&1.key == "regmod_alpha"))
       assert %{audiences: [:admin]} = Enum.find(modules, &(&1.key == "regmod_beta"))
+    end
+
+    test "says whether a module has an admin tool that writes" do
+      ModuleRegistry.register(ReaderFake)
+      on_exit(fn -> ModuleRegistry.unregister(ReaderFake) end)
+      modules = ModuleRegistry.api_modules()
+
+      assert %{writes?: true} = Enum.find(modules, &(&1.key == "regmod_beta"))
+      assert %{writes?: false} = Enum.find(modules, &(&1.key == "regmod_reader"))
     end
 
     test "is not narrowed by api_disabled_modules" do
