@@ -21380,3 +21380,8 @@ msgstr "Agent ei või enam moodulis %{module} tegutseda."
 #, elixir-autogen, elixir-format
 msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
 msgstr "„Agent võib tegutseda“ lubab inimese sisselogitud seansis töötaval assistendil mooduli muudatusi välja pakkuda; iga muudatus tehakse alles siis, kui see inimene selle kinnitab. See on väljas, kuni selle sisse lülitate, ega muuda seda, mida API võtmed teha võivad."
+
+#: lib/phoenix_kit_web/components/core/operation_preview.ex:99
+#, elixir-autogen, elixir-format
+msgid "The preview is cut: %{count} rows are not shown. Confirming runs the whole operation, not only the rows shown."
+msgstr "Eelvaade on lühendatud: %{count} rida ei kuvata. Kinnitamine käivitab kogu toimingu, mitte ainult kuvatud read."

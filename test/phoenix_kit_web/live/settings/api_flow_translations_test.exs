@@ -9,9 +9,11 @@ defmodule PhoenixKitWeb.Live.Settings.ApiFlowTranslationsTest do
   """
   use ExUnit.Case, async: true
 
+  # With the preview component, which holds the row and summary words the page shows.
   @page_sources ~w(
     lib/phoenix_kit_web/live/approvals.ex
     lib/phoenix_kit_web/live/approvals.html.heex
+    lib/phoenix_kit_web/components/core/operation_preview.ex
   )
   # The admin menu entry of the page (`gettext_noop` in `PhoenixKit.Dashboard.AdminTabs`).
   @extra_msgids [{nil, "Approvals"}]

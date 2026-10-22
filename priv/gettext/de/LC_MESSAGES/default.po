@@ -21371,3 +21371,8 @@ msgstr "Der Agent darf im Modul %{module} nicht mehr handeln."
 #, elixir-autogen, elixir-format
 msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
 msgstr "„Agent darf handeln“ erlaubt einem Assistenten, der in der angemeldeten Sitzung einer Person arbeitet, Änderungen des Moduls vorzuschlagen; jede Änderung wird erst ausgeführt, wenn diese Person sie bestätigt. Es ist aus, bis Sie es einschalten, und ändert nichts daran, was API-Schlüssel dürfen."
+
+#: lib/phoenix_kit_web/components/core/operation_preview.ex:99
+#, elixir-autogen, elixir-format
+msgid "The preview is cut: %{count} rows are not shown. Confirming runs the whole operation, not only the rows shown."
+msgstr "Die Vorschau ist gekürzt: %{count} Zeilen werden nicht angezeigt. Die Bestätigung führt den gesamten Vorgang aus, nicht nur die angezeigten Zeilen."

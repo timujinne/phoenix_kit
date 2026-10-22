@@ -21433,3 +21433,8 @@ msgstr "Агент більше не може виконувати дії в м�
 #, elixir-autogen, elixir-format
 msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
 msgstr "«Агент може виконувати дії» дозволяє асистенту, що працює в сеансі користувача, який увійшов, пропонувати зміни модуля; кожна зміна виконується лише після підтвердження цим користувачем. Вимкнено, доки ви його не ввімкнете, і не змінює того, що можуть робити API-ключі."
+
+#: lib/phoenix_kit_web/components/core/operation_preview.ex:99
+#, elixir-autogen, elixir-format
+msgid "The preview is cut: %{count} rows are not shown. Confirming runs the whole operation, not only the rows shown."
+msgstr "Попередній перегляд скорочено: не показано рядків: %{count}. Підтвердження виконає всю операцію, а не лише показані рядки."
