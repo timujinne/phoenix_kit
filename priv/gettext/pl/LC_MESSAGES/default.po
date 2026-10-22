@@ -2081,7 +2081,7 @@ msgstr "Niepotwierdzony"
 #: lib/phoenix_kit/email/core_templates.ex:408
 #: lib/phoenix_kit/users/auth/user_notifier.ex:253
 #: lib/phoenix_kit_web/comments_gettext_manifest.ex:64
-#: lib/phoenix_kit_web/components/core/time_display.ex:183
+#: lib/phoenix_kit_web/components/core/time_display.ex:180
 #: lib/phoenix_kit_web/components/language_switcher.ex:832
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:108
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:249
@@ -5325,25 +5325,28 @@ msgstr "Wygasłe"
 msgid "Transactional"
 msgstr "Transakcyjne"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:206
+#: lib/phoenix_kit_web/components/core/time_display.ex:219
 #, elixir-autogen, elixir-format
 msgid "No expiration"
 msgstr "Bez wygaśnięcia"
 
 #: lib/phoenix_kit_web/components/core/date_nav.ex:138
 #: lib/phoenix_kit_web/components/core/date_nav.ex:141
-#: lib/phoenix_kit_web/components/core/time_display.ex:212
+#: lib/phoenix_kit_web/components/core/time_display.ex:225
 #: lib/phoenix_kit_web/live/notifications/inbox.ex:209
 #, elixir-autogen, elixir-format
 msgid "Today"
 msgstr "Dziś"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:187
+#: lib/phoenix_kit_web/components/core/time_display.ex:189
 #, elixir-autogen, elixir-format
 msgid "%{count}s ago"
-msgstr "%{count} s temu"
+msgid_plural "%{count}s ago"
+msgstr[0] "%{count} s temu"
+msgstr[1] "%{count} s temu"
+msgstr[2] "%{count} s temu"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:188
+#: lib/phoenix_kit_web/components/core/time_display.ex:192
 #, elixir-autogen, elixir-format
 msgid "%{count}m ago"
 msgid_plural "%{count}m ago"
@@ -5351,7 +5354,7 @@ msgstr[0] "%{count} min temu"
 msgstr[1] "%{count} min temu"
 msgstr[2] "%{count} min temu"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:189
+#: lib/phoenix_kit_web/components/core/time_display.ex:195
 #, elixir-autogen, elixir-format
 msgid "%{count}h ago"
 msgid_plural "%{count}h ago"
@@ -5359,13 +5362,13 @@ msgstr[0] "%{count} godz. temu"
 msgstr[1] "%{count} godz. temu"
 msgstr[2] "%{count} godz. temu"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:190
+#: lib/phoenix_kit_web/components/core/time_display.ex:198
 #, elixir-autogen, elixir-format
 msgid "%{count}d ago"
 msgid_plural "%{count}d ago"
-msgstr[0] "%{count} dn. temu"
-msgstr[1] "%{count} dn. temu"
-msgstr[2] "%{count} dn. temu"
+msgstr[0] "%{count} dzień temu"
+msgstr[1] "%{count} dni temu"
+msgstr[2] "%{count} dni temu"
 
 #: lib/phoenix_kit_web/live/modules/languages.html.heex:57
 #, elixir-autogen

@@ -9,17 +9,22 @@ defmodule PhoenixKitWeb.Components.Core.TimeDisplay do
 
   use Phoenix.Component
   use Gettext, backend: PhoenixKitWeb.Gettext
+  alias PhoenixKit.Settings
   alias PhoenixKit.Utils.Date, as: UtilsDate
 
   @doc """
   Displays relative time (e.g., "5m ago", "2h ago", "3d ago").
 
-  Uses a client-side JavaScript hook for efficient updates without server load.
-  Updates every second for recent times, less frequently for older times.
+  Rendered by the server in the user's language, with the plural form the
+  count needs. The text is what it was at render time; it moves on when the
+  page re-renders, not by itself in the browser. The `title` is the moment
+  itself in the site time zone (Settings → `time_zone`), as `YYYY-MM-DD HH:MM`.
+  A `NaiveDateTime` is read as UTC.
 
   ## Attributes
-  - `datetime` - DateTime struct or nil
+  - `datetime` - DateTime or NaiveDateTime, or nil
   - `class` - CSS classes (default: "text-xs")
+  - `id` - Optional DOM id
 
   ## Examples
 
@@ -30,25 +35,17 @@ defmodule PhoenixKitWeb.Components.Core.TimeDisplay do
   """
   attr :datetime, :any, required: true
   attr :class, :string, default: "text-xs"
-  attr :id, :string, default: nil, doc: "Optional DOM id (auto-generated if not provided)"
+  attr :id, :string, default: nil, doc: "Optional DOM id"
 
   def time_ago(assigns) do
-    assigns =
-      assigns
-      |> assign(:iso_datetime, format_iso8601(assigns.datetime))
-      |> assign_new(:dom_id, fn ->
-        # Use provided id, or generate a unique one to avoid collisions
-        assigns[:id] || "time-ago-#{System.unique_integer([:positive])}"
-      end)
+    assigns = assign(assigns, :iso_datetime, format_iso8601(assigns.datetime))
 
     ~H"""
     <%= if @iso_datetime do %>
       <time
-        phx-hook="TimeAgo"
-        id={@dom_id}
+        id={@id}
         class={@class}
         datetime={@iso_datetime}
-        data-datetime={@iso_datetime}
         title={format_datetime_title(@datetime)}
       >
         {format_time_ago(@datetime)}
@@ -182,23 +179,39 @@ defmodule PhoenixKitWeb.Components.Core.TimeDisplay do
 
   defp format_time_ago(_), do: gettext("Unknown")
 
+  # A moment ahead of the clock (skew, a scheduled time) reads as 0s ago:
+  # a plural form needs a count of zero or more.
+  defp format_seconds_ago(diff_seconds) when diff_seconds < 0, do: format_seconds_ago(0)
+
   defp format_seconds_ago(diff_seconds) do
     cond do
-      diff_seconds < 60 -> gettext("%{count}s ago", count: diff_seconds)
-      diff_seconds < 3_600 -> gettext("%{count}m ago", count: div(diff_seconds, 60))
-      diff_seconds < 86_400 -> gettext("%{count}h ago", count: div(diff_seconds, 3_600))
-      true -> gettext("%{count}d ago", count: div(diff_seconds, 86_400))
+      diff_seconds < 60 ->
+        ngettext("%{count}s ago", "%{count}s ago", diff_seconds)
+
+      diff_seconds < 3_600 ->
+        ngettext("%{count}m ago", "%{count}m ago", div(diff_seconds, 60))
+
+      diff_seconds < 86_400 ->
+        ngettext("%{count}h ago", "%{count}h ago", div(diff_seconds, 3_600))
+
+      true ->
+        ngettext("%{count}d ago", "%{count}d ago", div(diff_seconds, 86_400))
     end
   end
 
-  defp format_datetime_title(nil), do: nil
+  # Digits only, so it reads the same in every language; the moment is shown
+  # in the site time zone, the zone read through the settings cache since a
+  # list renders one of these per row.
+  defp format_datetime_title(datetime)
+       when is_struct(datetime, DateTime) or is_struct(datetime, NaiveDateTime) do
+    settings = %{
+      "date_format" => "Y-m-d",
+      "time_format" => "H:i",
+      "time_zone" => Settings.get_setting_cached("time_zone", "0")
+    }
 
-  defp format_datetime_title(datetime) when is_struct(datetime, DateTime) do
-    Calendar.strftime(datetime, "%B %d, %Y at %H:%M:%S UTC")
-  end
-
-  defp format_datetime_title(datetime) when is_struct(datetime, NaiveDateTime) do
-    Calendar.strftime(datetime, "%B %d, %Y at %H:%M:%S")
+    UtilsDate.format_datetime_with_cached_settings(datetime, settings) <>
+      " " <> UtilsDate.format_time_with_cached_settings(datetime, settings)
   end
 
   defp format_datetime_title(_), do: nil

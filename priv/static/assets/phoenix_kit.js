@@ -6420,6 +6420,12 @@ if (typeof window.Chart === "undefined") {
   // Usage in LiveView template:
   //   <span phx-hook="TimeAgo" data-datetime={DateTime.to_iso8601(timestamp)}></span>
   //
+  // Core's `time_ago` component no longer uses this hook: the hook writes its
+  // text in English only, so on a translated page it replaced the server's
+  // translated text once the page went live. The component is now rendered by
+  // the server alone, in the user's language. The hook stays for hosts that
+  // put `phx-hook="TimeAgo"` on their own markup.
+  //
   // ---------------------------------------------------------------------------
 
   window.PhoenixKitHooks.TimeAgo = {

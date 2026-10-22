@@ -82,6 +82,13 @@
   (`TileSource`), and cuts every tile from it.
 - **`POST /api/upload` takes HEIC, HEIF, AVIF, TIFF and BMP** (it turned them away as "not allowed"), and its size cap follows the
   `storage_max_upload_size_mb` setting (default 500) instead of a fixed 100 MB.
+- **`<.time_ago>` reads in the user's language.** Its `TimeAgo` client hook rewrote the text in English once the page was
+  live; the component now has no hook and is rendered by the server alone, with `ngettext` plural forms ("1 день назад",
+  "2 дня назад", "5 дней назад"; "1 päev tagasi", "3 päeva tagasi"). The tooltip is the moment in the site time zone as
+  `YYYY-MM-DD HH:MM` instead of an English date in UTC. A moment ahead of the clock reads "0s ago". The text no longer
+  ticks in the browser; it is what it was at the last render. The hook stays in `phoenix_kit.js` for host markup that uses
+  `phx-hook="TimeAgo"` directly. i18n: `"%{count}s ago"` is a plural entry in every catalogue; the day forms in et, ru, uk
+  and pl are full words with their plural forms.
 
 ## 2.63.0 - 2026-10-17
 
