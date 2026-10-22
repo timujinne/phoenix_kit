@@ -173,7 +173,7 @@ defmodule PhoenixKitWeb.Components.Core.OperationPreview do
   @spec json_text(term()) :: String.t()
   def json_text(term), do: Jason.encode!(term, pretty: true)
 
-  @doc "A value of a change (\"Was\" or \"Becomes\") as text; nothing is a dash."
+  @doc "A value of a change (the was or the becomes of a field) as text; nothing is a dash."
   @spec show(term()) :: String.t()
   def show(nil), do: "—"
   def show(value) when is_binary(value), do: value
