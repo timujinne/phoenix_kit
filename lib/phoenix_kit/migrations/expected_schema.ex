@@ -202,6 +202,16 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # access to; the real-database integration suite re-ran clean against a DB
   # migrated through V196, which is the property s7/s8 exist to prove.
   #
+  # V221 (2026-10-22, a confirmation of a live session) DECLARES three objects,
+  # built by `v221_objects/1`: `column:phoenix_kit_api_confirmations.actor_user_uuid`
+  # (uuid, nullable, position 20), its foreign key to `phoenix_kit_users` (ON DELETE
+  # CASCADE) and the index `(actor_user_uuid, status)`. It RESHAPES one:
+  # `constraint:…phoenix_kit_api_confirmations_actor_check` gets a `{221, …}` revision
+  # that also accepts `actor_user_uuid` (the V181 reshape class). Read with the repair
+  # probe from a test database migrated through V221, and kept honest by
+  # `PhoenixKit.Migrations.Postgres.V221Test`. `chain_hash` restamped over the shipped
+  # files.
+  #
   # V220 (2026-10-14, the dangerous-operation flow of the shop API) DECLARES 44
   # objects, built by the `v220_*` helpers under `raw_objects/0`: the tables
   # `phoenix_kit_api_confirmations` (19 columns, pkey, two foreign keys, three CHECKs,
@@ -608,7 +618,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "821286a296f420253fbf8696860c6f4d33b60817939f6f0a232afe347127e9d3"
+  @chain_hash "050f86a08ea062d5e7a7a782aa2c52aa1b338b0f5e735108b6adbab1bb944331"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)
@@ -76922,12 +76932,16 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
           "c",
           ["status"]
         ),
-        v220_constraint(
-          conf,
+        conf
+        |> v220_constraint(
           "phoenix_kit_api_confirmations_actor_check",
           "CHECK (((actor_key_uuid IS NOT NULL) OR (cart_token_hash IS NOT NULL)))",
           "c",
           ["actor_key_uuid", "cart_token_hash"]
+        )
+        |> v221_reshape(
+          "CHECK (((actor_key_uuid IS NOT NULL) OR (cart_token_hash IS NOT NULL) OR (actor_user_uuid IS NOT NULL)))",
+          ["actor_key_uuid", "cart_token_hash", "actor_user_uuid"]
         ),
         v220_index(
           conf,
@@ -76986,7 +77000,45 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
         v220_index(idem, "phoenix_kit_api_idempotency_expires_at_index", ["expires_at"], [
           "timestamp_ops"
         ])
-      ]
+      ] ++ v221_objects(conf)
+  end
+
+  # --- V221: a confirmation of a live session (see the header) ---
+
+  defp v221_objects(conf) do
+    [
+      v220_column(conf, "actor_user_uuid", 20, "uuid", since: 221),
+      v220_constraint(
+        conf,
+        "phoenix_kit_api_confirmations_actor_user_uuid_fkey",
+        "FOREIGN KEY (actor_user_uuid) REFERENCES __SCHEMA__.phoenix_kit_users(uuid) ON DELETE CASCADE",
+        "f",
+        ["actor_user_uuid"],
+        foreign_table: "phoenix_kit_users",
+        foreign_columns: ["uuid"],
+        on_delete: "c",
+        since: 221
+      ),
+      v220_index(
+        conf,
+        "phoenix_kit_api_confirmations_actor_user_status_index",
+        ["actor_user_uuid", "status"],
+        ["uuid_ops", "text_ops"],
+        since: 221
+      )
+    ]
+  end
+
+  # V221 recreates a V220 CHECK with another definition: a revision is appended, and the
+  # object is created from the newest one.
+  defp v221_reshape(%{revisions: [{220, shape}]} = object, definition, columns) do
+    %{name: name, table: table} = elem(object.check, 1)
+
+    %{
+      object
+      | create: v220_constraint_create(table, name, definition),
+        revisions: [{220, shape}, {221, %{shape | definition: definition, columns: columns}}]
+    }
   end
 
   defp v220_table(name) do
@@ -77006,6 +77058,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   defp v220_column(table, name, pos, type, opts \\ []) do
     default = Keyword.get(opts, :default)
     not_null = Keyword.get(opts, :not_null, false)
+    since = Keyword.get(opts, :since, 220)
 
     ddl =
       "ALTER TABLE __SCHEMA__.#{table} ADD COLUMN IF NOT EXISTS \"#{name}\" #{type}" <>
@@ -77017,9 +77070,9 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
       owner: :core,
       check: {:catalog, %{table: table, column: name, kind: :column}},
       create: ddl,
-      since: 220,
+      since: since,
       class: :column,
-      revisions: [{220, %{default: default, type: type, pos: pos, not_null: not_null}}],
+      revisions: [{since, %{default: default, type: type, pos: pos, not_null: not_null}}],
       presence: :required,
       backfill: nil
     }
@@ -77031,16 +77084,17 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   end
 
   defp v220_constraint(table, name, definition, type, columns, opts \\ []) do
+    since = Keyword.get(opts, :since, 220)
+
     %{
       id: "constraint:#{table}.#{name}",
       owner: :core,
       check: {:catalog, %{name: name, table: table, kind: :constraint}},
-      create:
-        "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = '#{name}'\n      AND t.relname = '#{table}'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.#{table} ADD CONSTRAINT #{name} #{definition};\n  END IF;\nEND\n$$",
-      since: 220,
+      create: v220_constraint_create(table, name, definition),
+      since: since,
       class: :constraint,
       revisions: [
-        {220,
+        {since,
          %{
            type: type,
            definition: definition,
@@ -77057,8 +77111,13 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
     }
   end
 
+  defp v220_constraint_create(table, name, definition),
+    do:
+      "DO $$\nBEGIN\n  IF NOT EXISTS (\n    SELECT 1\n    FROM pg_constraint c\n    JOIN pg_class t ON t.oid = c.conrelid\n    JOIN pg_namespace n ON n.oid = t.relnamespace\n    WHERE c.conname = '#{name}'\n      AND t.relname = '#{table}'\n      AND n.nspname = '__SCHEMA__'\n  ) THEN\n    ALTER TABLE __SCHEMA__.#{table} ADD CONSTRAINT #{name} #{definition};\n  END IF;\nEND\n$$"
+
   defp v220_index(table, name, keys, opclasses, opts \\ []) do
     unique = Keyword.get(opts, :unique, false)
+    since = Keyword.get(opts, :since, 220)
     predicate = Keyword.get(opts, :predicate)
     head = if unique, do: "CREATE UNIQUE INDEX", else: "CREATE INDEX"
     tail = "ON __SCHEMA__.#{table} USING btree (#{Enum.join(keys, ", ")})"
@@ -77070,10 +77129,10 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
       owner: :core,
       check: {:catalog, %{name: name, table: table, kind: :index}},
       create: "#{head} IF NOT EXISTS #{name} #{create_tail}",
-      since: 220,
+      since: since,
       class: :index,
       revisions: [
-        {220,
+        {since,
          %{
            table: table,
            keys: keys,
