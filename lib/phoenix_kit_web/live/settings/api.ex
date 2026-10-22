@@ -38,8 +38,9 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   A module that has write tools also has the box "Agent may act" beside its switch. On, its
   key is in `api_session_write_modules`, and a person's live session (an assistant that
   works in the browser, `PhoenixKit.API.Executor.execute_as/5` with `allow: :all`) may
-  propose its writes, each held until that person confirms it. Off by default; disabled
-  while the module's API is off. API keys do not read it. The event and the checks are the
+  propose its writes, each held until that person confirms it. Off by default; while the
+  module's API is off it cannot be turned on (an unticked box is disabled), but a ticked one
+  can still be taken off. API keys do not read it. The event and the checks are the
   switch's.
 
   ## Rights are checked on the server
@@ -175,8 +176,8 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   end
 
   # The "Agent may act" box: only a listed module that has write tools, and it may be
-  # turned on only while the module's API is on (the box is disabled otherwise). As with
-  # the switch, the state asked for, not a flip.
+  # turned on only while the module's API is on (an unticked box is disabled otherwise);
+  # off is always accepted. As with the switch, the state asked for, not a flip.
   def handle_event("set_module_session_write", %{"module" => key, "state" => state}, socket)
       when is_binary(key) and state in ["on", "off"] do
     with_access(socket, fn socket ->

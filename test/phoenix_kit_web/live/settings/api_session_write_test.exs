@@ -2,8 +2,9 @@ defmodule PhoenixKitWeb.Live.Settings.ApiSessionWriteTest do
   @moduledoc """
   Settings -> API: the "Agent may act" box of a module that has write tools. On adds the
   module's key to `api_session_write_modules`, the allow-list of the writes a person's live
-  session may propose. It is off by default, shown only for a module with write tools,
-  disabled while the module's API is off, and every change is in the settings history.
+  session may propose. It is off by default, shown only for a module with write tools, and
+  cannot be turned on while the module's API is off (a ticked box can still be taken off);
+  every change is in the settings history.
   The server checks the module, the state and the person's rights again, like the switch.
   """
   use PhoenixKitWeb.ConnCase, async: false
@@ -134,19 +135,25 @@ defmodule PhoenixKitWeb.Live.Settings.ApiSessionWriteTest do
   end
 
   describe "while the module's API is off" do
-    test "the box is disabled and cannot be turned on, but can be turned off", %{
-      conn: conn,
-      admin: admin
-    } do
+    test "a ticked box can still be taken off in the form, then it is disabled and cannot be turned on",
+         %{
+           conn: conn,
+           admin: admin
+         } do
       {:ok, view, _html} = live(conn, @path)
       set(view, "apikeytest", "on")
       render_click(element(view, @switch))
 
-      assert has_element?(view, "#{@box}[disabled]")
+      assert has_element?(view, "#{@box}[checked]")
+      refute has_element?(view, "#{@box}[disabled]")
 
-      html = set(view, "apikeytest", "off")
+      html = render_click(element(view, @box))
+      assert html =~ "The agent may no longer act in API key test module."
       refute html =~ "That action is not available."
       assert Config.session_write_modules() == []
+
+      refute has_element?(view, "#{@box}[checked]")
+      assert has_element?(view, "#{@box}[disabled]")
 
       html = set(view, "apikeytest", "on")
       assert html =~ "That action is not available."

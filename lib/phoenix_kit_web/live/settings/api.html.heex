@@ -169,7 +169,7 @@
                   else: gettext("Let the agent act in %{module}", module: module_label(mod))
               }
               checked={mod.session_write?}
-              disabled={not mod.api_on?}
+              disabled={not mod.api_on? and not mod.session_write?}
               phx-click="set_module_session_write"
               phx-value-module={mod.key}
               phx-value-state={if mod.session_write?, do: "off", else: "on"}
