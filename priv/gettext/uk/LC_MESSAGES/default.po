@@ -21395,3 +21395,48 @@ msgstr "Особисті SMTP-з’єднання можуть використ�
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr "SMTP-сервер має вказувати на публічну адресу"
+
+#: lib/phoenix_kit/integrations/providers.ex:837
+#, elixir-autogen, elixir-format
+msgid "Z.ai"
+msgstr "Z.ai"
+
+#: lib/phoenix_kit/integrations/providers.ex:838
+#, elixir-autogen, elixir-format
+msgid "AI model access via Z.ai (GLM models)"
+msgstr "Доступ до моделей ШІ через Z.ai (моделі GLM)"
+
+#: lib/phoenix_kit/integrations/providers.ex:856
+#, elixir-autogen, elixir-format
+msgid "From z.ai/manage-apikey/apikey-list"
+msgstr "З z.ai/manage-apikey/apikey-list"
+
+#: lib/phoenix_kit/integrations/providers.ex:863
+#, elixir-autogen, elixir-format
+msgid "Create a Z.ai account"
+msgstr "Створіть обліковий запис Z.ai"
+
+#: lib/phoenix_kit/integrations/providers.ex:865
+#, elixir-autogen, elixir-format
+msgid "Go to [z.ai/model-api](https://z.ai/model-api) and sign up or log in"
+msgstr "Перейдіть на [z.ai/model-api](https://z.ai/model-api) і зареєструйтеся або увійдіть"
+
+#: lib/phoenix_kit/integrations/providers.ex:871
+#, elixir-autogen, elixir-format
+msgid "Go to [Billing](https://z.ai/manage-apikey/billing) and top up your balance"
+msgstr "Перейдіть до [Billing](https://z.ai/manage-apikey/billing) і поповніть баланс"
+
+#: lib/phoenix_kit/integrations/providers.ex:874
+#, elixir-autogen, elixir-format
+msgid "The API bills the account balance — without credit Z.ai refuses requests with code 1113 (insufficient balance)"
+msgstr "API списує оплату з балансу облікового запису — без коштів Z.ai відхиляє запити з кодом 1113 (недостатньо коштів)"
+
+#: lib/phoenix_kit/integrations/providers.ex:879
+#, elixir-autogen, elixir-format
+msgid "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
+msgstr "Наявний ключ облікового запису, який мав GLM Coding Plan (ключ Compatible, створений до 16 жовтня 2026 року), у цьому API оплачується з балансу облікового запису або пакетів використання, а не з квоти тарифу."
+
+#: lib/phoenix_kit/integrations/providers.ex:886
+#, elixir-autogen, elixir-format
+msgid "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**"
+msgstr "Перейдіть до [API Keys](https://z.ai/manage-apikey/apikey-list) і створіть ключ у розділі **Standard API Key**"

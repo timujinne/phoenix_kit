@@ -21334,3 +21334,48 @@ msgstr "Persönliche SMTP-Verbindungen dürfen nur die Ports 25, 465, 587 oder 2
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr "Der SMTP-Host muss auf eine öffentliche Adresse auflösen"
+
+#: lib/phoenix_kit/integrations/providers.ex:837
+#, elixir-autogen, elixir-format
+msgid "Z.ai"
+msgstr "Z.ai"
+
+#: lib/phoenix_kit/integrations/providers.ex:838
+#, elixir-autogen, elixir-format
+msgid "AI model access via Z.ai (GLM models)"
+msgstr "Zugriff auf KI-Modelle über Z.ai (GLM-Modelle)"
+
+#: lib/phoenix_kit/integrations/providers.ex:856
+#, elixir-autogen, elixir-format
+msgid "From z.ai/manage-apikey/apikey-list"
+msgstr "Von z.ai/manage-apikey/apikey-list"
+
+#: lib/phoenix_kit/integrations/providers.ex:863
+#, elixir-autogen, elixir-format
+msgid "Create a Z.ai account"
+msgstr "Z.ai-Konto erstellen"
+
+#: lib/phoenix_kit/integrations/providers.ex:865
+#, elixir-autogen, elixir-format
+msgid "Go to [z.ai/model-api](https://z.ai/model-api) and sign up or log in"
+msgstr "Gehen Sie zu [z.ai/model-api](https://z.ai/model-api) und registrieren Sie sich oder melden Sie sich an"
+
+#: lib/phoenix_kit/integrations/providers.ex:871
+#, elixir-autogen, elixir-format
+msgid "Go to [Billing](https://z.ai/manage-apikey/billing) and top up your balance"
+msgstr "Gehen Sie zu [Billing](https://z.ai/manage-apikey/billing) und laden Sie Ihr Guthaben auf"
+
+#: lib/phoenix_kit/integrations/providers.ex:874
+#, elixir-autogen, elixir-format
+msgid "The API bills the account balance — without credit Z.ai refuses requests with code 1113 (insufficient balance)"
+msgstr "Die API rechnet über das Kontoguthaben ab – ohne Guthaben lehnt Z.ai Anfragen mit dem Code 1113 (unzureichendes Guthaben) ab"
+
+#: lib/phoenix_kit/integrations/providers.ex:879
+#, elixir-autogen, elixir-format
+msgid "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
+msgstr "Ein bestehender Schlüssel eines Kontos, das einen GLM Coding Plan hatte (ein Compatible-Schlüssel, erstellt vor dem 16. Oktober 2026), wird über diese API vom Kontoguthaben oder von Nutzungspaketen abgerechnet, nicht vom Kontingent des Plans."
+
+#: lib/phoenix_kit/integrations/providers.ex:886
+#, elixir-autogen, elixir-format
+msgid "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**"
+msgstr "Gehen Sie zu [API Keys](https://z.ai/manage-apikey/apikey-list) und erstellen Sie einen Schlüssel unter **Standard API Key**"
