@@ -21382,7 +21382,7 @@ msgstr "API eest arveldatakse konto saldolt — ilma saldota lükkab Z.ai pärin
 #: lib/phoenix_kit/integrations/providers.ex:879
 #, elixir-autogen, elixir-format
 msgid "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
-msgstr "Konto, millel on olnud GLM Coding Plan, olemasoleva võtme (Compatible-võti, loodud enne 16. oktoobrit 2026) kasutus selle API kaudu arveldatakse konto saldolt või kasutuspakettidest, mitte paketi kvoodist."
+msgstr "Kui kontol on olnud GLM Coding Plan, arveldatakse olemasoleva võtme (Compatible-võti, loodud enne 16. oktoobrit 2026) kasutust selles API-s konto saldolt või kasutuspakettidest, mitte paketi kvoodist."
 
 #: lib/phoenix_kit/integrations/providers.ex:886
 #, elixir-autogen, elixir-format
