@@ -3,9 +3,9 @@
 ## Goal
 
 A general PhoenixKit LiveComponent for selecting, ordering, previewing and removing
-a set of images. Generalizes the project-specific
-`AndiWeb.Documents.TemplatePickerComponent` (`render_image_slots/1`,
-`/www/app/lib/andi_web/documents/template_picker_component.ex:449-527`) so any
+a set of images. Generalizes a host application's project-specific
+`MyAppWeb.Documents.TemplatePickerComponent` (`render_image_slots/1`,
+`<host-app>/lib/my_app_web/documents/template_picker_component.ex:449-527`) so any
 PhoenixKit consumer can embed it instead of re-implementing the gallery + picker
 plumbing.
 
@@ -64,7 +64,7 @@ only manages an ordered list of file UUIDs and reports changes to the parent.
 
 - No persistence, no document template / slot awareness.
 - No bespoke upload UI — uploads go through `MediaSelectorModal`.
-- Not migrating Andi `TemplatePickerComponent` or document_creator's old
+- Not migrating the host app's `TemplatePickerComponent` or document_creator's old
   `ImagePicker` to use it — that is follow-up work for the consumers.
 
 ## Tests

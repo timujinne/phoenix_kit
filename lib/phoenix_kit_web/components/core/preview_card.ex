@@ -34,7 +34,7 @@ defmodule PhoenixKitWeb.Components.Core.PreviewCard do
         on_close="card_close"
       />
 
-  An Andi sub-order's featured-image card:
+  A host app's sub-order featured-image card:
 
       <PreviewCard.preview_card
         id="sub-order-card"

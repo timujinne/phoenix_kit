@@ -254,7 +254,7 @@ defmodule PhoenixKit.Squash.MigrationRunner do
   `opts[:down]` (default `quote(do: :ok)`) is the quoted down body.
   `opts[:disable_ddl_transaction]` (default `false`) mirrors the real
   files' own `@disable_ddl_transaction` declaration (both PK-generated
-  update wrappers and Andi's byte-faithful V140 bridge migration set it).
+  update wrappers and the host app's byte-faithful V140 bridge migration set it).
 
   [DB]
   """

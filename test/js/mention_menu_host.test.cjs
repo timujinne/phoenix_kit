@@ -146,7 +146,7 @@ function mount(el, { popover = true } = {}) {
 
 function open(hook) {
   hook.active = { char: "#", start: 0, query: "" };
-  hook.results = [{ title: "ANDI Manager", subtitle: "Project" }];
+  hook.results = [{ title: "ACME Manager", subtitle: "Project" }];
   hook.render();
 }
 

@@ -83,7 +83,7 @@ replacing the single image now requires Remove (the hover ✕) → Add → pick.
 The PR body claims `:single` callers "behave unchanged." That's inaccurate: the
 *selection cap* was always 1 (`apply_selection(_,_, :single, _) -> [uuid]`), but
 the *button disable* is new. Whether this is desirable depends on the
-single-mode consumers (the PR references Andi's document picker). If
+single-mode consumers (the PR references a host app's document picker). If
 click-Add-to-replace was an intended flow, this is a UX regression. Please
 confirm with the single-mode consumers; if replace-via-Add should stay,
 `:single` mode should not disable Add (the picker already replaces on pick).

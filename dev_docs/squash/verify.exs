@@ -8,7 +8,7 @@
 #
 # Scenario runs (need an operator scratch DB, spec section 8.1):
 #
-#     PGHOST=172.18.0.13 PGPORT=5432 PGUSER=... PGPASSWORD=... PGDATABASE=... \
+#     PGHOST=<db-host> PGPORT=5432 PGUSER=... PGPASSWORD=... PGDATABASE=... \
 #     PK_SQUASH_FLOOR=121 \
 #     MIX_ENV=test mix run dev_docs/squash/verify.exs --mode b --scenario s1_self,s2_self
 #
@@ -332,7 +332,7 @@ defmodule PhoenixKit.Squash.Verify do
       %{
         id: "s5",
         spec: "S5",
-        title: "consumer wrapper replay (Andi 41-file set / synthetic pins / interleaved)",
+        title: "consumer wrapper replay (host-app 41-file set / synthetic pins / interleaved)",
         requires: [:squashed_registry, :repair_engine, :generated_manifest, :db],
         run: &s5_all/1
       },
@@ -921,7 +921,7 @@ defmodule PhoenixKit.Squash.Verify do
 
   # ---------------------------------------------------------------------------
   # S5 — consumer wrapper replay (spec 8.2 S5 i-iv / 5.3; fixtures in
-  # s5_fixtures.ex, mined from /www/app/priv/repo/migrations — never edited)
+  # s5_fixtures.ex, mined from <host-app>/priv/repo/migrations — never edited)
   # ---------------------------------------------------------------------------
 
   defp s5_all(ctx) do
@@ -933,12 +933,12 @@ defmodule PhoenixKit.Squash.Verify do
     ])
   end
 
-  # (i) Realistic accumulated wrapper set: Andi's real 54-file shape (1
+  # (i) Realistic accumulated wrapper set: the host app's real 54-file shape (1
   # unpinned installer + 48 pinned update wrappers + 5 interleaved
   # consumer-authored migrations touching PK-owned tables), replayed in
   # their real chronological order against the NEW squashed chain. Oracle:
   # lands at the current comment, and `Repair.verify/1` reports the PK
-  # schema itself fully conformant (exit 0) — Andi's own extra objects
+  # schema itself fully conformant (exit 0) — the host app's own extra objects
   # (markup_percentage, prefix, primary_supplier_uuid, the sample warehouse
   # table) are not PK-manifest objects, so they don't count against this;
   # a raw byte-dump comparison against a pristine install would need to
@@ -1034,7 +1034,7 @@ defmodule PhoenixKit.Squash.Verify do
   # phoenix_kit_catalogue_v013_base_price.exs (s5_wrapper_replay/1 proves
   # THAT one survives) — this is its unguarded sibling
   # (S5Fixtures.unguarded_price_rename/1), a synthetic negative fixture, not
-  # a real Andi file. Oracle: raises, and the message actually names the
+  # a real host-app file. Oracle: raises, and the message actually names the
   # missing column (actionable), not an opaque crash.
   defp s5_interleaved_failure(ctx) do
     t = fresh_target(ctx, "s5_fail")

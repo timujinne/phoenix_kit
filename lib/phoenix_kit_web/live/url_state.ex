@@ -166,7 +166,7 @@ defmodule PhoenixKitWeb.Live.UrlState do
     * **Annotates nothing** (core's own LiveViews) — leave `handle_url_state/2`
       bare. Adding `@impl` here turns `mount/3`, `handle_event/3` and friends
       into warnings, which `mix precommit` compiles as errors.
-    * **Annotates its callbacks** (Andi's LiveViews) — annotate
+    * **Annotates its callbacks** (e.g. a host app's LiveViews) — annotate
       `handle_url_state/2` too, *and* define an explicit
       `@impl true def handle_params(_params, _uri, socket), do: {:noreply, socket}`.
       The stub injected below carries no `@impl`, so letting it be injected into

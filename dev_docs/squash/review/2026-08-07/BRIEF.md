@@ -76,7 +76,7 @@ created. `V163` repairs that.
 - `mix phoenix_kit.release_check`: `chain_hash matches 29 on-disk migration
   file(s)` PASS. The three failing checks there are release-time gates (dirty
   tree, branch, tag) and expected pre-merge.
-- The live consumer app (`/www/app`, path dep on this branch) compiles, boots
+- The live consumer app (`<host-app>/`, path dep on this branch) compiles, boots
   and serves HTTP 200 with these changes.
 - `V163`'s NOT NULL half was applied to a real pre-production database: 45
   columns set NOT NULL, zero skips, comments FK flipped to `SET NULL`, both
