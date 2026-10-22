@@ -9016,8 +9016,10 @@ if (typeof window.Chart === "undefined") {
         var dir = e.detail && e.detail.direction === "left" ? "next" : "prev";
         if (self.el.dataset[dir === "next" ? "hasNext" : "hasPrev"] !== "true") return;
         if (self._pane.querySelector(".etcher-pencil-active")) return;
-        // Gallery mode slides between pictures itself (ViewerGallery).
-        if (document.querySelector('[phx-hook="ViewerGallery"]')) return;
+        // Only an initialized gallery in this viewer owns the swipe. Its
+        // library may still be loading, or another browser may have a gallery.
+        var modal = self._pane.closest('[phx-hook="ViewerKeydown"]');
+        if (modal && modal._pkGallery) return;
         self.pushEventTo(self.el.dataset.target, "step_viewer", { dir: dir });
       };
       if (this._pane) this._pane.addEventListener("fresco:swipe", this._onSwipe);
@@ -9064,7 +9066,7 @@ if (typeof window.Chart === "undefined") {
     GALLERY_CHROME.map(function(sel) { return GALLERY_SCOPE + sel; }).join(",\n") +
     " { transition: opacity 120ms ease-out; }\n" +
     GALLERY_CHROME.map(function(sel) { return 'html[data-pk-gallery-chrome="hidden"] ' + GALLERY_SCOPE + sel; }).join(",\n") +
-    " { opacity: 0 !important; pointer-events: none !important; }\n" +
+    " { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }\n" +
     // Under a frozen copy (ViewerGallery `_freezeChrome`) the real controls
     // are rebuilding; they stay out of sight until the copy goes.
     'html[data-pk-chrome-frozen] ' + GALLERY_SCOPE + '.fresco-viewer .fresco-nav, ' +
@@ -9085,7 +9087,7 @@ if (typeof window.Chart === "undefined") {
   }
   ensureGalleryCss();
 
-  window.PhoenixKitHooks.ViewerGallery = {
+  var viewerGalleryHook = {
     mounted() {
       var self = this;
       ensureGalleryCss();
@@ -9161,6 +9163,7 @@ if (typeof window.Chart === "undefined") {
           self._watchFor(item);
         }
       });
+      self._modal._pkGallery = self._gallery;
 
       // Hand over once the viewer shows `key` as sharply as the strip does:
       // its canvas (the file uuid is in its id) mounted, and a picture loaded
@@ -9178,6 +9181,13 @@ if (typeof window.Chart === "undefined") {
           var t = Date.now();
           // Mid-gesture nothing is handed over or re-sent; the clock waits.
           if (g.isBusy()) { started = resent = t; seen = seen && t; return; }
+          // Videos, PDFs and file cards have no Fresco canvas to wait for.
+          // Once LiveView follows, expose their actual player or preview.
+          if (item.kind !== "image" && self.el.dataset.current === key) {
+            clearInterval(self._watch);
+            g.hide();
+            return;
+          }
           var c = canvasEl();
           if (!c || c.id.indexOf(key) === -1) {
             // The server has not followed (a dropped event): ask again.
@@ -9204,6 +9214,7 @@ if (typeof window.Chart === "undefined") {
           clearInterval(self._watch);
           // A frame for the viewer to lay it out, then glide onto it.
           requestAnimationFrame(function() {
+            if (self._gallery !== g || !g.isShown() || g.currentKey() !== key) return;
             if (!g.release(key, currentRect())) self._watchFor(item);
           });
         }, 50);
@@ -9330,6 +9341,7 @@ if (typeof window.Chart === "undefined") {
         st.transition = "none";
         st.opacity = window.getComputedStyle(el).opacity;
         copy.setAttribute("aria-hidden", "true");
+        copy.setAttribute("inert", "");
         copy.setAttribute("data-pk-frozen-chrome", "");
         layer.appendChild(copy);
         copies.push(copy);
@@ -9353,7 +9365,7 @@ if (typeof window.Chart === "undefined") {
         if (self._frozen !== st || !st.thawing) return;
         var c = self._modal && self._modal.querySelector('[phx-hook="FrescoCanvas"]');
         var hidden = document.documentElement.getAttribute("data-pk-gallery-chrome") === "hidden";
-        var done = hidden || !key || Date.now() - started > 5000;
+        var done = hidden || !key || (!c && self.el.dataset.current === key) || Date.now() - started > 5000;
         if (!done && c && c.id.indexOf(key) !== -1) {
           var nav = c.querySelector(".fresco-nav:not(.fresco-nav-overflow)");
           var zoom = c.querySelector(".fresco-zoom");
@@ -9380,6 +9392,7 @@ if (typeof window.Chart === "undefined") {
     },
 
     destroyed() {
+      if (this._modal && this._modal._pkGallery === this._gallery) delete this._modal._pkGallery;
       this._dropFrozenChrome();
       clearTimeout(this._goTimer);
       clearInterval(this._watch);
@@ -9394,6 +9407,9 @@ if (typeof window.Chart === "undefined") {
       this._gallery = null;
     }
   };
+  window.PhoenixKitHooks.ViewerGallery = lazyHook(pkLoaders.fresco, function() {
+    return viewerGalleryHook;
+  });
 
   // ============================================================================
   // ViewerHiresLoading — "Loading full quality…" while a sharper picture arrives

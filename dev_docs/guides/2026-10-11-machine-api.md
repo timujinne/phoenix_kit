@@ -44,6 +44,12 @@ Limits and lists are settings too (`api_admin_rate_per_min`, `api_admin_preauth_
 
 Each module that declares tools (`PhoenixKit.ModuleRegistry.api_modules/0`) has a switch in the "Modules" card of Settings -> API (event `set_module_api`, checked on the server like every other event of the page). The event reads the stored list from the database under a row lock (`PhoenixKit.Settings.modify_setting_with_module/4`), not from the cache, so two admins, or a node with a stale cache, cannot undo each other's change. The change is a `setting.changed` entry in the Activity log with the admin as actor.
 
+### Writes of a person's live session
+
+An in-app assistant calls the tools in process for the signed-in person (`PhoenixKit.API.Executor.visible_for/3` and `execute_as/5`, actor `kind: :user`). It reads by default (`allow: :read`). With `allow: :all` it may also propose the writes of the modules listed in `api_session_write_modules` (newline-separated module keys, empty by default; a list that cannot be read opens none), which the "Agent may act" box beside a module's switch sets (event `set_module_session_write`; shown only for a module with admin write tools; while the module's API is off it cannot be turned on, but a ticked box can be taken off; a `setting.changed` entry like the switch). A write of another module answers `403 module_write_disabled`. API keys never read the list.
+
+A write of a session never runs on its first call, dangerous or not: the answer is the preview with `"status": "confirmation_required"`, a `confirmation_id` and `expires_at` (`api_user_confirm_ttl_seconds`), and no code. Once the person confirms, the caller passes that id with the same tool and arguments to `Executor.redeem_as/6`, which goes through the whole request path again with the rights of the confirming session, checks the row (the person's, the same tool and arguments, still waiting), takes a fresh dry run and spends the row with one atomic update, so a double click runs once. Values that changed since the preview give a new row with a fresh preview (`"reason": "changed"`) and the old one expires; another person's id and an unknown one get the same `409 confirm_token_invalid` (`invalid`). `PhoenixKit.API.Confirm.get_for_user/2` reads the row for the page (`{:error, :forbidden}`, without the preview, once the session may no longer write with its tool), `reject_for_user/2` turns it down, and `<.operation_preview>` (`PhoenixKitWeb.Components.Core.OperationPreview`, opt-in) draws its preview. Every charged write of a session is an `api.request` Activity entry with `resource_type: "user"` and `metadata.via` (the `:via` option, `"session"` by default, which the handler also reads as `ctx.via`), never with the input, the preview or the result. The core does not tell an impersonated session from the person's own: a caller of `execute_as/5` with `allow: :all`, `redeem_as/6`, `get_for_user/2` or `reject_for_user/2` must refuse a session that `PhoenixKitWeb.Users.MultiSession.impersonated?/1` marks.
+
 On the Modules page every such module that has a card carries a badge that links to the "Modules" card of Settings -> API: "API off" when its switch is off, "API idle" when its switch is on but nothing can call it now (the module is disabled, or every audience its tools serve, admin or public, is switched off in the two switches at the top of the page), and "API on" when it can be called. The badge looks at the switches and the module only: while the website password gate is on, the public side also answers `404` to every client that is not on the gate's allow-list, and the badge does not show that.
 
 ## Who may manage keys
@@ -234,7 +240,7 @@ end
 - Without `permission_metadata/0` the module has no card on the Modules page and no permission key of its own. A tool uses a key the host already has, or one it registers at start with `PhoenixKit.Users.Permissions.register_custom_key/2`; pass `auto_grant_admin: false` unless every Admin should get it.
 - A handler reads and writes only what `ctx.scope` may reach, and answers nothing without one.
 - The router depends at compile time on this module and on every module it names, so a change in any of them recompiles the router: keep the module to declarations and name handlers as above.
-- REST and MCP serve the admin tools to keys that hold their scopes; an in-app assistant acting for a signed-in person (`PhoenixKit.API.Executor.visible_for/3`) gets the read tools that person may call. Check the tools with the lint below.
+- REST and MCP serve the admin tools to keys that hold their scopes; an in-app assistant acting for a signed-in person (`PhoenixKit.API.Executor.visible_for/3`) gets the read tools that person may call, and with `allow: :all` the write tools of the modules an admin let it act in ("Writes of a person's live session"). Check the tools with the lint below.
 
 ## Installing and upgrading a host
 
@@ -398,11 +404,11 @@ Approvals (a menu entry for holders of `api` while the site uses approvals — a
 
 ### Settings
 
-`api_confirm_batch_over` (50), `api_confirm_ttl_seconds` (120, at most 600), `api_approval_ttl_hours` (72), `api_approval_pending_max` (20), `api_idempotency_ttl_hours` (24), `api_idempotency_lease_seconds` (120): Settings -> API -> Confirmation, approvals and repeats. A module that decides `danger:` from a threshold keeps that setting itself.
+`api_confirm_batch_over` (50), `api_confirm_ttl_seconds` (120, at most 600), `api_user_confirm_ttl_seconds` (600, 60 to 86400: a confirmation of a live session), `api_approval_ttl_hours` (72), `api_approval_pending_max` (20), `api_idempotency_ttl_hours` (24), `api_idempotency_lease_seconds` (120): Settings -> API -> Confirmation, approvals and repeats. A module that decides `danger:` from a threshold keeps that setting itself.
 
 ### Upgrading a host
 
-`mix phoenix_kit.update` runs V220 (`phoenix_kit_api_confirmations`, `phoenix_kit_api_idempotency`) and adds three cron entries to the host's Oban config: `PhoenixKit.API.Idempotency.PruneWorker` (daily), `PhoenixKit.API.Confirm.ExpiryWorker` (every five minutes) and `PhoenixKit.API.Confirm.PruneWorker` (daily). Without the update there are no tables and a dangerous call answers `500`. The host's `:phoenix, :filter_parameters` should contain `idempotency_key` (`PhoenixKit.boot/1` adds it). Confirmation codes are signed with the host's `secret_key_base`; with none, no code is issued.
+`mix phoenix_kit.update` runs V220 (`phoenix_kit_api_confirmations`, `phoenix_kit_api_idempotency`) and V221 (`phoenix_kit_api_confirmations.actor_user_uuid`, the confirmations of live sessions) and adds three cron entries to the host's Oban config: `PhoenixKit.API.Idempotency.PruneWorker` (daily), `PhoenixKit.API.Confirm.ExpiryWorker` (every five minutes) and `PhoenixKit.API.Confirm.PruneWorker` (daily). Without the update there are no tables and a dangerous call answers `500`. The host's `:phoenix, :filter_parameters` should contain `idempotency_key` (`PhoenixKit.boot/1` adds it). Confirmation codes are signed with the host's `secret_key_base`; with none, no code is issued.
 
 ### Testing a write tool
 

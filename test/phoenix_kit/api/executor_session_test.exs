@@ -2,8 +2,9 @@ defmodule PhoenixKit.API.ExecutorSessionTest do
   @moduledoc """
   `PhoenixKit.API.Executor.visible_for/3` and `execute_as/5`: tools called in process on
   behalf of a person's live browser session (`kind: :user`), without a `Plug.Conn`. The
-  scope is rebuilt from the session on every call; only read tools run (`allow: :read`);
-  a session pays into its own per-user rate-limit bucket. Real sessions, real roles and
+  scope is rebuilt from the session on every call; only read tools run under
+  `allow: :read` (the writes of `allow: :all` are in `ExecutorSessionConfirmTest`); a
+  session pays into its own per-user rate-limit bucket. Real sessions, real roles and
   permissions, the fake modules `PhoenixKit.Test.ApiTools` and
   `PhoenixKit.Test.ApiSessionTools`.
   """
@@ -123,11 +124,11 @@ defmodule PhoenixKit.API.ExecutorSessionTest do
                Executor.visible_for({UUIDv7.generate(), user_uuid}, :admin, [])
     end
 
-    test "only allow: :read exists in this version" do
+    test "allow takes :read or :all, nothing else" do
       {user, _} = user_with_roles([["dashboard"]])
 
       assert_raise ArgumentError, ~r/allow/, fn ->
-        Executor.visible_for(session!(user), :admin, allow: :all)
+        Executor.visible_for(session!(user), :admin, allow: :write)
       end
     end
   end
@@ -319,13 +320,16 @@ defmodule PhoenixKit.API.ExecutorSessionTest do
              ) == 0
     end
 
-    test "is the default, and the only value this version takes" do
+    test "is the default; allow: :all does not open a module nobody opened; nothing else is taken" do
       {user, _} = user_with_roles([["settings"]])
       ref = session!(user)
 
       assert {:error, :forbidden, _, _, _} = run(ref, @write_item, %{"name" => "x"}, allow: :read)
 
-      assert_raise ArgumentError, fn -> run(ref, @write_item, %{"name" => "x"}, allow: :all) end
+      assert {:error, :module_write_disabled, _, _, _} =
+               run(ref, @write_item, %{"name" => "x"}, allow: :all)
+
+      assert_raise ArgumentError, fn -> run(ref, @write_item, %{"name" => "x"}, allow: :write) end
       refute_received {:write_item, _}
     end
 

@@ -109,6 +109,15 @@
               "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
             )}
           </p>
+          <p
+            :if={Enum.any?(@api_modules, & &1.writes?)}
+            id="api-modules-session-write-hint"
+            class="text-sm text-base-content/70 mt-1"
+          >
+            {gettext(
+              "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
+            )}
+          </p>
         </div>
 
         <p :if={@api_modules == []} id="api-modules-empty" class="text-sm text-base-content/70">
@@ -129,23 +138,43 @@
               </span>
             </p>
           </div>
-          <.checkbox
-            id={"api-module-switch-#{mod.key}"}
-            name={"api-module-switch-#{mod.key}"}
-            variant="toggle"
-            class="toggle-lg"
-            wrapper_class="shrink-0 flex-row-reverse"
-            label={if mod.api_on?, do: gettext("API on"), else: gettext("API off")}
-            aria-label={
-              if mod.api_on?,
-                do: gettext("Switch the API of %{module} off", module: module_label(mod)),
-                else: gettext("Switch the API of %{module} on", module: module_label(mod))
-            }
-            checked={mod.api_on?}
-            phx-click="set_module_api"
-            phx-value-module={mod.key}
-            phx-value-state={if mod.api_on?, do: "off", else: "on"}
-          />
+          <div class="shrink-0 flex flex-col items-end gap-2">
+            <.checkbox
+              id={"api-module-switch-#{mod.key}"}
+              name={"api-module-switch-#{mod.key}"}
+              variant="toggle"
+              class="toggle-lg"
+              wrapper_class="shrink-0 flex-row-reverse"
+              label={if mod.api_on?, do: gettext("API on"), else: gettext("API off")}
+              aria-label={
+                if mod.api_on?,
+                  do: gettext("Switch the API of %{module} off", module: module_label(mod)),
+                  else: gettext("Switch the API of %{module} on", module: module_label(mod))
+              }
+              checked={mod.api_on?}
+              phx-click="set_module_api"
+              phx-value-module={mod.key}
+              phx-value-state={if mod.api_on?, do: "off", else: "on"}
+            />
+            <.checkbox
+              :if={mod.writes?}
+              id={"api-module-session-write-#{mod.key}"}
+              name={"api-module-session-write-#{mod.key}"}
+              class="checkbox-sm"
+              wrapper_class="flex-row-reverse"
+              label={gettext("Agent may act")}
+              aria-label={
+                if mod.session_write?,
+                  do: gettext("Stop the agent acting in %{module}", module: module_label(mod)),
+                  else: gettext("Let the agent act in %{module}", module: module_label(mod))
+              }
+              checked={mod.session_write?}
+              disabled={not mod.api_on? and not mod.session_write?}
+              phx-click="set_module_session_write"
+              phx-value-module={mod.key}
+              phx-value-state={if mod.session_write?, do: "off", else: "on"}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -558,6 +587,18 @@
               inputmode="numeric"
               label={gettext("Confirmation code lifetime in seconds (10 to 600)")}
               value={@flow_params["confirm_ttl_seconds"]}
+            />
+            <.input
+              id="api-flow-user-confirm-ttl-seconds"
+              name="flow[user_confirm_ttl_seconds]"
+              type="text"
+              inputmode="numeric"
+              label={
+                gettext(
+                  "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
+                )
+              }
+              value={@flow_params["user_confirm_ttl_seconds"]}
             />
             <.input
               id="api-flow-approval-ttl-hours"

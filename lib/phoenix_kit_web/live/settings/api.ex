@@ -33,6 +33,16 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   the module by key and the state it wants; the key must be one of the listed modules and
   the other keys of the setting are kept as they are.
 
+  ## "Agent may act"
+
+  A module that has write tools also has the box "Agent may act" beside its switch. On, its
+  key is in `api_session_write_modules`, and a person's live session (an assistant that
+  works in the browser, `PhoenixKit.API.Executor.execute_as/5` with `allow: :all`) may
+  propose its writes, each held until that person confirms it. Off by default; while the
+  module's API is off it cannot be turned on (an unticked box is disabled), but a ticked one
+  can still be taken off. API keys do not read it. The event and the checks are the
+  switch's.
+
   ## Rights are checked on the server
 
   The form only offers what the person may do, and every event checks it again:
@@ -161,6 +171,20 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
       case Enum.find(ModuleRegistry.api_modules(), &(&1.key == key)) do
         nil -> refuse(socket)
         mod -> set_module_api(socket, mod, state == "on")
+      end
+    end)
+  end
+
+  # The "Agent may act" box: only a listed module that has write tools, and it may be
+  # turned on only while the module's API is on (an unticked box is disabled otherwise);
+  # off is always accepted. As with the switch, the state asked for, not a flip.
+  def handle_event("set_module_session_write", %{"module" => key, "state" => state}, socket)
+      when is_binary(key) and state in ["on", "off"] do
+    with_access(socket, fn socket ->
+      case Enum.find(api_modules(), &(&1.key == key and &1.writes?)) do
+        nil -> refuse(socket)
+        %{api_on?: false} when state == "on" -> refuse(socket)
+        mod -> set_module_session_write(socket, mod, state == "on")
       end
     end)
   end
@@ -425,6 +449,34 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     end
   end
 
+  # Like `set_module_api/3`: only this module's key changes, read under a row lock.
+  defp set_module_session_write(socket, %{key: key} = mod, on?) do
+    change = fn stored ->
+      listed = Config.parse_list(stored)
+      wanted = if(on?, do: Enum.uniq(listed ++ [key]), else: List.delete(listed, key))
+      if wanted == listed, do: :unchanged, else: Config.encode_list(wanted)
+    end
+
+    case Settings.modify_setting_with_module(
+           "api_session_write_modules",
+           "api",
+           change,
+           history(socket)
+         ) do
+      {:ok, _setting} ->
+        socket |> assign_state() |> put_flash(:info, session_write_saved(mod, on?))
+
+      {:error, _changeset} ->
+        put_flash(socket, :error, gettext("The switch could not be saved."))
+    end
+  end
+
+  defp session_write_saved(mod, true),
+    do: gettext("The agent may act in %{module}.", module: module_label(mod))
+
+  defp session_write_saved(mod, false),
+    do: gettext("The agent may no longer act in %{module}.", module: module_label(mod))
+
   defp module_api_saved(mod, true),
     do: gettext("The API of %{module} is on.", module: module_label(mod))
 
@@ -433,10 +485,17 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
 
   defp module_label(%{name: name}), do: Gettext.gettext(PhoenixKitWeb.Gettext, name)
 
-  # The modules with tools and whether their API is on right now.
+  # The modules with tools, whether their API is on right now and whether the agent may act
+  # in them (`api_session_write_modules`).
   defp api_modules do
     disabled = Config.disabled_modules()
-    Enum.map(ModuleRegistry.api_modules(), &Map.put(&1, :api_on?, &1.key not in disabled))
+    writes = Config.session_write_modules()
+
+    Enum.map(ModuleRegistry.api_modules(), fn mod ->
+      mod
+      |> Map.put(:api_on?, mod.key not in disabled)
+      |> Map.put(:session_write?, mod.key in writes)
+    end)
   end
 
   defp switch_on?("admin"), do: Config.admin_enabled?()
@@ -891,7 +950,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     socket |> assign(:flow_params, FlowConfig.current()) |> assign(:flow_errors, [])
   end
 
-  # Only the six fields of the form survive, each a string.
+  # Only the fields of the form survive, each a string.
   defp normalize_flow_params(params) do
     Map.new(FlowConfig.fields(), fn %{field: field} -> {field, text(params[field], "")} end)
   end

@@ -1,6 +1,6 @@
 defmodule PhoenixKit.API.FlowConfigTest do
   @moduledoc """
-  `PhoenixKit.API.FlowConfig`: the six settings of the dangerous-operation flow, read
+  `PhoenixKit.API.FlowConfig`: the seven settings of the dangerous-operation flow, read
   with defaults and clamps, and validated and written as one form.
   """
   use PhoenixKit.DataCase, async: false
@@ -17,6 +17,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
   test "the flow settings have these defaults" do
     assert FlowConfig.confirm_batch_over() == 50
     assert FlowConfig.confirm_ttl_seconds() == 120
+    assert FlowConfig.user_confirm_ttl_seconds() == 600
     assert FlowConfig.approval_ttl_hours() == 72
     assert FlowConfig.idempotency_ttl_hours() == 24
     assert FlowConfig.idempotency_lease_seconds() == 120
@@ -26,6 +27,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
   test "stored values are read" do
     put("api_confirm_batch_over", "10")
     put("api_confirm_ttl_seconds", "300")
+    put("api_user_confirm_ttl_seconds", "3600")
     put("api_approval_ttl_hours", "6")
     put("api_idempotency_ttl_hours", "48")
     put("api_idempotency_lease_seconds", "30")
@@ -33,6 +35,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
 
     assert FlowConfig.confirm_batch_over() == 10
     assert FlowConfig.confirm_ttl_seconds() == 300
+    assert FlowConfig.user_confirm_ttl_seconds() == 3600
     assert FlowConfig.approval_ttl_hours() == 6
     assert FlowConfig.idempotency_ttl_hours() == 48
     assert FlowConfig.idempotency_lease_seconds() == 30
@@ -42,6 +45,11 @@ defmodule PhoenixKit.API.FlowConfigTest do
   test "the confirmation code lifetime is capped at 600 seconds" do
     put("api_confirm_ttl_seconds", "100000")
     assert FlowConfig.confirm_ttl_seconds() == 600
+  end
+
+  test "a session's confirmation lifetime is capped at a day" do
+    put("api_user_confirm_ttl_seconds", "100000")
+    assert FlowConfig.user_confirm_ttl_seconds() == 86_400
   end
 
   test "garbage, zero and negative values read as the default" do
@@ -56,6 +64,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
     # setting with a minimum above 1 can show a value that is positive and still too small.
     for {setting, reader, too_small, default} <- [
           {"api_confirm_ttl_seconds", :confirm_ttl_seconds, "9", 120},
+          {"api_user_confirm_ttl_seconds", :user_confirm_ttl_seconds, "59", 600},
           {"api_idempotency_lease_seconds", :idempotency_lease_seconds, "4", 120}
         ] do
       put(setting, too_small)
@@ -78,10 +87,11 @@ defmodule PhoenixKit.API.FlowConfigTest do
   end
 
   describe "the form" do
-    test "fields/0 lists the six settings in form order" do
+    test "fields/0 lists the seven settings in form order" do
       assert Enum.map(FlowConfig.fields(), & &1.setting) == [
                "api_confirm_batch_over",
                "api_confirm_ttl_seconds",
+               "api_user_confirm_ttl_seconds",
                "api_approval_ttl_hours",
                "api_approval_pending_max",
                "api_idempotency_ttl_hours",
@@ -105,7 +115,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
       assert {:ok, pairs} = FlowConfig.validate(params)
       assert {"api_confirm_ttl_seconds", 600} in pairs
       assert {"api_approval_pending_max", 1} in pairs
-      assert length(pairs) == 6
+      assert length(pairs) == 7
     end
 
     test "validate/1 names every field that is out of range or not a number" do
@@ -115,6 +125,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
         |> Map.put("confirm_batch_over", "0")
         |> Map.put("approval_ttl_hours", "ten")
         |> Map.put("approval_pending_max", "")
+        |> Map.put("user_confirm_ttl_seconds", "86401")
 
       assert {:error, fields} = FlowConfig.validate(params)
 
@@ -122,6 +133,7 @@ defmodule PhoenixKit.API.FlowConfigTest do
                Enum.sort([
                  "confirm_batch_over",
                  "confirm_ttl_seconds",
+                 "user_confirm_ttl_seconds",
                  "approval_ttl_hours",
                  "approval_pending_max"
                ])

@@ -1384,9 +1384,6 @@ defmodule PhoenixKitWeb.Users.Auth do
 
   # Update locale assigns when navigating to a URL with a locale param
   defp maybe_update_locale_from_params(socket, %{"locale" => locale}) when is_binary(locale) do
-    # Only update if locale actually changed
-    current_base = socket.assigns[:current_locale_base]
-
     cond do
       # A single-language site renders every URL in its primary language —
       # the HTTP plug's `process_valid_locale/2` does the same on the dead
@@ -1418,7 +1415,9 @@ defmodule PhoenixKitWeb.Users.Auth do
           do: update_locale_from_base(socket, base),
           else: socket
 
-      current_base != locale and DialectMapper.valid_base_code?(locale) ->
+      # A sibling and its base share current_locale_base; resolve the full
+      # dialect even when the base is unchanged (es-MX -> /es/ -> es-ES).
+      DialectMapper.valid_base_code?(locale) ->
         update_locale_from_base(socket, locale)
 
       true ->
@@ -1437,15 +1436,13 @@ defmodule PhoenixKitWeb.Users.Auth do
   # the special case restores the URL-is-authoritative semantics.
   defp maybe_update_locale_from_params(socket, _params) do
     default_base = Routes.get_default_admin_locale()
-    current_base = socket.assigns[:current_locale_base]
+    default_dialect = resolve_active_dialect(default_base)
 
-    if current_base == default_base do
+    if socket.assigns[:current_locale] == default_dialect do
       socket
     else
       # URL-driven dialect (see sibling clause above for the rationale —
       # `preferred_locale` is intentionally ignored for routing).
-      default_dialect = resolve_active_dialect(default_base)
-
       put_gettext_locale(default_dialect, socket.view)
 
       socket

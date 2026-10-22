@@ -15,6 +15,7 @@ defmodule PhoenixKit.API.Config do
   | `api_public_enabled` | `false` |
   | `api_disabled_tools` | `""` (newline separated tool names) |
   | `api_disabled_modules` | `""` (newline separated module keys) |
+  | `api_session_write_modules` | `""` (newline separated module keys) |
   | `api_mcp_allowed_origins` | `""` (newline separated origins) |
   | `api_admin_preauth_fail_per_min` | `20` |
   | `api_admin_rate_per_min` | `600` |
@@ -109,6 +110,30 @@ defmodule PhoenixKit.API.Config do
   """
   @spec fetch_disabled_modules() :: {:ok, [String.t()]} | :unreadable
   def fetch_disabled_modules, do: fetch_list("api_disabled_modules")
+
+  @doc """
+  Module keys whose write tools a person's live session may call
+  (`api_session_write_modules`, the "Agent may act" boxes of Settings -> API). For display
+  only, like `disabled_modules/0`: a list that cannot be read is `[]` here.
+  """
+  @spec session_write_modules() :: [String.t()]
+  def session_write_modules do
+    case fetch_session_write_modules() do
+      {:ok, keys} -> keys
+      :unreadable -> []
+    end
+  end
+
+  @doc """
+  Module keys whose write tools a person's live session may call
+  (`api_session_write_modules`), telling an empty list from one that could not be read.
+
+  An allow-list that fails closed: a module that is not listed has no write for a session,
+  so every install starts with none, and the executor treats `:unreadable` as an empty
+  list. API keys do not read it. This is the one reader of the setting.
+  """
+  @spec fetch_session_write_modules() :: {:ok, [String.t()]} | :unreadable
+  def fetch_session_write_modules, do: fetch_list("api_session_write_modules")
 
   @doc "Extra origins allowed to call the MCP endpoint (`api_mcp_allowed_origins`)."
   @spec mcp_allowed_origins() :: [String.t()]

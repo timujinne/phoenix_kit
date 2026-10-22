@@ -3039,11 +3039,19 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   end
 
   # The gallery settled on a picture (it slides there itself, and says so
-  # afterwards). Only a file of the list the viewer is stepping through.
+  # afterwards). Only a file of the list the viewer is stepping through. The
+  # hook asks again when it sees no sign the server followed, so naming the
+  # file already open is answered with nothing (no second URL announcement).
   def handle_event("gallery_go", %{"uuid" => uuid}, socket) when is_binary(uuid) do
-    case Enum.find(socket.assigns[:viewer_siblings] || [], &(&1.file_uuid == uuid)) do
-      nil -> {:noreply, socket}
-      file -> {:noreply, socket |> open_viewer(file) |> notify_viewer_nav()}
+    case socket.assigns[:viewer_file] do
+      %{file_uuid: ^uuid} ->
+        {:noreply, socket}
+
+      _ ->
+        case Enum.find(socket.assigns[:viewer_siblings] || [], &(&1.file_uuid == uuid)) do
+          nil -> {:noreply, socket}
+          file -> {:noreply, socket |> open_viewer(file) |> notify_viewer_nav()}
+        end
     end
   end
 

@@ -807,6 +807,33 @@ defmodule PhoenixKit.Integration.Users.AuthLocaleTest do
       assert socket.assigns.current_locale_base == "es"
     end
 
+    test "navigating from a sibling to its base restores the base's dialect" do
+      socket = mounted_socket() |> navigate("es-mx") |> navigate("es")
+
+      assert socket.assigns.current_locale_base == "es"
+      assert socket.assigns.current_locale == "es-ES"
+      assert Languages.request_locale() == "es-ES"
+    end
+
+    test "a prefixless primary URL restores its dialect after visiting its sibling" do
+      config = %{
+        "languages" => [
+          %{"code" => "es-ES", "is_default" => true, "is_enabled" => true},
+          %{"code" => "es-MX", "is_default" => false, "is_enabled" => true}
+        ]
+      }
+
+      Settings.update_json_setting("languages_config", config)
+      Languages.set_default_language_no_prefix(true)
+      socket = mounted_socket() |> navigate("es-mx")
+      hook = Enum.find(socket.private.lifecycle.handle_params, &(&1.id == :current_page))
+      {:cont, socket} = hook.function.(%{}, "http://localhost/phoenix_kit/blog", socket)
+
+      assert socket.assigns.current_locale_base == "es"
+      assert socket.assigns.current_locale == "es-ES"
+      assert Languages.request_locale() == "es-ES"
+    end
+
     test "a base's own dialect renders as its base" do
       for segment <- ["en-US", "en-us"] do
         socket = navigate(mounted_socket(), segment)
