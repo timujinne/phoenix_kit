@@ -195,7 +195,7 @@ defmodule PhoenixKit.Modules.Storage.Endpoint do
   `64:ff9b::/96`, 6to4 `2002::/16`) is classified as the IPv4 address.
   Local-use NAT64 `64:ff9b:1::/48` and site-local `fec0::/10` count as
   `:unique_local`; Teredo `2001::/32` and documentation `2001:db8::/32` are
-  `:reserved`.
+  `:reserved`, and so is the documentation range `3fff::/20`.
   """
   @spec classify(:inet.ip_address()) :: atom()
   def classify({0, _, _, _}), do: :unspecified
@@ -226,6 +226,8 @@ defmodule PhoenixKit.Modules.Storage.Endpoint do
   # Teredo tunnels to anywhere; the documentation range is never a real host.
   def classify({0x2001, 0, _, _, _, _, _, _}), do: :reserved
   def classify({0x2001, 0xDB8, _, _, _, _, _, _}), do: :reserved
+  # The second documentation range (RFC 9637), 3fff::/20.
+  def classify({0x3FFF, second, _, _, _, _, _, _}) when second <= 0x0FFF, do: :reserved
   def classify({first, _, _, _, _, _, _, _}) when (first &&& 0xFE00) == 0xFC00, do: :unique_local
   def classify({first, _, _, _, _, _, _, _}) when (first &&& 0xFFC0) == 0xFE80, do: :link_local
   # Deprecated site-local (RFC 3879): local to a site, so read as unique-local.

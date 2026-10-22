@@ -21342,16 +21342,6 @@ msgstr "Katalog API"
 msgid "This site"
 msgstr "Ten serwis"
 
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
-#, elixir-autogen, elixir-format
-msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
-msgstr "Osobiste połączenia SMTP mogą używać tylko portów 25, 465, 587 lub 2525"
-
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
-#, elixir-autogen, elixir-format
-msgid "The SMTP host must resolve to a public address"
-msgstr "Host SMTP musi wskazywać na adres publiczny"
-
 #: lib/phoenix_kit/integrations/providers.ex:509
 #, elixir-autogen, elixir-format
 msgid "Anthropic"
@@ -21401,3 +21391,13 @@ msgstr "Przejdź do [API Keys](https://platform.claude.com/settings/keys)"
 #, elixir-autogen, elixir-format
 msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
 msgstr "Ogranicz klucz do jednego workspace (na przykład Default) — klucz bez workspace jest odrzucany"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Osobiste połączenia SMTP mogą używać tylko portów 25, 465, 587 lub 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "Host SMTP musi wskazywać na adres publiczny"
