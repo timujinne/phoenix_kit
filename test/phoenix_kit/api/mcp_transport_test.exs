@@ -148,6 +148,17 @@ defmodule PhoenixKit.API.MCPTransportTest do
       conn = post_rpc(:admin, message(String.duplicate("m", 5_000)), token: token)
       assert String.length(error(conn)["message"]) < 200
     end
+
+    test "a method name is clipped by code points, not graphemes", %{token: token} do
+      # One letter and 200000 combining marks is a single grapheme.
+      method = "a" <> String.duplicate("\u0301", 200_000)
+      conn = post_rpc(:admin, message(method), token: token)
+
+      assert %{"code" => -32_601, "message" => "Method not found: " <> echoed} = error(conn)
+      # 80 code points of the name, then the closing dot.
+      assert String.length(echoed) == 2
+      assert length(String.to_charlist(echoed)) == 81
+    end
   end
 
   describe "messages that get no answer" do

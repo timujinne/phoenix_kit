@@ -163,6 +163,15 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         danger: :always,
         client_token: "session_token"
       ),
+      public(
+        "flowkit.drop_session",
+        @destructive,
+        :clear_session,
+        %{"session_token" => %{"type" => "string"}},
+        danger: :always,
+        client_token: "session_token",
+        replay: false
+      ),
       # The two tools below predate `Tool.client_token`: they name their client token
       # `cart_token` and declare nothing, which core still honours (`PhoenixKit.API.Legacy`).
       public("flowkit.legacy_write", @write, :public_write, %{

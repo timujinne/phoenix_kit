@@ -513,6 +513,32 @@ defmodule PhoenixKit.API.ExecutorGateTest do
       refute Map.has_key?(ApiFlowStore.items(), "session:session-1")
     end
 
+    test "a dangerous public tool that cannot replay still asks for the code and takes it once" do
+      ApiFlowStore.put("session:session-1", ["line"])
+      args = %{"session_token" => "session-1"}
+
+      keyed =
+        public_call(
+          "flowkit.drop_session",
+          Map.put(args, "idempotency_key", String.duplicate("k", 20))
+        )
+
+      assert keyed.status == 422
+      assert rows("token") == []
+
+      first = public_call("flowkit.drop_session", args)
+      assert %{"status" => "confirmation_required", "confirm_token" => code} = json(first)
+      assert Map.has_key?(ApiFlowStore.items(), "session:session-1")
+
+      done = public_call("flowkit.drop_session", Map.put(args, "confirm_token", code))
+      assert done.status == 200
+      assert json(done) == %{"cleared" => true}
+      refute Map.has_key?(ApiFlowStore.items(), "session:session-1")
+
+      again = public_call("flowkit.drop_session", Map.put(args, "confirm_token", code))
+      assert again.status == 409
+    end
+
     test "a dangerous public call without a client token is a 422" do
       conn = public_call("flowkit.clear_session", %{})
 
