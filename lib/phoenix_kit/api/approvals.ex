@@ -1,7 +1,8 @@
 defmodule PhoenixKit.API.Approvals do
   @moduledoc """
-  The approval queue of dangerous API operations (the approval path of the dangerous-operation flow): the calls of a key
-  marked "requires approval" that would be dangerous wait here for a person.
+  The approval queue of API write operations (the approval path of the confirmation flow):
+  every write call of a key marked "requires approval", dangerous or not, waits here for a
+  person. A read or a `dry_run` of such a key is never held.
 
   ## Life of an approval
 

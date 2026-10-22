@@ -20466,8 +20466,8 @@ msgstr "Wymaga zatwierdzenia"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Niebezpieczne operacje tego klucza czekają w kolejce zatwierdzeń, aż zatwierdzi je człowiek. Użyj tego dla kluczy przekazanych agentom AI."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Każdy zapis tego klucza, niebezpieczny czy nie, czeka w kolejce zatwierdzeń, aż zatwierdzi go człowiek; odczyty wykonują się od razu. Użyj tego dla kluczy przekazanych agentom AI."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21195,11 +21195,11 @@ msgstr[2] "Od 16 do 128 znaków: litery, cyfry, - i _. Ten sam klucz z tymi samy
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Klucz wymagający zatwierdzenia nie wykonuje niebezpiecznej operacji: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
-msgstr[1] "Klucz wymagający zatwierdzenia nie wykonuje niebezpiecznej operacji: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
-msgstr[2] "Klucz wymagający zatwierdzenia nie wykonuje niebezpiecznej operacji: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Klucz wymagający zatwierdzenia nie wykonuje żadnego zapisu, niebezpiecznego czy nie: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
+msgstr[1] "Klucz wymagający zatwierdzenia nie wykonuje żadnego zapisu, niebezpiecznego czy nie: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
+msgstr[2] "Klucz wymagający zatwierdzenia nie wykonuje żadnego zapisu, niebezpiecznego czy nie: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format
@@ -21342,16 +21342,6 @@ msgstr "Katalog API"
 msgid "This site"
 msgstr "Ten serwis"
 
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
-#, elixir-autogen, elixir-format
-msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
-msgstr "Osobiste połączenia SMTP mogą używać tylko portów 25, 465, 587 lub 2525"
-
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
-#, elixir-autogen, elixir-format
-msgid "The SMTP host must resolve to a public address"
-msgstr "Host SMTP musi wskazywać na adres publiczny"
-
 #: lib/phoenix_kit/integrations/providers.ex:509
 #, elixir-autogen, elixir-format
 msgid "Anthropic"
@@ -21401,3 +21391,13 @@ msgstr "Przejdź do [API Keys](https://platform.claude.com/settings/keys)"
 #, elixir-autogen, elixir-format
 msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
 msgstr "Ogranicz klucz do jednego workspace (na przykład Default) — klucz bez workspace jest odrzucany"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Osobiste połączenia SMTP mogą używać tylko portów 25, 465, 587 lub 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "Host SMTP musi wskazywać na adres publiczny"

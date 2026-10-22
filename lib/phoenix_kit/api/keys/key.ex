@@ -12,7 +12,8 @@ defmodule PhoenixKit.API.Keys.Key do
     * `created_by_uuid` - who issued the key. Kept (as `nil`) when that person is deleted.
     * `scopes` - what the key may ask for, `"<module>.<resource>:<action>"`.
     * `allowed_ips` - CIDR ranges the key may be used from; empty means anywhere.
-    * `requires_approval` - the key's dangerous operations wait for a human.
+    * `requires_approval` - every write call of the key (not a read, not a `dry_run`)
+      waits for a human, dangerous or not.
     * `expires_at`, `revoked_at` - a key past either is dead.
     * `last_used_at`, `last_used_ip` - written at most once a minute.
 

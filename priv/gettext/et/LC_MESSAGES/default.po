@@ -20412,8 +20412,8 @@ msgstr "Vajab heakskiitu"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Selle võtme ohtlikud toimingud ootavad heakskiidu järjekorras, kuni inimene need heaks kiidab. Kasutage seda tehisintellekti agentidele antud võtmete jaoks."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Selle võtme iga kirjutav toiming, olgu ohtlik või mitte, ootab heakskiidu järjekorras, kuni inimene selle heaks kiidab; lugemised käivituvad kohe. Kasutage seda tehisintellekti agentidele antud võtmete jaoks."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21138,10 +21138,10 @@ msgstr[1] "16 kuni 128 märki: tähed, numbrid, - ja _. Sama võti samade argume
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Võti, mis nõuab heakskiitu, ei käivita ohtlikku toimingut: kutse tagastab pending_approval ja ootab kuni %{count} tund, kuni inimene selle heaks kiidab."
-msgstr[1] "Võti, mis nõuab heakskiitu, ei käivita ohtlikku toimingut: kutse tagastab pending_approval ja ootab kuni %{count} tundi, kuni inimene selle heaks kiidab."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Võti, mis nõuab heakskiitu, ei käivita ühtegi kirjutavat toimingut, olgu see ohtlik või mitte: kutse tagastab pending_approval ja ootab kuni %{count} tund, kuni inimene selle heaks kiidab."
+msgstr[1] "Võti, mis nõuab heakskiitu, ei käivita ühtegi kirjutavat toimingut, olgu see ohtlik või mitte: kutse tagastab pending_approval ja ootab kuni %{count} tundi, kuni inimene selle heaks kiidab."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format
@@ -21284,16 +21284,6 @@ msgstr "API kataloog"
 msgid "This site"
 msgstr "See sait"
 
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
-#, elixir-autogen, elixir-format
-msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
-msgstr "Isiklikud SMTP-ühendused tohivad kasutada ainult porte 25, 465, 587 või 2525"
-
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
-#, elixir-autogen, elixir-format
-msgid "The SMTP host must resolve to a public address"
-msgstr "SMTP-host peab lahenduma avalikuks aadressiks"
-
 #: lib/phoenix_kit/integrations/providers.ex:509
 #, elixir-autogen, elixir-format
 msgid "Anthropic"
@@ -21343,3 +21333,13 @@ msgstr "Mine [API võtmed](https://platform.claude.com/settings/keys) lehele"
 #, elixir-autogen, elixir-format
 msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
 msgstr "Seo võti ühe workspace'iga (näiteks Default) — ilma workspace'ita võtit ei aktsepteerita"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Isiklikud SMTP-ühendused tohivad kasutada ainult porte 25, 465, 587 või 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "SMTP-host peab lahenduma avalikuks aadressiks"

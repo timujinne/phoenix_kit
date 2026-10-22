@@ -120,6 +120,13 @@ defmodule PhoenixKit.Modules.Storage.EndpointTest do
       assert Endpoint.classify({0x2001, 0x4860, 0x4860, 0, 0, 0, 0, 0x8888}) == :public
       assert Endpoint.classify({0x2001, 0xDB9, 0, 0, 0, 0, 0, 1}) == :public
     end
+
+    test "the documentation range 3fff::/20 is reserved, its neighbours are not" do
+      assert Endpoint.classify({0x3FFF, 0, 0, 0, 0, 0, 0, 1}) == :reserved
+      assert Endpoint.classify({0x3FFF, 0x0FFF, 0xFFFF, 0, 0, 0, 0, 1}) == :reserved
+      assert Endpoint.classify({0x3FFF, 0x1000, 0, 0, 0, 0, 0, 1}) == :public
+      assert Endpoint.classify({0x3FFE, 0, 0, 0, 0, 0, 0, 1}) == :public
+    end
   end
 
   describe "check/3 under :system (an admin set it)" do

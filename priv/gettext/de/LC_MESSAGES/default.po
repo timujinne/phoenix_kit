@@ -20403,8 +20403,8 @@ msgstr "Braucht Freigabe"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Gefährliche Vorgänge dieses Schlüssels warten in der Freigabewarteschlange, bis eine Person sie freigibt. Nutzen Sie das für Schlüssel, die KI-Agenten erhalten."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Jeder Schreibvorgang dieses Schlüssels, ob gefährlich oder nicht, wartet in der Freigabewarteschlange, bis eine Person ihn freigibt; Lesevorgänge laufen sofort. Nutzen Sie das für Schlüssel, die KI-Agenten erhalten."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21129,10 +21129,10 @@ msgstr[1] "16 bis 128 Zeichen: Buchstaben, Ziffern, - und _. Derselbe Schlüssel
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Ein Schlüssel, der eine Freigabe verlangt, führt einen gefährlichen Vorgang nicht aus: Der Aufruf liefert pending_approval und wartet bis zu %{count} Stunde darauf, dass eine Person ihn freigibt."
-msgstr[1] "Ein Schlüssel, der eine Freigabe verlangt, führt einen gefährlichen Vorgang nicht aus: Der Aufruf liefert pending_approval und wartet bis zu %{count} Stunden darauf, dass eine Person ihn freigibt."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Ein Schlüssel, der eine Freigabe verlangt, führt keinen Schreibvorgang aus, ob gefährlich oder nicht: Der Aufruf liefert pending_approval und wartet bis zu %{count} Stunde darauf, dass eine Person ihn freigibt."
+msgstr[1] "Ein Schlüssel, der eine Freigabe verlangt, führt keinen Schreibvorgang aus, ob gefährlich oder nicht: Der Aufruf liefert pending_approval und wartet bis zu %{count} Stunden darauf, dass eine Person ihn freigibt."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format
@@ -21275,16 +21275,6 @@ msgstr "API-Katalog"
 msgid "This site"
 msgstr "Diese Website"
 
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
-#, elixir-autogen, elixir-format
-msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
-msgstr "Persönliche SMTP-Verbindungen dürfen nur die Ports 25, 465, 587 oder 2525 verwenden"
-
-#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
-#, elixir-autogen, elixir-format
-msgid "The SMTP host must resolve to a public address"
-msgstr "Der SMTP-Host muss auf eine öffentliche Adresse auflösen"
-
 #: lib/phoenix_kit/integrations/providers.ex:509
 #, elixir-autogen, elixir-format
 msgid "Anthropic"
@@ -21334,3 +21324,13 @@ msgstr "Gehen Sie zu [API Keys](https://platform.claude.com/settings/keys)"
 #, elixir-autogen, elixir-format
 msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
 msgstr "Beschränken Sie den Schlüssel auf einen einzelnen Workspace (zum Beispiel Default) – ein Schlüssel ohne Workspace wird abgelehnt"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Persönliche SMTP-Verbindungen dürfen nur die Ports 25, 465, 587 oder 2525 verwenden"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "Der SMTP-Host muss auf eine öffentliche Adresse auflösen"

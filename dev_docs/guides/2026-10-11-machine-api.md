@@ -357,7 +357,7 @@ The executor adds three fields to the input of **every write tool** (a tool whos
 
 ### What a module author must do
 
-1. **Answer a dry run.** The handler is called with `ctx.dry_run? == true` when the caller asked for a preview, and also by the executor to build the preview of a dangerous call and to re-check the values at confirmation or approval time. It must **write nothing** (no database write, no download, no notification, no log entry of a domain change) and answer `{:preview, preview, fingerprint}`:
+1. **Answer a dry run.** The handler is called with `ctx.dry_run? == true` when the caller asked for a preview, and also by the executor to build the preview of a dangerous call (and of every write of a key with `requires_approval`) and to re-check the values at confirmation or approval time. It must **write nothing** (no database write, no download, no notification, no log entry of a domain change) and answer `{:preview, preview, fingerprint}`:
 
    * `preview` is a map for a person to read. Write it in the common shape and the Approvals page shows it as a table with no code from your module: `"rows"`, a list of maps each with a `"name"`, `"ref"` or `"id"` to call the item by (shown in that order of preference), optionally `"action"`, `"warnings"` (a list of sentences), `"error"` (a sentence, or a map with a `"message"` and optionally a `"code"` and a `"context"`, as the first-party tools write a failed row; the page shows the code and the message) and `"changes"`, a map of field name to `%{"from" => ..., "to" => ...}` (numbers or numeric strings also get a percentage change); `"totals"`, a map of plain values, shown as one sentence (`"rows"` in it is the row count shown next to the title); `"warnings"`, a list of sentences for the whole operation. Anything else is not lost: the page keeps the whole preview under a collapsed "Technical details (JSON)" block. The page cuts the rows at 25 and says so, so put what matters most first. The card is headed by the tool's `title`, so write it for a person ("Change prices").
    * `fingerprint` is a string, a hash of the **current values** the operation would touch (not `updated_at`). A confirmation code and an approval are valid only while the fingerprint is unchanged. Hash the touched rows' values in a stable order; two calls that see the same data must answer the same fingerprint.
@@ -376,7 +376,7 @@ The executor adds three fields to the input of **every write tool** (a tool whos
 | `dry_run: true` | `200 {"executed": false, "dry_run": true, "preview": ...}`; no code, no approval; nothing ran, send the call again without `dry_run` |
 | a dangerous call, no code, an ordinary key | `200 {"executed": false, "status": "confirmation_required", "preview": ..., "confirm_token": "ct_...", "expires_at": ..., "expires_in_seconds": ...}` |
 | the same call with `confirm_token` | the handler runs; the code is spent |
-| a dangerous call from a key with `requires_approval` | `200 {"executed": false, "status": "pending_approval", "approval_id": ..., "preview": ..., "expires_at": ..., "expires_in_seconds": ...}`; the agent follows it with `system.get_approval` |
+| a write call from a key with `requires_approval`, dangerous or not (not a `dry_run`) | `200 {"executed": false, "status": "pending_approval", "approval_id": ..., "preview": ..., "expires_at": ..., "expires_in_seconds": ...}`; the agent follows it with `system.get_approval` |
 | a code that is not valid | `409 confirm_token_invalid`, `context.reason` one of `invalid`, `other_arguments`, `used`, `expired`, `changed`, `approval_required`, and `context.preview` is the preview as it is now |
 | too many approvals waiting for the key | `429 rate_limited` |
 | the same `Idempotency-Key` and request | the first answer, header `Idempotent-Replayed: true` (a pending-approval answer is not stored; see the next row) |
@@ -388,7 +388,7 @@ A code is bound to the key (or, for a public tool, the client token), the tool, 
 
 ### What this protects against, and what it does not
 
-A confirmation code protects against **accidents**, not against a malicious key holder: the same client that receives the code also uses it. A key holder can also stay under the thresholds (`api_confirm_batch_over`, a price change below the percentage) by splitting a change into several calls; the change log (Activity) is the control for that, so every write is logged with its key. The control for **AI agents** is the approval queue: give an agent a key marked "Needs approval", and a person decides every dangerous operation it asks for. A key without that mark confirms its own operations. The same sentence is the hint under the "Needs approval" box on the create-key form.
+A confirmation code protects against **accidents**, not against a malicious key holder: the same client that receives the code also uses it. A key holder can also stay under the thresholds (`api_confirm_batch_over`, a price change below the percentage) by splitting a change into several calls; the change log (Activity) is the control for that, so every write is logged with its key. The control for **AI agents** is the approval queue: give an agent a key marked "Needs approval", and a person decides every write it asks for, dangerous or not, so splitting a change does not get round it. A key without that mark confirms its own operations. The hint under the "Needs approval" box on the create-key form says the same in short.
 
 The approver sees what is approved: the totals first, then at most 25 rows of the preview as JSON, and a notice (and a second confirmation on **Approve**) when the preview is cut. Approving runs the whole operation, never only the rows shown.
 
@@ -404,9 +404,9 @@ Approvals (a menu entry for holders of `api`, at `/admin/approvals`, with a badg
 
 `mix phoenix_kit.update` runs V220 (`phoenix_kit_api_confirmations`, `phoenix_kit_api_idempotency`) and adds three cron entries to the host's Oban config: `PhoenixKit.API.Idempotency.PruneWorker` (daily), `PhoenixKit.API.Confirm.ExpiryWorker` (every five minutes) and `PhoenixKit.API.Confirm.PruneWorker` (daily). Without the update there are no tables and a dangerous call answers `500`. The host's `:phoenix, :filter_parameters` should contain `idempotency_key` (`PhoenixKit.boot/1` adds it). Confirmation codes are signed with the host's `secret_key_base`; with none, no code is issued.
 
-### Testing a dangerous tool
+### Testing a write tool
 
-`PhoenixKit.Test.ApiFlowTools` and `PhoenixKit.Test.ApiFlowHarness` (`test/support/`) show the whole contract with a handful of tools and an in-memory store; copy their shape. Test, for every dangerous tool: the dry run writes nothing; the fingerprint changes when a touched value changes and not otherwise; a confirm after the values changed is `409`; an approval after the key was revoked or the values changed writes nothing.
+`PhoenixKit.Test.ApiFlowTools` and `PhoenixKit.Test.ApiFlowHarness` (`test/support/`) show the whole contract with a handful of tools and an in-memory store; copy their shape. Test, for every write tool (a key marked "Needs approval" sends each of its writes through the dry run and the fingerprint, dangerous or not): the dry run writes nothing; the fingerprint changes when a touched value changes and not otherwise; a confirm after the values changed is `409`; an approval after the key was revoked or the values changed writes nothing.
 
 ## Deprecated aliases (until 3.0.0)
 
