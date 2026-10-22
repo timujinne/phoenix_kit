@@ -362,6 +362,37 @@ defmodule PhoenixKit.Modules.Storage.Manager do
   end
 
   @doc """
+  The URL a browser can load the object at `key` from itself, decided from
+  its ranked location rows (`Locations.ranked/2`) without asking any bucket:
+  the object URL of the bucket `get_file_access/2` would serve it from, when
+  that is a public bucket with a public URL (an R2 bucket's `cdn_url`).
+  `nil` when the app serves it: from a local bucket, through a private or
+  signed bucket, or when no recorded bucket is enabled.
+
+  The rows are trusted, where `public_url/2` probes the bucket: this is for
+  pages that link many objects at once. A row the reconciler has not caught
+  up with yet costs a broken image, not a wrong one.
+  """
+  @spec direct_url(String.t(), [%{bucket_uuid: String.t(), role: String.t() | nil}]) ::
+          String.t() | nil
+  def direct_url(key, ranked) when is_binary(key) and is_list(ranked) do
+    serving = Enum.reject(ranked, &(&1.role == "backup"))
+
+    by_uuid =
+      get_enabled_buckets()
+      |> Map.new(&{to_string(&1.uuid), &1})
+      |> with_owned_buckets(serving)
+
+    case Enum.find_value(serving, &Map.get(by_uuid, &1.bucket_uuid)) do
+      nil ->
+        nil
+
+      bucket ->
+        if public_bucket?(bucket), do: get_provider_for_bucket(bucket).public_url(bucket, key)
+    end
+  end
+
+  @doc """
   Replicates a file to specific target buckets.
 
   Retrieves the file from any available bucket, then stores it to

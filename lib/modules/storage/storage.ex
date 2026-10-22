@@ -5599,6 +5599,89 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   @doc """
+  Direct bucket URLs for many file variants at once, in two queries and with
+  no request to any bucket: for pages that show many images, so the browser
+  loads them from the bucket (its CDN) instead of through the app's
+  `/file/...` route and its redirect.
+
+  `pairs` are `{file_uuid, variant_name}`. The result maps a pair to the
+  object URL of the bucket the file route would serve it from
+  (`Manager.direct_url/2`); a pair left out is served by the app, so link
+  it with `URLSigner.signed_url/3` as before. Left out: a variant not made
+  yet, a trashed or system-managed file, a file in a private library, one
+  with an image edit in progress, a type the app does not show inline, and
+  every copy served from a local, private or signed bucket.
+  """
+  @spec direct_urls([{String.t(), String.t()}]) :: %{{String.t(), String.t()} => String.t()}
+  def direct_urls(pairs) when is_list(pairs) do
+    wanted = MapSet.new(pairs, fn {uuid, variant} -> {to_string(uuid), variant} end)
+
+    case Enum.flat_map(wanted, &cast_pair_uuid/1) do
+      [] -> %{}
+      uuids -> wanted |> direct_instances(Enum.uniq(uuids)) |> direct_urls_for()
+    end
+  end
+
+  defp cast_pair_uuid({uuid, _variant}) do
+    case Ecto.UUID.cast(uuid) do
+      {:ok, uuid} -> [uuid]
+      :error -> []
+    end
+  end
+
+  defp direct_instances(wanted, uuids) do
+    variants = wanted |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    from(i in FileInstance,
+      join: f in PhoenixKit.Modules.Storage.File,
+      on: f.uuid == i.file_uuid,
+      where:
+        i.file_uuid in ^uuids and i.variant_name in ^variants and
+          i.processing_status == "completed" and f.status != "trashed" and
+          f.system_managed == false,
+      select: {i.file_uuid, i.variant_name, i.file_name, i.mime_type, f}
+    )
+    |> repo().all()
+    |> Enum.filter(fn {uuid, variant, _key, mime, file} ->
+      MapSet.member?(wanted, {to_string(uuid), variant}) and
+        not ImageEditing.edit_in_progress?(file) and
+        PhoenixKitWeb.FileController.disposition_for(mime) == "inline"
+    end)
+    |> reject_private_libraries()
+  end
+
+  # A private library's files are never linked to their object: one
+  # lookup per library, not per file.
+  defp reject_private_libraries(rows) do
+    private =
+      rows
+      |> Enum.map(fn {_uuid, _variant, _key, _mime, file} -> file.library_uuid end)
+      |> Enum.uniq()
+      |> Enum.filter(&Libraries.private?/1)
+      |> MapSet.new()
+
+    Enum.reject(rows, fn {_uuid, _variant, _key, _mime, file} ->
+      MapSet.member?(private, file.library_uuid)
+    end)
+  end
+
+  defp direct_urls_for(rows) do
+    ranked =
+      rows
+      |> Enum.map(fn {uuid, _variant, key, _mime, _file} -> {key, to_string(uuid)} end)
+      |> Locations.ranked_all()
+
+    Enum.reduce(rows, %{}, fn {uuid, variant, key, _mime, _file}, acc ->
+      uuid = to_string(uuid)
+
+      case Manager.direct_url(key, Map.get(ranked, {key, uuid}, [])) do
+        nil -> acc
+        url -> Map.put(acc, {uuid, variant}, url)
+      end
+    end)
+  end
+
+  @doc """
   Gets a public URL for a specific file variant.
 
   ## Variants

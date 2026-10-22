@@ -89,6 +89,60 @@ defmodule PhoenixKit.Modules.Storage.Locations do
     )
     |> only_file(file_uuid)
     |> repo().all()
+    |> rank()
+  rescue
+    error ->
+      Logger.warning("Storage: location lookup for #{key} failed: #{Exception.message(error)}")
+      []
+  end
+
+  def ranked(_key, _file_uuid), do: []
+
+  @doc """
+  `ranked/2` for many objects in one query, each with its file: `pairs` are
+  `{key, file_uuid}`, and the result maps each pair that has an active
+  location row to its ranked buckets. Never raises: a failed lookup is `%{}`.
+  """
+  @spec ranked_all([{String.t(), String.t()}]) :: %{
+          {String.t(), String.t()} => [%{bucket_uuid: String.t(), role: String.t() | nil}]
+        }
+  def ranked_all([]), do: %{}
+
+  def ranked_all(pairs) when is_list(pairs) do
+    default = Profiles.default_uuid()
+    wanted = MapSet.new(pairs, fn {key, file_uuid} -> {key, to_string(file_uuid)} end)
+    keys = wanted |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
+    file_uuids = wanted |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    from(l in FileLocation,
+      join: i in FileInstance,
+      on: i.uuid == l.file_instance_uuid,
+      join: f in StorageFile,
+      on: f.uuid == i.file_uuid,
+      left_join: lib in Library,
+      on: lib.uuid == f.library_uuid,
+      left_join: pb in ProfileBucket,
+      on:
+        pb.bucket_uuid == l.bucket_uuid and
+          pb.profile_uuid == coalesce(lib.storage_profile_uuid, type(^default, UUIDv7)),
+      where: l.path in ^keys and i.file_uuid in ^file_uuids and l.status == "active",
+      select: {l.path, i.file_uuid, l.bucket_uuid, pb.role, pb.serve_order}
+    )
+    |> repo().all()
+    |> Enum.group_by(
+      fn {key, file_uuid, _bucket, _role, _order} -> {key, to_string(file_uuid)} end,
+      fn {_key, _file_uuid, bucket, role, order} -> {bucket, role, order} end
+    )
+    |> Enum.filter(fn {pair, _rows} -> MapSet.member?(wanted, pair) end)
+    |> Map.new(fn {pair, rows} -> {pair, rank(rows)} end)
+  rescue
+    error ->
+      Logger.warning("Storage: location lookup failed: #{Exception.message(error)}")
+      %{}
+  end
+
+  defp rank(rows) do
+    rows
     |> Enum.map(fn {bucket_uuid, role, serve_order} ->
       {to_string(bucket_uuid), role, {Map.fetch!(@role_rank, role), serve_order || 0}}
     end)
@@ -98,13 +152,7 @@ defmodule PhoenixKit.Modules.Storage.Locations do
     |> Enum.map(fn {_bucket, rows} -> Enum.min_by(rows, &elem(&1, 2)) end)
     |> Enum.sort_by(&elem(&1, 2))
     |> Enum.map(fn {bucket_uuid, role, _rank} -> %{bucket_uuid: bucket_uuid, role: role} end)
-  rescue
-    error ->
-      Logger.warning("Storage: location lookup for #{key} failed: #{Exception.message(error)}")
-      []
   end
-
-  def ranked(_key, _file_uuid), do: []
 
   defp only_file(query, nil), do: query
   defp only_file(query, file_uuid), do: where(query, [_l, i], i.file_uuid == ^file_uuid)
