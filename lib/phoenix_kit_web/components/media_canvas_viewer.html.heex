@@ -299,11 +299,14 @@
                     <%!-- Light for the same reason as the burn above: the two --%>
                     <%!-- are the same picture, and the pencil switches between --%>
                     <%!-- them.                                                 --%>
+                    <%!-- pan_centre={:bounds}: framed like the burn, picture and --%>
+                    <%!-- ink as one, so the pencil does not move the picture.     --%>
                     <Fresco.canvas
                       id={"media-zoom-" <> f.file_uuid}
                       canvas={@viewer_canvas}
                       class="w-full h-full lg:rounded"
                       invert_two_finger_pan={@invert_two_finger_pan}
+                      pan_centre={:bounds}
                       actual_size
                       nav_layout={:row}
                       nav_overflow={@nav_overflow}

@@ -221,14 +221,16 @@ defmodule PhoenixKit.API.Flow do
 
   @doc """
   Step 8. A read tool passes. `dry_run: true` runs the handler with `ctx.dry_run? == true`
-  and answers the preview (no code, no approval). A dangerous call (`dangerous?/1`) goes
-  through the confirmation or approval flow; any other call passes.
+  and answers the preview (no code, no approval). Any other write call of a key that
+  requires approval goes to the approval queue, dangerous or not, and a `confirm_token`
+  from such a key is refused. For every other caller a dangerous call (`dangerous?/1`) goes
+  through the confirmation flow, and any other call passes.
   """
   def gate(%{tool: tool} = state) do
     cond do
       not ControlFields.write_tool?(tool) -> {:ok, state}
       state.dry_run? -> dry_run_only(state)
-      dangerous?(state) -> confirm_flow(state)
+      approval_key?(state) or dangerous?(state) -> confirm_flow(state)
       true -> {:ok, state}
     end
   end

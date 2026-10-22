@@ -38,7 +38,8 @@ defmodule PhoenixKit.API.Tool do
     * `:danger` - when a call needs a person's confirmation: `nil` (never, except the
       generic batch-size rule for admin writes), `:always`, or `{module, function}`, a
       check `function(input, ctx) :: boolean()` called with a dry-run context. Any other
-      value is refused by `validate/1`.
+      value is refused by `validate/1`. A key marked "requires approval" holds every
+      write for a person regardless of `:danger`.
     * `:replay` - whether a retry of a write call with the same `idempotency_key` gets the
       first answer back. `true` by default. Set `false` on a write tool whose answer carries a
       credential (a session token, a claim URL): such an answer is never stored

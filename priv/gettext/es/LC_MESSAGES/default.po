@@ -20414,8 +20414,8 @@ msgstr "Requiere aprobación"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Las operaciones peligrosas de esta clave esperan en la cola de aprobación hasta que una persona las apruebe. Úselo para las claves que se entregan a agentes de IA."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Toda escritura de esta clave, peligrosa o no, espera en la cola de aprobación hasta que una persona la apruebe; las lecturas se ejecutan al instante. Úselo para las claves que se entregan a agentes de IA."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21140,10 +21140,10 @@ msgstr[1] "De 16 a 128 caracteres: letras, dígitos, - y _. La misma clave con l
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Una clave que requiere aprobación no ejecuta una operación peligrosa: la llamada devuelve pending_approval y espera hasta %{count} hora a que una persona la apruebe."
-msgstr[1] "Una clave que requiere aprobación no ejecuta una operación peligrosa: la llamada devuelve pending_approval y espera hasta %{count} horas a que una persona la apruebe."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Una clave que requiere aprobación no ejecuta ninguna escritura, peligrosa o no: la llamada devuelve pending_approval y espera hasta %{count} hora a que una persona la apruebe."
+msgstr[1] "Una clave que requiere aprobación no ejecuta ninguna escritura, peligrosa o no: la llamada devuelve pending_approval y espera hasta %{count} horas a que una persona la apruebe."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format

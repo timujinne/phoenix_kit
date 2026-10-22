@@ -141,7 +141,8 @@ defmodule PhoenixKit.API.OpenAPI do
     "Admin tools of this site. Every call is POST /<tool> with a JSON object; send the API key as " <>
       "Authorization: Bearer. " <>
       json_body_text() <>
-      " A dangerous call from a key that needs approval is not run: it is answered with HTTP 200 " <>
+      " A write call from a key that needs approval (other than a dry run) is not run, dangerous or " <>
+      "not: it is answered with HTTP 200 " <>
       "and executed: false, status: pending_approval, an approval_id and a preview, and runs only " <>
       "when an owner approves it. While that approval is still waiting, asking again for the same " <>
       "operation (with or without an Idempotency-Key) answers with the same approval_id and the " <>

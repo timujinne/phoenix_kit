@@ -20482,8 +20482,8 @@ msgstr "Требует одобрения"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Опасные операции этого ключа ждут в очереди одобрения, пока их не одобрит человек. Используйте это для ключей, выданных ИИ-агентам."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Любая запись этого ключа, опасная или нет, ждёт в очереди одобрения, пока её не одобрит человек; чтение выполняется сразу. Используйте это для ключей, выданных ИИ-агентам."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21211,11 +21211,11 @@ msgstr[2] "От 16 до 128 символов: буквы, цифры, - и _. Т
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Ключ, которому нужно одобрение, не выполняет опасную операцию: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
-msgstr[1] "Ключ, которому нужно одобрение, не выполняет опасную операцию: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
-msgstr[2] "Ключ, которому нужно одобрение, не выполняет опасную операцию: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
+msgstr[1] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
+msgstr[2] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format

@@ -347,12 +347,12 @@ defmodule PhoenixKit.MixProject do
       # `invert_two_finger_pan`, the per-user "Invert two-finger pan" switch.
       # Older fresco does not declare the attributes, so the host's compile
       # warns and the viewer keeps the old column.
-      {:fresco, "~> 0.14.0"},
+      {:fresco, "~> 0.15.0"},
       # 0.3.9 is the first tessera that admits fresco 0.14 (above): with an
       # older one locked, `mix deps.update phoenix_kit` cannot resolve fresco
       # 0.14 at all, and the failure names neither library.
-      {:tessera, "~> 0.3.9"},
-      {:etcher, "~> 0.22.0"},
+      {:tessera, "~> 0.3.10"},
+      {:etcher, "~> 0.23.0"},
 
       # QR device-handoff login ("scan to sign in" on the login page).
       #
