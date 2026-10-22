@@ -825,10 +825,11 @@ defmodule PhoenixKit.Integrations.Providers do
   # with `Authorization: Bearer <key>`. The GLM Coding Plan endpoint
   # (`/api/coding/paas/v4`) is not used.
   #
-  # `GET /models` is not in Z.ai's published API reference but answers an
-  # OpenAI-style model list. Without a key Z.ai answers 401 on every path, so a
-  # 401 does not prove the route exists, and an unknown path with a valid key
-  # is a 400 with code 1222 — the check must be confirmed with a real key.
+  # `GET /models` is not in Z.ai's published API reference; it is expected to
+  # answer an OpenAI-style model list, as on other OpenAI-compatible APIs. This
+  # must be confirmed with a real key: without a key Z.ai answers 401 on every
+  # path, so a 401 does not prove the route exists, and an unknown path with a
+  # valid key is a 400 with code 1222.
   defp zai do
     %{
       key: "zai",
@@ -876,7 +877,7 @@ defmodule PhoenixKit.Integrations.Providers do
           ],
           note:
             gettext(
-              "A GLM Coding Plan key created before 16 October 2026 is billed from the account balance on the general API, not from the plan quota."
+              "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
             )
         },
         %{

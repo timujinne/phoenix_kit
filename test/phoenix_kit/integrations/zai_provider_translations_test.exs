@@ -37,10 +37,12 @@ defmodule PhoenixKit.Integrations.ZaiProviderTranslationsTest do
 
   # What a translator must leave alone: the target of each markdown link and
   # the `**` marks. A slip in either ships a dead link or a bold run that
-  # never closes.
+  # never closes. The link text stays too: it names a page of Z.ai's console,
+  # which is in English, so every locale shows it as the console does.
   defp markup_problems(msgid, msgstr) do
     [
       {link_targets(msgstr) != link_targets(msgid), "link targets differ"},
+      {link_texts(msgstr) != link_texts(msgid), "link texts differ"},
       {bold_marks(msgstr) != bold_marks(msgid), "`**` marks differ"}
     ]
     |> Enum.filter(fn {differs?, _problem} -> differs? end)
@@ -51,6 +53,12 @@ defmodule PhoenixKit.Integrations.ZaiProviderTranslationsTest do
     ~r/\]\(([^)]*)\)/
     |> Regex.scan(text)
     |> Enum.map(fn [_, target] -> target end)
+  end
+
+  defp link_texts(text) do
+    ~r/\[([^\]]*)\]\(/
+    |> Regex.scan(text)
+    |> Enum.map(fn [_, label] -> label end)
   end
 
   defp bold_marks(text), do: length(String.split(text, "**")) - 1
@@ -64,12 +72,22 @@ defmodule PhoenixKit.Integrations.ZaiProviderTranslationsTest do
     end
   end
 
-  test "the provider has strings to translate" do
-    msgids = provider_msgids()
-
-    assert "Z.ai" in msgids
-    assert "From z.ai/manage-apikey/apikey-list" in msgids
-    assert length(msgids) >= 12
+  test "the provider's strings are exactly these" do
+    assert provider_msgids() == [
+             "Z.ai",
+             "AI model access via Z.ai (GLM models)",
+             "API Key",
+             "From z.ai/manage-apikey/apikey-list",
+             "Create a Z.ai account",
+             "Go to [z.ai/model-api](https://z.ai/model-api) and sign up or log in",
+             "Add credits",
+             "Go to [Billing](https://z.ai/manage-apikey/billing) and top up your balance",
+             "The API bills the account balance — without credit Z.ai refuses requests with code 1113 (insufficient balance)",
+             "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota.",
+             "Create an API key",
+             "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**",
+             "Copy the key and paste it into the form above"
+           ]
   end
 
   test "the template (.pot) has every msgid" do
@@ -95,7 +113,14 @@ defmodule PhoenixKit.Integrations.ZaiProviderTranslationsTest do
                "Gehe zu [Billing](https://z.ai/manage-apikey/apikey-list) und **zahle**"
              )
 
-    assert ["link targets differ"] == markup_problems(source, "Gehe zu Billing und **zahle**")
+    assert ["link targets differ", "link texts differ"] ==
+             markup_problems(source, "Gehe zu Billing und **zahle**")
+
+    assert ["link texts differ"] ==
+             markup_problems(
+               source,
+               "Gehe zu [Abrechnung](https://z.ai/manage-apikey/billing) und **zahle**"
+             )
 
     assert ["`**` marks differ"] ==
              markup_problems(

@@ -21335,47 +21335,47 @@ msgstr "Les connexions SMTP personnelles ne peuvent utiliser que les ports 25, 4
 msgid "The SMTP host must resolve to a public address"
 msgstr "L’hôte SMTP doit se résoudre en une adresse publique"
 
-#: lib/phoenix_kit/integrations/providers.ex:836
+#: lib/phoenix_kit/integrations/providers.ex:837
 #, elixir-autogen, elixir-format
 msgid "Z.ai"
 msgstr "Z.ai"
 
-#: lib/phoenix_kit/integrations/providers.ex:837
+#: lib/phoenix_kit/integrations/providers.ex:838
 #, elixir-autogen, elixir-format
 msgid "AI model access via Z.ai (GLM models)"
 msgstr "Accès aux modèles d'IA via Z.ai (modèles GLM)"
 
-#: lib/phoenix_kit/integrations/providers.ex:855
+#: lib/phoenix_kit/integrations/providers.ex:856
 #, elixir-autogen, elixir-format
 msgid "From z.ai/manage-apikey/apikey-list"
 msgstr "Depuis z.ai/manage-apikey/apikey-list"
 
-#: lib/phoenix_kit/integrations/providers.ex:862
+#: lib/phoenix_kit/integrations/providers.ex:863
 #, elixir-autogen, elixir-format
 msgid "Create a Z.ai account"
 msgstr "Créer un compte Z.ai"
 
-#: lib/phoenix_kit/integrations/providers.ex:864
+#: lib/phoenix_kit/integrations/providers.ex:865
 #, elixir-autogen, elixir-format
 msgid "Go to [z.ai/model-api](https://z.ai/model-api) and sign up or log in"
 msgstr "Allez sur [z.ai/model-api](https://z.ai/model-api) et inscrivez-vous ou connectez-vous"
 
-#: lib/phoenix_kit/integrations/providers.ex:870
+#: lib/phoenix_kit/integrations/providers.ex:871
 #, elixir-autogen, elixir-format
 msgid "Go to [Billing](https://z.ai/manage-apikey/billing) and top up your balance"
-msgstr "Accédez à [Facturation](https://z.ai/manage-apikey/billing) et rechargez votre solde"
+msgstr "Accédez à [Billing](https://z.ai/manage-apikey/billing) et rechargez votre solde"
 
-#: lib/phoenix_kit/integrations/providers.ex:873
+#: lib/phoenix_kit/integrations/providers.ex:874
 #, elixir-autogen, elixir-format
 msgid "The API bills the account balance — without credit Z.ai refuses requests with code 1113 (insufficient balance)"
 msgstr "L'API est facturée sur le solde du compte : sans crédit, Z.ai refuse les requêtes avec le code 1113 (solde insuffisant)"
 
-#: lib/phoenix_kit/integrations/providers.ex:878
+#: lib/phoenix_kit/integrations/providers.ex:879
 #, elixir-autogen, elixir-format
-msgid "A GLM Coding Plan key created before 16 October 2026 is billed from the account balance on the general API, not from the plan quota."
-msgstr "Une clé GLM Coding Plan créée avant le 16 octobre 2026 est facturée sur le solde du compte via l'API générale, et non sur le quota du forfait."
+msgid "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
+msgstr "Une clé existante d'un compte ayant eu un GLM Coding Plan (une clé Compatible, créée avant le 16 octobre 2026) est facturée sur cette API sur le solde du compte ou les forfaits d'utilisation, et non sur le quota du forfait."
 
-#: lib/phoenix_kit/integrations/providers.ex:885
+#: lib/phoenix_kit/integrations/providers.ex:886
 #, elixir-autogen, elixir-format
 msgid "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**"
-msgstr "Accédez à [Clés API](https://z.ai/manage-apikey/apikey-list) et créez une clé sous **Standard API Key**"
+msgstr "Accédez à [API Keys](https://z.ai/manage-apikey/apikey-list) et créez une clé sous **Standard API Key**"
