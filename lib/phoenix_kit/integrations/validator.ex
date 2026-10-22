@@ -34,7 +34,8 @@ defmodule PhoenixKit.Integrations.Validator do
   string keys) once it is known to hold credentials, and answers like any other
   check: `:ok`, `{:ok, note}` (see `t:PhoenixKit.Integrations.Probe.note/0`),
   `:unverified` when it has no way to tell, or `{:error, message}` with
-  something the operator can read. It runs through
+  something the operator can read (`{:inconclusive, message}` is reported as an
+  error too). It runs through
   `PhoenixKit.Integrations.Probe`: in its own process, under a hard deadline,
   with `PhoenixKitWeb.Gettext` already in the operator's locale. A crash or an
   overrun comes back as an error; it does not reach the page.
@@ -47,5 +48,9 @@ defmodule PhoenixKit.Integrations.Validator do
 
   @doc "Checks the connection `data` against the service."
   @callback validate_connection(data :: map()) ::
-              :ok | {:ok, Probe.note() | String.t()} | :unverified | {:error, String.t()}
+              :ok
+              | {:ok, Probe.note() | String.t()}
+              | :unverified
+              | {:error, String.t()}
+              | {:inconclusive, String.t()}
 end

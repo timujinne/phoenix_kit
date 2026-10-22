@@ -25,7 +25,9 @@ defmodule PhoenixKit.Integrations.Providers do
   from `x-api-key` and wants the API version in `anthropic-version` alongside.
   Leaving it out sends exactly the auth header, as before. A service whose
   check is not a plain `GET` declares `validation.strategy` instead (see
-  `t:validation/0`).
+  `t:validation/0`). A provider contributed by another module can name the
+  module that does the check: `validation: %{strategy: :module, module: Mod}`
+  (see `PhoenixKit.Integrations.Validator`).
   """
 
   use Gettext, backend: PhoenixKitWeb.Gettext
