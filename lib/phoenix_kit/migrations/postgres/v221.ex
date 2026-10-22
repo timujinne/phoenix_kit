@@ -20,7 +20,10 @@ defmodule PhoenixKit.Migrations.Postgres.V221 do
 
   One `ADD COLUMN` without a default (no table rewrite), the CHECK dropped and added in one
   `ALTER TABLE` (it reads the table once, under an exclusive lock: the table holds only
-  short-lived codes), and one index. Re-runnable.
+  short-lived codes), and one index. The foreign key is added with `ADD CONSTRAINT`, which
+  validates it at once: the new column is empty, so the check is instant, but for that
+  moment `phoenix_kit_users` is locked `SHARE ROW EXCLUSIVE` too (reads go on, writes to
+  users wait). Re-runnable.
 
   ## Down
 
