@@ -524,7 +524,8 @@ defmodule PhoenixKit.API.Flow do
            previewed.preview.fingerprint
          ) do
       {:ok, new_row} ->
-        {:done, session_prompt(previewed, new_row, %{"reason" => "changed"})}
+        prompt = session_prompt(previewed, new_row, %{"reason" => "changed"})
+        {:done, %{prompt | replaces_confirmation_uuid: row.uuid}}
 
       {:error, reason} when is_atom(reason) and reason != :no_binding ->
         session_invalid(state, reason)

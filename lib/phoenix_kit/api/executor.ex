@@ -115,6 +115,10 @@ defmodule PhoenixKit.API.Executor do
       `PhoenixKit.API.RequestContext`); `:base_url` is `nil` for a live session whose
       caller passed none;
     * `:request_id`;
+    * `:via`, what asks on behalf of a live session: the `:via` option of `execute_as/5` and
+      `redeem_as/6` (`"session"` by default, e.g. `"agent"`), the same value as the audit
+      entry's `metadata.via`, for a module's own audit of the change. `nil` for a key, a
+      public caller and an approved operation;
     * `:dry_run?`, `true` while the danger gate asks for a preview (the handler
       must then write nothing and answer `{:preview, preview, fingerprint}`, where `fingerprint`
       is a hash of the current values the operation would touch: 1 to 64 bytes of UTF-8, e.g. a
@@ -164,8 +168,10 @@ defmodule PhoenixKit.API.Executor do
     * reads are not audited, as for a key. A write call that was charged writes one
       `api.request` Activity entry with `resource_type: "user"`, the user as actor and
       resource, and `metadata` `via` (the `:via` option, `"session"` by default), `tool`,
-      `request_id`, `outcome`, `code` and `confirmation_uuid`: never the input, the
-      preview or the result;
+      `request_id`, `outcome`, `code` and `confirmation_uuid` (for a refused `redeem_as/6`,
+      the uuid it was asked for), plus `replaces_confirmation_uuid` when a row whose values
+      changed was replaced: never the input, the preview or the result. The handler reads
+      the same `via` as `ctx.via`;
     * maintenance mode is not checked on this path: the web shows the maintenance layout
       at mount, where nothing that calls the Executor is rendered.
 
@@ -374,9 +380,14 @@ defmodule PhoenixKit.API.Executor do
     * `:request_context` - keyword list: `:language`, `:base_url`, `:hosts`, `:currency`
       (the handler context, `PhoenixKit.API.RequestContext.from_options/1`),
       `:request_id` (the context's `:request_id`) and `:ip` (the actor's `ip`).
-    * `:via` - what asks, for the audit entry of a write (`metadata.via`): a non-empty
-      string of at most 64 bytes, `"session"` by default. Anything else raises
-      `ArgumentError`.
+    * `:via` - what asks, for the audit entry of a write (`metadata.via`) and the handler's
+      `ctx.via`: a non-empty string of at most 64 bytes, `"session"` by default. Anything
+      else raises `ArgumentError`.
+
+  The core does not tell an impersonated session from the person's own: a caller that
+  passes `allow: :all` must refuse a session that
+  `PhoenixKitWeb.Users.MultiSession.impersonated?/1` marks, before it calls, so an
+  administrator acting as somebody else cannot propose writes in their name.
   """
   @spec execute_as(SessionRef.t(), :admin, String.t(), term(), keyword()) :: outcome()
   def execute_as(session_ref, :admin, tool_name, input, opts \\ []) do
@@ -425,10 +436,17 @@ defmodule PhoenixKit.API.Executor do
   `rejected`, `expired`. A refusal before the row is spent leaves it waiting.
 
   Options: `:request_context` and `:via`, as for `execute_as/5`.
+
+  As with `execute_as/5` and `allow: :all`, the caller must refuse an impersonated session
+  (`PhoenixKitWeb.Users.MultiSession.impersonated?/1`) before it calls: the core cannot tell
+  it from the person's own.
   """
   @spec redeem_as(SessionRef.t(), :admin, term(), String.t(), term(), keyword()) :: outcome()
   def redeem_as(session_ref, :admin, confirmation_uuid, tool_name, input, opts \\ []) do
-    state = session_state(session_ref, tool_name, input, Keyword.put(opts, :allow, :all))
+    state =
+      session_ref
+      |> session_state(tool_name, input, Keyword.put(opts, :allow, :all))
+      |> Map.put(:requested_confirmation_uuid, cast_uuid(confirmation_uuid))
 
     with {:ok, state} <- session_actor(state),
          {:ok, state} <- find_tool(state),
@@ -503,6 +521,17 @@ defmodule PhoenixKit.API.Executor do
   defp session_pair({_token_uuid, _user_uuid} = session_ref), do: session_ref
   defp session_pair(_other), do: nil
 
+  # The confirmation a `redeem_as/6` asks for, for its audit entry: only a uuid is written
+  # down, whatever else the caller passed.
+  defp cast_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp cast_uuid(_value), do: nil
+
   # Only `{atom, value}` pairs count: anything else in the list (or a list that is not a
   # keyword list at all) is dropped, so a malformed context gets the defaults.
   defp request_options(options) when is_list(options) or is_map(options),
@@ -546,6 +575,8 @@ defmodule PhoenixKit.API.Executor do
       store?: true,
       outcome: nil,
       confirmation: nil,
+      requested_confirmation_uuid: nil,
+      replaces_confirmation_uuid: nil,
       preview: nil,
       result: nil,
       request_context: nil
@@ -699,6 +730,25 @@ defmodule PhoenixKit.API.Executor do
        do: Scope.can?(scope, permission)
 
   defp session_may_hold?(_scope, _tool), do: false
+
+  @doc false
+  # Whether the live session's `scope` may still write with `tool_name`, by the checks
+  # `redeem_as/6` makes before it runs: the tool is callable (`Registry.find/2`: its module
+  # on, the module's API on, the tool not hidden) and writes, the scope holds its scope and
+  # its permission, and its module is in `api_session_write_modules`.
+  # `PhoenixKit.API.Confirm.get_for_user/3` reads a preview only then.
+  @spec session_may_write?(Scope.t(), String.t()) :: boolean()
+  def session_may_write?(%Scope{} = scope, tool_name) when is_binary(tool_name) do
+    case Registry.find(tool_name, :admin) do
+      {:ok, %Tool{} = tool} ->
+        write?(tool) and tool.scope in Keys.held_scopes_of(scope) and
+          session_may_hold?(scope, tool) and
+          module_writes?(tool, Config.session_write_modules())
+
+      {:error, _reason} ->
+        false
+    end
+  end
 
   # `writes` is the list of modules whose writes the call may see (`[]` for `allow: :read`).
   defp session_may_call?(scope, %Tool{} = tool, writes),
@@ -891,6 +941,7 @@ defmodule PhoenixKit.API.Executor do
       dry_run?: Map.get(fields, :dry_run?) == true,
       approved_by_uuid: Map.get(fields, :approved_by_uuid),
       confirmation_uuid: Map.get(fields, :confirmation_uuid),
+      via: Map.get(fields, :via),
       progress: Map.get(fields, :progress) || fn _partial -> :ok end
     }
   end
@@ -1134,21 +1185,33 @@ defmodule PhoenixKit.API.Executor do
   end
 
   # A session's entry: who, through what, which tool and how it ended. Never the input, the
-  # preview or the result, which hold the data the person works on.
+  # preview or the result, which hold the data the person works on. `confirmation_uuid` is
+  # the row the call held, spent or was answered with; for a `redeem_as/6` refused before
+  # (or without) a claim, the uuid it asked for. An answer that replaced a row whose values
+  # changed also names the old one, `replaces_confirmation_uuid`.
   defp write_entry(state, tool, %Actor{kind: :user} = actor, outcome, code) do
+    metadata = %{
+      "via" => state.via,
+      "tool" => tool.name,
+      "request_id" => request_id(state),
+      "outcome" => outcome,
+      "code" => code && Atom.to_string(code),
+      "confirmation_uuid" =>
+        (state.confirmation && state.confirmation.uuid) || state.requested_confirmation_uuid
+    }
+
+    metadata =
+      case state.replaces_confirmation_uuid do
+        nil -> metadata
+        old_uuid -> Map.put(metadata, "replaces_confirmation_uuid", old_uuid)
+      end
+
     Activity.log("api", "api.request",
       actor_uuid: actor.user_uuid,
       mode: "auto",
       resource_type: "user",
       resource_uuid: actor.user_uuid,
-      metadata: %{
-        "via" => state.via,
-        "tool" => tool.name,
-        "request_id" => request_id(state),
-        "outcome" => outcome,
-        "code" => code && Atom.to_string(code),
-        "confirmation_uuid" => state.confirmation && state.confirmation.uuid
-      }
+      metadata: metadata
     )
   end
 
@@ -1190,7 +1253,8 @@ defmodule PhoenixKit.API.Executor do
       base_url: context.base_url,
       request_id: request_id(state),
       dry_run?: state.dry_run?,
-      confirmation_uuid: state.confirmation && state.confirmation.uuid
+      confirmation_uuid: state.confirmation && state.confirmation.uuid,
+      via: Map.get(state, :via)
     })
   end
 

@@ -31,6 +31,7 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
 
   @set "sessiontest.set_note"
   @wipe "sessiontest.wipe_note"
+  @pair_a "sessiontest.pair_a"
   @module "api_session_tools"
   @input %{"id" => "n1", "text" => "new"}
 
@@ -429,10 +430,47 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
       role: role
     } do
       id = held!(ref)
+      assert_received {:session_preview, @set, _ctx}
       {:ok, _} = Roles.remove_role(user, role.name)
 
       assert {:error, :forbidden, _, _, _} = confirm(ref, id)
+      assert row(id).status == "unused"
       assert ApiSessionTools.notes() == %{"n1" => "old"}
+      # The handler was not called at all: neither the fresh dry run nor the write.
+      refute_received {:session_preview, _, _}
+      refute_received {:session_write, _, _, _}
+    end
+
+    test "two tools on one scope with different permissions: losing the other permission refuses the redemption",
+         %{ref: ref, role: role} do
+      {:ok, _} = Permissions.grant_permission(role.uuid, "users")
+      id = held!(ref, @pair_a)
+      assert_received {:session_preview, @pair_a, _ctx}
+
+      # The session still holds `settings`, the permission of pair_a, but no longer the
+      # scope pair_a shares with pair_b, which needs `users`.
+      :ok = Permissions.revoke_permission(role.uuid, "users")
+
+      assert {:error, :forbidden, detail, %{required_scope: "sessiontest.pair:write"}, _} =
+               confirm(ref, id, @pair_a)
+
+      assert detail =~ "lacks sessiontest.pair:write"
+      assert row(id).status == "unused"
+      assert ApiSessionTools.notes() == %{"n1" => "old"}
+      refute_received {:session_preview, _, _}
+      refute_received {:session_write, _, _, _}
+
+      {:ok, _} = Permissions.grant_permission(role.uuid, "users")
+      assert {:ok, %{result: %{"updated" => true}}, _} = confirm(ref, id, @pair_a)
+    end
+
+    test "a tool the session may not call by its permission is refused before anything else",
+         %{ref: ref} do
+      # `system.*` tools have no scope, so only the permission check can stop them.
+      assert {:error, :forbidden, detail, %{tool: "system.get_identity"}, _} =
+               confirm(ref, UUIDv7.generate(), "system.get_identity", %{})
+
+      assert detail =~ "may not call system.get_identity"
     end
 
     test "a session that ended cannot confirm", %{user: user} do
@@ -481,6 +519,24 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
       assert detail =~ "nothing to confirm"
     end
 
+    test "the handler reads :via in ctx, in the dry runs and in the run; \"session\" by default",
+         %{ref: ref} do
+      assert {:ok, %{result: %{"confirmation_id" => id}}, _} =
+               ask(ref, @set, @input, via: "agent")
+
+      assert_received {:session_preview, @set, %{via: "agent", dry_run?: true}}
+
+      assert {:ok, _, _} = confirm(ref, id, @set, @input, via: "agent")
+      assert_received {:session_preview, @set, %{via: "agent", dry_run?: true}}
+      assert_received {:session_write, @set, _input, %{via: "agent", dry_run?: false}}
+
+      ApiSessionTools.reset_notes()
+      id = held!(ref)
+      assert_received {:session_preview, @set, %{via: "session"}}
+      assert {:ok, _, _} = confirm(ref, id)
+      assert_received {:session_write, @set, _input, %{via: "session"}}
+    end
+
     test "the option :allow cannot narrow it, :via must be a string", %{ref: ref} do
       assert_raise ArgumentError, ~r/via/, fn ->
         confirm(ref, UUIDv7.generate(), @set, @input, via: :agent)
@@ -510,6 +566,54 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
                Confirm.get_for_user(id, ref)
 
       assert %{"rows" => [%{"ref" => "n1"}]} = preview
+    end
+
+    test "the preview is given only while the session may still call the tool", %{
+      ref: ref,
+      role: role
+    } do
+      id = held!(ref)
+      assert {:ok, %{preview: %{}}} = Confirm.get_for_user(id, ref)
+
+      takes_away = [
+        {fn -> Permissions.revoke_permission(role.uuid, "settings") end,
+         fn -> Permissions.grant_permission(role.uuid, "settings") end},
+        {fn -> open_writes([]) end, fn -> open_writes([@module]) end},
+        {fn -> put_setting("api_disabled_modules", @module) end,
+         fn -> put_setting("api_disabled_modules", "none") end},
+        {fn -> put_setting("api_disabled_tools", @set) end,
+         fn -> put_setting("api_disabled_tools", "none") end}
+      ]
+
+      for {take, give_back} <- takes_away do
+        take.()
+        assert Confirm.get_for_user(id, ref) == {:error, :forbidden}
+        give_back.()
+        assert {:ok, %{status: "unused", preview: %{}}} = Confirm.get_for_user(id, ref)
+      end
+
+      # A row that is no longer waiting is not read past the rights either.
+      assert {:ok, _, _} = confirm(ref, id)
+      :ok = Permissions.revoke_permission(role.uuid, "settings")
+      assert Confirm.get_for_user(id, ref) == {:error, :forbidden}
+    end
+
+    test "the person may still turn a row down after the right went", %{ref: ref, role: role} do
+      id = held!(ref)
+      :ok = Permissions.revoke_permission(role.uuid, "settings")
+
+      assert :ok = Confirm.reject_for_user(id, ref)
+      assert row(id).status == "rejected"
+    end
+
+    test "lookup_for_user/2 with a user that is not a uuid is :unknown", %{ref: ref, user: user} do
+      id = held!(ref)
+
+      for user_uuid <- ["not-a-uuid", "", nil, 42] do
+        assert Confirm.lookup_for_user(id, user_uuid) == {:error, :unknown}
+      end
+
+      assert {:ok, %Confirmation{uuid: ^id}} = Confirm.lookup_for_user(id, user.uuid)
     end
 
     test "an unused row past its time reads expired", %{ref: ref} do
@@ -618,8 +722,49 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
       assert {:ok, _, _} = confirm(ref, id)
       assert {:error, _, _, _, _} = confirm(ref, id)
 
-      assert %{"outcome" => "error", "code" => "confirm_token_invalid"} =
+      assert %{
+               "outcome" => "error",
+               "code" => "confirm_token_invalid",
+               "confirmation_uuid" => ^id
+             } = List.last(entries(user)).metadata
+    end
+
+    test "a refusal names the confirmation it was asked for, even one that was never claimed",
+         %{ref: ref, user: user} do
+      unknown = UUIDv7.generate()
+      assert {:error, :confirm_token_invalid, _, %{reason: "invalid"}, _} = confirm(ref, unknown)
+
+      assert %{"outcome" => "error", "confirmation_uuid" => ^unknown} =
                List.last(entries(user)).metadata
+
+      id = held!(ref)
+
+      assert {:error, :confirm_token_invalid, _, %{reason: "other_arguments"}, _} =
+               confirm(ref, id, @set, %{"id" => "n1", "text" => "other"})
+
+      assert %{"outcome" => "error", "confirmation_uuid" => ^id} =
+               List.last(entries(user)).metadata
+
+      # Something that is not a uuid is not written down.
+      assert {:error, :confirm_token_invalid, _, _, _} = confirm(ref, "not-a-uuid")
+      assert %{"confirmation_uuid" => nil} = List.last(entries(user)).metadata
+    end
+
+    test "the answer to changed values links the new row to the one it replaces", %{
+      ref: ref,
+      user: user
+    } do
+      id = held!(ref)
+      ApiSessionTools.put_note("n1", "edited meanwhile")
+
+      assert {:ok, %{result: %{"reason" => "changed", "confirmation_id" => new_id}}, _} =
+               confirm(ref, id)
+
+      assert %{
+               "outcome" => "confirmation_required",
+               "confirmation_uuid" => ^new_id,
+               "replaces_confirmation_uuid" => ^id
+             } = List.last(entries(user)).metadata
     end
 
     test "a write refused by the allow-list or a read writes no entry" do
@@ -639,7 +784,7 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
       input = %{"id" => "n1", "text" => secret}
 
       log =
-        capture_log([level: :debug], fn ->
+        capture_debug_log(fn ->
           {:ok, %{result: %{"confirmation_id" => id}}, _} = ask(ref, @set, input)
           ApiSessionTools.put_note("n1", "changed")
           {:ok, %{result: %{"confirmation_id" => new_id}}, _} = confirm(ref, id, @set, input)
@@ -647,6 +792,8 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
           {:error, _, _, _, _} = confirm(ref, new_id, @set, input)
         end)
 
+      # The capture saw the SQL, so the refutation below is not vacuous.
+      assert log =~ "phoenix_kit_api_confirmations"
       refute log =~ secret
     end
   end
@@ -689,6 +836,8 @@ defmodule PhoenixKit.API.ExecutorSessionConfirmTest do
                  Executor.execute(key_conn(token), :admin, @set, @input)
 
         assert ApiSessionTools.notes() == %{"n1" => "new"}
+        # `via` belongs to a live session; a key's handler reads nil.
+        assert_received {:session_write, @set, _input, %{via: nil}}
 
         assert {:ok, %{result: %{"confirm_token" => _}}, _} =
                  Executor.execute(key_conn(token), :admin, @wipe, %{"id" => "n1"})

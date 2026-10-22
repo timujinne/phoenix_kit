@@ -38,7 +38,8 @@ defmodule PhoenixKit.API.Confirm do
   finds those rows:
 
     * `lookup_for_user/2` finds the person's row by uuid;
-    * `get_for_user/2` reads it for the page that shows the confirmation;
+    * `get_for_user/2` reads it for the page that shows the confirmation, while the session
+      may still write with its tool;
     * `reject_for_user/2` turns it down;
     * `reissue_for_user/7` replaces it when the values changed under it.
 
@@ -53,6 +54,7 @@ defmodule PhoenixKit.API.Confirm do
   alias PhoenixKit.API.Approvals
   alias PhoenixKit.API.Confirm.Confirmation
   alias PhoenixKit.API.Confirm.Token
+  alias PhoenixKit.API.Executor
   alias PhoenixKit.API.FlowConfig
   alias PhoenixKit.API.Keys
   alias PhoenixKit.API.Keys.Key
@@ -211,7 +213,8 @@ defmodule PhoenixKit.API.Confirm do
   @doc """
   Spends a code, atomically. `fresh_fingerprint` is the fingerprint of the values the
   operation touches *now*. `:ok` for exactly one caller; `{:error, :used}`,
-  `{:error, :expired}` or `{:error, :changed}` for the others.
+  `{:error, :rejected}` (a session's row the person turned down), `{:error, :expired}` or
+  `{:error, :changed}` for the others.
   """
   @spec claim_token(Confirmation.t(), String.t(), DateTime.t()) ::
           :ok | {:error, :used | :expired | :changed | :rejected}
@@ -253,7 +256,8 @@ defmodule PhoenixKit.API.Confirm do
   Holds a write of the live session of `actor` (a `:user`) for `tool_name` and
   `input_hash`, with `preview` and `fingerprint`, until the person confirms it, for
   `api_user_confirm_ttl_seconds`. Every call stores a new row: an earlier one is never
-  handed out again. No code is made.
+  handed out again. No code is made. The insert is not logged (`log: false`): its
+  parameters carry the preview, the data the person works on.
   """
   @spec issue_for_user(Actor.t(), String.t(), String.t(), map(), String.t(), DateTime.t()) ::
           {:ok, Confirmation.t()} | {:error, :no_binding | Ecto.Changeset.t()}
@@ -288,7 +292,7 @@ defmodule PhoenixKit.API.Confirm do
       status: "unused",
       expires_at: DateTime.add(now, FlowConfig.user_confirm_ttl_seconds(), :second)
     })
-    |> repo().insert()
+    |> repo().insert(log: false)
   end
 
   def issue_for_user(_actor, _tool_name, _input_hash, _preview, _fingerprint, _now),
@@ -303,6 +307,7 @@ defmodule PhoenixKit.API.Confirm do
   def lookup_for_user(confirmation_uuid, user_uuid)
       when is_binary(confirmation_uuid) and is_binary(user_uuid) do
     with {:ok, uuid} <- Ecto.UUID.cast(confirmation_uuid),
+         {:ok, user_uuid} <- Ecto.UUID.cast(user_uuid),
          %Confirmation{} = row <-
            repo().get_by(Confirmation, uuid: uuid, kind: "token", actor_user_uuid: user_uuid) do
       {:ok, row}
@@ -329,7 +334,8 @@ defmodule PhoenixKit.API.Confirm do
   `:changed`) by a new one holding the fresh `preview` and `fingerprint`. The old row goes
   from `unused` to `expired` in the same transaction, so it can never be redeemed after
   the new one exists. `{:error, reason}` when the old row is no longer `unused` (it was
-  used or rejected meanwhile), and nothing is stored.
+  used or rejected meanwhile), and nothing is stored. Neither statement is logged
+  (`log: false`), as in `issue_for_user/6`.
   """
   @spec reissue_for_user(
           Confirmation.t(),
@@ -359,7 +365,8 @@ defmodule PhoenixKit.API.Confirm do
       )
 
     repo().transaction(fn ->
-      with {1, _} <- repo().update_all(query, set: [status: "expired", updated_at: now]),
+      with {1, _} <-
+             repo().update_all(query, [set: [status: "expired", updated_at: now]], log: false),
            {:ok, row} <- issue_for_user(actor, tool_name, input_hash, preview, fingerprint, now) do
         row
       else
@@ -376,7 +383,16 @@ defmodule PhoenixKit.API.Confirm do
   `"used"`, `"rejected"` or `"expired"` (an unused row past its time reads `"expired"`).
 
   `{:error, :unauthorized}` when the session cannot act any more
-  (`SessionRef.scope_for_session/2`), `{:error, :unknown}` as in `lookup_for_user/2`.
+  (`SessionRef.scope_for_session/2`), `{:error, :unknown}` as in `lookup_for_user/2`, and
+  `{:error, :forbidden}`, without the preview, when the session may no longer write with the
+  row's tool, whatever the row's status: the tool must still be callable (its module on, the
+  module's API on, the tool not hidden), its scope and permission held by the session's
+  scope now, and its module in `api_session_write_modules`, as
+  `PhoenixKit.API.Executor.redeem_as/6` checks before it runs.
+
+  The core does not tell an impersonated session from the person's own: the caller must
+  refuse a session that `PhoenixKitWeb.Users.MultiSession.impersonated?/1` marks before it
+  calls, so an administrator acting as somebody else does not read their previews.
   """
   @spec get_for_user(term(), term(), DateTime.t()) ::
           {:ok,
@@ -387,10 +403,11 @@ defmodule PhoenixKit.API.Confirm do
              status: String.t(),
              expires_at: DateTime.t()
            }}
-          | {:error, :unauthorized | :unknown}
+          | {:error, :unauthorized | :unknown | :forbidden}
   def get_for_user(confirmation_uuid, session_ref, now \\ DateTime.utc_now()) do
-    with {:ok, user_uuid} <- session_user(session_ref),
-         {:ok, row} <- lookup_for_user(confirmation_uuid, user_uuid) do
+    with {:ok, scope} <- session_scope(session_ref),
+         {:ok, row} <- lookup_for_user(confirmation_uuid, scope.user.uuid),
+         :ok <- may_write(scope, row) do
       {:ok,
        %{
          uuid: row.uuid,
@@ -402,6 +419,10 @@ defmodule PhoenixKit.API.Confirm do
     end
   end
 
+  defp may_write(scope, %Confirmation{tool: tool_name}) do
+    if Executor.session_may_write?(scope, tool_name), do: :ok, else: {:error, :forbidden}
+  end
+
   defp card_status(%Confirmation{status: "unused"} = row, now),
     do: if(usable(row, now) == :ok, do: "unused", else: "expired")
 
@@ -411,15 +432,19 @@ defmodule PhoenixKit.API.Confirm do
   The person turns down their confirmation `confirmation_uuid`: one atomic `UPDATE` from
   `unused` (and not expired) to `rejected`, so a rejected row can never be redeemed and a
   redeemed one never rejected. `{:error, :used | :rejected | :expired}` when it is no longer
-  waiting; `{:error, :unauthorized}` and `{:error, :unknown}` as in `get_for_user/2`.
+  waiting; `{:error, :unauthorized}` and `{:error, :unknown}` as in `get_for_user/2`. The
+  person may turn a row down after losing the right to the tool: nothing runs.
+
+  As for `get_for_user/2`, the caller must refuse an impersonated session
+  (`PhoenixKitWeb.Users.MultiSession.impersonated?/1`) before it calls.
   """
   @spec reject_for_user(term(), term(), DateTime.t()) ::
           :ok | {:error, :unauthorized | :unknown | :used | :rejected | :expired | :changed}
   def reject_for_user(confirmation_uuid, session_ref, now \\ DateTime.utc_now()) do
     now = second(now)
 
-    with {:ok, user_uuid} <- session_user(session_ref),
-         {:ok, %Confirmation{uuid: uuid}} <- lookup_for_user(confirmation_uuid, user_uuid) do
+    with {:ok, scope} <- session_scope(session_ref),
+         {:ok, %Confirmation{uuid: uuid}} <- lookup_for_user(confirmation_uuid, scope.user.uuid) do
       query =
         from(c in Confirmation,
           where:
@@ -434,15 +459,15 @@ defmodule PhoenixKit.API.Confirm do
     end
   end
 
-  # The user of a session that can still act, rebuilt as the executor rebuilds it.
-  defp session_user({token_uuid, user_uuid}) do
+  # The scope of a session that can still act, rebuilt as the executor rebuilds it.
+  defp session_scope({token_uuid, user_uuid}) do
     case SessionRef.scope_for_session(token_uuid, user_uuid) do
-      {:ok, %Scope{user: %{uuid: uuid}}} -> {:ok, uuid}
+      {:ok, %Scope{user: %{uuid: _uuid}} = scope} -> {:ok, scope}
       {:error, _reason} -> {:error, :unauthorized}
     end
   end
 
-  defp session_user(_not_a_pair), do: {:error, :unauthorized}
+  defp session_scope(_not_a_pair), do: {:error, :unauthorized}
 
   @doc """
   The actor of an API key as it stands **now**, without a token: the key is read from

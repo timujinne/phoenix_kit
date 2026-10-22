@@ -17,8 +17,9 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
       was created with; the field's `source:` maps it), or the person whose live session
       asked for the operation.
     * `preview` - what the person sees.
-    * `status` - codes: `unused | used | expired`. Approvals: `pending | approved |
-      executing | executed | failed | rejected | stale | expired`.
+    * `status` - codes: `unused | used | expired | rejected` (`rejected`: a session's row the
+      person turned down). Approvals: `pending | approved | executing | executed | failed |
+      rejected | stale | expired`.
     * `result` - an approval's result, error and partial results.
 
   The flow is in `PhoenixKit.API.Confirm` and `PhoenixKit.API.Approvals`.
