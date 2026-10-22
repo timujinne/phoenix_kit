@@ -24,7 +24,6 @@ defmodule PhoenixKit.Notifications.Channels.Email do
 
   alias PhoenixKit.Email.Content
   alias PhoenixKit.Email.CoreTemplates
-  alias PhoenixKit.Email.Provider
   alias PhoenixKit.Mailer
   alias PhoenixKit.Users.Auth
 
@@ -71,8 +70,6 @@ defmodule PhoenixKit.Notifications.Channels.Email do
         &CoreTemplates.notification_defaults/0
       )
 
-    if content.db_template, do: Provider.current().track_usage(content.db_template)
-
     email =
       new()
       |> to(address)
@@ -81,7 +78,12 @@ defmodule PhoenixKit.Notifications.Channels.Email do
       |> text_body(trim(content.text))
       |> html_body(content.html)
 
-    case Mailer.deliver_email(email, category: "notifications") do
+    result =
+      email
+      |> Mailer.deliver_email(category: "notifications")
+      |> Mailer.track_usage_after_delivery(content.db_template)
+
+    case result do
       {:ok, _} -> :ok
       # A blocklisted recipient (hard bounce / complaint) won't recover on retry.
       {:error, {:blocked, reason}} -> {:error, {:permanent, reason}}

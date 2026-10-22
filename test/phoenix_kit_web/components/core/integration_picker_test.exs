@@ -185,7 +185,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
   end
 
   # ===========================================================================
-  # Age line (uses time_ago hook)
+  # Age line (uses time_ago)
   # ===========================================================================
 
   describe "age line" do
@@ -200,7 +200,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
         """)
 
       assert html =~ "Created"
-      assert html =~ ~s(phx-hook="TimeAgo")
+      assert html =~ "<time"
       # ISO timestamp passed through as the `datetime` attribute.
       assert html =~ "2026-05-01"
     end
@@ -216,7 +216,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPickerTest do
         """)
 
       refute html =~ "Created"
-      refute html =~ ~s(phx-hook="TimeAgo")
+      refute html =~ "<time"
     end
   end
 

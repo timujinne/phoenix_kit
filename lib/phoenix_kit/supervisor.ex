@@ -13,8 +13,6 @@ defmodule PhoenixKit.Supervisor do
     ReconcileJob
   }
 
-  alias PhoenixKit.Users.Permissions
-
   def start_link(init_arg) do
     Supervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
   end
@@ -115,25 +113,11 @@ defmodule PhoenixKit.Supervisor do
       # settings flags make an Owner's revocation stick across restarts. Runs
       # after ModuleRegistry (key discovery) and the settings cache (flag
       # reads); idempotent and a silent no-op when the table doesn't exist yet.
+      # A key whose grant hits a database error is retried with a backoff, and
+      # `Permissions.await_admin_grants/1` lets a host wait for the result.
       # Modules registered at runtime (ModuleRegistry.register/1) are picked
       # up on the next boot.
-      Supervisor.child_spec(
-        {Task,
-         fn ->
-           try do
-             Permissions.auto_grant_new_keys_to_admin()
-             Permissions.backfill_media_sub_permissions()
-           rescue
-             error ->
-               require Logger
-
-               Logger.error(
-                 "[PhoenixKit] Failed to auto-grant permission keys to Admin at startup: #{inspect(error)}"
-               )
-           end
-         end},
-        id: :auto_grant_admin_permissions
-      ),
+      PhoenixKit.Users.Permissions.AdminGrants,
       # Once per boot: say which declared Oban queues this node does not run
       # (see PhoenixKit.ObanQueues). Delayed, because the host usually starts
       # Oban after PhoenixKit; best-effort and silent when Oban is absent, in

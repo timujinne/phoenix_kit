@@ -223,9 +223,9 @@ defmodule PhoenixKit.Mailer do
           |> text_body(content.text)
           |> maybe_reply_to(Keyword.get(opts, :reply_to))
 
-        if content.db_template, do: Provider.current().track_usage(content.db_template)
-
-        deliver_email(email, delivery_opts(template_name, content, opts))
+        email
+        |> deliver_email(delivery_opts(template_name, content, opts))
+        |> track_usage_after_delivery(content.db_template)
     end
   end
 
@@ -817,10 +817,8 @@ defmodule PhoenixKit.Mailer do
       |> html_body(content.html)
       |> text_body(content.text)
 
-    # Track template usage if a database template supplied the content
-    if content.db_template, do: Provider.current().track_usage(content.db_template)
-
-    deliver_email(email,
+    email
+    |> deliver_email(
       user_uuid: user.uuid,
       template_name: "magic_link",
       campaign_id: "authentication",
@@ -828,7 +826,40 @@ defmodule PhoenixKit.Mailer do
       source_module: "users",
       provider: detect_provider()
     )
+    |> track_usage_after_delivery(content.db_template)
   end
+
+  @doc false
+  # Counts a database template's use once its message was actually handed over:
+  # an adapter error, a blocklisted recipient or a send the dev mailbox gate
+  # suppressed (`suppressed: true`) is not a use. A message a provider took into
+  # its queue (`queued: true`) counts — it was accepted for delivery, and the
+  # worker that sends it later does not know the template. Returns `result`
+  # unchanged, and a provider whose `track_usage/1` fails must not turn a sent
+  # message into an error for the caller (who may then send it again).
+  def track_usage_after_delivery(result, nil), do: result
+  def track_usage_after_delivery({:ok, %{suppressed: true}} = result, _template), do: result
+
+  def track_usage_after_delivery({:ok, _} = result, template) do
+    Provider.current().track_usage(template)
+    result
+  rescue
+    error ->
+      Logger.warning(
+        "[PhoenixKit.Mailer] could not count a use of the email template: #{Exception.message(error)}"
+      )
+
+      result
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "[PhoenixKit.Mailer] could not count a use of the email template: #{inspect(reason)}"
+      )
+
+      result
+  end
+
+  def track_usage_after_delivery(result, _template), do: result
 
   # Detect current email provider from configuration
   defp detect_provider do

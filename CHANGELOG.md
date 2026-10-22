@@ -16,6 +16,10 @@
   provider, region or endpoint sent anyway wins over the integration's.
 - **`Profiles.user_storage_for/1`** adds `buckets` (every one of the user's buckets, main first) beside `bucket`; `mode` is
   `:only` when one of them is the primary. **`Profiles.create_user_profile/3`** takes a bucket or a list.
+- **The admin menu offers Approvals only while the site uses them** (`AdminTabs.approvals_visible?/1`,
+  `Approvals.in_use?/0`): a key that is not revoked or expired (a revocation or expiry still in the future does not count as
+  one) is marked "requires approval", or an approval of any status is still kept. A site where no key asks for approval no
+  longer shows an empty entry; `/admin/approvals` itself and the link on Settings -> API answer as before.
 
 ### Added
 
@@ -82,6 +86,13 @@
   (`TileSource`), and cuts every tile from it.
 - **`POST /api/upload` takes HEIC, HEIF, AVIF, TIFF and BMP** (it turned them away as "not allowed"), and its size cap follows the
   `storage_max_upload_size_mb` setting (default 500) instead of a fixed 100 MB.
+- **`<.time_ago>` reads in the user's language.** Its `TimeAgo` client hook rewrote the text in English once the page was
+  live; the component now has no hook and is rendered by the server alone, with `ngettext` plural forms ("1 день назад",
+  "2 дня назад", "5 дней назад"; "1 päev tagasi", "3 päeva tagasi"). The tooltip is the moment in the site time zone as
+  `YYYY-MM-DD HH:MM` instead of an English date in UTC. A moment ahead of the clock reads "0s ago". The text no longer
+  ticks in the browser; it is what it was at the last render. The hook stays in `phoenix_kit.js` for host markup that uses
+  `phx-hook="TimeAgo"` directly. i18n: `"%{count}s ago"` is a plural entry in every catalogue; the day forms in et, ru, uk
+  and pl are full words with their plural forms.
 
 ## 2.63.0 - 2026-10-17
 

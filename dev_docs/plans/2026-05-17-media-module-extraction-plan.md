@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extract the image gallery/preview functionality into the PhoenixKit Core Media module as reusable components, then wire Andi to consume them and delete its duplicated code.
+**Goal:** Extract the image gallery/preview functionality into the PhoenixKit Core Media module as reusable components, then wire the host application to consume them and delete its duplicated code.
 
-**Architecture:** Part A works in `/www/phoenix_kit` — extract a standalone `MediaViewer` lightbox LiveComponent from `MediaGallery`, then commit. Part B works in `/www/app` (Andi) — replace the bespoke gallery in `TemplatePickerComponent` with `<MediaGallery>` and delete the moved code. Andi depends on phoenix_kit via `path: "../phoenix_kit"` (verified `mix.exs:66`), so Part A changes are available to Andi immediately — no hex publish needed.
+**Architecture:** Part A works in `/www/phoenix_kit` — extract a standalone `MediaViewer` lightbox LiveComponent from `MediaGallery`, then commit. Part B works in `<host-app>/` (the host application checkout) — replace the bespoke gallery in `TemplatePickerComponent` with `<MediaGallery>` and delete the moved code. The host app depends on phoenix_kit via `path: "../phoenix_kit"` (verified `mix.exs:66`), so Part A changes are available to the host app immediately — no hex publish needed.
 
 **Tech Stack:** Elixir, Phoenix LiveView (LiveComponents), daisyUI 5, `ExUnit` + `Phoenix.LiveViewTest`.
 
@@ -22,9 +22,9 @@
 - Modify: `lib/phoenix_kit_web/components/media_gallery.html.heex` — replace inline lightbox markup
 - Modify: `CHANGELOG.md`, `mix.exs` — version bump + entry
 
-**Part B — `/www/app` (Andi):**
-- Modify: `lib/andi_web/documents/template_picker_component.ex` — embed `<MediaGallery>`, delete bespoke gallery
-- Modify: `lib/andi_web/live/admin/orders/edit.ex` — delete picker-event forwarding plumbing
+**Part B — `<host-app>/` (the host application checkout):**
+- Modify: `lib/my_app_web/documents/template_picker_component.ex` — embed `<MediaGallery>`, delete bespoke gallery
+- Modify: `lib/my_app_web/live/admin/orders/edit.ex` — delete picker-event forwarding plumbing
 
 ---
 
@@ -458,19 +458,19 @@ they are scratch notes, not part of the repo.)
 
 ---
 
-## PART B — Andi integration (`/www/app`)
+## PART B — Host application integration (`<host-app>/`)
 
-> Prerequisite: Part A complete on disk. Andi uses `phoenix_kit` via
+> Prerequisite: Part A complete on disk. The host app uses `phoenix_kit` via
 > `path: "../phoenix_kit"`, so the new components are immediately available.
 
 ### Task 4: Embed `<MediaGallery>` in `TemplatePickerComponent` image slots
 
 Replace the bespoke per-slot gallery in `render_image_slots/1`
-(`lib/andi_web/documents/template_picker_component.ex:457-534`) with one
+(`lib/my_app_web/documents/template_picker_component.ex:457-534`) with one
 `<MediaGallery>` per image slot.
 
 **Files:**
-- Modify: `lib/andi_web/documents/template_picker_component.ex`
+- Modify: `lib/my_app_web/documents/template_picker_component.ex`
 
 - [ ] **Step 1: Read the current component**
 
@@ -502,19 +502,19 @@ embedded `MediaSelectorModal`, and the inline lightbox markup (426-449).
 
 - [ ] **Step 3: Verify it compiles**
 
-Run: `cd /www/app && mix compile --warnings-as-errors`
+Run: `cd <host-app> && mix compile --warnings-as-errors`
 Expected: success (handlers from Task 5 not yet removed — may warn about unused;
 acceptable until Task 5).
 
-(No commit yet — Tasks 4–6 land as one Andi commit in Task 7.)
+(No commit yet — Tasks 4–6 land as one host-app commit in Task 7.)
 
 ---
 
-### Task 5: Delete the moved Andi code
+### Task 5: Delete the moved host-app code
 
 **Files:**
-- Modify: `lib/andi_web/documents/template_picker_component.ex`
-- Modify: `lib/andi_web/live/admin/orders/edit.ex`
+- Modify: `lib/my_app_web/documents/template_picker_component.ex`
+- Modify: `lib/my_app_web/live/admin/orders/edit.ex`
 
 - [ ] **Step 1: Remove dead handlers in `template_picker_component.ex`**
 
@@ -535,7 +535,7 @@ Delete the `{:media_selected, uuids}`, `{:media_selector_closed}`, and
 
 - [ ] **Step 3: Verify it compiles clean**
 
-Run: `cd /www/app && mix compile --warnings-as-errors`
+Run: `cd <host-app> && mix compile --warnings-as-errors`
 Expected: success, no unused-function warnings.
 
 ---
@@ -548,8 +548,8 @@ host LiveView process. The Documents-tab draft autosave/restore behavior
 (`order.document_draft`, commits `b1250e9`/`ed900fd`/`6c0aae5`) must keep working.
 
 **Files:**
-- Modify: `lib/andi_web/live/admin/orders/edit.ex`
-- Modify: `lib/andi_web/documents/template_picker_component.ex`
+- Modify: `lib/my_app_web/live/admin/orders/edit.ex`
+- Modify: `lib/my_app_web/documents/template_picker_component.ex`
 
 - [ ] **Step 1: Handle `:changed` in the host LiveView**
 
@@ -558,7 +558,7 @@ In `orders/edit.ex`, add:
 ```elixir
 def handle_info({PhoenixKitWeb.Components.MediaGallery, gallery_id, {:changed, uuids}}, socket) do
   {t_uuid, slot_name} = parse_gallery_id(gallery_id)
-  send_update(AndiWeb.Documents.TemplatePickerComponent,
+  send_update(MyAppWeb.Documents.TemplatePickerComponent,
     id: "template-picker-#{socket.assigns.order.uuid}",
     __image_slot_changed__: {t_uuid, slot_name, uuids}
   )
@@ -574,27 +574,27 @@ Add `parse_gallery_id/1` to recover `{template_uuid, slot_name}` from the
 Add an `update/2` clause for `__image_slot_changed__: {t_uuid, slot, uuids}` that
 writes `uuids` into `image_values` at `[t_uuid][slot]` and then runs the SAME draft
 autosave path the old `remove_image`/`reorder` handlers used (reuse the existing
-`save_document_draft`/`Andi.Orders.save_document_draft/2` call). Restore-on-init
+`save_document_draft`/`MyApp.Orders.save_document_draft/2` call). Restore-on-init
 already seeds `image_values` from `order.document_draft` — leave it.
 
 - [ ] **Step 3: Verify it compiles**
 
-Run: `cd /www/app && mix compile --warnings-as-errors`
+Run: `cd <host-app> && mix compile --warnings-as-errors`
 Expected: success.
 
-- [ ] **Step 4: Run Andi's documents tests**
+- [ ] **Step 4: Run the host app's documents tests**
 
-Run: `cd /www/app && mix test test/andi_web/documents/ test/andi/orders/`
+Run: `cd <host-app> && mix test test/my_app_web/documents/ test/my_app/orders/`
 Expected: PASS. Fix any test that referenced the deleted handlers — update it to
 drive the new `__image_slot_changed__` path.
 
 ---
 
-### Task 7: Verify in the live app + commit Andi
+### Task 7: Verify in the live app + commit the host app
 
 - [ ] **Step 1: Live verification (elixir-debugger)**
 
-Use the `elixir-debugger` agent against the running Andi app. Open an order →
+Use the `elixir-debugger` agent against the running host app. Open an order →
 Documents tab → select a template. Confirm per-slot: gallery appears, "Choose
 images" opens the scoped `MediaSelectorModal`, picking adds thumbnails, drag
 reorders, "×" removes, the eye opens the `MediaViewer` lightbox with prev/next +
@@ -603,14 +603,14 @@ selections.
 
 - [ ] **Step 2: Format + quality**
 
-Run: `cd /www/app && mix format && mix credo --strict`
+Run: `cd <host-app> && mix format && mix credo --strict`
 Expected: no issues.
 
-- [ ] **Step 3: Commit Andi**
+- [ ] **Step 3: Commit the host app**
 
 ```bash
-cd /www/app
-git add lib/andi_web/documents/template_picker_component.ex lib/andi_web/live/admin/orders/edit.ex
+cd <host-app>
+git add lib/my_app_web/documents/template_picker_component.ex lib/my_app_web/live/admin/orders/edit.ex
 git commit -m "Use PhoenixKit MediaGallery for documents-tab image slots"
 ```
 
@@ -619,7 +619,7 @@ git commit -m "Use PhoenixKit MediaGallery for documents-tab image slots"
 ## Notes
 
 - The `SortableGrid` payload inconsistency (`ordered_ids` vs `ids`) resolves
-  automatically: Andi's bespoke `reorder_images:*` handler is deleted in Task 5;
+  automatically: the host app's bespoke `reorder_images:*` handler is deleted in Task 5;
   reordering now flows through `MediaGallery`'s `"ids"` handler.
 - `GenerateFormComponent` and the legacy `ImagePicker` are explicitly out of scope
   and left untouched (confirmed with the user).

@@ -66,13 +66,13 @@ code state — scenarios light up automatically as the P2/P3 artifacts land.
 ## Database environment
 
 **Reality (probed 2026-07-14, §8.1 / audit):** the only reachable server is
-PostgreSQL 17.4 at **172.18.0.13:5432** (direct), role
-`tim_dev_manager_andi_user` with **no CREATEDB** — the harness cannot create
+PostgreSQL 17.4 at **`<db-host>:5432`** (direct), role: the
+host app's own DB user, with **no CREATEDB** — the harness cannot create
 databases and no scratch DB exists yet. Client tooling is ready
 (psql/pg_dump 17.10). Nothing DB-backed runs until the operator provides one
 of (ranked, §8.1):
 
-- **(a) CREATEDB** on 172.18.0.13 — best; unlocks everything including
+- **(a) CREATEDB** on `<db-host>` — best; unlocks everything including
   `mix test.setup` and true clean-DB Mode A per scenario.
 - **(b) Pre-created owned DBs** — `pk_squash_a`, `pk_squash_b`,
   `phoenix_kit_test` (minimum viable: just `phoenix_kit_test`). Ownership
@@ -95,13 +95,13 @@ of (ranked, §8.1):
 
 **Connection rules:**
 
-- Always the **direct** endpoint `172.18.0.13:5432`. **NEVER PgBouncer**
-  (`pgbouncer:6432`): transaction pooling breaks pg_dump session state and
+- Always the **direct** endpoint `<db-host>:5432`. **NEVER PgBouncer**
+  (`<pooler-host>:6432`): transaction pooling breaks pg_dump session state and
   this project's PgBouncer silently drops transactional DDL. The only
   PgBouncer contact the spec allows is S12's *dry-run detection* cell.
 - `~/.pgpass`-style credentials live in
   `/www/phoenix_kit/.git/squash_verify.pgpass` (host field points at
-  172.18.0.13) — usable for manual `psql`/`pg_dump` probes. **Postgrex never
+  `<db-host>`) — usable for manual `psql`/`pg_dump` probes. **Postgrex never
   reads `.pgpass`**: the scripts require `PGPASSWORD` exported explicitly
   and fail eagerly with a clear message when it is missing.
 
@@ -109,7 +109,7 @@ of (ranked, §8.1):
 
 | Variable | Used by | Required | Meaning |
 |---|---|---|---|
-| `PGHOST` | all `[DB]` paths | for DB runs | Direct Postgres host (e.g. `172.18.0.13`) |
+| `PGHOST` | all `[DB]` paths | for DB runs | Direct Postgres host (e.g. `<db-host>`) |
 | `PGPORT` | all `[DB]` paths | no (5432) | Direct port — never 6432/PgBouncer |
 | `PGUSER` | all `[DB]` paths | for DB runs | Role owning the scratch DB |
 | `PGPASSWORD` | all `[DB]` paths | for DB runs | Postgrex does not read `.pgpass`; export explicitly |
@@ -136,7 +136,7 @@ DB (including a shared one) — but still never point it at a live database:
 yet the objects under test are real DDL.
 
 ```bash
-PGHOST=172.18.0.13 PGPORT=5432 PGUSER=... PGPASSWORD=... PGDATABASE=pk_squash_a \
+PGHOST=<db-host> PGPORT=5432 PGUSER=... PGPASSWORD=... PGDATABASE=pk_squash_a \
 PK_SQUASH_FLOOR=121 \
 MIX_ENV=test mix run dev_docs/squash/verify.exs --mode b --scenario s1_self,s2_self
 ```
@@ -149,7 +149,7 @@ dump → compare (the normalizer makes the schema name irrelevant). Reset is
 the §8.1(b) recipe above — destructive, therefore double-gated:
 
 ```bash
-PGHOST=172.18.0.13 PGPORT=5432 PGUSER=... PGPASSWORD=... PGDATABASE=pk_squash_a \
+PGHOST=<db-host> PGPORT=5432 PGUSER=... PGPASSWORD=... PGDATABASE=pk_squash_a \
 PK_SQUASH_ALLOW_RESET=pk_squash_a \
 MIX_ENV=test mix run dev_docs/squash/verify.exs --mode a --scenario s11_pre
 ```

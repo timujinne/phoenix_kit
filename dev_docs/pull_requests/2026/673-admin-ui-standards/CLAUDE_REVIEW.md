@@ -216,7 +216,7 @@ Things that looked wrong on first read and are not:
 ## Nitpicks
 
 - `dev_docs`-worthy comments referencing an **external commit message** and a
-  person by name ("see RowLink's commit message — Andi's own `row_link/1` import
+  person by name ("see RowLink's commit message — the host app's own `row_link/1` import
   would become ambiguous"), copy-pasted into six LiveViews. Neither is
   discoverable from the repo. **Fixed:** the rationale now lives in the RowLink
   moduledoc under an `## Import` heading, and the six comments state it directly.

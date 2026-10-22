@@ -5983,10 +5983,95 @@ if (typeof window.Chart === "undefined") {
     // The mode flip replaces the canvas (its id changes, so LiveView mounts
     // a fresh one) but patches this element in place — so the rail the eye
     // was on is gone and the new one has no eye until this runs.
+    // The burned picture and the live layer are the same drawing on two
+    // canvases of different extents: the burn spans the picture AND every
+    // bit of ink past its edges, the live canvas just the picture, with the
+    // ink drawn around it. Each opened on its own fit, so switching the
+    // pencil on or off moved the picture — left, right, left — whenever
+    // anything was drawn beside it. Instead the switch carries the view:
+    // where the picture-plus-ink frame sat on screen before the patch is
+    // where it sits after, zoom and all.
+    beforeUpdate() {
+      this._viewCarry = this._captureFrame();
+    },
+
     updated() {
       this._addModeButton();
       this._allowCopy();
       if (this.el.dataset.autoAnnotate === "true") this._armEtcher();
+      var carry = this._viewCarry;
+      this._viewCarry = null;
+      if (carry && carry.from !== this.el.dataset.frescoId) this._applyFrame(carry);
+    },
+
+    // The frame in a canvas's own units: a burn's whole extent; on the live
+    // layer the picture plus the ink, measured the way the burn measures
+    // it (`burnInkBounds`), so the two describe the same piece of drawing.
+    // Null for the clean picture, and for a turned view.
+    _frameOf(id) {
+      var handle = window.Fresco && window.Fresco.viewerFor && window.Fresco.viewerFor(id);
+      var host = document.getElementById(id);
+      if (!handle || !host || !handle.fitBounds || !handle.imageToScreen || !handle.screenToImage) return null;
+      if (handle.getRotation && handle.getRotation()) return null;
+      var W = parseFloat(host.dataset.canvasWidth), H = parseFloat(host.dataset.canvasHeight);
+      if (!(W > 0 && H > 0)) return null;
+      if (id.indexOf("media-burn-") === 0) return { handle: handle, x: 0, y: 0, w: W, h: H };
+      if (id.indexOf("media-zoom-") !== 0) return null;
+      var svg = host.querySelector(".etcher-overlay svg");
+      var b = svg
+        ? burnInkBounds(svg.querySelectorAll(".etcher-shape, .etcher-shape *"),
+            function(x, y) { return handle.screenToImage({ x: x, y: y }); }, W, H)
+        : { minX: 0, minY: 0, maxX: W, maxY: H };
+      return { handle: handle, x: b.minX, y: b.minY, w: b.maxX - b.minX, h: b.maxY - b.minY };
+    },
+
+    _captureFrame() {
+      var id = this.el.dataset.frescoId;
+      var f = id && this._frameOf(id);
+      if (!f) return null;
+      var a = f.handle.imageToScreen({ x: f.x, y: f.y });
+      var b = f.handle.imageToScreen({ x: f.x + f.w, y: f.y + f.h });
+      return { from: id, x: a.x, y: a.y, w: b.x - a.x, h: b.y - a.y };
+    },
+
+    // Put the new canvas's frame where the old one's was. Its own fit is
+    // kept off screen until then — the live layer's frame is only known
+    // once Etcher has drawn its shapes — and given up on after a moment.
+    _applyFrame(carry, tries) {
+      var self = this;
+      var id = this.el.dataset.frescoId;
+      var host = document.getElementById(id);
+      var left = tries == null ? 30 : tries;
+      if (!host) return;
+      if (left === 30) host.style.visibility = "hidden";
+      var reveal = function() { host.style.visibility = ""; };
+      var live = id.indexOf("media-zoom-") === 0;
+      var ready = window.Fresco && window.Fresco.viewerFor && window.Fresco.viewerFor(id) &&
+        (!live || (window.Etcher && window.Etcher.layerFor && window.Etcher.layerFor(id) &&
+                   host.querySelector(".etcher-overlay svg")));
+      if (!ready) {
+        if (left > 0) setTimeout(function() { self._applyFrame(carry, left - 1); }, 30);
+        else reveal();
+        return;
+      }
+      requestAnimationFrame(function() {
+        if (self.el.dataset.frescoId !== id) { reveal(); return; }
+        var f = self._frameOf(id);
+        if (f && f.w > 0 && f.h > 0 && carry.w > 0 && carry.h > 0) {
+          // The view as a rectangle of this canvas: the viewport, seen from
+          // the old frame, carried into the new one. Fitting it puts the
+          // frame exactly where it was.
+          var c = host.getBoundingClientRect();
+          var kx = f.w / carry.w, ky = f.h / carry.h;
+          f.handle.fitBounds({
+            x: f.x + (c.left - carry.x) * kx,
+            y: f.y + (c.top - carry.y) * ky,
+            width: c.width * kx,
+            height: c.height * ky
+          });
+        }
+        requestAnimationFrame(reveal);
+      });
     },
 
     // Right-click → Copy image, on the burned picture — and on the clean
@@ -6419,6 +6504,12 @@ if (typeof window.Chart === "undefined") {
   //
   // Usage in LiveView template:
   //   <span phx-hook="TimeAgo" data-datetime={DateTime.to_iso8601(timestamp)}></span>
+  //
+  // Core's `time_ago` component no longer uses this hook: the hook writes its
+  // text in English only, so on a translated page it replaced the server's
+  // translated text once the page went live. The component is now rendered by
+  // the server alone, in the user's language. The hook stays for hosts that
+  // put `phx-hook="TimeAgo"` on their own markup.
   //
   // ---------------------------------------------------------------------------
 
@@ -8925,6 +9016,10 @@ if (typeof window.Chart === "undefined") {
         var dir = e.detail && e.detail.direction === "left" ? "next" : "prev";
         if (self.el.dataset[dir === "next" ? "hasNext" : "hasPrev"] !== "true") return;
         if (self._pane.querySelector(".etcher-pencil-active")) return;
+        // Only an initialized gallery in this viewer owns the swipe. Its
+        // library may still be loading, or another browser may have a gallery.
+        var modal = self._pane.closest('[phx-hook="ViewerKeydown"]');
+        if (modal && modal._pkGallery) return;
         self.pushEventTo(self.el.dataset.target, "step_viewer", { dir: dir });
       };
       if (this._pane) this._pane.addEventListener("fresco:swipe", this._onSwipe);
@@ -8934,6 +9029,387 @@ if (typeof window.Chart === "undefined") {
       if (this._pane) this._pane.removeEventListener("fresco:swipe", this._onSwipe);
     }
   };
+
+  // ============================================================================
+  // ViewerGallery — the Apple Photos way of stepping through pictures
+  // ============================================================================
+  //
+  // Gallery mode (MediaBrowser `gallery_mode`). A drag, a swipe or a sideways
+  // trackpad scroll on a picture at its opening zoom slides the next picture
+  // in beside it, already decoded — Fresco.gallery draws the strip over the
+  // viewer. Nothing waits on the server: once the strip settles the hook
+  // names the new file (`gallery_go`), the viewer patches to it underneath,
+  // and the strip hands over as soon as that viewer's picture has painted.
+  // The arrow keys and the side tabs slide the same way.
+  //
+  // Not while annotating (a drag is a stroke there) and not zoomed in (a drag
+  // is a pan): the viewer keeps those gestures, exactly as before.
+  // ----------------------------------------------------------------------------
+
+  var GALLERY_SETTLE_MS = 250;    // the strip still this long before telling the server
+  var GALLERY_HOLD_MAX_MS = 8000; // the viewer never painted: stop covering it
+  var GALLERY_SHARP_MAX_MS = 2500; // painted but still blurry: hand over anyway
+  var GALLERY_RESEND_MS = 2000;   // no sign of the server following: ask again
+
+  // In gallery mode the viewer is for looking at pictures, so the dot grid
+  // stays away until the pencil is on — then the person's own grid setting
+  // (Etcher's, which toggles `fresco--no-grid`) decides, as everywhere else.
+  // Pure CSS on what is in the modal, so no state to keep in step.
+  var GALLERY_SCOPE = '[phx-hook="ViewerKeydown"]:has(> [phx-hook="ViewerGallery"]):not(:has(.etcher-pencil-active)) ';
+  // A tap on the picture hides the viewer's controls and the next brings
+  // them back, as in Photos. The flag lives on <html>, which LiveView never
+  // patches; annotating always shows them (the scope above excludes it).
+  var GALLERY_CHROME = ['button[phx-click="close_viewer"]', 'button[phx-click="toggle_viewer_sidebar"]',
+    "[phx-value-dir]", ".fresco-nav", ".fresco-zoom"];
+  var GALLERY_GRID_CSS =
+    GALLERY_SCOPE + ".fresco-viewer { background-image: none !important; }\n" +
+    GALLERY_CHROME.map(function(sel) { return GALLERY_SCOPE + sel; }).join(",\n") +
+    " { transition: opacity 120ms ease-out; }\n" +
+    GALLERY_CHROME.map(function(sel) { return 'html[data-pk-gallery-chrome="hidden"] ' + GALLERY_SCOPE + sel; }).join(",\n") +
+    " { opacity: 0 !important; visibility: hidden !important; pointer-events: none !important; }\n" +
+    // Under a frozen copy (ViewerGallery `_freezeChrome`) the real controls
+    // are rebuilding; they stay out of sight until the copy goes.
+    'html[data-pk-chrome-frozen] ' + GALLERY_SCOPE + '.fresco-viewer .fresco-nav, ' +
+    'html[data-pk-chrome-frozen] ' + GALLERY_SCOPE + '.fresco-viewer .fresco-zoom { visibility: hidden !important; }';
+  var GALLERY_TAP_SLOP = 10;      // px a tap may wander
+  var GALLERY_TAP_MS = 350;       // longer is a press, not a tap
+  var GALLERY_DOUBLE_TAP_MS = 300; // a second tap this soon is a double-tap (zoom)
+
+  // In now, not at mount: the rules key on markup the server already sent,
+  // and a viewer opened from a link otherwise showed the dot grid for the
+  // second or more before the socket connected and the hook mounted.
+  function ensureGalleryCss() {
+    if (document.getElementById("pk-gallery-css")) return;
+    var css = document.createElement("style");
+    css.id = "pk-gallery-css";
+    css.textContent = GALLERY_GRID_CSS;
+    (document.head || document.documentElement).appendChild(css);
+  }
+  ensureGalleryCss();
+
+  var viewerGalleryHook = {
+    mounted() {
+      var self = this;
+      ensureGalleryCss();
+      if (!window.Fresco || !window.Fresco.gallery) return;
+      self._modal = self.el.parentElement;
+      // The strip goes in the ignored layer beside this element: a child the
+      // template does not render would be dropped by the next patch.
+      var layer = document.getElementById(self.el.id + "-layer") || self._modal;
+
+      function canvasEl() {
+        return self._modal && self._modal.querySelector('[phx-hook="FrescoCanvas"]');
+      }
+      function handle() {
+        var c = canvasEl();
+        return c && window.Fresco.viewerFor(c.id);
+      }
+      function canvasImg(c) {
+        return c && c.querySelector("img[data-fresco-canvas-img]");
+      }
+      // The pane colour behind the picture, so the strip's gaps match it.
+      function background() {
+        var n = canvasEl();
+        while (n && n !== document.body) {
+          var bg = window.getComputedStyle(n).backgroundColor;
+          if (bg && bg !== "transparent" && !/rgba\(.*,\s*0\)$/.test(bg)) return bg;
+          n = n.parentElement;
+        }
+        return "#000";
+      }
+      // Where the viewer has its picture on screen, unturned.
+      function currentRect() {
+        var img = canvasImg(canvasEl());
+        var h = handle();
+        if (!img) return null;
+        var r = img.getBoundingClientRect();
+        var rot = h && h.getRotation ? ((((h.getRotation() || 0) % 360) + 360) % 360) : 0;
+        var quarter = rot === 90 || rot === 270;
+        return {
+          cx: r.left + r.width / 2, cy: r.top + r.height / 2,
+          w: quarter ? r.height : r.width, h: quarter ? r.width : r.height,
+          rotation: rot
+        };
+      }
+
+      self._gallery = window.Fresco.gallery({
+        container: layer,
+        getRect: function() { var c = canvasEl(); return c ? c.getBoundingClientRect() : null; },
+        getTarget: canvasEl,
+        background: background,
+        canStart: function() {
+          if (self._modal.querySelector(".etcher-pencil-active, .etcher-actionbar.is-active")) return false;
+          var h = handle();
+          return !h || !h.isAtHome || h.isAtHome();
+        },
+        getCurrentRect: currentRect,
+        // The strip is drawn over the whole viewer, controls and all; still
+        // copies of the controls ride above it (see `_freezeChrome`).
+        onShow: function() { self._freezeChrome(); },
+        onHide: function() { self._thawChrome(); },
+        onChange: function(_i, item) {
+          // Only once the strip has been still a moment: the viewer's
+          // re-render (Fresco, Etcher, Tessera mounting) is heavy main-thread
+          // work, and landing in the middle of the next swipe it stuttered.
+          // The strip keeps showing the picture meanwhile, so nothing waits.
+          clearTimeout(self._goTimer);
+          var go = function() {
+            var g = self._gallery;
+            if (!g || !item || !item.key || g.currentKey() !== item.key) return;
+            if (g.isBusy()) { self._goTimer = setTimeout(go, GALLERY_SETTLE_MS); return; }
+            self.pushEventTo(self.el, "gallery_go", { uuid: item.key });
+          };
+          self._goTimer = setTimeout(go, GALLERY_SETTLE_MS);
+          self._watchFor(item);
+        }
+      });
+      self._modal._pkGallery = self._gallery;
+
+      // Hand over once the viewer shows `key` as sharply as the strip does:
+      // its canvas (the file uuid is in its id) mounted, and a picture loaded
+      // with the pixels its size on screen needs. The viewer opens on the
+      // small copy and climbs; handing over to that small copy read as the
+      // picture snapping blurry the moment the slide finished.
+      self._watchFor = function(item) {
+        clearInterval(self._watch);
+        var key = item && item.key;
+        if (!key) return;
+        var started = Date.now(), seen = 0, resent = started;
+        self._watch = setInterval(function() {
+          var g = self._gallery;
+          if (!g || !g.isShown() || g.currentKey() !== key) { clearInterval(self._watch); return; }
+          var t = Date.now();
+          // Mid-gesture nothing is handed over or re-sent; the clock waits.
+          if (g.isBusy()) { started = resent = t; seen = seen && t; return; }
+          // Videos, PDFs and file cards have no Fresco canvas to wait for.
+          // Once LiveView follows, expose their actual player or preview.
+          if (item.kind !== "image" && self.el.dataset.current === key) {
+            clearInterval(self._watch);
+            g.hide();
+            return;
+          }
+          var c = canvasEl();
+          if (!c || c.id.indexOf(key) === -1) {
+            // The server has not followed (a dropped event): ask again.
+            if (t - resent > GALLERY_RESEND_MS) {
+              resent = t;
+              self.pushEventTo(self.el, "gallery_go", { uuid: key });
+            }
+            if (t - started > GALLERY_HOLD_MAX_MS) { clearInterval(self._watch); g.hide(); }
+            return;
+          }
+          if (!seen) seen = t;
+          var sharpest = 0;
+          c.querySelectorAll("img[data-fresco-canvas-img]").forEach(function(im) {
+            if (im.complete && im.naturalWidth > sharpest) sharpest = im.naturalWidth;
+          });
+          if (!sharpest) {
+            if (t - seen > GALLERY_HOLD_MAX_MS) { clearInterval(self._watch); g.hide(); }
+            return;
+          }
+          var r = currentRect();
+          var need = r ? r.w * (window.devicePixelRatio || 1) : 0;
+          if (item.width) need = Math.min(need, item.width);
+          if (sharpest < need * 0.7 && t - seen < GALLERY_SHARP_MAX_MS) return;
+          clearInterval(self._watch);
+          // A frame for the viewer to lay it out, then glide onto it.
+          requestAnimationFrame(function() {
+            if (self._gallery !== g || !g.isShown() || g.currentKey() !== key) return;
+            if (!g.release(key, currentRect())) self._watchFor(item);
+          });
+        }, 50);
+      };
+
+      self._load = function() {
+        var data;
+        try { data = JSON.parse(self.el.dataset.gallery || "{}"); } catch (_e) { data = {}; }
+        self._gallery.setItems(data.items || [], data.index || 0);
+      };
+      self._load();
+
+      // Arrow keys and the side tabs: the same slide. Captured on window so
+      // the viewer's own step (ViewerKeydown, the tab's phx-click) does not
+      // also run; when the strip cannot slide they pass through untouched.
+      self._onKey = function(e) {
+        if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        if (e.metaKey || e.ctrlKey || e.altKey) return;
+        var t = document.activeElement;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable === true)) return;
+        if (!self._gallery.isShown() && !self.galleryAllowed()) return;
+        if (self._gallery.step(e.key === "ArrowLeft" ? -1 : 1)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      };
+      self._onTab = function(e) {
+        var btn = e.target && e.target.closest && e.target.closest('[phx-click="step_viewer"]');
+        if (!btn || !self._modal.contains(btn)) return;
+        if (!self._gallery.isShown() && !self.galleryAllowed()) return;
+        var dir = btn.getAttribute("phx-value-dir") === "prev" ? -1 : 1;
+        if (self._gallery.step(dir)) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+        }
+      };
+      // Tap to hide / show the controls, at once either way so the tap
+      // feels answered. A double-tap's second tap does not toggle back —
+      // it just zooms, leaving the controls as the first tap set them.
+      self._onTapDown = function(e) {
+        var c = canvasEl();
+        self._tap = null;
+        if (!e.isPrimary || (e.pointerType === "mouse" && e.button !== 0)) return;
+        if (!c || !c.contains(e.target) || !self.galleryAllowed()) return;
+        if (e.target.closest && e.target.closest("button, a, input, .fresco-nav, .fresco-zoom")) return;
+        self._tap = { x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId };
+      };
+      self._onTapUp = function(e) {
+        var tp = self._tap;
+        self._tap = null;
+        if (!tp || e.pointerId !== tp.id) return;
+        if (Math.abs(e.clientX - tp.x) > GALLERY_TAP_SLOP || Math.abs(e.clientY - tp.y) > GALLERY_TAP_SLOP) return;
+        if (Date.now() - tp.t > GALLERY_TAP_MS) return;
+        if (self._tapTimer) { clearTimeout(self._tapTimer); self._tapTimer = null; return; } // the double-tap's second
+        var root = document.documentElement;
+        if (root.getAttribute("data-pk-gallery-chrome") === "hidden") root.removeAttribute("data-pk-gallery-chrome");
+        else { root.setAttribute("data-pk-gallery-chrome", "hidden"); self._dropFrozenChrome(); }
+        self._tapTimer = setTimeout(function() { self._tapTimer = null; }, GALLERY_DOUBLE_TAP_MS);
+      };
+      document.addEventListener("pointerdown", self._onTapDown, true);
+      document.addEventListener("pointerup", self._onTapUp, true);
+
+      self.galleryAllowed = function() {
+        return !self._modal.querySelector(".etcher-pencil-active, .etcher-actionbar.is-active");
+      };
+      window.addEventListener("keydown", self._onKey, true);
+      window.addEventListener("click", self._onTab, true);
+    },
+
+    updated() {
+      if (this._load) this._load();
+    },
+
+    // The controls stay put while the picture under them changes, as in
+    // Photos. The strip is drawn above the whole viewer while it runs —
+    // over the toolbar, the zoom pill, the side tabs — and the next file's
+    // canvas then builds a new toolbar of its own (briefly a different one:
+    // the whole row before its overflow folds, the zoom pill empty). Both
+    // read as the controls vanishing for a second and coming back. So from
+    // the moment the strip shows, still copies of the controls sit above
+    // it, exactly where the real ones are; they go once the strip has gone
+    // and the new canvas's controls have settled underneath. A press goes
+    // through them (and through the strip) to the real controls.
+    _freezeChrome() {
+      if (this._frozen) { this._frozen.thawing = false; return; }
+      var modal = this._modal;
+      var layer = document.getElementById(this.el.id + "-layer");
+      if (!modal || !layer) return;
+      if (document.documentElement.getAttribute("data-pk-gallery-chrome") === "hidden") return;
+      var canvas = modal.querySelector('[phx-hook="FrescoCanvas"]');
+      var picks = [];
+      if (canvas) {
+        picks = picks.concat(Array.prototype.slice.call(
+          canvas.querySelectorAll(".fresco-nav:not(.fresco-nav-overflow), .fresco-zoom")));
+      }
+      picks = picks.concat(Array.prototype.slice.call(modal.querySelectorAll(
+        'button[phx-click="close_viewer"], button[phx-click="toggle_viewer_sidebar"], button[phx-value-dir]')));
+      var vars = canvas ? window.getComputedStyle(canvas) : null;
+      var copies = [];
+      picks.forEach(function(el) {
+        if (!el.offsetParent) return;
+        var r = el.getBoundingClientRect();
+        if (!(r.width > 0 && r.height > 0)) return;
+        var copy = el.cloneNode(true);
+        [copy].concat(Array.prototype.slice.call(copy.querySelectorAll("*"))).forEach(function(n) {
+          Array.prototype.slice.call(n.attributes).forEach(function(at) {
+            if (at.name === "id" || at.name.indexOf("phx-") === 0) n.removeAttribute(at.name);
+          });
+        });
+        if (vars && canvas.contains(el)) {
+          for (var k = 0; k < vars.length; k++) {
+            if (vars[k].indexOf("--") === 0) copy.style.setProperty(vars[k], vars.getPropertyValue(vars[k]));
+          }
+        }
+        var st = copy.style;
+        st.position = "fixed";
+        st.left = r.left + "px"; st.top = r.top + "px";
+        st.right = "auto"; st.bottom = "auto";
+        st.width = r.width + "px"; st.height = r.height + "px";
+        st.margin = "0"; st.transform = "none"; st.translate = "none";
+        st.maxWidth = "none"; st.maxHeight = "none";
+        st.zIndex = "1002";
+        st.pointerEvents = "none";
+        st.transition = "none";
+        st.opacity = window.getComputedStyle(el).opacity;
+        copy.setAttribute("aria-hidden", "true");
+        copy.setAttribute("inert", "");
+        copy.setAttribute("data-pk-frozen-chrome", "");
+        layer.appendChild(copy);
+        copies.push(copy);
+      });
+      if (!copies.length) return;
+      this._frozen = { els: copies, thawing: false };
+      document.documentElement.setAttribute("data-pk-chrome-frozen", "");
+    },
+
+    // The strip has gone: drop the copies once the canvas on screen is the
+    // picture the strip ended on and its controls have held still a few
+    // frames (or straight away when the swipe went back where it started).
+    _thawChrome() {
+      var self = this;
+      var st = this._frozen;
+      if (!st) return;
+      st.thawing = true;
+      var key = this._gallery && this._gallery.currentKey && this._gallery.currentKey();
+      var started = Date.now(), seenAt = 0, lastSig = "", steady = 0;
+      var tick = function() {
+        if (self._frozen !== st || !st.thawing) return;
+        var c = self._modal && self._modal.querySelector('[phx-hook="FrescoCanvas"]');
+        var hidden = document.documentElement.getAttribute("data-pk-gallery-chrome") === "hidden";
+        var done = hidden || !key || (!c && self.el.dataset.current === key) || Date.now() - started > 5000;
+        if (!done && c && c.id.indexOf(key) !== -1) {
+          var nav = c.querySelector(".fresco-nav:not(.fresco-nav-overflow)");
+          var zoom = c.querySelector(".fresco-zoom");
+          var sig = nav ? nav.querySelectorAll("button:not([hidden])").length + "|" +
+            (zoom ? zoom.textContent : "") + "|" + Math.round(nav.getBoundingClientRect().width) : "";
+          if (sig && (!zoom || zoom.textContent)) {
+            if (!seenAt) seenAt = Date.now();
+            steady = sig === lastSig ? steady + 1 : 0;
+            lastSig = sig;
+            done = steady >= 6 && Date.now() - seenAt > 150;
+          }
+        }
+        if (done) self._dropFrozenChrome();
+        else requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    },
+
+    _dropFrozenChrome() {
+      var st = this._frozen;
+      this._frozen = null;
+      document.documentElement.removeAttribute("data-pk-chrome-frozen");
+      if (st) st.els.forEach(function(el) { if (el.parentNode) el.parentNode.removeChild(el); });
+    },
+
+    destroyed() {
+      if (this._modal && this._modal._pkGallery === this._gallery) delete this._modal._pkGallery;
+      this._dropFrozenChrome();
+      clearTimeout(this._goTimer);
+      clearInterval(this._watch);
+      if (this._onKey) window.removeEventListener("keydown", this._onKey, true);
+      if (this._onTab) window.removeEventListener("click", this._onTab, true);
+      if (this._onTapDown) document.removeEventListener("pointerdown", this._onTapDown, true);
+      if (this._onTapUp) document.removeEventListener("pointerup", this._onTapUp, true);
+      clearTimeout(this._tapTimer);
+      // The next viewer opens with its controls.
+      document.documentElement.removeAttribute("data-pk-gallery-chrome");
+      if (this._gallery) this._gallery.destroy();
+      this._gallery = null;
+    }
+  };
+  window.PhoenixKitHooks.ViewerGallery = lazyHook(pkLoaders.fresco, function() {
+    return viewerGalleryHook;
+  });
 
   // ============================================================================
   // ViewerHiresLoading — "Loading full quality…" while a sharper picture arrives

@@ -4,7 +4,7 @@ defmodule PhoenixKit.Integration.Storage.FileReferenceSourcesTest do
   detection about its own tables.
 
   Without this hook, every file referenced only through a host-owned table
-  (Andi's `andi_orders.data->>'featured_image_uuid'`, and by extension every
+  (e.g. a host app's `orders.data->>'featured_image_uuid'`, and by extension every
   file sitting in an order/project folder) looks orphaned to
   `Storage.orphaned_files_query/0` — one cleanup run away from data loss.
   """

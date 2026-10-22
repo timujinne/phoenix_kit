@@ -36,7 +36,7 @@ query.
 | Repo | Search surfaces | Broken |
 |---|---|---|
 | core (`phoenix_kit`) | 12 | **5** — `users`, `sessions`, `live_sessions`, `jobs/index`, `media_selector` (page only) |
-| Andi (`/www/app`) | 2 | **2** — orders, sub-orders |
+| host app (`<host-app>/`) | 2 | **2** — orders, sub-orders |
 | `phoenix_kit_warehouse` | 7 | **7** |
 | `phoenix_kit_catalogue` | 4 | **3** |
 | `phoenix_kit_projects` | 3 | **3** (blocked — see Constraint) |
@@ -92,7 +92,7 @@ Consequences:
 - `use PhoenixKitWeb.Live.UrlState` marks an LV **router-only**. This is a
   documented part of the contract, not an accident.
 - `phoenix_kit_projects` deliberately removed `handle_params/3` from all 10 of
-  its LVs so Andi can embed them (`dev_docs/embedding_audit.md`, pinned by 43
+  its LVs so a host app can embed them (`dev_docs/embedding_audit.md`, pinned by 43
   `live_isolated/3` tests). Its 3 search surfaces are **out of scope** here.
   Giving them URL state needs a different mechanism — a JS `history.pushState`
   + `popstate` hook, which is what the module already does for tab state via
@@ -238,7 +238,7 @@ host `handle_params/3` ordering. `live_isolated/3` mounts without a router,
 which this module refuses by design, so exercising it needs a test router and
 endpoint that core's test support does not currently have. Building that is
 worth doing, but as its own piece of work rather than smuggled into this one.
-Until then the ordering is verified by hand against the running Andi app over
+Until then the ordering is verified by hand against the running host app over
 Tidewave, together with the converted screens.
 
 ## First package — three repos
@@ -254,7 +254,7 @@ Tidewave, together with the converted screens.
    other modules. What it does get is the missing sentence in its moduledoc:
    `url_sync: true` makes the host LiveView un-embeddable, for the reason set
    out under Constraint.
-2. **Andi** — orders and sub-orders (`handle_params` there exists but ignores
+2. **host app** — orders and sub-orders (`handle_params` there exists but ignores
    its params). Path dep, so available immediately.
 3. **`phoenix_kit_warehouse`** — 7 LVs, every one broken, all sharing the
    `ColumnManagement` macro, so one integration point covers them. Developed

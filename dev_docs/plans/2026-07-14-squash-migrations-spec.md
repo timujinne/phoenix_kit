@@ -59,7 +59,7 @@ automatic destructive repair, ever; repair is NOT a migration bridge (§6.4).
 | # | Decision | Choice |
 |---|---|---|
 | D1 | Floor rule | `floor = min(confirmed migrated_version across the COMPLETE surveyed set of supported installs)`; parameterized in tooling; fixed only at execution time from FRESH readings (DBs can regress via backup restores). Margin below the confirmed min is false safety — survey completeness is the binding input |
-| D2 | Floor candidate today | **160** — the committed-set minimum (operator confirmed 2026-08-04 that the local host app is the ONLY install under the seamless-upgrade commitment; its live DB reads V160). All design text stays `{floor}`-parameterized; external/public Hex consumers ride the permanent bridge (D9) at any floor |
+| D2 | Floor candidate today | **160** — the committed-set minimum (operator confirmed 2026-08-04 that the host app is the ONLY install under the seamless-upgrade commitment; its live DB reads V160). All design text stays `{floor}`-parameterized; external/public Hex consumers ride the permanent bridge (D9) at any floor |
 | D3 | Skip semantics | Unchanged Oban-style comment-gated skip |
 | D4 | Below-floor contract (existing installs) | `0 < migrated < floor` → hard `BelowFloorError` (bridge message; test-DB variant says `mix test.reset`) in `up/1`, `down/1`, and generator tooling |
 | D5 | Single source of truth | One tool-generated **ExpectedSchema manifest** spanning `V01..@current_version` (objects tagged `since:`, shape-`revisions:`, `presence:`, plus data-invariant assertions); baseline `V{floor}.up` applies its `since ≤ floor` slice; verify/repair consume the same manifest |
@@ -118,20 +118,20 @@ automatic destructive repair, ever; repair is NOT a migration bridge (§6.4).
    seed has no conflict guard; V35 seeds via upsert. Repair needs the manifest, not chain re-runs.
 3. **Feature modules have no own chains** — all module DDL (catalogue/locations/warehouse/crm/
    staff/…, incl. V149) lives in core versions; the baseline covers module tables too.
-4. **One local consumer** (`/www/app`, Andi, verified at '147', no drift; 41 wrapper files —
+4. **One local consumer** (the host app at `<host-app>/`, verified at '147', no drift; 41 wrapper files —
    §5.3's regression surface, including real consumer-authored migrations that ALTER phoenix_kit
    tables, e.g. `20260402133000_phoenix_kit_catalogue_v013_base_price.exs`). docker1 numbers are
    operator-confirmed only and stale.
 5. **No ecosystem precedent** (upstream: zero squash intent; Oban never squashed at ~2
    versions/year vs our ~16/month). Django (bridge-in-time, elidable data ops) and Rails
    squasher (baseline from real DB state) supply the transferable rules.
-6. **Verification env is read-only today**: direct PG 17.4 at 172.18.0.13:5432 OK (pgpass host
+6. **Verification env is read-only today**: direct PG 17.4 at `<db-host>:5432` OK (pgpass host
    field stale), psql/pg_dump 17.10, NO createdb, PgBouncer must never carry DDL.
 7. **The old chain's end-state is bimodal** (single-run installs vs incrementally-upgraded
    installs differ), because immediate-query guards see pre-flush state on single runs: fresh
    single-run chains RETAIN `users.preferred_locale` + index (V30's immediate guard misses V28's
    queued add — `v30.ex:91-105`) and BOTH V13+V22 duplicate partial unique indexes; upgraded
-   installs don't. Verified live: bimodality is real in the fleet (Andi's initial install was a
+   installs don't. Verified live: bimodality is real in the fleet (the host app's initial install was a
    single multi-step run). Consequence: "byte-for-byte" needs the §5.1 `presence:` model and the
    S1 whitelist.
 
@@ -149,7 +149,7 @@ stragglers at ANY floor). Confirmation must be a **fresh reading at implementati
 
 | install | version | as of | status |
 |---|---|---|---|
-| Andi/MebelKit (local host app) | 160 | 2026-08-04 | verified live (obj_description) |
+| the host app | 160 | 2026-08-04 | verified live (obj_description) |
 
 Operator confirmed (2026-08-04): this one-row table IS the complete seamless-upgrade set — the
 external DEV/prod installs listed in the June task file are no longer in scope and their names
@@ -422,7 +422,7 @@ presence either way, unknown extra `phoenix_kit_*` objects, pending versions →
 Immediate `repo.query!/3` per statement, autocommit, no queued `execute`, no regclass casts.
 PgBouncer: detect pooled connections (doctor heuristic + `pg_backend_pid()` sampling), warn,
 require `--unsafe-pooled` (skips FK `VALIDATE` + advisory locking). Direct connection
-recommended/documented (Andi runtime rides `pgbouncer:6432`; repair targets 172.18.0.13:5432).
+recommended/documented (the host app's runtime rides `<pooler-host>:6432`; repair targets `<db-host>:5432`).
 No `CREATE INDEX CONCURRENTLY` in v1. FKs added `NOT VALID` + `VALIDATE` (validation failure →
 leave NOT VALID, report orphan diagnostic).
 
@@ -539,7 +539,7 @@ forward from the original spec, not re-derived here.
 
 ### 8.1 Environment — operator request (ranked)
 
-(a) **CREATEDB** on 172.18.0.13 (best; unlocks everything incl. `mix test.setup`);
+(a) **CREATEDB** on `<db-host>` (best; unlocks everything incl. `mix test.setup`);
 (b) three pre-created owned DBs `pk_squash_a`/`pk_squash_b`/`phoenix_kit_test` (reset via
 `DROP SCHEMA public CASCADE`; trusted extensions come with DB ownership on PG13+);
 (c) operator-side disposable PG container — required anyway for TWO cells: the hardened
@@ -557,7 +557,7 @@ test (§10 Q6).
 | S2 | Seed-data equivalence: dump seeded tables incl. **email templates** (tolerance: rows match when the seeder ran; absence allowed only in release-mode) | diff empty; note: repair-mode seed semantics intentionally differ from historical upserts (V35/V45 `DO UPDATE` → `DO NOTHING`) |
 | S3 | Existing-install upgrade from exactly `floor` and `floor+k` | deltas only; comment = current; row-count+checksum probes unchanged |
 | S4 | Below-floor guard: `up`/`down`/update-generation at `floor-1` | **specific `BelowFloorError`** (struct+message asserted; ensure_current variant carries the test-reset hint) |
-| S5 | Consumer wrapper replay: (i) Andi's real 41-file set; (ii) synthetic pinned chain `[27,50,120,current]`; (iii) **interleaved consumer migration touching a below-floor-shaped object** → documented, actionable failure; (iv) rollback→migrate round-trip incl. one interleaved consumer down → final state ≡ fresh setup; repair afterwards creates NO spurious columns; doctor flags the desync | as stated |
+| S5 | Consumer wrapper replay: (i) the host app's real 41-file set; (ii) synthetic pinned chain `[27,50,120,current]`; (iii) **interleaved consumer migration touching a below-floor-shaped object** → documented, actionable failure; (iv) rollback→migrate round-trip incl. one interleaved consumer down → final state ≡ fresh setup; repair afterwards creates NO spurious columns; doctor flags the desync | as stated |
 | S6 | Baseline down to 0 (range + direct `V{floor}.down` split) + re-up; Oban teardown via `Oban.Migration.down`; shared extensions/functions survive | clean teardown, identical re-create |
 | S7 | Repair tamper matrix: drop each object class one at a time → repair | restored; dump diff empty; EXTRA objects untouched |
 | S8 | Repair idempotence: healthy DB, twice | empty plan ×2; byte-identical dumps |
@@ -595,9 +595,9 @@ role, PG15+ non-writable public) against baseline + repair.
 - `verify.exs` → implement S1–S13, S15–S20; Mode A fix; cleanup on exceptions; below-floor
   assertions match the specific error struct (an any-raise-passes check is how a missing guard
   slips through).
-- `README.md` → rewrite: floor-parameterized, no-CREATEDB reality, 172.18.0.13, option-(b) reset
+- `README.md` → rewrite: floor-parameterized, no-CREATEDB reality, `<db-host>`, option-(b) reset
   recipe. Reference dump snapshot lives under `dev_docs/squash/` (hex whitelist excludes it).
-- pgpass host field `172.18.0.6` → `172.18.0.13`.
+- pgpass host field `<old-db-host>` → `<db-host>`.
 - Merge policy: the manifest is never hand-merged; after any rebase touching `v*.ex`, regenerate.
   The hash assertion is a release-time gate — a migration PR may land with a stale manifest as
   long as regeneration happens before publish; renumber events ⇒ regenerate (runbook).
@@ -630,7 +630,7 @@ role, PG15+ non-writable public) against baseline + repair.
 
 ## 10. Open questions for the operator (block implementation, not review)
 
-1. ~~Install survey~~ RESOLVED 2026-08-04: committed set = the local host app only (live at
+1. ~~Install survey~~ RESOLVED 2026-08-04: committed set = the host app only (live at
    V160); floor decision reduced to picking the number (operator question below).
 2. **Scratch-DB option** (§8.1 a/b/c; recommend (a), or (b)×3). Plus (c) for the second-PG-major
    and hardened-install cells.

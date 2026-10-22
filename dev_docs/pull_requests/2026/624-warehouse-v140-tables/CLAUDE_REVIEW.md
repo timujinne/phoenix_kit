@@ -149,11 +149,11 @@ integrity for these four columns is not enforced by the database.
 
 ### NITPICK — Private downstream app leaked into published hexdocs
 
-The moduledoc named a private host application ("Andi") and its internal tables
-(`andi_warehouse_stock`, `andi_inventory_documents`, `andi_internal_orders`,
-`andi_supplier_orders`, `andi_goods_receipts`, `andi_goods_issues`) six times.
+The moduledoc named a private host application and its internal tables
+(`<app>_warehouse_stock`, `<app>_inventory_documents`, `<app>_internal_orders`,
+`<app>_supplier_orders`, `<app>_goods_receipts`, `<app>_goods_issues`) six times.
 `phoenix_kit` is a public Hex package; these moduledocs render on hexdocs.pm,
-where "Andi" is meaningless to every reader and shouldn't be advertised.
+where that app's name is meaningless to every reader and shouldn't be advertised.
 
 **Fixed** — genericised to "the host-application tables the module was extracted
 from".

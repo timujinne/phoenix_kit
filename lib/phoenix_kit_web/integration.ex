@@ -651,8 +651,8 @@ defmodule PhoenixKitWeb.Integration do
       live "/admin/settings/api/approvals", Live.Settings.ApiApprovals, :index
       live "/admin/settings/api/guide", Live.Settings.ApiGuide, :index
 
-      # The approvals queue of API keys: a menu entry of its own (gated by "api"); the old
-      # Settings path above redirects here.
+      # The approvals queue of API keys: a menu entry of its own (gated by "api", shown while
+      # the site uses approvals); the old Settings path above redirects here.
       live "/admin/approvals", Live.Approvals, :index
 
       # "email-sending", not "emails" — the optional emails module registers its

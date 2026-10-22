@@ -4,7 +4,9 @@ defmodule PhoenixKit.Migrations.Postgres.V176 do
 
   ## Where this comes from
 
-  Andi's A002 checked its own premise before writing code: the cascade
+  A host application's investigation of this cascade (the A002 note in
+  `dev_docs/pull_requests/2026/a002-user-delete-orphans/`) checked its own
+  premise before writing code: the cascade
   `UUIDFKColumns.@fk_constraints` declares for
   `phoenix_kit_users_tokens.user_uuid` and
   `phoenix_kit_user_role_assignments.user_uuid` already exists and already

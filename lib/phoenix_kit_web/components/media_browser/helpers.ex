@@ -535,6 +535,78 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Helpers do
 
   def neighbor_warm_data(_), do: nil
 
+  # The gallery's window (`Fresco.gallery`, the `ViewerGallery` hook): the
+  # pictures either side of the one open, as the strip draws them. `src` is
+  # the burned copy where there is one (the markup is part of the picture
+  # here, and that copy has its own extent), else `large` — sharp enough for
+  # a full-screen slide, unlike the `small` the viewer first paints. Sizes
+  # are the copy's own for a burn (fitted), the original's otherwise (fitted,
+  # or shown at 100% when smaller, as the viewer's actual-size view does).
+  # Anything that isn't an image is a card with its name: the strip can
+  # land on it, and the viewer takes over.
+  @gallery_reach 12
+  def gallery_items_json(siblings, idx) when is_list(siblings) and is_integer(idx) do
+    from = max(idx - @gallery_reach, 0)
+    upto = min(idx + @gallery_reach, length(siblings) - 1)
+
+    items =
+      if upto >= from,
+        do: Enum.map(Enum.slice(siblings, from..upto//1), &gallery_item/1),
+        else: []
+
+    Jason.encode!(%{"items" => items, "index" => idx - from})
+  end
+
+  def gallery_items_json(_, _), do: Jason.encode!(%{"items" => [], "index" => 0})
+
+  defp gallery_item(%{file_type: "image"} = f) do
+    urls = Map.get(f, :urls) || %{}
+    rot = gallery_rotation(Map.get(f, :rotation))
+
+    case Map.get(f, :burn_size) do
+      %{variant: variant, w: w, h: h} when is_binary(variant) ->
+        %{
+          "key" => f.file_uuid,
+          "src" => urls[variant] || urls["large"] || urls["small"],
+          "width" => w,
+          "height" => h,
+          "rotation" => rot,
+          "actual" => false,
+          "kind" => "image"
+        }
+
+      _ ->
+        %{
+          "key" => f.file_uuid,
+          "src" => urls["large"] || urls["medium"] || urls["small"],
+          "width" => Map.get(f, :width),
+          "height" => Map.get(f, :height),
+          "rotation" => rot,
+          "actual" => true,
+          "kind" => "image"
+        }
+    end
+  end
+
+  defp gallery_item(f) do
+    %{
+      "key" => f.file_uuid,
+      "kind" => to_string(Map.get(f, :file_type) || "file"),
+      "label" => Map.get(f, :filename) || ""
+    }
+  end
+
+  defp gallery_rotation(deg) when is_integer(deg), do: Integer.mod(deg, 360)
+
+  defp gallery_rotation(deg) when is_binary(deg) do
+    case Integer.parse(deg) do
+      {n, _} -> Integer.mod(n, 360)
+      :error -> 0
+    end
+  end
+
+  defp gallery_rotation(_), do: 0
+
   # NOTE: `tessera_sources/1` + `maybe_append_layer/4` were removed in
   # the Fresco 0.5 / Etcher 0.3 migration. Tessera 0.2 was OpenSeadragon-
   # backed (Fresco 0.1.x); Fresco 0.5 dropped OSD entirely, so the
