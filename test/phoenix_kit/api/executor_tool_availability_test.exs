@@ -86,6 +86,70 @@ defmodule PhoenixKit.API.ExecutorToolAvailabilityTest do
     def run(_input, _ctx), do: {:ok, %{}}
   end
 
+  # A module with a permission key of its own, as real modules have: its tools need that
+  # key, which `Scope.can?/2` honours only while the module is on.
+  defmodule FeatTools do
+    @moduledoc false
+    alias PhoenixKit.API.Tool
+
+    def module_key, do: "availfeat"
+    def module_name, do: "Availability feature tools"
+    def enabled?, do: :persistent_term.get({__MODULE__, :enabled}, true)
+    def set_enabled(on?), do: :persistent_term.put({__MODULE__, :enabled}, on?)
+
+    def permission_metadata do
+      %{
+        key: "availfeat",
+        label: "Availability feature",
+        icon: "hero-cube",
+        description: "Availability feature tools"
+      }
+    end
+
+    def api_tools do
+      [
+        Tool.new!(
+          name: "availfeat.list_things",
+          audience: :admin,
+          scope: "availfeat.things:read",
+          permission: "availfeat",
+          handler: {__MODULE__, :run},
+          annotations: %{read_only: true}
+        )
+      ]
+    end
+
+    def run(_input, _ctx), do: {:ok, %{}}
+  end
+
+  # Declares one admin name twice: the registry keeps the first declaration.
+  defmodule TwiceTools do
+    @moduledoc false
+    alias PhoenixKit.API.Tool
+
+    def module_key, do: "availtwice"
+    def module_name, do: "Availability twice"
+    def enabled?, do: true
+
+    def api_tools do
+      for {scope, permission} <- [
+            {"availtwice.first:read", "dashboard"},
+            {"availtwice.second:read", "users"}
+          ] do
+        Tool.new!(
+          name: "availtwice.list_things",
+          audience: :admin,
+          scope: scope,
+          permission: permission,
+          handler: {__MODULE__, :run},
+          annotations: %{read_only: true}
+        )
+      end
+    end
+
+    def run(_input, _ctx), do: {:ok, %{}}
+  end
+
   setup do
     setup_api()
     :ok = ModuleRegistry.register(AvailTools)
@@ -162,6 +226,15 @@ defmodule PhoenixKit.API.ExecutorToolAvailabilityTest do
 
       assert keys == Enum.sort(keys)
       assert Enum.uniq_by(entries, &{&1.module_key, &1.name}) == entries
+    end
+
+    @tag capture_log: true
+    test "list a name one module declares twice once, as its first declaration" do
+      :ok = ModuleRegistry.register(TwiceTools)
+      on_exit(fn -> ModuleRegistry.unregister(TwiceTools) end)
+
+      assert %{scope: "availtwice.first:read", permission: "dashboard", status: :available} =
+               entry("availtwice.list_things")
     end
   end
 
@@ -249,6 +322,41 @@ defmodule PhoenixKit.API.ExecutorToolAvailabilityTest do
 
       both = scope_of(person(["dashboard", "users"]))
       assert status("sessiontest.read_a", both) == :available
+    end
+
+    test "a hidden tool whose permission is held is closed only as hidden" do
+      put_list("api_disabled_tools", [@read])
+
+      assert status(@read, scope_of(person(["dashboard"]))) == {:closed, [:tool_hidden]}
+    end
+
+    test "a switched-off module's tool whose permission is held is closed only as disabled" do
+      AvailTools.set_enabled(false)
+
+      assert status(@read, scope_of(person(["dashboard"]))) == {:closed, [:module_disabled]}
+    end
+
+    test "a switched-off module's own permission key still counts as held" do
+      :ok = ModuleRegistry.register(FeatTools)
+      FeatTools.set_enabled(true)
+
+      on_exit(fn ->
+        ModuleRegistry.unregister(FeatTools)
+        FeatTools.set_enabled(true)
+      end)
+
+      holder = scope_of(person(["availfeat"]))
+      other = scope_of(person(["dashboard"]))
+
+      assert status("availfeat.list_things", holder) == :available
+      assert status("availfeat.list_things", other) == {:closed, [:no_permission]}
+
+      FeatTools.set_enabled(false)
+
+      assert status("availfeat.list_things", holder) == {:closed, [:module_disabled]}
+
+      assert status("availfeat.list_things", other) ==
+               {:closed, [:module_disabled, :no_permission]}
     end
 
     test "a closed module's tool is :no_permission only when its permission is missing" do
@@ -346,15 +454,18 @@ defmodule PhoenixKit.API.ExecutorToolAvailabilityTest do
     end
 
     test "for sessions with different rights and settings" do
+      # {permissions, "Agent may act" modules, hidden tools, hidden modules, module on?}
       cases = [
-        {["dashboard"], [], [], []},
-        {["dashboard", "settings"], ["api_session_tools"], [], []},
-        {["dashboard", "settings", "users"], [@module, "api_session_tools"], [@read], []},
-        {["settings", "users"], [@module, "api_test_tools"], [], ["api_session_tools"]},
-        {[], [@module], [], []}
+        {["dashboard"], [], [], [], true},
+        {["dashboard", "settings"], ["api_session_tools"], [], [], true},
+        {["dashboard", "settings", "users"], [@module, "api_session_tools"], [@read], [], true},
+        {["settings", "users"], [@module, "api_test_tools"], [], ["api_session_tools"], true},
+        {[], [@module], [], [], true},
+        {["dashboard", "settings"], [@module], [], [], false}
       ]
 
-      for {permissions, writes, hidden_tools, hidden_modules} <- cases do
+      for {permissions, writes, hidden_tools, hidden_modules, module_on?} <- cases do
+        AvailTools.set_enabled(module_on?)
         open_writes(writes)
         put_list("api_disabled_tools", hidden_tools)
         put_list("api_disabled_modules", hidden_modules)

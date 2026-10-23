@@ -204,6 +204,7 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.Auth.SessionRef
+  alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Utils.IpAddress
 
   @empty_schema %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
@@ -478,8 +479,8 @@ defmodule PhoenixKit.API.Executor do
           module_name: String.t(),
           name: String.t(),
           kind: :read | :write,
-          permission: String.t() | nil,
-          scope: String.t() | nil,
+          permission: String.t(),
+          scope: String.t(),
           danger: nil | :always | {module(), atom()},
           status: :available | {:closed, [closed_reason(), ...]}
         }
@@ -489,24 +490,32 @@ defmodule PhoenixKit.API.Executor do
   @doc """
   Every admin tool of every registered module, switched on or off, with whether a person's
   live session may call it (`visible_for/3` and `execute_as/5` with `allow: :all`) and, if
-  not, why. Read-only: nothing is charged or written (no audit entry), and keys are not concerned
-  (they never read `api_session_write_modules`).
+  not, why. Read-only: nothing is charged or written (no audit entry). API keys are not
+  affected (they never read `api_session_write_modules`).
 
   Each entry is `%{module_key, module_name, name, kind, permission, scope, danger, status}`:
   `kind` is `:read` or `:write` (`PhoenixKit.API.ControlFields.write_tool?/1`), `danger` the
   tool's own, `status` `:available` or `{:closed, reasons}`, the reasons in this order:
 
     * `:module_disabled` - the module is switched off;
-    * `:api_off` - the module's API is switched off (`api_disabled_modules`). Every tool is
-      closed so when `api_disabled_tools` or `api_disabled_modules` cannot be read: then the
-      registry serves nothing;
+    * `:api_off` - the module's API is switched off (`api_disabled_modules`). When
+      `api_disabled_tools` or `api_disabled_modules` cannot be read every tool is closed as
+      `:api_off`, since the registry then serves nothing;
     * `:tool_hidden` - the tool is listed in `api_disabled_tools`;
     * `:agent_writes_off` - a write tool whose module is not in `api_session_write_modules`
       (the "Agent may act" boxes of Settings -> API; a list that cannot be read is empty);
-    * `:no_permission` - only when `scope` (a `PhoenixKit.Users.Auth.Scope`) is given: it
-      does not hold the tool's permission, or, for a tool the settings leave open, its scope
-      (`PhoenixKit.API.Keys.held_scopes_of/1`). The scope is taken as given: a session's
-      own is `SessionRef.scope_for_session/2`, narrowed to the role it acts as.
+    * `:no_permission` - only when `scope` (a `PhoenixKit.Users.Auth.Scope`) is given. For a
+      tool the settings leave open: the scope fails the checks of `visible_for/3`, its
+      permission (`PhoenixKit.Users.Auth.Scope.can?/2`) or its scope
+      (`PhoenixKit.API.Keys.held_scopes_of/1`). For a tool the settings close: the scope's
+      roles do not grant the tool's permission, whether or not the module behind it is on.
+      The scope rule is not applied to a closed tool, so opening it may still leave it
+      closed as `:no_permission`, when another tool on its scope needs a permission the
+      scope lacks.
+
+  The scope is taken as given, account checks included: a session's own is
+  `SessionRef.scope_for_session/2` (which refuses an inactive or unconfirmed account),
+  narrowed to the role it acts as; a scope built otherwise is the caller's to vouch for.
 
   Without `scope` the reasons are the install's settings alone. With the scope of a live
   session, the `:available` tools are exactly what `visible_for/3` lists for it with
@@ -514,6 +523,10 @@ defmodule PhoenixKit.API.Executor do
   so it is not a reason here. Core's `system.*` tools (never callable by a session) and
   public tools are not listed; neither is a tool the registry ignores because another module
   declared its name first. Sorted by module name, then by tool name.
+
+  The list names every admin tool whatever `scope` is given, so gate who may see it. It
+  walks every module's tools and reads the settings on each call: call it once per page
+  (mount or params), not per render.
   """
   @spec tool_availability(Scope.t() | nil) :: [availability()]
   def tool_availability(scope \\ nil)
@@ -594,14 +607,26 @@ defmodule PhoenixKit.API.Executor do
     }
   end
 
-  # The checks of `visible_for/3` for a tool the settings leave open. A closed tool's scope
-  # is never held (`Keys.held_scopes_of/1` counts the callable tools only), so only its own
-  # permission is asked.
+  # The checks of `visible_for/3` for a tool the settings leave open. For a closed tool,
+  # whether its role grants the tool's permission at all: `Scope.can?/2` also asks the
+  # module behind the key to be on, so a switched-off module's own key would read as
+  # missing; and a closed tool's scope is never held (`Keys.held_scopes_of/1` counts the
+  # callable tools only).
   defp session_reaches?(scope, tool, held, true = _configured?),
     do: tool.scope in held and session_may_hold?(scope, tool)
 
-  defp session_reaches?(scope, tool, _held, false = _configured?),
-    do: session_may_hold?(scope, tool)
+  defp session_reaches?(scope, %Tool{permission: permission}, _held, false = _configured?),
+    do: permission_granted?(scope, permission)
+
+  defp permission_granted?(scope, permission) when is_binary(permission) do
+    Scope.has_module_access?(scope, permission) and
+      case Permissions.parent_key(permission) do
+        nil -> true
+        base -> Scope.has_module_access?(scope, base)
+      end
+  end
+
+  defp permission_granted?(_scope, _permission), do: false
 
   defp allow!(opts) do
     case Keyword.get(opts, :allow, :read) do
