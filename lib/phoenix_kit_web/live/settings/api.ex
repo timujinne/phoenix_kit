@@ -493,7 +493,18 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   defp module_api_saved(mod, false),
     do: gettext("The API of %{module} is off.", module: module_label(mod))
 
-  defp module_label(%{name: name}), do: Gettext.gettext(PhoenixKitWeb.Gettext, name)
+  @doc false
+  # A module's name, translated: by the gettext backend the module declares in its
+  # `permission_metadata/0` (the one the permissions matrix uses for its label), then by
+  # core's own catalogue. A module without a backend reads as before.
+  def module_label(%{key: key, name: name}) do
+    with {backend, domain} <- Map.get(ModuleRegistry.permission_gettext(), key),
+         translated when translated != name <- Gettext.dgettext(backend, domain, name) do
+      translated
+    else
+      _ -> Gettext.gettext(PhoenixKitWeb.Gettext, name)
+    end
+  end
 
   # The modules with tools, whether their API is on right now and whether the agent may act
   # in them (`api_session_write_modules`).
@@ -534,6 +545,9 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
 
   defp closed_reason_text(:agent_writes_off),
     do: gettext("It writes, and “Agent may act” is off.")
+
+  # A reason this page does not name (a later addition) still renders.
+  defp closed_reason_text(_other), do: gettext("Closed")
 
   defp switch_on?("admin"), do: Config.admin_enabled?()
   defp switch_on?("public"), do: Config.public_enabled?()
