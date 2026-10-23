@@ -7,6 +7,30 @@ defmodule PhoenixKitWeb.Components.Core.FormSectionActionsTest do
   import PhoenixKitWeb.Components.Core.FormSection
 
   describe "form_section :actions" do
+    test "wrap_actions lets the actions drop under the title; off by default" do
+      assigns = %{}
+
+      wrapped =
+        rendered_to_string(~H"""
+        <.form_section title="Service users" wrap_actions>
+          <:actions><button id="new">New service user</button></:actions>
+          <p>body</p>
+        </.form_section>
+        """)
+
+      plain =
+        rendered_to_string(~H"""
+        <.form_section title="Service users">
+          <:actions><button id="new">New service user</button></:actions>
+          <p>body</p>
+        </.form_section>
+        """)
+
+      assert wrapped =~ ~s(class="flex flex-wrap items-start justify-between gap-3")
+      assert plain =~ ~s(class="flex items-start justify-between gap-3")
+      refute plain =~ "flex-wrap"
+    end
+
     test "renders the actions in the title row, after the title" do
       assigns = %{}
 
