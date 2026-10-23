@@ -21367,3 +21367,48 @@ msgstr "Le date seguono il paese di ciascuna persona. Questo vale per chi non ha
 #, elixir-autogen, elixir-format
 msgid "Dates are written the way this country does. When empty, the company's country, the sign-up country and then the site default are used."
 msgstr "Le date sono scritte come in questo paese. Se vuoto, si usano il paese dell'azienda, il paese di registrazione e poi quello predefinito del sito."
+
+#: lib/phoenix_kit/integrations/providers.ex:837
+#, elixir-autogen, elixir-format
+msgid "Z.ai"
+msgstr "Z.ai"
+
+#: lib/phoenix_kit/integrations/providers.ex:838
+#, elixir-autogen, elixir-format
+msgid "AI model access via Z.ai (GLM models)"
+msgstr "Accesso ai modelli di IA tramite Z.ai (modelli GLM)"
+
+#: lib/phoenix_kit/integrations/providers.ex:856
+#, elixir-autogen, elixir-format
+msgid "From z.ai/manage-apikey/apikey-list"
+msgstr "Da z.ai/manage-apikey/apikey-list"
+
+#: lib/phoenix_kit/integrations/providers.ex:863
+#, elixir-autogen, elixir-format
+msgid "Create a Z.ai account"
+msgstr "Crea un account Z.ai"
+
+#: lib/phoenix_kit/integrations/providers.ex:865
+#, elixir-autogen, elixir-format
+msgid "Go to [z.ai/model-api](https://z.ai/model-api) and sign up or log in"
+msgstr "Vai su [z.ai/model-api](https://z.ai/model-api) e registrati o accedi"
+
+#: lib/phoenix_kit/integrations/providers.ex:871
+#, elixir-autogen, elixir-format
+msgid "Go to [Billing](https://z.ai/manage-apikey/billing) and top up your balance"
+msgstr "Vai a [Billing](https://z.ai/manage-apikey/billing) e ricarica il saldo"
+
+#: lib/phoenix_kit/integrations/providers.ex:874
+#, elixir-autogen, elixir-format
+msgid "The API bills the account balance — without credit Z.ai refuses requests with code 1113 (insufficient balance)"
+msgstr "L'API viene addebitata sul saldo dell'account: senza credito Z.ai rifiuta le richieste con il codice 1113 (saldo insufficiente)"
+
+#: lib/phoenix_kit/integrations/providers.ex:879
+#, elixir-autogen, elixir-format
+msgid "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
+msgstr "Una chiave esistente di un account che ha avuto un GLM Coding Plan (una chiave Compatible, creata prima del 16 ottobre 2026) viene addebitata in questa API sul saldo dell'account o sui pacchetti di utilizzo, non sulla quota del piano."
+
+#: lib/phoenix_kit/integrations/providers.ex:886
+#, elixir-autogen, elixir-format
+msgid "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**"
+msgstr "Vai a [API Keys](https://z.ai/manage-apikey/apikey-list) e crea una chiave in **Standard API Key**"

@@ -294,6 +294,7 @@ defmodule PhoenixKit.Integrations.Providers do
       mistral(),
       deepseek(),
       xai(),
+      zai(),
       elevenlabs(),
       amazon_bedrock(),
       aws_ses(),
@@ -819,6 +820,78 @@ defmodule PhoenixKit.Integrations.Providers do
             {gettext("Go to [API Keys](https://console.x.ai/team/default/api-keys)"), nil},
             {gettext("Click **Create API key**, give it a name"), nil},
             {gettext("Copy the key (shown once) and paste it into the form above"), nil}
+          ]
+        }
+      ]
+    }
+  end
+
+  # Z.ai's general API is OpenAI-compatible: `POST <base_url>/chat/completions`
+  # with `Authorization: Bearer <key>`. The GLM Coding Plan endpoint
+  # (`/api/coding/paas/v4`) is not used.
+  #
+  # `GET /models` is not in Z.ai's published API reference; it is expected to
+  # answer an OpenAI-style model list, as on other OpenAI-compatible APIs. This
+  # must be confirmed with a real key: without a key Z.ai answers 401 on every
+  # path, so a 401 does not prove the route exists, and an unknown path with a
+  # valid key is a 400 with code 1222.
+  defp zai do
+    %{
+      key: "zai",
+      scopes: [:system, :personal],
+      name: gettext("Z.ai"),
+      description: gettext("AI model access via Z.ai (GLM models)"),
+      icon: "hero-sparkles",
+      auth_type: :api_key,
+      oauth_config: nil,
+      base_url: "https://api.z.ai/api/paas/v4",
+      validation: %{
+        url: "https://api.z.ai/api/paas/v4/models",
+        method: :get,
+        auth_header: "Authorization",
+        auth_prefix: "Bearer "
+      },
+      setup_fields: [
+        %{
+          key: "api_key",
+          label: gettext("API Key"),
+          type: :password,
+          required: true,
+          placeholder: "xxxxxxxx.xxxxxxxx",
+          help: gettext("From z.ai/manage-apikey/apikey-list"),
+          options: nil
+        }
+      ],
+      capabilities: [:ai_completions],
+      instructions: [
+        %{
+          title: gettext("Create a Z.ai account"),
+          steps: [
+            {gettext("Go to [z.ai/model-api](https://z.ai/model-api) and sign up or log in"), nil}
+          ]
+        },
+        %{
+          title: gettext("Add credits"),
+          steps: [
+            {gettext(
+               "Go to [Billing](https://z.ai/manage-apikey/billing) and top up your balance"
+             ), nil},
+            {gettext(
+               "The API bills the account balance — without credit Z.ai refuses requests with code 1113 (insufficient balance)"
+             ), nil}
+          ],
+          note:
+            gettext(
+              "An existing key of an account that has had a GLM Coding Plan (a Compatible key, created before 16 October 2026) is billed on this API from the account balance or usage bundles, not from the plan quota."
+            )
+        },
+        %{
+          title: gettext("Create an API key"),
+          steps: [
+            {gettext(
+               "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**"
+             ), nil},
+            {gettext("Copy the key and paste it into the form above"), nil}
           ]
         }
       ]
