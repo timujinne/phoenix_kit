@@ -62,6 +62,15 @@ defmodule PhoenixKitWeb.Components.Core.Checkbox do
   attr :checked, :boolean, default: nil
   attr :disabled, :boolean, default: false
 
+  attr :value, :string,
+    default: "true",
+    doc: "what a ticked box submits — a box in a `name[]` group submits its own item"
+
+  attr :unchecked_value, :any,
+    default: "false",
+    doc:
+      "what the hidden fallback submits for an unticked box; `nil` renders no fallback (a box in a `name[]` group, where an unticked box submits nothing)"
+
   attr :variant, :string,
     default: "checkbox",
     values: ~w(checkbox toggle),
@@ -112,7 +121,7 @@ defmodule PhoenixKitWeb.Components.Core.Checkbox do
           @wrapper_class
         ]}
       >
-        <input type="hidden" name={@name} value="false" />
+        <input :if={@unchecked_value} type="hidden" name={@name} value={@unchecked_value} />
 
         <%!-- With a description the label is items-start, so the box must
              center itself against the FIRST text line. The line box is 24px
@@ -125,7 +134,7 @@ defmodule PhoenixKitWeb.Components.Core.Checkbox do
             type="checkbox"
             id={@id}
             name={@name}
-            value="true"
+            value={@value}
             checked={@checked}
             disabled={@disabled}
             class={[

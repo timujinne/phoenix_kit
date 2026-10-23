@@ -7,6 +7,7 @@ defmodule PhoenixKitWeb.Components.Core.Input do
   use Gettext, backend: PhoenixKitWeb.Gettext
 
   import PhoenixKitWeb.Components.Core.FormFieldError, only: [error: 1]
+  import PhoenixKitWeb.Components.Core.FormFieldHint, only: [field_hint: 1, describe_by_hint: 2]
 
   @doc """
   Renders an input with label and error messages.
@@ -53,6 +54,16 @@ defmodule PhoenixKitWeb.Components.Core.Input do
 
   attr :errors, :list, default: []
 
+  attr :hint, :string,
+    default: nil,
+    doc:
+      "help text under the field, linked to it with `aria-describedby` (the `<p>` gets the id `\"<id>-help\"`)"
+
+  attr :wrap_label, :boolean,
+    default: false,
+    doc:
+      "let a long label wrap inside its column (daisyUI's `.label` does not wrap): for fields in a grid or a narrow dialog, whose labels can be longer in another language. Not for `type=\"date\"`, whose widget draws its own label"
+
   attr :native, :boolean,
     default: false,
     doc:
@@ -94,7 +105,7 @@ defmodule PhoenixKitWeb.Components.Core.Input do
 
       assigns =
         assigns
-        |> assign(:date_rest, Map.delete(rest, :size))
+        |> assign(:date_rest, rest |> Map.delete(:size) |> describe_by_hint(assigns))
         |> assign(:date_attrs, own)
         |> assign_new(:value, fn -> nil end)
 
@@ -112,6 +123,7 @@ defmodule PhoenixKitWeb.Components.Core.Input do
         placeholder={@date_attrs[:placeholder]}
         html={@date_rest}
       />
+      <.field_hint id={@id} hint={@hint} />
       """
     end
   end
@@ -119,9 +131,15 @@ defmodule PhoenixKitWeb.Components.Core.Input do
   def input(assigns), do: native_input(assigns)
 
   defp native_input(assigns) do
+    assigns = assign(assigns, :rest, describe_by_hint(assigns.rest, assigns))
+
     ~H"""
     <div phx-feedback-for={@name} class={@wrapper_class}>
-      <label :if={@label && @label != ""} class="label mb-2" for={@id}>
+      <label
+        :if={@label && @label != ""}
+        class={if @wrap_label, do: "label mb-2 whitespace-normal", else: "label mb-2"}
+        for={@id}
+      >
         <span class="font-semibold">{@label}</span>
         <%!-- Required marker, rendered by the component so callers don't have to
              append " *" to the label string — a plain string cannot carry the
@@ -162,6 +180,7 @@ defmodule PhoenixKitWeb.Components.Core.Input do
         ]}
         {@rest}
       />
+      <.field_hint id={@id} hint={@hint} />
       <.error :for={msg <- @errors}>{msg}</.error>
     </div>
     """

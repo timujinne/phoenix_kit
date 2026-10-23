@@ -1037,10 +1037,6 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   defp status_label(:expired), do: gettext("Expired")
   defp status_label(:revoked), do: gettext("Revoked")
 
-  defp status_class(:active), do: "badge-success"
-  defp status_class(:ending), do: "badge-warning"
-  defp status_class(_dead), do: "badge-ghost"
-
   # The earliest moment the key stops working, if it has one.
   defp ends_at(key) do
     [key.revoked_at, key.expires_at]
