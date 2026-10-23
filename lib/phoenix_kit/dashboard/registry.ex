@@ -750,6 +750,19 @@ defmodule PhoenixKit.Dashboard.Registry do
   end
 
   @doc """
+  Blocks until the initial tab load has finished: `:ok`, or `{:error, reason}`
+  when it did not finish within `timeout` ms. `:ok` too when the registry is
+  not running, since then there is nothing to wait for.
+  """
+  @spec await_initialized(timeout()) :: :ok | {:error, term()}
+  def await_initialized(timeout \\ 30_000) do
+    GenServer.call(__MODULE__, :sync, timeout)
+  catch
+    :exit, {:noproc, _} -> :ok
+    :exit, reason -> {:error, reason}
+  end
+
+  @doc """
   Whether `tab` is named in `:hidden_admin_tabs`. Admin tabs only — a user
   dashboard tab of the same id is not affected.
 
@@ -763,6 +776,11 @@ defmodule PhoenixKit.Dashboard.Registry do
   def hidden_admin_tab?(_tab), do: false
 
   @impl true
+  # Answered once `handle_continue(:initialize_tabs, _)` is done, because a
+  # continue runs before any message: lets a caller wait for the initial tab
+  # load (and the permission keys it registers).
+  def handle_call(:sync, _from, state), do: {:reply, :ok, state}
+
   def handle_call({:register, namespace, tabs}, _from, state) do
     tabs
     |> apply_admin_tab_order()

@@ -98,6 +98,7 @@ defmodule PhoenixKit.Users.Permissions do
   alias PhoenixKit.Settings.Queries, as: SettingsQueries
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Users.Permissions.AdminGrants
   alias PhoenixKit.Users.Role
   alias PhoenixKit.Users.RoleAssignment
   alias PhoenixKit.Users.RolePermission
@@ -1661,6 +1662,30 @@ defmodule PhoenixKit.Users.Permissions do
   end
 
   @doc """
+  Waits until the boot-time Admin grants have finished.
+
+  The grants run in the background after `PhoenixKit.Supervisor` starts
+  (`PhoenixKit.Users.Permissions.AdminGrants`). A key that hits a database
+  error is retried with a backoff, so the Admin role is complete once this
+  returns `:ok` — without a restart. Returns `{:error, :timeout}` if the grants
+  are still running after `timeout` ms, `{:error, {:failed, keys}}` if the
+  retries were exhausted or a key cannot be retried, `{:error, {:exit, reason}}`
+  if the server died while waiting, and `:ok` straight away when nothing is running
+  (the supervisor is not started, e.g. in a test suite that skips it).
+
+  A test suite should call it before handing the database to the sandbox, so
+  the background grants never run against a connection that has no owner:
+
+      # test/test_helper.exs
+      ExUnit.start()
+      :ok = PhoenixKit.Users.Permissions.await_admin_grants(30_000)
+      Ecto.Adapters.SQL.Sandbox.mode(MyApp.Repo, :manual)
+  """
+  @spec await_admin_grants(timeout()) ::
+          :ok | {:error, :timeout | {:failed, list()} | {:exit, term()}}
+  defdelegate await_admin_grants(timeout \\ 5_000), to: AdminGrants, as: :await
+
+  @doc """
   Grants every known built-in permission key (core sections, feature-module
   keys, sub-permission keys) to the Admin system role, skipping keys that
   were auto-granted before (per-key settings flag) so an Owner's later
@@ -1671,19 +1696,78 @@ defmodule PhoenixKit.Users.Permissions do
   whose V53 seeding predates newer modules: the first boot after upgrade
   fills the Admin role's missing keys, after which revocations stick
   per-key. Idempotent; safe when the table doesn't exist yet.
+
+  Returns `:ok`, or `{:error, [{key, reason}]}` for the keys that could not be
+  granted (a database error; each is logged at error level and left unflagged).
+  Keys that failed on a database error are retried with a backoff by
+  `PhoenixKit.Users.Permissions.AdminGrants`, which a host can await with
+  `await_admin_grants/1`; a rejected changeset or a missing database owner
+  (a test already in the sandbox's manual mode) is not retried.
   """
-  @spec auto_grant_new_keys_to_admin() :: :ok
+  @spec auto_grant_new_keys_to_admin() :: :ok | {:error, [{String.t(), term()}]}
   def auto_grant_new_keys_to_admin do
+    case sweep_admin_grants([]) do
+      [] -> :ok
+      failed -> {:error, failed}
+    end
+  end
+
+  # One pass of the sweep: the keys that could not be granted, as
+  # `{key, reason}`. `AdminGrants` runs it with `report: false` (it owns the
+  # retry and must not report its own failures back to itself) and logs a
+  # retry pass at `:warning` so a long outage is not N error lines per key.
+  @doc false
+  @spec sweep_admin_grants(keyword()) :: [{String.t(), term()}]
+  def sweep_admin_grants(opts) do
     # Auto-grant ONLY the website-wide integration key to Admin (so admins keep
     # the system integrations page after it moved off the `settings` key). The
     # PERSONAL `integrations` key is deliberately NOT auto-granted — it's opt-in,
     # so admins don't silently get a personal page they didn't ask for.
     (@core_section_keys ++
        [@integrations_system_key] ++ feature_module_keys() ++ sub_permission_keys())
-    |> Enum.each(&auto_grant_to_admin_roles/1)
-
-    :ok
+    |> Enum.flat_map(fn key ->
+      case grant_to_admin(key, opts) do
+        :ok -> []
+        {:error, reason} -> [{key, reason}]
+      end
+    end)
   end
+
+  @doc false
+  # Whether a failed grant is worth trying again: a database error (an
+  # exception or an exit) is, a rejected changeset or a missing sandbox owner
+  # is not — the same call would fail the same way.
+  @spec retriable_grant_error?(term()) :: boolean()
+  def retriable_grant_error?({:no_owner, _}), do: false
+  def retriable_grant_error?({:exit, _}), do: true
+  def retriable_grant_error?({:flag_not_saved, _}), do: true
+  def retriable_grant_error?(%{__exception__: true}), do: true
+  def retriable_grant_error?(_), do: false
+
+  defp report_failure?(opts, reason),
+    do: Keyword.get(opts, :report, true) and retriable_grant_error?(reason)
+
+  # One failure, as the log and the result both carry it. A missing sandbox
+  # owner is a host's test setup, not an outage: warning, no retry.
+  defp grant_failure(%DBConnection.OwnershipError{} = error, what, _opts) do
+    Logger.warning(
+      "[Permissions] #{what} skipped, no database owner: #{Exception.message(error)}"
+    )
+
+    {:error, {:no_owner, error}}
+  end
+
+  defp grant_failure(error, what, opts) do
+    Logger.log(
+      Keyword.get(opts, :level, :error),
+      "[Permissions] #{what} failed: #{failure_detail(error)}"
+    )
+
+    {:error, error}
+  end
+
+  defp failure_detail(%{__exception__: true} = error), do: Exception.message(error)
+  defp failure_detail(other), do: inspect(other)
 
   @doc """
   Grants `media.view_all` and `media.manage` ONCE to every role that holds `media`:
@@ -1691,9 +1775,29 @@ defmodule PhoenixKit.Users.Permissions do
   storage screens, and an upgrade must not take either away. A flag records that it
   ran, so a role that later has one revoked (or a role created afterwards) is not
   given it back. Idempotent; called at boot after `auto_grant_new_keys_to_admin/0`.
+  Returns `{:error, reason}` when a grant failed (it is retried, see
+  `await_admin_grants/1`).
   """
-  @spec backfill_media_sub_permissions() :: :ok
-  def backfill_media_sub_permissions do
+  @spec backfill_media_sub_permissions() :: :ok | {:error, term()}
+  def backfill_media_sub_permissions, do: backfill_media_subs([])
+
+  @doc false
+  @spec backfill_media_subs(keyword()) :: :ok | {:error, term()}
+  def backfill_media_subs(opts) do
+    result = run_media_backfill(opts)
+
+    case result do
+      {:error, reason} ->
+        if report_failure?(opts, reason), do: AdminGrants.report_failure(:media_subs)
+
+      :ok ->
+        :ok
+    end
+
+    result
+  end
+
+  defp run_media_backfill(opts) do
     # Read from the row, like `auto_grant_to_admin_roles/1`'s flag: through
     # `Settings.get_setting/1` it reads nil with `update_mode` on.
     if match?(%{value: "true"}, SettingsQueries.get_setting_by_key(@media_subs_flag)) do
@@ -1707,21 +1811,22 @@ defmodule PhoenixKit.Users.Permissions do
           grant_permission(role, key)
         end
 
-      # Flagged only when every grant went through: a failure is retried next boot.
-      if Enum.all?(results, &match?({:ok, _}, &1)),
-        do: Settings.update_setting(@media_subs_flag, "true")
-
-      :ok
+      # Flagged only when every grant went through; a failure is retried by
+      # `AdminGrants` (and on the next boot).
+      with nil <- Enum.find(results, &match?({:error, _}, &1)),
+           :ok <- save_flag(@media_subs_flag) do
+        :ok
+      else
+        {:error, reason} -> grant_failure(reason, "media sub-permission backfill", opts)
+      end
     end
   rescue
     error ->
-      unless table_missing_error?(error) do
-        Logger.warning(
-          "[Permissions] media sub-permission backfill failed: #{Exception.message(error)}"
-        )
-      end
-
-      :ok
+      if table_missing_error?(error),
+        do: :ok,
+        else: grant_failure(error, "media sub-permission backfill", opts)
+  catch
+    :exit, reason -> grant_failure({:exit, reason}, "media sub-permission backfill", opts)
   end
 
   @doc """
@@ -1731,16 +1836,44 @@ defmodule PhoenixKit.Users.Permissions do
   `mix phoenix_kit.update` / `mix phoenix_kit.doctor`, which start the host
   in `update_mode` (the flag is read from its row, not the settings reader
   that answers nil in that mode). A flag that cannot be read grants
-  nothing: the grant fails closed and is tried again next boot.
+  nothing: the grant fails closed. Returns `{:error, reason}` for a database
+  failure (logged at error level with the key, flag left unset), and a database
+  error is retried with a backoff by `PhoenixKit.Users.Permissions.AdminGrants`.
+  A rejected changeset or a missing database owner is returned but not retried.
   """
-  @spec auto_grant_to_admin_roles(String.t()) :: :ok
+  @spec auto_grant_to_admin_roles(String.t()) :: :ok | {:error, term()}
   # Opt-in keys are never auto-granted to Admin — they surface only on an explicit
   # Owner grant. This is the authoritative chokepoint, so the guarantee holds no
   # matter which path requests the grant (the boot-time sweep OR the tab registry
   # auto-registering a core/feature tab's permission).
   def auto_grant_to_admin_roles(key) when key in @opt_in_admin_keys, do: :ok
 
-  def auto_grant_to_admin_roles(key) do
+  def auto_grant_to_admin_roles(key), do: grant_to_admin(key, [])
+
+  # A failed grant is logged with its key, returned as `{:error, reason}` (the
+  # flag stays unset) and — unless `report: false` — handed to `AdminGrants`,
+  # which tries it again with a backoff.
+  defp grant_to_admin(key, _opts) when key in @opt_in_admin_keys, do: :ok
+
+  defp grant_to_admin(key, opts) do
+    result = run_admin_grant(key, opts)
+
+    case result do
+      {:error, reason} ->
+        if report_failure?(opts, reason), do: AdminGrants.report_failure(key)
+
+      :ok ->
+        :ok
+    end
+
+    result
+  end
+
+  @doc false
+  @spec grant_to_admin_once(String.t(), keyword()) :: :ok | {:error, term()}
+  def grant_to_admin_once(key, opts), do: grant_to_admin(key, opts)
+
+  defp run_admin_grant(key, opts) do
     flag_key = "auto_granted_perm:#{key}"
 
     # If already auto-granted before, respect any manual changes. The flag is
@@ -1754,7 +1887,7 @@ defmodule PhoenixKit.Users.Permissions do
     else
       case Roles.get_role_by_name(Role.system_roles().admin) do
         %{uuid: admin_uuid} when not is_nil(admin_uuid) ->
-          maybe_auto_grant(admin_uuid, key, flag_key)
+          maybe_auto_grant(admin_uuid, key, flag_key, opts)
 
         _ ->
           # Admin role not found (pre-V53 or missing), skip
@@ -1763,26 +1896,18 @@ defmodule PhoenixKit.Users.Permissions do
     end
   rescue
     error ->
-      # Silently skip if the table doesn't exist yet (expected on fresh installs
-      # where the app starts before migrations have created the table). Uses the
-      # structured `:undefined_table` check (matching F7), not a message
-      # substring. This suppresses a log line only — a genuine grant failure
-      # still fails CLOSED (Admin simply lacks the key, retried next boot).
-      unless table_missing_error?(error) do
-        Logger.warning(
-          "[Permissions] Failed to auto-grant #{inspect(key)} to Admin role: #{Exception.message(error)}"
-        )
-      end
-
-      :ok
+      # A missing table is expected on fresh installs, where the app starts
+      # before migrations have created it; it is neither logged nor retried.
+      # Uses the structured `:undefined_table` check (matching F7), not a
+      # message substring. Anything else is a real failure: the grant fails
+      # CLOSED (Admin lacks the key) but is reported, not swallowed.
+      if table_missing_error?(error),
+        do: :ok,
+        else: grant_failure(error, "auto-grant of #{inspect(key)} to Admin role", opts)
   catch
     # A dead pool exits rather than raises; the grant fails closed the same way.
     :exit, reason ->
-      Logger.warning(
-        "[Permissions] Failed to auto-grant #{inspect(key)} to Admin role: #{inspect(reason)}"
-      )
-
-      :ok
+      grant_failure({:exit, reason}, "auto-grant of #{inspect(key)} to Admin role", opts)
   end
 
   # Auto-grant one key, but never let a NEW sub-key resurrect a base that an
@@ -1791,26 +1916,44 @@ defmodule PhoenixKit.Users.Permissions do
   # revocation. So a sub is auto-granted only while Admin still holds its
   # base — and when it doesn't, we skip WITHOUT flagging, so a later
   # re-grant of the base lets the sub auto-grant on a subsequent boot.
-  defp maybe_auto_grant(admin_uuid, key, flag_key) do
+  defp maybe_auto_grant(admin_uuid, key, flag_key, opts) do
     parent = parent_key(key)
 
     if parent && not role_has_permission?(admin_uuid, parent) do
       :ok
     else
-      case grant_permission(admin_uuid, key, nil) do
-        {:ok, _} ->
-          Settings.update_setting(flag_key, "true")
-          :ok
-
-        {:error, _} ->
-          Logger.warning(
-            "[Permissions] grant_permission failed for Admin role on key #{inspect(key)}, will retry next boot"
-          )
-
-          :ok
+      with {:ok, _} <- grant_permission(admin_uuid, key, nil),
+           :ok <- save_flag(flag_key) do
+        :ok
+      else
+        {:error, reason} ->
+          grant_failure(reason, "auto-grant of #{inspect(key)} to Admin role", opts)
       end
     end
   end
+
+  # Records that a key was auto-granted. A concurrent grant of the same key (the
+  # boot sweep and the tab registry both grant the built-in keys) may have
+  # written the flag first; the unique index then rejects ours with a changeset
+  # error although the flag is exactly as wanted, so the row is read again
+  # before this counts as a failure.
+  defp save_flag(flag_key) do
+    case Settings.update_setting(flag_key, "true") do
+      {:ok, _} ->
+        :ok
+
+      {:error, %Ecto.Changeset{}} = error ->
+        if match?(%{value: "true"}, SettingsQueries.get_setting_by_key(flag_key)),
+          do: :ok,
+          else: flag_not_saved(error)
+
+      other ->
+        flag_not_saved(other)
+    end
+  end
+
+  defp flag_not_saved({:error, reason}), do: {:error, {:flag_not_saved, reason}}
+  defp flag_not_saved(other), do: {:error, {:flag_not_saved, other}}
 
   # Coerces a value to a string, returning the default for nil.
   # Handles atoms, integers, and other types gracefully via to_string/1.
