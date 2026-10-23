@@ -2,6 +2,7 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
   use ExUnit.Case, async: false
 
   alias PhoenixKit.API.Config
+  alias PhoenixKit.API.Executor
   alias PhoenixKit.API.Registry
 
   defmodule UnreadableRepo do
@@ -118,6 +119,21 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
       assert Config.fetch_session_write_modules() == :unreadable
       assert Config.session_write_modules() == []
     end
+  end
+
+  @tag capture_log: true
+  test "a hidden list that cannot be read shows every tool closed as :api_off" do
+    :ok = PhoenixKit.ModuleRegistry.register(PhoenixKit.Test.ApiTools)
+    on_exit(fn -> PhoenixKit.ModuleRegistry.unregister(PhoenixKit.Test.ApiTools) end)
+
+    assert [_ | _] = cold = Executor.tool_availability()
+    assert Enum.all?(cold, &match?({:closed, [:api_off | _]}, &1.status))
+
+    PhoenixKit.Cache.put(:settings, "api_disabled_tools", "")
+    Process.put(:modules_read, :raise)
+
+    assert [_ | _] = modules_unreadable = Executor.tool_availability()
+    assert Enum.all?(modules_unreadable, &match?({:closed, [:api_off | _]}, &1.status))
   end
 
   test "an explicitly empty cached list of hidden modules is readable during a DB outage" do
