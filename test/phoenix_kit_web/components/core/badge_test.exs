@@ -24,5 +24,10 @@ defmodule PhoenixKitWeb.Components.Core.BadgeTest do
       assert html =~ "Deleted"
       assert html =~ "badge-error"
     end
+
+    test "ending (still working, with an end set) is a warning" do
+      html = render_component(&Badge.status_badge/1, status: "ending", label: "Ending")
+      assert html =~ "badge-warning"
+    end
   end
 end
