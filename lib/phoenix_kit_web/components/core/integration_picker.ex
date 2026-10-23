@@ -327,7 +327,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
                  see WHY without clicking through. --%>
             <% {status_label, status_class} = status_badge(@conn.data) %>
             <span
-              class={"badge badge-xs phx-click-loading:hidden" <> status_class}
+              class={["badge badge-xs phx-click-loading:hidden", status_class]}
               title={@conn.data["validation_status"]}
             >
               {status_label}
@@ -339,10 +339,7 @@ defmodule PhoenixKitWeb.Components.Core.IntegrationPicker do
                  "selectable" rather than active. --%>
             <.icon
               name="hero-check-circle-solid"
-              class={
-                "w-5 h-5" <>
-                  if(@selected, do: "text-primary", else: "text-base-content/20")
-              }
+              class={if(@selected, do: "w-5 h-5 text-primary", else: "w-5 h-5 text-base-content/20")}
             />
           </div>
         </div>
