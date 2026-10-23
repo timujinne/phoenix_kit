@@ -599,6 +599,34 @@
                 />
               </div>
 
+              <%!-- Site default country for date formats --%>
+              <div class="fieldset w-full min-w-0 grid-cols-[minmax(0,1fr)]">
+                <label class="label flex-wrap whitespace-normal">
+                  <span class="fieldset-legend text-base font-medium">
+                    {gettext("Default Country for Formats")}
+                  </span>
+                  <span class="fieldset-label text-sm text-base-content/60">
+                    {gettext(
+                      "Dates follow each person's country. This one applies to anyone without a country and to signed-out visitors. Leave it empty to use the Date Format above for them."
+                    )}
+                  </span>
+                </label>
+                <.select
+                  name="settings[format_country]"
+                  value={@settings["format_country"]}
+                  prompt={gettext("— None —")}
+                  options={@country_options}
+                  class="min-w-0 max-w-full focus-within:select-primary [&_select]:min-w-0 [&_select]:truncate"
+                />
+                <.unsaved_hint
+                  dirty={@settings["format_country"] != @saved_settings["format_country"]}
+                  saved={
+                    PhoenixKit.Utils.CountryData.country_name(@saved_settings["format_country"]) ||
+                      gettext("None")
+                  }
+                />
+              </div>
+
               <%!-- Time Format Setting --%>
               <div class="fieldset w-full min-w-0 grid-cols-[minmax(0,1fr)]">
                 <label class="label flex-wrap whitespace-normal">

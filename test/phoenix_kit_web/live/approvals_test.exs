@@ -802,6 +802,22 @@ defmodule PhoenixKitWeb.Live.ApprovalsTest do
       :ok
     end
 
+    test "while nothing uses approvals the entry is gone, the page and the Settings link answer",
+         %{conn: conn, agent: agent} do
+      {1, _} =
+        Repo.update_all(from(k in Keys.Key, where: k.uuid == ^agent.key.uuid),
+          set: [requires_approval: false]
+        )
+
+      {:ok, view, _html} = live(conn, @path)
+      assert has_element?(view, "#approvals-page")
+      refute has_element?(view, ~s(a[data-tab-id="admin_approvals"]))
+
+      {:ok, settings, _html} = live(conn, Routes.path("/admin/settings/api"))
+      assert has_element?(settings, "#api-approvals-link")
+      refute has_element?(settings, ~s(a[data-tab-id="admin_approvals"]))
+    end
+
     test "follows the queue while the page is open", %{conn: conn, agent: agent} do
       {:ok, view, _html} = live(conn, @path)
       assert has_element?(view, ~s(a[data-tab-id="admin_approvals"]))

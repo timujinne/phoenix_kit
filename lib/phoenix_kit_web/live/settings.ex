@@ -13,6 +13,7 @@ defmodule PhoenixKitWeb.Live.Settings do
   alias PhoenixKit.Settings
   alias PhoenixKit.Settings.Events, as: SettingsEvents
   alias PhoenixKit.Users.OAuthConfig
+  alias PhoenixKit.Utils.CountryData
   alias PhoenixKit.Utils.Date, as: UtilsDate
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.Utils.TimeZone
@@ -71,6 +72,7 @@ defmodule PhoenixKitWeb.Live.Settings do
       # Track saved values separately
       |> assign(:saved_settings, merged_settings)
       |> assign(:setting_options, setting_options)
+      |> assign(:country_options, CountryData.countries_for_select())
       |> assign(:changeset, changeset)
       |> assign(:saving, false)
       |> assign(:show_media_selector, false)

@@ -11,7 +11,7 @@ the active locale, so the redirect arrives as `/en`. The route that would serve
 it belongs to the host application, and core has no way to know whether the host
 declared one. When it hasn't, every such redirect 404s.
 
-Measured in andi before the host-side workaround: `/` answered 200 while `/en`,
+Measured in a host app before its host-side workaround: `/` answered 200 while `/en`,
 `/et` and `/ru` all returned 404.
 
 This is not one bug in one flow. `Routes.path("/")` is hardcoded at **nine**

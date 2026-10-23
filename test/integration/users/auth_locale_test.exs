@@ -20,6 +20,7 @@ defmodule PhoenixKit.Integration.Users.AuthLocaleTest do
   alias PhoenixKit.Config
   alias PhoenixKit.Modules.Languages
   alias PhoenixKit.Settings
+  alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth
 
   # What Plug sends on any response that sets no cache-control of its own.
@@ -617,6 +618,240 @@ defmodule PhoenixKit.Integration.Users.AuthLocaleTest do
       assert conn.halted
       assert redirected_to(conn) =~ "/es/"
     end
+
+    test "the primary dialect's own full code redirects to its base URL, in any case" do
+      # en-US owns /en/ — only the non-primary sibling is addressed by its
+      # full code, so /en-US/ is a duplicate of /en/.
+      for segment <- ["en-US", "en-us"] do
+        conn =
+          Auth.validate_and_set_locale(locale_conn("/phoenix_kit/#{segment}/blog", segment), [])
+
+        assert conn.halted
+        assert redirected_to(conn) == "/phoenix_kit/en/blog"
+      end
+    end
+  end
+
+  describe "a base's only enabled dialect in the URL" do
+    # A site with a single English dialect (en-US) serves English at /en/.
+    # /en-US/ used to be served as its own locale because en-US is enabled;
+    # it is now redirected like any other full dialect.
+
+    setup do
+      config = %{
+        "languages" => [
+          %{"code" => "et", "name" => "Estonian", "is_default" => true, "is_enabled" => true},
+          %{"code" => "ru", "name" => "Russian", "is_default" => false, "is_enabled" => true},
+          %{"code" => "en-US", "name" => "English", "is_default" => false, "is_enabled" => true}
+        ]
+      }
+
+      Settings.update_json_setting("languages_config", config)
+      :ok
+    end
+
+    test "GET redirects to the base URL, in any case, keeping the query string" do
+      for segment <- ["en-US", "en-us"] do
+        conn =
+          build_conn(:get, "/phoenix_kit/#{segment}/users/log-in?return_to=%2Fcart")
+          |> Plug.Conn.fetch_query_params()
+          |> Map.put(:path_params, %{"locale" => segment})
+          |> Auth.validate_and_set_locale([])
+
+        assert conn.halted
+        assert redirected_to(conn) == "/phoenix_kit/en/users/log-in?return_to=%2Fcart"
+      end
+    end
+
+    test "POST keeps its method and body through a 307" do
+      conn =
+        build_conn(:post, "/phoenix_kit/en-US/users/log-in")
+        |> Plug.Conn.fetch_query_params()
+        |> Map.put(:path_params, %{"locale" => "en-US"})
+        |> Auth.validate_and_set_locale([])
+
+      assert conn.halted
+      assert redirected_to(conn, 307) == "/phoenix_kit/en/users/log-in"
+    end
+
+    test "the base URL itself is served under the dialect" do
+      conn = Auth.validate_and_set_locale(locale_conn("/phoenix_kit/en/users/log-in", "en"), [])
+
+      refute conn.halted
+      assert conn.assigns.current_locale_base == "en"
+      assert conn.assigns.current_locale == "en-US"
+    end
+
+    test "Routes emits the base code for the dialect" do
+      assert Routes.path("/users/log-in", locale: "en-US") == "/phoenix_kit/en/users/log-in"
+      assert Routes.admin_path("/admin/orders", "en-US") == "/phoenix_kit/en/admin/orders"
+    end
+
+    test "the default language's dialect goes prefixless on a prefixless site" do
+      Languages.set_default_language_no_prefix(true)
+
+      assert Routes.path("/users/log-in", locale: "et-EE") == "/phoenix_kit/users/log-in"
+    end
+  end
+
+  describe "the default language's only dialect on a prefixless site" do
+    setup do
+      config = %{
+        "languages" => [
+          %{"code" => "en-US", "name" => "English", "is_default" => true, "is_enabled" => true},
+          %{"code" => "et", "name" => "Estonian", "is_default" => false, "is_enabled" => true}
+        ]
+      }
+
+      Settings.update_json_setting("languages_config", config)
+      Languages.set_default_language_no_prefix(true)
+      :ok
+    end
+
+    test "/en-US/ reaches the clean URL in two hops, without a loop" do
+      first =
+        Auth.validate_and_set_locale(locale_conn("/phoenix_kit/en-US/users/log-in", "en-US"), [])
+
+      assert redirected_to(first) == "/phoenix_kit/en/users/log-in"
+
+      second = Auth.validate_and_set_locale(locale_conn("/phoenix_kit/en/users/log-in", "en"), [])
+      assert redirected_to(second) == "/phoenix_kit/users/log-in"
+
+      clean =
+        build_conn(:get, "/phoenix_kit/users/log-in")
+        |> Plug.Conn.fetch_query_params()
+        |> Auth.validate_and_set_locale([])
+
+      refute clean.halted
+      assert clean.assigns.current_locale == "en-US"
+    end
+  end
+
+  describe "sibling dialects whose owner is ambiguous" do
+    # en-GB is the site's primary language, so content (publishing) serves it
+    # at /en/, while core resolves /en/ to English's default dialect en-US.
+    # With the two disagreeing, redirecting either full code to /en/ would
+    # make that dialect unreachable on one of the surfaces — both are served.
+
+    setup do
+      config = %{
+        "languages" => [
+          %{
+            "code" => "en-GB",
+            "name" => "English (UK)",
+            "is_default" => true,
+            "is_enabled" => true
+          },
+          %{
+            "code" => "en-US",
+            "name" => "English (US)",
+            "is_default" => false,
+            "is_enabled" => true
+          }
+        ]
+      }
+
+      Settings.update_json_setting("languages_config", config)
+      :ok
+    end
+
+    test "both full codes are served as their own locale" do
+      for {segment, dialect} <- [{"en-gb", "en-GB"}, {"en-us", "en-US"}] do
+        conn =
+          Auth.validate_and_set_locale(locale_conn("/phoenix_kit/#{segment}/blog", segment), [])
+
+        refute conn.halted
+        assert conn.assigns.current_locale == dialect
+      end
+    end
+  end
+
+  describe "LiveView navigation to a full-dialect URL" do
+    # The `:current_page` handle_params hook applies the URL locale on live
+    # navigation; it follows the HTTP plug: a sibling dialect is its own
+    # locale, any other full dialect renders as its base.
+
+    setup do
+      config = %{
+        "languages" => [
+          %{"code" => "et", "name" => "Estonian", "is_default" => true, "is_enabled" => true},
+          %{
+            "code" => "en-US",
+            "name" => "English (US)",
+            "is_default" => false,
+            "is_enabled" => true
+          },
+          %{
+            "code" => "es-ES",
+            "name" => "Spanish (ES)",
+            "is_default" => false,
+            "is_enabled" => true
+          },
+          %{
+            "code" => "es-MX",
+            "name" => "Spanish (MX)",
+            "is_default" => false,
+            "is_enabled" => true
+          }
+        ]
+      }
+
+      Settings.update_json_setting("languages_config", config)
+      :ok
+    end
+
+    test "a sibling dialect becomes the locale" do
+      socket = navigate(mounted_socket(), "es-mx")
+
+      assert socket.assigns.current_locale == "es-MX"
+      assert socket.assigns.current_locale_base == "es"
+    end
+
+    test "navigating from a sibling to its base restores the base's dialect" do
+      socket = mounted_socket() |> navigate("es-mx") |> navigate("es")
+
+      assert socket.assigns.current_locale_base == "es"
+      assert socket.assigns.current_locale == "es-ES"
+      assert Languages.request_locale() == "es-ES"
+    end
+
+    test "a prefixless primary URL restores its dialect after visiting its sibling" do
+      config = %{
+        "languages" => [
+          %{"code" => "es-ES", "is_default" => true, "is_enabled" => true},
+          %{"code" => "es-MX", "is_default" => false, "is_enabled" => true}
+        ]
+      }
+
+      Settings.update_json_setting("languages_config", config)
+      Languages.set_default_language_no_prefix(true)
+      socket = mounted_socket() |> navigate("es-mx")
+      hook = Enum.find(socket.private.lifecycle.handle_params, &(&1.id == :current_page))
+      {:cont, socket} = hook.function.(%{}, "http://localhost/phoenix_kit/blog", socket)
+
+      assert socket.assigns.current_locale_base == "es"
+      assert socket.assigns.current_locale == "es-ES"
+      assert Languages.request_locale() == "es-ES"
+    end
+
+    test "a base's own dialect renders as its base" do
+      for segment <- ["en-US", "en-us"] do
+        socket = navigate(mounted_socket(), segment)
+
+        assert socket.assigns.current_locale_base == "en"
+        assert socket.assigns.current_locale == "en-US"
+      end
+
+      socket = mounted_socket() |> navigate("es-mx") |> navigate("es-ES")
+      assert socket.assigns.current_locale == "es-ES"
+    end
+
+    test "a dialect that is not enabled renders as its base, like the plug's redirect" do
+      socket = navigate(mounted_socket(), "en-GB")
+
+      assert socket.assigns.current_locale_base == "en"
+      assert socket.assigns.current_locale == "en-US"
+    end
   end
 
   describe "redirect_invalid_locale/2 and redirect_to_base_locale/2 — ROOT url_prefix" do
@@ -797,6 +1032,35 @@ defmodule PhoenixKit.Integration.Users.AuthLocaleTest do
       refute conn.halted
       assert conn.assigns.current_locale_base == "en"
     end
+  end
+
+  defp mounted_socket do
+    socket = %Phoenix.LiveView.Socket{
+      view: PhoenixKitWeb.Live.Users.Users,
+      assigns: %{__changed__: %{}, flash: %{}},
+      private: %{
+        connect_params: %{},
+        connect_info: %{uri: URI.parse("http://localhost/phoenix_kit/account")},
+        lifecycle: %Phoenix.LiveView.Lifecycle{},
+        live_temp: %{}
+      },
+      router: PhoenixKitWeb.Router
+    }
+
+    {:cont, socket} = Auth.on_mount(:phoenix_kit_mount_current_scope, %{}, %{}, socket)
+    socket
+  end
+
+  # Runs the `:current_page` handle_params hook the mount attached, as a live
+  # navigation to `/phoenix_kit/<locale>/blog` would.
+  defp navigate(socket, locale) do
+    %{function: hook} =
+      Enum.find(socket.private.lifecycle.handle_params, &(&1.id == :current_page))
+
+    {:cont, socket} =
+      hook.(%{"locale" => locale}, "http://localhost/phoenix_kit/#{locale}/blog", socket)
+
+    socket
   end
 
   defp build_invalid_locale_conn(path) do

@@ -50,6 +50,7 @@ defmodule PhoenixKit.Users.Auth.User do
           user_timezone: String.t() | nil,
           registration_ip: String.t() | nil,
           registration_country: String.t() | nil,
+          country: String.t() | nil,
           registration_region: String.t() | nil,
           registration_city: String.t() | nil,
           custom_fields: map() | nil,
@@ -81,6 +82,9 @@ defmodule PhoenixKit.Users.Auth.User do
     field :user_timezone, :string
     field :registration_ip, :string
     field :registration_country, :string
+    # Where the person lives / the company is based (ISO 3166-1 alpha-2); decides
+    # how dates are written for the account. See `PhoenixKit.Users.FormatCountry`.
+    field :country, :string
     field :registration_region, :string
     field :registration_city, :string
     field :custom_fields, :map, default: %{}
@@ -164,6 +168,7 @@ defmodule PhoenixKit.Users.Auth.User do
       :registration_country,
       :registration_region,
       :registration_city,
+      :country,
       :custom_fields,
       :account_type,
       :organization_name,
@@ -178,6 +183,8 @@ defmodule PhoenixKit.Users.Auth.User do
     |> validate_registration_fields()
     |> validate_custom_fields()
     |> validate_user_timezone()
+    |> validate_country()
+    |> start_country_from_registration()
     |> maybe_skip_names_for_organization()
     |> maybe_generate_username_from_email()
     |> set_default_active_status()
@@ -526,6 +533,7 @@ defmodule PhoenixKit.Users.Auth.User do
       :google_email,
       :username,
       :user_timezone,
+      :country,
       :organization_name
     ])
     |> validate_names()
@@ -533,6 +541,7 @@ defmodule PhoenixKit.Users.Auth.User do
     |> validate_google_email()
     |> validate_username(opts)
     |> validate_user_timezone()
+    |> validate_country()
     |> cast_user_custom_fields(attrs)
   end
 
@@ -1007,6 +1016,45 @@ defmodule PhoenixKit.Users.Auth.User do
   # Ensure username meets minimum length requirement
   defp ensure_minimum_username_length(username) when byte_size(username) >= 3, do: username
   defp ensure_minimum_username_length(username), do: username <> "_1"
+
+  # `country` is an ISO 3166-1 alpha-2 code known to BeamLabCountries, stored
+  # upper-case; blank means "not chosen" and is stored as nil.
+  defp validate_country(changeset) do
+    case get_change(changeset, :country) do
+      nil ->
+        changeset
+
+      code when is_binary(code) ->
+        case String.upcase(String.trim(code)) do
+          "" ->
+            put_change(changeset, :country, nil)
+
+          upcased ->
+            if BeamLabCountries.get(upcased) do
+              put_change(changeset, :country, upcased)
+            else
+              add_error(changeset, :country, "must be a valid country code")
+            end
+        end
+    end
+  end
+
+  # A new account starts with the country its registration came from, so the
+  # profile form opens on something sensible. Only a code the data set knows:
+  # `registration_country` is a GeoIP guess and may be junk.
+  defp start_country_from_registration(changeset) do
+    registration_country = get_change(changeset, :registration_country)
+
+    if is_nil(get_field(changeset, :country)) and is_binary(registration_country) do
+      upcased = registration_country |> String.trim() |> String.upcase()
+
+      if BeamLabCountries.get(upcased),
+        do: put_change(changeset, :country, upcased),
+        else: changeset
+    else
+      changeset
+    end
+  end
 
   # Validates user timezone offset is within acceptable range or nil
   defp validate_user_timezone(changeset) do

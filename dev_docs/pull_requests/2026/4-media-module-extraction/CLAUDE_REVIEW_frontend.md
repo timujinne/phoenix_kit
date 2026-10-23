@@ -62,7 +62,7 @@ close. Low-effort wins for keyboard/AT users.
 
 ### NITPICK — hardcoded `id="media-selector-modal-backdrop"`
 `media_selector_modal.html.heex:2` keeps a hardcoded element id (pre-existing, not
-introduced here). With Andi rendering one `MediaGallery` — hence one embedded
+introduced here). With the host app rendering one `MediaGallery` — hence one embedded
 `MediaSelectorModal` — per image slot, this is a duplicate-id hazard. In practice a
 modal opened via `showModal()` makes the rest of the page inert, so two pickers
 cannot be open at once and the collision never materialises. Still worth deriving

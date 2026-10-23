@@ -211,8 +211,9 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
         gettext_backend: PhoenixKitWeb.Gettext
       },
       # Operations from API keys that wait for a person (the approvals of the shop API).
-      # Gated on the `api` key like Settings -> API, which is opt-in for Admin; the number
-      # on it is read per viewer (`with_scope_badges/2`).
+      # Gated on the `api` key like Settings -> API, which is opt-in for Admin, and shown
+      # only while approvals are in use (`approvals_visible?/1`); the number on it is read
+      # per viewer (`with_scope_badges/2`).
       %Tab{
         id: :admin_approvals,
         label: gettext_noop("Approvals"),
@@ -221,6 +222,7 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
         priority: 255,
         level: :admin,
         permission: "api",
+        visible: &__MODULE__.approvals_visible?/1,
         match: :prefix,
         group: :admin_main,
         gettext_backend: PhoenixKitWeb.Gettext
@@ -530,6 +532,23 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
     error ->
       Logger.warning("[AdminTabs] settings_visible?/1 failed: #{Exception.message(error)}")
       false
+  end
+
+  @doc """
+  Visibility function for the Approvals tab: on while the site uses approvals
+  (`PhoenixKit.API.Approvals.in_use?/0`), so a site where no key asks for one has no
+  empty entry in the menu. A failed read shows the tab: the `api` permission still
+  gates it, and a pending approval must not drop out of sight.
+  """
+  @spec approvals_visible?(map() | nil) :: boolean()
+  def approvals_visible?(_scope) do
+    Approvals.in_use?()
+  rescue
+    error ->
+      Logger.warning("[AdminTabs] approvals_visible?/1 failed: #{LogSafe.exception_label(error)}")
+      true
+  catch
+    :exit, _reason -> true
   end
 
   @doc """

@@ -72,6 +72,8 @@ defmodule PhoenixKit.Settings.Setting do
     "site_url",
     "site_icon_file_uuid",
     "default_tab_title",
+    # Empty = no site default country; dates then follow `date_format`
+    "format_country",
     # Empty = core falls back to its own `/users/log-in`, which exists in every
     # install and every locale (see `Routes.main_page_path/0`).
     "main_page_path",
@@ -369,6 +371,7 @@ defmodule PhoenixKit.Settings.Setting do
       field :week_start_day, :string
       field :time_zone, :string
       field :date_format, :string
+      field :format_country, :string
       field :time_format, :string
       field :editor_default_mode, :string
       field :track_registration_geolocation, :string
@@ -439,6 +442,7 @@ defmodule PhoenixKit.Settings.Setting do
         :week_start_day,
         :time_zone,
         :date_format,
+        :format_country,
         :time_format,
         :editor_default_mode,
         :track_registration_geolocation,
@@ -483,6 +487,7 @@ defmodule PhoenixKit.Settings.Setting do
       |> validate_week_start_day()
       |> validate_timezone()
       |> validate_date_format()
+      |> validate_format_country()
       |> validate_time_format()
       |> validate_track_registration_geolocation()
       # Allowlist comes from the context's canonical mode list, so a new editor
@@ -635,6 +640,22 @@ defmodule PhoenixKit.Settings.Setting do
       validate_inclusion(changeset, :date_format, supported_formats,
         message: "must be one of the supported date formats"
       )
+    end
+
+    # Blank means "no site default country"; anything else must be a code
+    # BeamLabCountries knows.
+    defp validate_format_country(changeset) do
+      case get_change(changeset, :format_country) do
+        code when is_binary(code) and code != "" ->
+          if BeamLabCountries.get(String.upcase(code)) do
+            changeset
+          else
+            add_error(changeset, :format_country, "must be a valid country code")
+          end
+
+        _ ->
+          changeset
+      end
     end
 
     # Validates time format is one of the supported formats

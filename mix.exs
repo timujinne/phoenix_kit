@@ -333,6 +333,14 @@ defmodule PhoenixKit.MixProject do
       # six pixels when it panned — a viewer that reads as broken rather
       # than as slow.
       #
+      # 0.15 is a floor because the media viewer passes `pan_centre={:bounds}`
+      # (picture and ink framed as one, so the pencil does not move the
+      # picture) and its `ViewerGallery` hook calls `Fresco.gallery` (the
+      # Photos-style swipe between pictures; `gallery_mode` on the full-page
+      # media view) and `handle.isAtHome()`. Older fresco does not declare
+      # `pan_centre` (the host's compile warns), and `phoenix_kit.js` finds no
+      # `Fresco.gallery`, so the hook stays out and the viewer steps as before.
+      #
       # 0.14 is a floor because the media viewer passes `actual_size` (real-
       # pixel zoom: home is fit or 100%, whichever is smaller, with an
       # actual-size button and a zoom control), and relies on 0.14's dot grid
@@ -347,12 +355,15 @@ defmodule PhoenixKit.MixProject do
       # `invert_two_finger_pan`, the per-user "Invert two-finger pan" switch.
       # Older fresco does not declare the attributes, so the host's compile
       # warns and the viewer keeps the old column.
-      {:fresco, "~> 0.14.0"},
-      # 0.3.9 is the first tessera that admits fresco 0.14 (above): with an
-      # older one locked, `mix deps.update phoenix_kit` cannot resolve fresco
-      # 0.14 at all, and the failure names neither library.
-      {:tessera, "~> 0.3.9"},
-      {:etcher, "~> 0.22.0"},
+      {:fresco, "~> 0.15.0"},
+      # 0.3.10 is the first tessera that admits fresco 0.15 (above; 0.3.9
+      # was the first to admit 0.14): with an older one locked,
+      # `mix deps.update phoenix_kit` cannot resolve fresco 0.15 at all, and
+      # the failure names neither library. The same holds for etcher: 0.23 is
+      # the first that admits fresco 0.15 (it also brings a scaling and
+      # turning selection frame), so the etcher floor moves with fresco's.
+      {:tessera, "~> 0.3.10"},
+      {:etcher, "~> 0.23.0"},
 
       # QR device-handoff login ("scan to sign in" on the login page).
       #
@@ -437,7 +448,7 @@ defmodule PhoenixKit.MixProject do
       {:igniter, "~> 0.7", optional: true},
 
       # Language and country data
-      {:beamlab_countries, "~> 2.0"}
+      {:beamlab_countries, "~> 2.1"}
     ]
   end
 

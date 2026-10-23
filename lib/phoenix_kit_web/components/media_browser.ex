@@ -347,6 +347,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       # instead of the default fixed-height card. Used by the full-page
       # admin media view; modal/gallery embeds keep the bounded default.
       |> assign_new(:fill_height, fn -> false end)
+      # Gallery mode: swipe, drag or trackpad-scroll between pictures in the
+      # viewer, the next one sliding in beside the current (Fresco.gallery).
+      # Off by default while it settles; the full-page media view turns it on.
+      |> assign_new(:gallery_mode, fn -> false end)
       |> assign_new(:upload_in_flight, fn -> false end)
       |> assign_new(:upload_problems_session, fn -> [] end)
       |> close_upload_on_start()
@@ -3032,6 +3036,23 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   def handle_event("step_viewer", %{"dir" => "next"}, socket) do
     {:noreply, step_viewer(socket, :next) |> notify_viewer_nav()}
+  end
+
+  # The gallery settled on a picture (it slides there itself, and says so
+  # afterwards). Only a file of the list the viewer is stepping through. The
+  # hook asks again when it sees no sign the server followed, so naming the
+  # file already open is answered with nothing (no second URL announcement).
+  def handle_event("gallery_go", %{"uuid" => uuid}, socket) when is_binary(uuid) do
+    case socket.assigns[:viewer_file] do
+      %{file_uuid: ^uuid} ->
+        {:noreply, socket}
+
+      _ ->
+        case Enum.find(socket.assigns[:viewer_siblings] || [], &(&1.file_uuid == uuid)) do
+          nil -> {:noreply, socket}
+          file -> {:noreply, socket |> open_viewer(file) |> notify_viewer_nav()}
+        end
+    end
   end
 
   # Etcher annotation events + composer lifecycle are owned by the

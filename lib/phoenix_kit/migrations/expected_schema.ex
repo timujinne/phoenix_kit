@@ -202,6 +202,12 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # access to; the real-database integration suite re-ran clean against a DB
   # migrated through V196, which is the property s7/s8 exist to prove.
   #
+  # V221 (2026-10-23, a country on the user) DECLARES one object:
+  # `column:phoenix_kit_users.country` (varchar(2), nullable, no default), `pos` 25
+  # after V219's `api_only` at 24. Kept honest by
+  # `PhoenixKit.Migrations.Postgres.V221Test`, which runs the repair differ over every
+  # `since: 221` object of a freshly migrated database. `chain_hash` restamped.
+  #
   # V220 (2026-10-14, the dangerous-operation flow of the shop API) DECLARES 44
   # objects, built by the `v220_*` helpers under `raw_objects/0`: the tables
   # `phoenix_kit_api_confirmations` (19 columns, pkey, two foreign keys, three CHECKs,
@@ -608,7 +614,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "571a8a2328fa1eb8f1b989007bad2d5f7161dbda2f03ac3f7bb208d95918dace"
+  @chain_hash "3725aaa471cfceafbd3fe7ed4d50e41e1cc6b60c57e47c0c43234aedfa678d42"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)
@@ -76423,6 +76429,20 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
         revisions: [{219, %{default: "false", type: "boolean", pos: 24, not_null: true}}],
         presence: :required,
         backfill: :default
+      },
+      %{
+        id: "column:phoenix_kit_users.country",
+        owner: :core,
+        check: {:catalog, %{table: "phoenix_kit_users", column: "country", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_users ADD COLUMN IF NOT EXISTS \"country\" character varying(2)",
+        since: 221,
+        class: :column,
+        revisions: [
+          {221, %{default: nil, type: "character varying(2)", pos: 25, not_null: false}}
+        ],
+        presence: :required,
+        backfill: nil
       },
       %{
         id: "table:phoenix_kit_api_keys",

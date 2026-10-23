@@ -41,7 +41,7 @@ regresses the host configuration core's own release notes have been asking for
 
 | Host declares | Before #685 | After #685 (as merged) |
 |---|---|---|
-| `/` only (e.g. andi) | 404 — the bug | `/` ✔ the fix |
+| `/` only (e.g. the local host app) | 404 — the bug | `/` ✔ the fix |
 | `/` **and** `/:locale` | `/et` — locale kept | `/` — **language silently flips** |
 | `/:locale` only (documented advice) | `/et` ✔ | home page skipped entirely; anonymous chain terminates on `/users/log-in` |
 

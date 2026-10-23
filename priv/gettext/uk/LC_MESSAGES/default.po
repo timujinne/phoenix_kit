@@ -2075,7 +2075,7 @@ msgstr "Непідтверджений"
 #: lib/phoenix_kit/email/core_templates.ex:408
 #: lib/phoenix_kit/users/auth/user_notifier.ex:253
 #: lib/phoenix_kit_web/comments_gettext_manifest.ex:64
-#: lib/phoenix_kit_web/components/core/time_display.ex:183
+#: lib/phoenix_kit_web/components/core/time_display.ex:180
 #: lib/phoenix_kit_web/components/language_switcher.ex:832
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:108
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:249
@@ -5319,25 +5319,28 @@ msgstr "Термін дії минув"
 msgid "Transactional"
 msgstr "Транзакційний"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:206
+#: lib/phoenix_kit_web/components/core/time_display.ex:219
 #, elixir-autogen, elixir-format
 msgid "No expiration"
 msgstr "Без терміну дії"
 
 #: lib/phoenix_kit_web/components/core/date_nav.ex:138
 #: lib/phoenix_kit_web/components/core/date_nav.ex:141
-#: lib/phoenix_kit_web/components/core/time_display.ex:212
+#: lib/phoenix_kit_web/components/core/time_display.ex:225
 #: lib/phoenix_kit_web/live/notifications/inbox.ex:209
 #, elixir-autogen, elixir-format
 msgid "Today"
 msgstr "Сьогодні"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:187
+#: lib/phoenix_kit_web/components/core/time_display.ex:189
 #, elixir-autogen, elixir-format
 msgid "%{count}s ago"
-msgstr "%{count} с тому"
+msgid_plural "%{count}s ago"
+msgstr[0] "%{count} с тому"
+msgstr[1] "%{count} с тому"
+msgstr[2] "%{count} с тому"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:188
+#: lib/phoenix_kit_web/components/core/time_display.ex:192
 #, elixir-autogen, elixir-format
 msgid "%{count}m ago"
 msgid_plural "%{count}m ago"
@@ -5345,7 +5348,7 @@ msgstr[0] "%{count} хв тому"
 msgstr[1] "%{count} хв тому"
 msgstr[2] "%{count} хв тому"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:189
+#: lib/phoenix_kit_web/components/core/time_display.ex:195
 #, elixir-autogen, elixir-format
 msgid "%{count}h ago"
 msgid_plural "%{count}h ago"
@@ -5353,13 +5356,13 @@ msgstr[0] "%{count} год тому"
 msgstr[1] "%{count} год тому"
 msgstr[2] "%{count} год тому"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:190
+#: lib/phoenix_kit_web/components/core/time_display.ex:198
 #, elixir-autogen, elixir-format
 msgid "%{count}d ago"
 msgid_plural "%{count}d ago"
-msgstr[0] "%{count} дн. тому"
-msgstr[1] "%{count} дн. тому"
-msgstr[2] "%{count} дн. тому"
+msgstr[0] "%{count} день тому"
+msgstr[1] "%{count} дні тому"
+msgstr[2] "%{count} днів тому"
 
 #: lib/phoenix_kit_web/live/modules/languages.html.heex:57
 #, elixir-autogen
@@ -21395,3 +21398,34 @@ msgstr "Особисті SMTP-з’єднання можуть використ�
 #, elixir-autogen, elixir-format
 msgid "The SMTP host must resolve to a public address"
 msgstr "SMTP-сервер має вказувати на публічну адресу"
+
+#: lib/phoenix_kit_web/users/user_form.html.heex:272
+#: lib/phoenix_kit_web/live/components/user_settings.ex:1227
+#, elixir-autogen, elixir-format
+msgid "— Not set —"
+msgstr "— Не вказано —"
+
+#: lib/phoenix_kit_web/live/settings.html.heex:617
+#, elixir-autogen, elixir-format
+msgid "— None —"
+msgstr "— Немає —"
+
+#: lib/phoenix_kit_web/live/components/user_settings.ex:1231
+#, elixir-autogen, elixir-format
+msgid "Dates are written the way your country does."
+msgstr "Дати записуються так, як прийнято у вашій країні."
+
+#: lib/phoenix_kit_web/live/settings.html.heex:606
+#, elixir-autogen, elixir-format
+msgid "Default Country for Formats"
+msgstr "Країна за замовчуванням для форматів"
+
+#: lib/phoenix_kit_web/live/settings.html.heex:610
+#, elixir-autogen, elixir-format
+msgid "Dates follow each person's country. This one applies to anyone without a country and to signed-out visitors. Leave it empty to use the Date Format above for them."
+msgstr "Дати записуються за країною кожної людини. Ця країна застосовується до тих, у кого її немає, та до відвідувачів без входу в систему. Залиште порожнім, щоб для них використовувався формат дати, вибраний вище."
+
+#: lib/phoenix_kit_web/users/user_form.html.heex:277
+#, elixir-autogen, elixir-format
+msgid "Dates are written the way this country does. When empty, the company's country, the sign-up country and then the site default are used."
+msgstr "Дати записуються так, як прийнято в цій країні. Якщо поле порожнє, використовуються країна компанії, країна реєстрації, а потім країна сайту за замовчуванням."

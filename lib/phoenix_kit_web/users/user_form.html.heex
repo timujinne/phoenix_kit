@@ -264,6 +264,21 @@
               />
             </div>
 
+            <%!-- Country. Decides how dates are written for this account. --%>
+            <div class="fieldset">
+              <.select
+                field={form[:country]}
+                label={gettext("Country")}
+                prompt={gettext("— Not set —")}
+                options={@country_options}
+              />
+              <div class="text-xs text-base-content/60 mt-1">
+                {gettext(
+                  "Dates are written the way this country does. When empty, the company's country, the sign-up country and then the site default are used."
+                )}
+              </div>
+            </div>
+
             <%!-- Google Email. Where things are SHARED with this user through
                   Google, which need not be the address they sign in with. It
                   is not an identity: optional, not unique, and nothing

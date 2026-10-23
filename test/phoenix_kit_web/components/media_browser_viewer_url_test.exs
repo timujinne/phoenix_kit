@@ -204,6 +204,44 @@ defmodule PhoenixKitWeb.Components.MediaBrowserViewerUrlTest do
     assert socket.assigns.viewer_nav_echoes == ["img-b"]
   end
 
+  # ── Gallery mode: the strip settled, the hook names the file ─────────
+
+  test "gallery_go opens a file of the sibling list and announces it" do
+    {:noreply, socket} =
+      MediaBrowser.handle_event(
+        "gallery_go",
+        %{"uuid" => "img-b"},
+        controlled(%{viewer_file: @file_a, viewer_siblings: [@file_a, @file_b]})
+      )
+
+    assert socket.assigns.viewer_file.file_uuid == "img-b"
+    assert_received {MediaBrowser, "mb", {:navigate, %{file: "img-b"}}}
+  end
+
+  test "gallery_go names a file outside the sibling list: nothing opens, nothing is announced" do
+    {:noreply, socket} =
+      MediaBrowser.handle_event(
+        "gallery_go",
+        %{"uuid" => "elsewhere"},
+        controlled(%{viewer_file: @file_a, viewer_siblings: [@file_a, @file_b]})
+      )
+
+    assert socket.assigns.viewer_file.file_uuid == "img-a"
+    refute_received {MediaBrowser, _, {:navigate, _}}
+  end
+
+  test "gallery_go for the file already open is answered with nothing (the hook re-asks)" do
+    {:noreply, socket} =
+      MediaBrowser.handle_event(
+        "gallery_go",
+        %{"uuid" => "img-a"},
+        controlled(%{viewer_file: @file_a, viewer_siblings: [@file_a, @file_b]})
+      )
+
+    assert socket.assigns.viewer_file.file_uuid == "img-a"
+    refute_received {MediaBrowser, _, {:navigate, _}}
+  end
+
   test "an uncontrolled host hears nothing — local state only, as before" do
     {:noreply, _} =
       MediaBrowser.handle_event(

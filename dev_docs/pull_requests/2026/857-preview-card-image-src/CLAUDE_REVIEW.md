@@ -7,13 +7,13 @@
 `PreviewCard`'s `:images` entries may now be `%{src, name}` (optional
 `:thumb_src` for the jump strip) as well as Storage `%{uuid, name}`. A new
 public `image_url/2` picks the URL: `:thumb_src` for `"thumbnail"`, else
-`:src`, else a signed Storage URL. Motivating caller: Andi's
+`:src`, else a signed Storage URL. Motivating caller: a host app's
 `DocumentPreviewCard` (host-served document page thumbnails), which
 feature-detects the support.
 
 Verdict: sound, small, additive. `src` values go through HEEx attribute
 escaping; every existing caller (catalogue `ProductCard.resolve_images/1`,
-warehouse, Andi sub-order card) passes plain `%{uuid, name}` maps and hits
+warehouse, a host app's sub-order card) passes plain `%{uuid, name}` maps and hits
 the unchanged signed-URL clause.
 
 ## Findings

@@ -175,7 +175,7 @@ index 1e42f3d4..066d17b6 100644
 +  `opts[:down]` (default `quote(do: :ok)`) is the quoted down body.
 +  `opts[:disable_ddl_transaction]` (default `false`) mirrors the real
 +  files' own `@disable_ddl_transaction` declaration (both PK-generated
-+  update wrappers and Andi's byte-faithful V140 bridge migration set it).
++  update wrappers and the host app's byte-faithful V140 bridge migration set it).
 +
 +  [DB]
 +  """
@@ -299,7 +299,7 @@ index 494e8552..278990a6 100644
 @@ -279,8 +289,8 @@ defmodule PhoenixKit.Squash.Verify do
          id: "s5",
          spec: "S5",
-         title: "consumer wrapper replay (Andi 41-file set / synthetic pins / interleaved)",
+         title: "consumer wrapper replay (host-app 41-file set / synthetic pins / interleaved)",
 -        requires: [:squashed_registry, :db],
 -        run: &s5_stub/1
 +        requires: [:squashed_registry, :repair_engine, :generated_manifest, :db],
@@ -365,12 +365,12 @@ index 494e8552..278990a6 100644
    # ---------------------------------------------------------------------------
 -  # S5 — consumer wrapper replay (stub: fixtures are a P3 deliverable)
 +  # S5 — consumer wrapper replay (spec 8.2 S5 i-iv / 5.3; fixtures in
-+  # s5_fixtures.ex, mined from /www/app/priv/repo/migrations — never edited)
++  # s5_fixtures.ex, mined from <host-app>/priv/repo/migrations — never edited)
    # ---------------------------------------------------------------------------
  
 -  defp s5_stub(_ctx) do
 -    {:skip, "pending-p3-fixtures",
--     "wrapper-replay fixtures (Andi's real 41-file set, synthetic pinned chain " <>
+-     "wrapper-replay fixtures (the host app's real 41-file set, synthetic pinned chain " <>
 -       "[27,50,120,current], interleaved consumer migration, rollback round-trip) " <>
 -       "are built in P3 alongside the squash PR (spec S5 i-iv)"}
 +  defp s5_all(ctx) do
@@ -382,12 +382,12 @@ index 494e8552..278990a6 100644
 +    ])
 +  end
 +
-+  # (i) Realistic accumulated wrapper set: Andi's real 54-file shape (1
++  # (i) Realistic accumulated wrapper set: the host app's real 54-file shape (1
 +  # unpinned installer + 48 pinned update wrappers + 5 interleaved
 +  # consumer-authored migrations touching PK-owned tables), replayed in
 +  # their real chronological order against the NEW squashed chain. Oracle:
 +  # lands at the current comment, and `Repair.verify/1` reports the PK
-+  # schema itself fully conformant (exit 0) — Andi's own extra objects
++  # schema itself fully conformant (exit 0) — the host app's own extra objects
 +  # (markup_percentage, prefix, primary_supplier_uuid, the sample warehouse
 +  # table) are not PK-manifest objects, so they don't count against this;
 +  # a raw byte-dump comparison against a pristine install would need to
@@ -483,7 +483,7 @@ index 494e8552..278990a6 100644
 +  # phoenix_kit_catalogue_v013_base_price.exs (s5_wrapper_replay/1 proves
 +  # THAT one survives) — this is its unguarded sibling
 +  # (S5Fixtures.unguarded_price_rename/1), a synthetic negative fixture, not
-+  # a real Andi file. Oracle: raises, and the message actually names the
++  # a real host-app file. Oracle: raises, and the message actually names the
 +  # missing column (actionable), not an opaque crash.
 +  defp s5_interleaved_failure(ctx) do
 +    t = fresh_target(ctx, "s5_fail")

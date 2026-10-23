@@ -1045,7 +1045,10 @@ defmodule PhoenixKit.Utils.Routes do
   request and wrong for a link built outside one (an email, a background job, a
   script).
 
-  - `locale: "et"` — force this locale.
+  - `locale: "et"` — force this locale. A full dialect is emitted as the
+    segment the site serves it under (`Languages.url_locale_segment/1`):
+    `"en-US"` as `en` when it is English's only or primary dialect, an
+    enabled sibling such as `"en-GB"` as `en-gb`.
   - `locale: :none` — emit no locale segment at all. For anything that is not a
     page: assets, webhooks, `sitemap.xml`.
   - `locale: nil` or omitted — determine it from the current process.
@@ -1105,10 +1108,38 @@ defmodule PhoenixKit.Utils.Routes do
     case Keyword.fetch(opts, :locale) do
       {:ok, :none} -> :none
       {:ok, nil} -> determine_locale()
-      {:ok, locale_value} -> locale_value
+      {:ok, locale_value} -> url_locale(locale_value)
       :error -> determine_locale()
     end
   end
+
+  # An explicit full dialect goes into the URL in the shape the locale plug
+  # serves (`Languages.url_locale_segment/1`): its base code when it is the
+  # base's own dialect ("en-US" → "en" — the plug redirects /en-US/ there),
+  # its lowercase full code when it is an enabled sibling ("en-GB" → "en-gb"
+  # next to a primary en-US). Normalised before the prefixless-primary check,
+  # so "et-EE" on an et-primary prefixless site emits no segment at all.
+  # Without settings (a mix task, an unreachable database) the base code is
+  # the URL every locale-aware route accepts.
+  defp url_locale(locale) when is_binary(locale) do
+    cond do
+      not String.contains?(locale, "-") -> locale
+      mix_task_context?() -> DialectMapper.extract_base(locale)
+      true -> Languages.url_locale_segment(locale)
+    end
+  rescue
+    error ->
+      Logger.debug(fn ->
+        "[Routes] url_locale fell back to the base code for #{inspect(locale)}: " <>
+          Exception.message(error)
+      end)
+
+      DialectMapper.extract_base(locale)
+  catch
+    :exit, _ -> DialectMapper.extract_base(locale)
+  end
+
+  defp url_locale(locale), do: locale
 
   defp build_path_with_locale(base_path, url_path, :none), do: "#{base_path}#{url_path}"
 
@@ -1363,6 +1394,7 @@ defmodule PhoenixKit.Utils.Routes do
     url_prefix = Config.get_url_prefix()
     base_prefix = if url_prefix == "/", do: "", else: url_prefix
     url_path = apply_admin_segment(url_path)
+    locale = url_locale(locale)
 
     if prefixless_locale?(locale) do
       "#{base_prefix}#{url_path}"

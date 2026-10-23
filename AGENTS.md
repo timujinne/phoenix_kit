@@ -76,6 +76,7 @@ Var name = dep app upper-cased + `_PATH`; unset = published Hex pin (`mix hex.pu
 - Schemas use `@primary_key {:uuid, UUIDv7, autogenerate: true}`
 - New migrations use `uuid_generate_v7()` (NOT `gen_random_uuid()`)
 - Oban-style versioned migrations in `lib/phoenix_kit/migrations/postgres/`
+- Every edit to `v*.ex`, including comments, changes the manifest's `chain_hash`. For schema-neutral edits, run `mix run dev_docs/squash/restamp_chain_hash.exs --restamp` after `mix format`, then run the release-check tests. For schema changes and manifest verification, follow the [manifest regeneration policy](dev_docs/squash/README.md#manifest--reference-policy-regenerate-never-hand-merge).
 
 ### Prefix-safe migrations (named-schema installs)
 
@@ -189,7 +190,7 @@ Keys, tools and the REST endpoints modules plug into. Full reference: `dev_docs/
 - ⚠️ **Confirmation and idempotency state lives in the database** (`phoenix_kit_api_confirmations`, `phoenix_kit_api_idempotency`) and every transition is one atomic statement (`UPDATE ... WHERE status = ... `, `INSERT ... ON CONFLICT DO NOTHING`). Do not replace one of them with read-then-write.
 - ⚠️ **An answer with a credential is never stored for replay** (`Idempotency.credential_bearing?/1`): name secret fields `*_token` (core's rule is `Auth.credential_name?/1`) or list them in the tool's `credentials`; a write tool whose answer always carries one declares `replay: false` (`PhoenixKit.API.Tool`), or it keeps advertising an `idempotency_key` it cannot honour. Feature-detect `replay:` on a core that may be older: `Code.ensure_loaded?(PhoenixKit.API.ControlFields) and function_exported?(PhoenixKit.API.ControlFields, :replay_tool?, 1)`.
 - **The log of the flow follows `LogSafe`:** no confirmation code, idempotency key, tool input or approval preview in a log line.
-- **Approvals** run through `PhoenixKit.API.Approvals` only; the approvals page (`PhoenixKitWeb.Live.Approvals`, `/admin/approvals`, a menu entry for `api` holders whose badge is counted per viewer by `AdminTabs.with_scope_badges/2`; the preview is read by `PhoenixKit.API.Approvals.View`) re-reads the person's rights with `PhoenixKit.API.Access.fresh_scope/1` on every event, as Settings -> API does. A new admin page for the API uses `Access`, not a private copy.
+- **Approvals** run through `PhoenixKit.API.Approvals` only; the approvals page (`PhoenixKitWeb.Live.Approvals`, `/admin/approvals`, a menu entry for `api` holders, shown only while `Approvals.in_use?/0`, whose badge is counted per viewer by `AdminTabs.with_scope_badges/2`; the preview is read by `PhoenixKit.API.Approvals.View`) re-reads the person's rights with `PhoenixKit.API.Access.fresh_scope/1` on every event, as Settings -> API does. A new admin page for the API uses `Access`, not a private copy.
 - **New cron workers** go into three places of `lib/phoenix_kit/install/oban_config.ex` (the generated crontab, the manual instructions, `@worker_cron_entries`) and into `config/config.exs`; `oban_cron_backfill_sync_test.exs` fails when they disagree.
 
 ## External Module Packages

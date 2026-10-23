@@ -2,6 +2,17 @@
 
 ### Changed
 
+- **Dates follow the viewer's country (`PhoenixKit.Users.FormatCountry`).** Where a date is shown in "the user's format"
+  (`Utils.Date.format_date_with_user_format/1`, `format_datetime_with_user_format/1`, `format_datetime_full_with_user_format/1`,
+  `format_date_with_cached_settings/2`, `format_datetime_with_cached_settings/2`, and the `*_with_user_timezone` /
+  `*_with_user_timezone_cached` ones for the user they are given) a country now wins over the site-wide `date_format`:
+  `09.11.2026` for a German viewer, `09/11/2026` for a British one, `11/9/2026` for an American. It is written by
+  `BeamLabCountries.Formats.format_date/2` (`beamlab_countries` ~> 2.1). Nobody with a country, and no site default country, sees `date_format` exactly
+  as before, so nothing changes on upgrade until users get a country. The viewer is set when the scope is mounted (the
+  `fetch_phoenix_kit_current_*` plugs and the `mount_phoenix_kit_current_*` hooks) and resolved on first use. The time format
+  and the date picker (`<.date_input>`, which parses what is typed) still follow the settings. `Utils.Date.format_date/2`
+  also accepts `{:country, "DE"}` as a format.
+
 - **The profile's Media tab is rebuilt on core's own components.** The libraries are a `table_default` (name with its
   Default badge, where it is stored, visibility: Public or Private) with the usual toolbar (count, **Create library**) and a ⋮ row
   menu (Open, Rename, Make default, Members, Renditions, Trash; Leave for a shared one), as the Integrations tab. Rename,
@@ -16,8 +27,24 @@
   provider, region or endpoint sent anyway wins over the integration's.
 - **`Profiles.user_storage_for/1`** adds `buckets` (every one of the user's buckets, main first) beside `bucket`; `mode` is
   `:only` when one of them is the primary. **`Profiles.create_user_profile/3`** takes a bucket or a list.
+- **The admin menu offers Approvals only while the site uses them** (`AdminTabs.approvals_visible?/1`,
+  `Approvals.in_use?/0`): a key that is not revoked or expired (a revocation or expiry still in the future does not count as
+  one) is marked "requires approval", or an approval of any status is still kept. A site where no key asks for approval no
+  longer shows an empty entry; `/admin/approvals` itself and the link on Settings -> API answer as before.
 
 ### Added
+
+- **A country on the user (V221, `phoenix_kit_users.country`).** The ISO 3166-1 alpha-2 code of a person's or a company
+  account's country, checked against `BeamLabCountries` and stored upper-case. Editable on the profile page and on the admin
+  user form, shown on the user details page. A new account starts with its `registration_country` when that is a known code;
+  nothing is backfilled for existing accounts (the resolver falls back to `registration_country` at read time). `country` is
+  deliberately **not** in `Auth.updatable_profile_fields/0`, so a host's custom field named `country` stays a custom field.
+- **`FormatCountry.resolve/1`:** the country whose formats a user reads: their own `country`, else their company's
+  (`organization_uuid`), else `registration_country`, else the site default; a source holding an unknown code is skipped.
+  `for_user/1`, `viewer/0` and `put_viewer/1` serve the date helpers; a host rendering for someone other than the process's
+  viewer (an email) calls `for_user/1`.
+- **Settings -> General -> "Default Country for Formats" (`format_country`).** The country used for visitors and accounts
+  with none of their own. Empty by default: they keep the Date Format setting.
 
 - **A library can use several of the user's integrations (V206 storage).** In "only here" the first is the main storage and
   the others hold a copy of every file (never served); in "the site's storage, backed up here" each is a backup. Up to
@@ -82,6 +109,13 @@
   (`TileSource`), and cuts every tile from it.
 - **`POST /api/upload` takes HEIC, HEIF, AVIF, TIFF and BMP** (it turned them away as "not allowed"), and its size cap follows the
   `storage_max_upload_size_mb` setting (default 500) instead of a fixed 100 MB.
+- **`<.time_ago>` reads in the user's language.** Its `TimeAgo` client hook rewrote the text in English once the page was
+  live; the component now has no hook and is rendered by the server alone, with `ngettext` plural forms ("1 день назад",
+  "2 дня назад", "5 дней назад"; "1 päev tagasi", "3 päeva tagasi"). The tooltip is the moment in the site time zone as
+  `YYYY-MM-DD HH:MM` instead of an English date in UTC. A moment ahead of the clock reads "0s ago". The text no longer
+  ticks in the browser; it is what it was at the last render. The hook stays in `phoenix_kit.js` for host markup that uses
+  `phx-hook="TimeAgo"` directly. i18n: `"%{count}s ago"` is a plural entry in every catalogue; the day forms in et, ru, uk
+  and pl are full words with their plural forms.
 
 ## 2.63.0 - 2026-10-17
 

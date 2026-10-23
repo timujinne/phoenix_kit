@@ -67,6 +67,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   alias PhoenixKit.Modules.Maintenance
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.{Scope, User}
+  alias PhoenixKit.Users.FormatCountry
   alias PhoenixKit.Users.LoginAlerts
   alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Users.Referrals
@@ -485,6 +486,7 @@ defmodule PhoenixKitWeb.Users.Auth do
 
     # Check if user is active using centralized function
     active_user = Auth.ensure_active_user(user)
+    FormatCountry.put_viewer(active_user)
 
     assign(conn, :phoenix_kit_current_user, active_user)
   end
@@ -565,6 +567,8 @@ defmodule PhoenixKitWeb.Users.Auth do
       | multi_session_accounts: multi_session_accounts,
         multi_session_allowed?: multi_session_allowed?
     }
+
+    FormatCountry.put_viewer(active_user)
 
     conn
     |> assign(:phoenix_kit_current_user, active_user)
@@ -1384,9 +1388,6 @@ defmodule PhoenixKitWeb.Users.Auth do
 
   # Update locale assigns when navigating to a URL with a locale param
   defp maybe_update_locale_from_params(socket, %{"locale" => locale}) when is_binary(locale) do
-    # Only update if locale actually changed
-    current_base = socket.assigns[:current_locale_base]
-
     cond do
       # A single-language site renders every URL in its primary language —
       # the HTTP plug's `process_valid_locale/2` does the same on the dead
@@ -1394,11 +1395,11 @@ defmodule PhoenixKitWeb.Users.Auth do
       single_language?() ->
         maybe_update_locale_from_params(socket, %{})
 
-      # Full-dialect URL (/en-GB/): the HTTP plug accepts these via the
-      # enabled-languages list, so the LiveView lifecycle must too — a
-      # base-only guard made live navigation ignore them and snapped a
-      # dead render's dialect back to the default on WS connect.
-      dialect = String.contains?(locale, "-") && enabled_full_dialect(locale) ->
+      # Sibling-dialect URL (/en-gb/): the HTTP plug serves these, so the
+      # LiveView lifecycle must too — a base-only guard made live navigation
+      # ignore them and snapped a dead render's dialect back to the default
+      # on WS connect.
+      dialect = String.contains?(locale, "-") && sibling_dialect(locale) ->
         if socket.assigns[:current_locale] == dialect do
           socket
         else
@@ -1409,7 +1410,18 @@ defmodule PhoenixKitWeb.Users.Auth do
           |> Phoenix.Component.assign(:current_locale, dialect)
         end
 
-      current_base != locale and DialectMapper.valid_base_code?(locale) ->
+      # Any other full dialect (/en-US/ when en-US owns /en/) is one the HTTP
+      # plug redirects to its base URL — render it as that base would.
+      String.contains?(locale, "-") ->
+        base = DialectMapper.extract_base(locale)
+
+        if DialectMapper.valid_base_code?(base) and locale_allowed?(base),
+          do: update_locale_from_base(socket, base),
+          else: socket
+
+      # A sibling and its base share current_locale_base; resolve the full
+      # dialect even when the base is unchanged (es-MX -> /es/ -> es-ES).
+      DialectMapper.valid_base_code?(locale) ->
         update_locale_from_base(socket, locale)
 
       true ->
@@ -1428,15 +1440,13 @@ defmodule PhoenixKitWeb.Users.Auth do
   # the special case restores the URL-is-authoritative semantics.
   defp maybe_update_locale_from_params(socket, _params) do
     default_base = Routes.get_default_admin_locale()
-    current_base = socket.assigns[:current_locale_base]
+    default_dialect = resolve_active_dialect(default_base)
 
-    if current_base == default_base do
+    if socket.assigns[:current_locale] == default_dialect do
       socket
     else
       # URL-driven dialect (see sibling clause above for the rationale —
       # `preferred_locale` is intentionally ignored for routing).
-      default_dialect = resolve_active_dialect(default_base)
-
       put_gettext_locale(default_dialect, socket.view)
 
       socket
@@ -1469,14 +1479,19 @@ defmodule PhoenixKitWeb.Users.Auth do
     # reload the user THROUGH it (`refresh_scope_assigns/1`): the role a
     # session acts as rides on the token (`PhoenixKit.Users.ActiveRole`), and
     # a reload by uuid would drop it. Server-side only; never rendered.
+    socket =
+      socket
+      |> Phoenix.Component.assign_new(:phoenix_kit_session_token, fn -> session["user_token"] end)
+      |> Phoenix.Component.assign_new(:phoenix_kit_current_user, fn ->
+        case session["user_token"] do
+          nil -> nil
+          user_token -> get_active_user_from_token(user_token)
+        end
+      end)
+
+    # Dates follow the viewer's country, as strings follow their language.
+    FormatCountry.put_viewer(socket.assigns.phoenix_kit_current_user)
     socket
-    |> Phoenix.Component.assign_new(:phoenix_kit_session_token, fn -> session["user_token"] end)
-    |> Phoenix.Component.assign_new(:phoenix_kit_current_user, fn ->
-      case session["user_token"] do
-        nil -> nil
-        user_token -> get_active_user_from_token(user_token)
-      end
-    end)
   end
 
   # Guarded like the locale, scope-refresh and timezone hooks: LiveView raises
@@ -3502,13 +3517,14 @@ defmodule PhoenixKitWeb.Users.Auth do
           single_language?() ->
             process_single_language_locale(conn, locale)
 
-          # An ENABLED full dialect ("en-gb"/"en-GB" with en-GB enabled) is a
-          # real localized URL — publishing's sibling-dialect URLs (two
-          # enabled dialects of one base, the non-primary one addressed by
-          # its lowercase full code) depend on this branch. Only exact
-          # enabled membership qualifies, matched case-insensitively; every
-          # other hyphenated segment keeps the historical redirect to base.
-          dialect = enabled_full_dialect(locale) ->
+          # An enabled SIBLING dialect ("en-gb"/"en-GB" with en-GB enabled
+          # next to a primary en-US) is a real localized URL — publishing's
+          # sibling-dialect URLs (two enabled dialects of one base, the
+          # non-primary one addressed by its lowercase full code) depend on
+          # this branch. Matched case-insensitively. Every other hyphenated
+          # segment — including the base's own dialect ("en-US" when it owns
+          # /en/) — is redirected to its base below.
+          dialect = sibling_dialect(locale) ->
             process_enabled_dialect_locale(conn, dialect)
 
           # Check if this is a full dialect code (contains hyphen) → redirect to base
@@ -3783,27 +3799,26 @@ defmodule PhoenixKitWeb.Users.Auth do
     language_enabled?(base_code)
   end
 
-  # The stored-case enabled code for a hyphenated URL segment ("en-gb" →
-  # "en-GB"), nil when the segment isn't an enabled dialect. An empty
-  # enabled list means the Languages module is effectively off — fall
-  # through to the historical hyphen→base redirect rather than accepting
-  # arbitrary dialects.
-  defp enabled_full_dialect(locale) do
-    if String.contains?(locale, "-") do
-      down = String.downcase(locale)
-
-      Enum.find_value(Languages.get_enabled_languages(), fn lang ->
-        if String.downcase(lang.code) == down, do: lang.code
-      end)
+  # The stored-case code of an enabled SIBLING dialect named by a hyphenated
+  # URL segment ("en-gb" → "en-GB"), nil otherwise. Only a dialect that does
+  # not own its base's URLs is addressed by its full code
+  # (`Languages.url_locale_segment/1`); the base's own dialect ("en-US" when
+  # it is the only or primary English) and any dialect that isn't enabled
+  # get nil and take the redirect to the base. An empty enabled list means
+  # the Languages module is effectively off — nil too.
+  defp sibling_dialect(locale) do
+    case Languages.resolve_url_locale(locale) do
+      {:sibling, dialect} -> dialect
+      {:base, _base} -> nil
     end
   end
 
-  # Mirrors the else-branch of process_valid_locale/2 for an exact enabled
+  # Mirrors the else-branch of process_valid_locale/2 for an enabled sibling
   # dialect: the URL already names the full dialect, so there is nothing to
   # resolve — set Gettext and expose base + full on the conn. The
-  # prefixless-primary redirect never applies here: only non-primary
-  # siblings are addressed by full-code URLs (the primary's URLs stay
-  # base-coded), so a dialect segment is never the default locale.
+  # prefixless-primary redirect never applies here: `sibling_dialect/1` only
+  # lets non-primary siblings through (the primary's full code is redirected
+  # to its base URL), so a dialect segment is never the default locale.
   defp process_enabled_dialect_locale(conn, dialect) do
     put_gettext_locale(dialect)
 
@@ -4045,7 +4060,10 @@ defmodule PhoenixKitWeb.Users.Auth do
   This function handles backward compatibility by redirecting old URLs with
   full dialect codes (en-US, es-MX) to the new simplified base code URLs (en, es).
 
-  Sends a **302**. The docs here used to promise a 301, and the call passed
+  Sends a **302** for GET/HEAD and a **307** for any other method, which keeps
+  the method and body: a form posted to the full-dialect URL of a base's own
+  dialect (`/en-US/users/log-in` when en-US is the only English) still
+  reaches its handler. The docs here used to promise a 301, and the call passed
   `status: 301` — but `Phoenix.Controller.redirect/2` sends
   `conn.status || 302` and ignores an `:status` option, so no 301 was ever
   emitted. The option has been removed rather than made real: a cached
@@ -4065,7 +4083,7 @@ defmodule PhoenixKitWeb.Users.Auth do
 
   - Query parameters preserved (via `with_query_string/2` — they were not,
     before: this rebuilds a path, and `conn.request_path` stops at the "?")
-  - Request method unchanged (GET → GET)
+  - Request method unchanged (GET → GET via 302, POST → POST via 307)
   - Full path structure maintained
 
   URL fragments are NOT preserved, and cannot be: a fragment never leaves
@@ -4112,6 +4130,7 @@ defmodule PhoenixKitWeb.Users.Auth do
         """)
 
         conn
+        |> keep_method_on_redirect()
         |> Phoenix.Controller.redirect(to: with_query_string(corrected_path, conn))
         |> halt()
 

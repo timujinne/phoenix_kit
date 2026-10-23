@@ -14,8 +14,10 @@ defmodule PhoenixKitWeb.Users.UserForm do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.CustomFields
+  alias PhoenixKit.Users.FormatCountry
   alias PhoenixKit.Users.Invitations
   alias PhoenixKit.Users.Roles
+  alias PhoenixKit.Utils.CountryData
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
 
@@ -73,6 +75,7 @@ defmodule PhoenixKitWeb.Users.UserForm do
       |> assign(:pending_roles, [])
       |> assign(:default_role, default_role)
       |> assign(:timezone_options, timezone_options)
+      |> assign(:country_options, CountryData.countries_for_select())
       |> assign(:show_media_selector, false)
       |> assign(:pending_avatar_file_uuid, nil)
       |> assign(:avatar_changed, false)
@@ -810,9 +813,13 @@ defmodule PhoenixKitWeb.Users.UserForm do
       {:ok, updated_user} ->
         admin = socket.assigns[:phoenix_kit_current_user]
 
+        # An admin editing their own record reads dates by it from the next render.
+        if admin && admin.uuid == updated_user.uuid, do: FormatCountry.put_viewer(updated_user)
+
         # Build a changeset from old→new to detect what changed
         # Dynamically compare all profile fields instead of hardcoding
-        profile_fields = ~w(email google_email username first_name last_name user_timezone)a
+        profile_fields =
+          ~w(email google_email username first_name last_name user_timezone country)a
 
         new_values =
           profile_fields

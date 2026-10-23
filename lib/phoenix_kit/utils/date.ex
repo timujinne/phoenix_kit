@@ -45,6 +45,17 @@ defmodule PhoenixKit.Utils.Date do
       PhoenixKit.Utils.Date.get_date_examples(Date.utc_today())
       # => %{"Y-m-d" => "2025-09-02", "F j, Y" => "September 2, 2025", ...}
 
+  ## Country formats
+
+  Wherever a date is shown in "the user's format", a country wins over the
+  `date_format` setting: `BeamLabCountries.Formats.format_date/2` writes it the
+  way that country does (`09.11.2026` for DE, `11/9/2026` for US). The Settings-aware
+  functions without a user follow the viewer of the process
+  (`PhoenixKit.Users.FormatCountry`); the ones that take a user follow that
+  user. When no country resolves, the `date_format` setting applies as before.
+  A format may also be given as `{:country, "DE"}` anywhere a PHP-style format
+  string is accepted by `format_date/2`.
+
   ## Implementation
 
   This module uses Elixir's built-in Calendar.strftime for robust date/time formatting
@@ -53,9 +64,9 @@ defmodule PhoenixKit.Utils.Date do
 
   use Gettext, backend: PhoenixKitWeb.Gettext
 
-  alias PhoenixKit.Utils.TimeZone
-
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.FormatCountry
+  alias PhoenixKit.Utils.TimeZone
 
   @doc """
   Returns current UTC time truncated to second precision.
@@ -180,6 +191,10 @@ defmodule PhoenixKit.Utils.Date do
       iex> PhoenixKit.Utils.Date.format_date(~D[2024-01-15], "F j, Y")
       "January 15, 2024"
   """
+  def format_date(date, {:country, code}) do
+    BeamLabCountries.Formats.format_date(code, date) || format_date(date, "Y-m-d")
+  end
+
   def format_date(date, format) do
     strftime_format = convert_php_to_strftime(format, :date)
     Calendar.strftime(date, strftime_format)
@@ -352,6 +367,29 @@ defmodule PhoenixKit.Utils.Date do
     ]
   end
 
+  ## Country formats
+  ## The country, when one resolves, replaces the `date_format` setting.
+
+  @doc """
+  The date format the viewer of this process reads: `{:country, code}` when the
+  viewer's country (or the site default) is known, else `setting_format`, the
+  site-wide `date_format`.
+  """
+  @spec viewer_date_format(String.t()) :: String.t() | {:country, String.t()}
+  def viewer_date_format(setting_format),
+    do: country_format(FormatCountry.viewer(), setting_format)
+
+  @doc """
+  As `viewer_date_format/1`, for `user` instead of the viewer.
+  """
+  @spec user_date_format(PhoenixKit.Users.Auth.User.t() | term(), String.t()) ::
+          String.t() | {:country, String.t()}
+  def user_date_format(user, setting_format),
+    do: country_format(FormatCountry.for_user(user), setting_format)
+
+  defp country_format(nil, setting_format), do: setting_format
+  defp country_format(code, _setting_format), do: {:country, code}
+
   ## Settings-Aware Functions
   ## These functions automatically load format preferences from Settings.
   ## An instant (a `DateTime`, or a `NaiveDateTime`, read as UTC) is shown in
@@ -374,7 +412,7 @@ defmodule PhoenixKit.Utils.Date do
       "Never"
   """
   def format_datetime_with_user_format(datetime) do
-    date_format = Settings.get_setting("date_format", "Y-m-d")
+    date_format = viewer_date_format(Settings.get_setting("date_format", "Y-m-d"))
     format_datetime(in_site_zone(datetime), date_format)
   end
 
@@ -390,7 +428,7 @@ defmodule PhoenixKit.Utils.Date do
       "January 15, 2024"  # If user has "F j, Y" format selected
   """
   def format_date_with_user_format(date) do
-    date_format = Settings.get_setting("date_format", "Y-m-d")
+    date_format = viewer_date_format(Settings.get_setting("date_format", "Y-m-d"))
     format_date(in_site_zone(date), date_format)
   end
 
@@ -446,7 +484,7 @@ defmodule PhoenixKit.Utils.Date do
       "Never"
   """
   def format_datetime_full_with_user_format(datetime) do
-    date_format = Settings.get_setting("date_format", "Y-m-d")
+    date_format = viewer_date_format(Settings.get_setting("date_format", "Y-m-d"))
     time_format = Settings.get_setting("time_format", "H:i")
     format_datetime_full(in_site_zone(datetime), date_format, time_format)
   end
@@ -468,7 +506,7 @@ defmodule PhoenixKit.Utils.Date do
       "2024-01-15"  # System default format
   """
   def format_datetime_with_user_timezone(datetime, user) do
-    date_format = Settings.get_setting("date_format", "Y-m-d")
+    date_format = user_date_format(user, Settings.get_setting("date_format", "Y-m-d"))
     format_datetime_with_timezone(datetime, date_format, user)
   end
 
@@ -485,7 +523,7 @@ defmodule PhoenixKit.Utils.Date do
       "January 15, 2024"  # If user has "F j, Y" format selected
   """
   def format_date_with_user_timezone(date, user) do
-    date_format = Settings.get_setting("date_format", "Y-m-d")
+    date_format = user_date_format(user, Settings.get_setting("date_format", "Y-m-d"))
     format_date_with_timezone(date, date_format, user)
   end
 
@@ -749,7 +787,7 @@ defmodule PhoenixKit.Utils.Date do
   def format_datetime_with_cached_settings(nil, _settings), do: "Never"
 
   def format_datetime_with_cached_settings(datetime, settings) do
-    date_format = Map.get(settings, "date_format", "Y-m-d")
+    date_format = viewer_date_format(Map.get(settings, "date_format", "Y-m-d"))
     date = datetime |> in_zone(Map.get(settings, "time_zone")) |> NaiveDateTime.to_date()
     format_date(date, date_format)
   end
@@ -766,7 +804,7 @@ defmodule PhoenixKit.Utils.Date do
       "January 15, 2024"
   """
   def format_date_with_cached_settings(date, settings) do
-    date_format = Map.get(settings, "date_format", "Y-m-d")
+    date_format = viewer_date_format(Map.get(settings, "date_format", "Y-m-d"))
     format_date(in_zone(date, Map.get(settings, "time_zone")), date_format)
   end
 
@@ -800,7 +838,7 @@ defmodule PhoenixKit.Utils.Date do
       "January 15, 2024"
   """
   def format_datetime_with_user_timezone_cached(datetime, user, settings) do
-    date_format = Map.get(settings, "date_format", "Y-m-d")
+    date_format = user_date_format(user, Map.get(settings, "date_format", "Y-m-d"))
     format_datetime_with_timezone_cached(datetime, date_format, user, settings)
   end
 
@@ -815,7 +853,7 @@ defmodule PhoenixKit.Utils.Date do
       "January 15, 2024"
   """
   def format_date_with_user_timezone_cached(date, user, settings) do
-    date_format = Map.get(settings, "date_format", "Y-m-d")
+    date_format = user_date_format(user, Map.get(settings, "date_format", "Y-m-d"))
     format_date_with_timezone_cached(date, date_format, user, settings)
   end
 

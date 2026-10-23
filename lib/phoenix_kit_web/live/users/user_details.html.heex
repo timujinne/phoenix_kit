@@ -287,6 +287,14 @@
                     </label>
                     <p class="text-base-content">{format_timezone(@user.user_timezone)}</p>
                   </div>
+                  <div>
+                    <label class="text-sm font-medium text-base-content/70">
+                      {gettext("Country")}
+                    </label>
+                    <p class="text-base-content">
+                      {CountryData.country_name(@user.country) || gettext("Not set")}
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
