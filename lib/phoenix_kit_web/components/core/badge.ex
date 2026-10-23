@@ -253,6 +253,7 @@ defmodule PhoenixKitWeb.Components.Core.Badge do
   defp status_class("approved"), do: "badge-info"
   defp status_class("pending_approval"), do: "badge-warning"
   defp status_class("revoked"), do: "badge-ghost"
+  defp status_class("ending"), do: "badge-warning"
   defp status_class("loading"), do: "badge-ghost animate-pulse"
   defp status_class("offline"), do: "badge-warning"
   defp status_class("not_found"), do: "badge-error"

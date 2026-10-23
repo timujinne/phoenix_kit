@@ -70,6 +70,7 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
     room to spare. Browsers without `dvh` keep the `vh` line.
   - `class` - Additional CSS classes for the modal box
   - `backdrop_class` - Additional CSS classes for the backdrop
+  - `actions_class` - Additional CSS classes for the actions row, e.g. `"flex-wrap"`
   - `closeable` - Whether the modal can be closed via backdrop/escape (default: true)
   - `placement` - `:center` (default) or `:end` — a full-height drawer sliding in from the right edge, for forms opened over the page they belong to
   - `close_guard` - what Esc and the backdrop do once the user has typed into a submittable form inside the dialog: `:confirm` (default) refuses the first attempt and closes on a second within a few seconds; `:input` makes them no-ops on the client for as long as a field differs from its rendered default; `nil` turns the guard off
@@ -93,6 +94,12 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
   attr :max_height, :string, default: "70vh"
   attr :class, :string, default: ""
   attr :backdrop_class, :string, default: ""
+
+  attr :actions_class, :string,
+    default: nil,
+    doc:
+      "Extra classes on the actions row (daisyUI's `modal-action`), e.g. `\"flex-wrap\"` so long button labels drop onto a second line on a narrow screen instead of running past the box."
+
   attr :closeable, :boolean, default: true
 
   attr :placement, :atom,
@@ -190,7 +197,11 @@ defmodule PhoenixKitWeb.Components.Core.Modal do
 
           <%!-- Actions --%>
           <%= if @actions != [] do %>
-            <div class="modal-action flex-shrink-0 mt-4">
+            <div class={
+              if @actions_class,
+                do: "modal-action flex-shrink-0 mt-4 #{@actions_class}",
+                else: "modal-action flex-shrink-0 mt-4"
+            }>
               {render_slot(@actions)}
             </div>
           <% end %>

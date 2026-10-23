@@ -919,6 +919,46 @@ defmodule PhoenixKit.ModuleRegistry do
   end
 
   @doc """
+  Every registered module that declares at least one valid API tool, switched on or off, in
+  registration order: `%{module, key, name, enabled?, tools}`, where `tools` are its tools
+  tagged with `:module` (validated as in `all_api_tools/1`) and `key` is `nil` for a module
+  without a usable `module_key/0`.
+
+  For enumeration only (what could be offered, and what keeps it closed); it is not a gate:
+  `PhoenixKit.API.Registry` decides what is callable.
+  """
+  @spec api_module_tools() :: [
+          %{
+            module: module(),
+            key: String.t() | nil,
+            name: String.t(),
+            enabled?: boolean(),
+            tools: [Tool.t(), ...]
+          }
+        ]
+  def api_module_tools do
+    enabled = enabled_modules()
+
+    Enum.flat_map(all_modules(), fn mod ->
+      case module_api_tools(mod) do
+        [] ->
+          []
+
+        tools ->
+          [
+            %{
+              module: mod,
+              key: api_module_key(mod),
+              name: api_module_name(mod),
+              enabled?: mod in enabled,
+              tools: tools
+            }
+          ]
+      end
+    end)
+  end
+
+  @doc """
   Collect the API error codes (`c:PhoenixKit.Module.api_problems/0`) of the **enabled**
   modules as `%{code => %{status, title, advice}}`.
 

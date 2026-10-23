@@ -67,4 +67,39 @@ defmodule PhoenixKitWeb.Components.Core.TextareaTest do
     refute html =~ "text-error"
     refute html =~ ">*<"
   end
+
+  describe "hint and wrap_label" do
+    test "a hint renders under the textarea and describes it" do
+      assigns = %{}
+
+      html =
+        render(~H"""
+        <.textarea id="tools" name="tools" value="" label="Tools" hint="One per line" />
+        """)
+
+      doc = LazyHTML.from_fragment(html)
+      assert doc |> LazyHTML.query("p#tools-help") |> LazyHTML.text() =~ "One per line"
+
+      assert doc |> LazyHTML.query("textarea#tools") |> LazyHTML.attribute("aria-describedby") ==
+               ["tools-help"]
+    end
+
+    test "wrap_label lets a long label wrap; by default it does not" do
+      assigns = %{}
+
+      wrapped =
+        render(~H"""
+        <.textarea id="tools" name="tools" value="" label="Tools" wrap_label />
+        """)
+
+      plain =
+        render(~H"""
+        <.textarea id="tools" name="tools" value="" label="Tools" />
+        """)
+
+      assert wrapped =~ ~s(class="label mb-2 whitespace-normal")
+      refute plain =~ "whitespace-normal"
+      refute plain =~ "aria-describedby"
+    end
+  end
 end

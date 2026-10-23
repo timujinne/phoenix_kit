@@ -204,6 +204,7 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.Auth.SessionRef
+  alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Utils.IpAddress
 
   @empty_schema %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
@@ -467,6 +468,165 @@ defmodule PhoenixKit.API.Executor do
       {:error, code, detail, context, state} -> refused(state, code, detail, context)
     end
   end
+
+  @typedoc "Why `tool_availability/1` shows a tool closed to a live session."
+  @type closed_reason ::
+          :module_disabled | :api_off | :tool_hidden | :agent_writes_off | :no_permission
+
+  @typedoc "One admin tool as `tool_availability/1` shows it."
+  @type availability :: %{
+          module_key: String.t() | nil,
+          module_name: String.t(),
+          name: String.t(),
+          kind: :read | :write,
+          permission: String.t(),
+          scope: String.t(),
+          danger: nil | :always | {module(), atom()},
+          status: :available | {:closed, [closed_reason(), ...]}
+        }
+
+  @closed_reasons [:module_disabled, :api_off, :tool_hidden, :agent_writes_off, :no_permission]
+
+  @doc """
+  Every admin tool of every registered module, switched on or off, with whether a person's
+  live session may call it (`visible_for/3` and `execute_as/5` with `allow: :all`) and, if
+  not, why. Read-only: nothing is charged or written (no audit entry). API keys are not
+  affected (they never read `api_session_write_modules`).
+
+  Each entry is `%{module_key, module_name, name, kind, permission, scope, danger, status}`:
+  `kind` is `:read` or `:write` (`PhoenixKit.API.ControlFields.write_tool?/1`), `danger` the
+  tool's own, `status` `:available` or `{:closed, reasons}`, the reasons in this order:
+
+    * `:module_disabled` - the module is switched off;
+    * `:api_off` - the module's API is switched off (`api_disabled_modules`). When
+      `api_disabled_tools` or `api_disabled_modules` cannot be read every tool is closed as
+      `:api_off`, since the registry then serves nothing;
+    * `:tool_hidden` - the tool is listed in `api_disabled_tools`;
+    * `:agent_writes_off` - a write tool whose module is not in `api_session_write_modules`
+      (the "Agent may act" boxes of Settings -> API; a list that cannot be read is empty);
+    * `:no_permission` - only when `scope` (a `PhoenixKit.Users.Auth.Scope`) is given. For a
+      tool the settings leave open: the scope fails the checks of `visible_for/3`, its
+      permission (`PhoenixKit.Users.Auth.Scope.can?/2`) or its scope
+      (`PhoenixKit.API.Keys.held_scopes_of/1`). For a tool the settings close: the scope's
+      roles do not grant the tool's permission, whether or not the module behind it is on.
+      The scope rule is not applied to a closed tool, so opening it may still leave it
+      closed as `:no_permission`, when another tool on its scope needs a permission the
+      scope lacks.
+
+  The scope is taken as given, account checks included: a session's own is
+  `SessionRef.scope_for_session/2` (which refuses an inactive or unconfirmed account),
+  narrowed to the role it acts as; a scope built otherwise is the caller's to vouch for.
+
+  Without `scope` the reasons are the install's settings alone. With the scope of a live
+  session, the `:available` tools are exactly what `visible_for/3` lists for it with
+  `allow: :all`. `api_admin_enabled` switches the HTTP API and does not apply to a session,
+  so it is not a reason here. Core's `system.*` tools (never callable by a session) and
+  public tools are not listed; neither is a tool the registry ignores because another module
+  declared its name first. Sorted by module name, then by tool name.
+
+  The list names every admin tool whatever `scope` is given, so gate who may see it. It
+  walks every module's tools and reads the settings on each call: call it once per page
+  (mount or params), not per render.
+  """
+  @spec tool_availability(Scope.t() | nil) :: [availability()]
+  def tool_availability(scope \\ nil)
+
+  def tool_availability(scope) when is_nil(scope) or is_struct(scope, Scope) do
+    settings = availability_settings()
+    held = if scope, do: Keys.held_scopes_of(scope), else: []
+
+    ModuleRegistry.api_module_tools()
+    |> Enum.flat_map(fn module -> Enum.map(module.tools, &{module, &1}) end)
+    |> Enum.filter(fn {_module, tool} -> tool.audience == :admin end)
+    |> Enum.reject(&shadowed?(&1, settings))
+    |> Enum.uniq_by(fn {module, tool} -> {module.module, tool.name} end)
+    |> Enum.map(fn {module, tool} -> availability(module, tool, settings, scope, held) end)
+    |> Enum.sort_by(&{String.downcase(&1.module_name), &1.name})
+  end
+
+  # The settings the registry and a session's writes read, once per call. `served` is the
+  # module tools the registry keeps (enabled modules, API on), as `{module, name}` pairs.
+  defp availability_settings do
+    writes = Config.session_write_modules()
+
+    with {:ok, hidden_tools} <- Config.fetch_disabled_tools(),
+         {:ok, hidden_modules} <- Config.fetch_disabled_modules() do
+      served =
+        hidden_modules
+        |> ModuleRegistry.all_api_tools()
+        |> MapSet.new(&{&1.module, &1.name})
+
+      %{
+        readable?: true,
+        hidden_tools: hidden_tools,
+        hidden_modules: hidden_modules,
+        served: served,
+        writes: writes
+      }
+    else
+      :unreadable ->
+        %{readable?: false, hidden_tools: [], hidden_modules: [], served: nil, writes: writes}
+    end
+  end
+
+  # A tool of a module that is on, with its API on, that the registry dropped anyway: its
+  # name was taken by a module registered before it.
+  defp shadowed?({module, tool}, %{readable?: true} = settings) do
+    module.enabled? and module.key not in settings.hidden_modules and
+      not MapSet.member?(settings.served, {module.module, tool.name})
+  end
+
+  defp shadowed?(_module_tool, _settings), do: false
+
+  defp availability(module, tool, settings, scope, held) do
+    configured? =
+      module.enabled? and settings.readable? and module.key not in settings.hidden_modules and
+        tool.name not in settings.hidden_tools
+
+    reasons = %{
+      module_disabled: not module.enabled?,
+      api_off: not settings.readable? or module.key in settings.hidden_modules,
+      tool_hidden: tool.name in settings.hidden_tools,
+      agent_writes_off: write?(tool) and module.key not in settings.writes,
+      no_permission: scope != nil and not session_reaches?(scope, tool, held, configured?)
+    }
+
+    %{
+      module_key: module.key,
+      module_name: module.name,
+      name: tool.name,
+      kind: if(write?(tool), do: :write, else: :read),
+      permission: tool.permission,
+      scope: tool.scope,
+      danger: tool.danger,
+      status:
+        case Enum.filter(@closed_reasons, &Map.fetch!(reasons, &1)) do
+          [] -> :available
+          closed -> {:closed, closed}
+        end
+    }
+  end
+
+  # The checks of `visible_for/3` for a tool the settings leave open. For a closed tool,
+  # whether its role grants the tool's permission at all: `Scope.can?/2` also asks the
+  # module behind the key to be on, so a switched-off module's own key would read as
+  # missing; and a closed tool's scope is never held (`Keys.held_scopes_of/1` counts the
+  # callable tools only).
+  defp session_reaches?(scope, tool, held, true = _configured?),
+    do: tool.scope in held and session_may_hold?(scope, tool)
+
+  defp session_reaches?(scope, %Tool{permission: permission}, _held, false = _configured?),
+    do: permission_granted?(scope, permission)
+
+  defp permission_granted?(scope, permission) when is_binary(permission) do
+    Scope.has_module_access?(scope, permission) and
+      case Permissions.parent_key(permission) do
+        nil -> true
+        base -> Scope.has_module_access?(scope, base)
+      end
+  end
+
+  defp permission_granted?(_scope, _permission), do: false
 
   defp allow!(opts) do
     case Keyword.get(opts, :allow, :read) do
