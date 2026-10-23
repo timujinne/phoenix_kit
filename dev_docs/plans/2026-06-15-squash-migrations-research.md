@@ -29,7 +29,7 @@ pattern as PhoenixKit. So there is **no upstream precedent** for this kind of sq
 
 ## 3. Deployed versions (the floor)
 
-- Local **Andi** (`/www/app`, prefix `public`): live DB comment = **`135`** (fully current). No table prefix set.
+- Local **host app** (`<host-app>/`, prefix `public`): live DB comment = **`135`** (fully current). No table prefix set.
 - docker1 (operator-provided): **external-dev-A** and **external-dev-B** at **v135** (2026-06-15).
 - **external-prod-A**: lags; **version not yet confirmed** — task requires asking the docker1 operator
   before fixing the floor. **The floor MUST be ≤ the minimum actually-deployed prod version.**
@@ -56,8 +56,8 @@ pattern as PhoenixKit. So there is **no upstream precedent** for this kind of sq
 
 ## 6. Verification feasibility
 
-- **No Postgres on localhost**; `pg_dump`/`psql` installed. Docker-network PG `172.18.0.6:5432` **is reachable**
-  from this host; `pgbouncer:6432` too. Andi DB user lacks `CREATEDB` (can't `mix ecto.create`).
+- **No Postgres on localhost**; `pg_dump`/`psql` installed. Docker-network PG `<db-host>:5432` **is reachable**
+  from this host; `<pooler-host>:6432` too. The host app's DB user lacks `CREATEDB` (can't `mix ecto.create`).
 - Viable verify paths: (a) CREATEDB/superuser creds on the docker PG → isolated throwaway DBs;
   (b) prefix-aware migrations into throwaway **schemas** (`squash_verify_old` / `squash_verify_new`) in the
   dev DB, `pg_dump --schema-only -n …`, normalize + diff; (c) a dedicated scratch Postgres.

@@ -130,6 +130,56 @@ defmodule PhoenixKit.MailerTest.QueuingProvider do
   def adapter_to_provider_name(_adapter, default), do: default
 end
 
+defmodule PhoenixKit.MailerTest.UsageProvider do
+  @moduledoc false
+  # A provider that finds a "database template" for every name and reports each
+  # `track_usage/1` to the test process, to prove a template is counted only for
+  # a message that was handed over. `Process.put(:usage_queue, true)` makes it
+  # take the message into a queue instead.
+  @behaviour PhoenixKit.Email.Provider
+
+  @impl true
+  def intercept_before_send(email, _opts), do: email
+
+  @impl true
+  def maybe_enqueue(_email, _opts) do
+    if Process.get(:usage_queue), do: {:queued, "usage-queue-ref"}, else: :continue
+  end
+
+  @impl true
+  def handle_after_send(_email, _result), do: :ok
+
+  @impl true
+  def get_active_template_by_name(name),
+    do: %{uuid: "00000000-0000-0000-0000-000000000001", name: name, category: "system"}
+
+  @impl true
+  def render_template(_t, _v), do: %{subject: "S", html_body: "<p>H</p>", text_body: "T"}
+  @impl true
+  def render_template(_t, _v, _l), do: %{subject: "S", html_body: "<p>H</p>", text_body: "T"}
+  @impl true
+  def track_usage(template) do
+    if Process.get(:usage_raises), do: raise("usage store down")
+    send(self(), {:track_usage, template.name})
+    :ok
+  end
+
+  @impl true
+  def get_source_module(_template), do: nil
+  @impl true
+  def get_aws_region, do: ""
+  @impl true
+  def get_aws_access_key, do: ""
+  @impl true
+  def get_aws_secret_key, do: ""
+  @impl true
+  def aws_configured?, do: false
+  @impl true
+  def send_test_tracking_email(_recipient_email, _user_uuid), do: {:error, :not_supported}
+  @impl true
+  def adapter_to_provider_name(_adapter, default), do: default
+end
+
 defmodule PhoenixKit.MailerTest do
   # async: false — one test swaps the global `:swoosh, :api_client` and
   # `:phoenix_kit, :email_provider` app env, which `Mailer.deliver_email/2`
@@ -143,7 +193,12 @@ defmodule PhoenixKit.MailerTest do
   alias PhoenixKit.Mailer
   alias PhoenixKit.MailerTest.FakeBrevoApiClient
   alias PhoenixKit.MailerTest.TrackingProvider
+  alias PhoenixKit.Notifications.Channels.Email, as: EmailChannel
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Users.Auth.UserNotifier
+  alias Swoosh.Adapters.Local.Storage.Memory
 
   describe "swoosh_config_for/1" do
     test "aws_ses credentials build an AmazonSES adapter config" do
@@ -695,6 +750,363 @@ defmodule PhoenixKit.MailerTest do
       refute_received {:intercept_before_send_called, _opts}
       refute_received {:maybe_enqueue_called, _opts}
       assert_received {:handle_after_send_called, {:ok, _}}
+    end
+  end
+
+  describe "template usage is counted after delivery" do
+    setup do
+      previous = Application.get_env(:phoenix_kit, :email_provider)
+      Application.put_env(:phoenix_kit, :email_provider, PhoenixKit.MailerTest.UsageProvider)
+
+      on_exit(fn ->
+        if previous,
+          do: Application.put_env(:phoenix_kit, :email_provider, previous),
+          else: Application.delete_env(:phoenix_kit, :email_provider)
+      end)
+
+      :ok
+    end
+
+    defp use_brevo_integration(response) do
+      original = Application.get_env(:swoosh, :api_client)
+      Application.put_env(:swoosh, :api_client, FakeBrevoApiClient)
+      on_exit(fn -> Application.put_env(:swoosh, :api_client, original) end)
+
+      {:ok, %{uuid: uuid}} = Integrations.add_connection("brevo_api", "usage")
+      {:ok, _} = Integrations.save_setup(uuid, %{"api_key" => "xkeysib-test"})
+      {:ok, _} = Settings.update_setting("default_email_integration_uuid", uuid)
+      if response, do: Process.put(:fake_brevo_response, response)
+    end
+
+    test "a delivered message counts once" do
+      assert {:ok, _} = Mailer.send_from_template("usage_probe", "to@example.com")
+
+      assert_received {:track_usage, "usage_probe"}
+      refute_received {:track_usage, _}
+    end
+
+    test "a delivered magic link counts once" do
+      user = %User{uuid: UUIDv7.generate(), email: "to@example.com"}
+
+      assert {:ok, _} = Mailer.send_magic_link_email(user, "https://a.test/m")
+
+      assert_received {:track_usage, "magic_link"}
+      refute_received {:track_usage, _}
+    end
+
+    test "an adapter error does not count" do
+      use_brevo_integration({:ok, 400, [], Jason.encode!(%{"message" => "rejected"})})
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, _} = Mailer.send_from_template("usage_probe", "to@example.com")
+
+        user = %User{uuid: UUIDv7.generate(), email: "to@example.com"}
+        assert {:error, _} = Mailer.send_magic_link_email(user, "https://a.test/m")
+      end)
+
+      refute_received {:track_usage, _}
+    end
+
+    test "a blocklisted recipient does not count" do
+      assert {:error, {:blocked, :blocklist}} =
+               Mailer.send_from_template("usage_probe", "blocked@example.com")
+
+      refute_received {:track_usage, _}
+    end
+
+    test "a delivered welcome and reset-password email count once each" do
+      user = %User{uuid: UUIDv7.generate(), email: "to@example.com"}
+
+      assert {:ok, _} = UserNotifier.deliver_welcome(user)
+      assert_received {:track_usage, "welcome"}
+      refute_received {:track_usage, _}
+
+      assert {:ok, _} =
+               UserNotifier.deliver_reset_password_instructions(
+                 user,
+                 "https://a.test/reset"
+               )
+
+      assert_received {:track_usage, "reset_password"}
+      refute_received {:track_usage, _}
+    end
+
+    test "an auth email whose delivery fails does not count" do
+      use_brevo_integration({:ok, 400, [], Jason.encode!(%{"message" => "rejected"})})
+      user = %User{uuid: UUIDv7.generate(), email: "to@example.com"}
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, _} = UserNotifier.deliver_welcome(user)
+
+        assert {:error, _} =
+                 UserNotifier.deliver_reset_password_instructions(
+                   user,
+                   "https://a.test/reset"
+                 )
+      end)
+
+      refute_received {:track_usage, _}
+    end
+
+    test "building the welcome email without sending it does not count, delivering it does" do
+      user = %User{uuid: UUIDv7.generate(), email: "to@example.com"}
+
+      email = UserNotifier.build_welcome(user)
+      refute_received {:track_usage, _}
+
+      assert {:ok, _} = UserNotifier.deliver_built(email)
+      assert_received {:track_usage, "welcome"}
+      refute_received {:track_usage, _}
+    end
+
+    defp use_local_mailbox do
+      prev_own = Application.get_env(:phoenix_kit, PhoenixKit.Mailer)
+      prev_delegate = Application.get_env(:phoenix_kit, :mailer)
+      Application.delete_env(:phoenix_kit, :mailer)
+      Application.put_env(:phoenix_kit, PhoenixKit.Mailer, adapter: Swoosh.Adapters.Local)
+
+      started_storage =
+        case :global.whereis_name(Memory) do
+          :undefined ->
+            {:ok, _pid} = Memory.start()
+            true
+
+          _pid ->
+            false
+        end
+
+      Memory.delete_all()
+
+      on_exit(fn ->
+        Application.delete_env(:phoenix_kit, PhoenixKit.Mailer)
+        if prev_own, do: Application.put_env(:phoenix_kit, PhoenixKit.Mailer, prev_own)
+        if prev_delegate, do: Application.put_env(:phoenix_kit, :mailer, prev_delegate)
+        if started_storage, do: Memory.stop()
+        # The cache is not transactional: drop a rolled-back "true".
+        PhoenixKit.Cache.invalidate(:settings, "dev_mailbox_enabled")
+      end)
+    end
+
+    test "a send the closed dev mailbox suppressed does not count, an open one does" do
+      use_local_mailbox()
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, %{suppressed: true}} =
+                 Mailer.send_from_template("usage_probe", "to@example.com")
+      end)
+
+      refute_received {:track_usage, _}
+
+      {:ok, _} = Settings.update_setting("dev_mailbox_enabled", "true")
+      assert {:ok, _} = Mailer.send_from_template("usage_probe", "to@example.com")
+      assert_received {:track_usage, "usage_probe"}
+    end
+
+    test "the notification email channel counts a delivered message once, a blocked one never" do
+      register = fn email ->
+        {:ok, user} =
+          Auth.register_user(%{email: email, password: "ValidPassword123!"})
+
+        user
+      end
+
+      envelope = fn user ->
+        %{
+          recipient_uuid: user.uuid,
+          type_key: "comments",
+          notification_uuid: nil,
+          locale: "en",
+          icon: "hero-bell",
+          title: nil,
+          text: "Something happened",
+          url: nil
+        }
+      end
+
+      assert :ok = EmailChannel.deliver(envelope.(register.("notified@example.com")), %{})
+      assert_received {:track_usage, "notification"}
+      refute_received {:track_usage, _}
+
+      assert {:error, {:permanent, :blocklist}} =
+               EmailChannel.deliver(envelope.(register.("blocked@example.com")), %{})
+
+      refute_received {:track_usage, _}
+    end
+
+    test "a message taken into the provider's queue counts" do
+      Process.put(:usage_queue, true)
+
+      assert {:ok, %{queued: true}} = Mailer.send_from_template("usage_probe", "to@example.com")
+
+      assert_received {:track_usage, "usage_probe"}
+    end
+
+    test "a provider that cannot count does not turn a sent message into an error" do
+      Process.put(:usage_raises, true)
+
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _} = Mailer.send_from_template("usage_probe", "to@example.com")
+      end)
+    end
+  end
+
+  describe "the personal SMTP policy" do
+    setup do
+      Application.put_env(:phoenix_kit, :personal_smtp_policy, :restricted)
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :personal_smtp_policy) end)
+    end
+
+    defp smtp_creds(host, port, owner_uuid) do
+      base = %{
+        "provider" => "smtp",
+        "host" => host,
+        "port" => port,
+        "username" => "user",
+        "password" => "pw"
+      }
+
+      if owner_uuid,
+        do: Map.merge(base, %{"owner_type" => "user", "owner_uuid" => owner_uuid}),
+        else: base
+    end
+
+    # Accepts one connection, reports it, and hangs up at once — so a send that
+    # does get through fails fast instead of waiting on gen_smtp's read timeout.
+    defp hang_up_relay do
+      test = self()
+
+      {:ok, listener} =
+        :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+
+      {:ok, port} = :inet.port(listener)
+
+      server =
+        spawn(fn ->
+          case :gen_tcp.accept(listener) do
+            {:ok, socket} ->
+              send(test, :relay_accepted)
+              :gen_tcp.close(socket)
+              # A retry must find nothing listening, not a backlog that never
+              # answers.
+              :gen_tcp.close(listener)
+
+            _ ->
+              :ok
+          end
+        end)
+
+      on_exit(fn ->
+        Process.exit(server, :kill)
+        :gen_tcp.close(listener)
+      end)
+
+      port
+    end
+
+    defp personal_smtp(host, port) do
+      owner = {:user, Ecto.UUID.generate()}
+
+      {:ok, %{uuid: uuid}} =
+        Integrations.add_connection("smtp", "personal relay", nil, owner: owner)
+
+      {:ok, _} =
+        Integrations.save_setup(
+          uuid,
+          %{"host" => host, "port" => to_string(port), "username" => "u", "password" => "p"},
+          nil,
+          owner: owner
+        )
+
+      uuid
+    end
+
+    defp system_smtp(host, port) do
+      {:ok, %{uuid: uuid}} = Integrations.add_connection("smtp", "system relay")
+
+      {:ok, _} =
+        Integrations.save_setup(uuid, %{
+          "host" => host,
+          "port" => to_string(port),
+          "username" => "u",
+          "password" => "p"
+        })
+
+      uuid
+    end
+
+    defp policy_email do
+      new()
+      |> to("to@example.com")
+      |> Swoosh.Email.from("from@example.com")
+      |> subject("Hi")
+      |> text_body("Hello")
+    end
+
+    test "swoosh_config_for/1 refuses a personal connection to an internal address" do
+      owner = Ecto.UUID.generate()
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_host}} =
+               Mailer.swoosh_config_for(smtp_creds("127.0.0.1", 587, owner))
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_port}} =
+               Mailer.swoosh_config_for(smtp_creds("8.8.8.8", 5432, owner))
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_host}} =
+               Mailer.swoosh_config_for(smtp_creds("pgbouncer", 587, owner))
+    end
+
+    test "swoosh_config_for/1 leaves a personal connection to a public address as it was" do
+      assert {:ok, {Swoosh.Adapters.SMTP, config}} =
+               Mailer.swoosh_config_for(smtp_creds("8.8.8.8", 587, Ecto.UUID.generate()))
+
+      assert config[:relay] == "8.8.8.8"
+      assert config[:port] == 587
+    end
+
+    test "swoosh_config_for/1 does not touch a system connection" do
+      creds = smtp_creds("127.0.0.1", 5432, nil)
+      assert {:ok, {Swoosh.Adapters.SMTP, config}} = Mailer.swoosh_config_for(creds)
+      assert config[:relay] == "127.0.0.1"
+      assert config[:port] == 5432
+    end
+
+    test "swoosh_config_for/1 with the policy off is what it always was" do
+      Application.delete_env(:phoenix_kit, :personal_smtp_policy)
+      creds = smtp_creds("127.0.0.1", 5432, Ecto.UUID.generate())
+
+      assert Mailer.swoosh_config_for(creds) ==
+               Mailer.swoosh_config_for(Map.drop(creds, ["owner_type", "owner_uuid"]))
+
+      assert {:ok, {Swoosh.Adapters.SMTP, config}} = Mailer.swoosh_config_for(creds)
+      assert config[:relay] == "127.0.0.1"
+    end
+
+    test "deliver_via_integration/3 refuses a personal internal relay without connecting" do
+      port = hang_up_relay()
+      uuid = personal_smtp("127.0.0.1", port)
+
+      # A non-mail port is refused first.
+      assert {:error, {:smtp_endpoint_refused, :blocked_port}} =
+               Mailer.deliver_via_integration(policy_email(), uuid)
+
+      refute_receive :relay_accepted, 200
+    end
+
+    test "deliver_via_integration/3 refuses a personal relay at a loopback address" do
+      uuid = personal_smtp("127.0.0.1", 587)
+
+      assert {:error, {:smtp_endpoint_refused, :blocked_host}} =
+               Mailer.deliver_via_integration(policy_email(), uuid)
+    end
+
+    test "deliver_via_integration/3 still connects a system relay on any address" do
+      port = hang_up_relay()
+      uuid = system_smtp("127.0.0.1", port)
+
+      result = Mailer.deliver_via_integration(policy_email(), uuid)
+
+      refute match?({:error, {:smtp_endpoint_refused, _}}, result)
+      assert_receive :relay_accepted, 5_000
     end
   end
 end

@@ -2081,7 +2081,7 @@ msgstr "Niepotwierdzony"
 #: lib/phoenix_kit/email/core_templates.ex:408
 #: lib/phoenix_kit/users/auth/user_notifier.ex:253
 #: lib/phoenix_kit_web/comments_gettext_manifest.ex:64
-#: lib/phoenix_kit_web/components/core/time_display.ex:183
+#: lib/phoenix_kit_web/components/core/time_display.ex:180
 #: lib/phoenix_kit_web/components/language_switcher.ex:832
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:108
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:249
@@ -5325,25 +5325,28 @@ msgstr "Wygasłe"
 msgid "Transactional"
 msgstr "Transakcyjne"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:206
+#: lib/phoenix_kit_web/components/core/time_display.ex:219
 #, elixir-autogen, elixir-format
 msgid "No expiration"
 msgstr "Bez wygaśnięcia"
 
 #: lib/phoenix_kit_web/components/core/date_nav.ex:138
 #: lib/phoenix_kit_web/components/core/date_nav.ex:141
-#: lib/phoenix_kit_web/components/core/time_display.ex:212
+#: lib/phoenix_kit_web/components/core/time_display.ex:225
 #: lib/phoenix_kit_web/live/notifications/inbox.ex:209
 #, elixir-autogen, elixir-format
 msgid "Today"
 msgstr "Dziś"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:187
+#: lib/phoenix_kit_web/components/core/time_display.ex:189
 #, elixir-autogen, elixir-format
 msgid "%{count}s ago"
-msgstr "%{count} s temu"
+msgid_plural "%{count}s ago"
+msgstr[0] "%{count} s temu"
+msgstr[1] "%{count} s temu"
+msgstr[2] "%{count} s temu"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:188
+#: lib/phoenix_kit_web/components/core/time_display.ex:192
 #, elixir-autogen, elixir-format
 msgid "%{count}m ago"
 msgid_plural "%{count}m ago"
@@ -5351,7 +5354,7 @@ msgstr[0] "%{count} min temu"
 msgstr[1] "%{count} min temu"
 msgstr[2] "%{count} min temu"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:189
+#: lib/phoenix_kit_web/components/core/time_display.ex:195
 #, elixir-autogen, elixir-format
 msgid "%{count}h ago"
 msgid_plural "%{count}h ago"
@@ -5359,13 +5362,13 @@ msgstr[0] "%{count} godz. temu"
 msgstr[1] "%{count} godz. temu"
 msgstr[2] "%{count} godz. temu"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:190
+#: lib/phoenix_kit_web/components/core/time_display.ex:198
 #, elixir-autogen, elixir-format
 msgid "%{count}d ago"
 msgid_plural "%{count}d ago"
-msgstr[0] "%{count} dn. temu"
-msgstr[1] "%{count} dn. temu"
-msgstr[2] "%{count} dn. temu"
+msgstr[0] "%{count} dzień temu"
+msgstr[1] "%{count} dni temu"
+msgstr[2] "%{count} dni temu"
 
 #: lib/phoenix_kit_web/live/modules/languages.html.heex:57
 #, elixir-autogen
@@ -20466,8 +20469,8 @@ msgstr "Wymaga zatwierdzenia"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Niebezpieczne operacje tego klucza czekają w kolejce zatwierdzeń, aż zatwierdzi je człowiek. Użyj tego dla kluczy przekazanych agentom AI."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Każdy zapis tego klucza, niebezpieczny czy nie, czeka w kolejce zatwierdzeń, aż zatwierdzi go człowiek; odczyty wykonują się od razu. Użyj tego dla kluczy przekazanych agentom AI."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21195,11 +21198,11 @@ msgstr[2] "Od 16 do 128 znaków: litery, cyfry, - i _. Ten sam klucz z tymi samy
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Klucz wymagający zatwierdzenia nie wykonuje niebezpiecznej operacji: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
-msgstr[1] "Klucz wymagający zatwierdzenia nie wykonuje niebezpiecznej operacji: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
-msgstr[2] "Klucz wymagający zatwierdzenia nie wykonuje niebezpiecznej operacji: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Klucz wymagający zatwierdzenia nie wykonuje żadnego zapisu, niebezpiecznego czy nie: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
+msgstr[1] "Klucz wymagający zatwierdzenia nie wykonuje żadnego zapisu, niebezpiecznego czy nie: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
+msgstr[2] "Klucz wymagający zatwierdzenia nie wykonuje żadnego zapisu, niebezpiecznego czy nie: wywołanie zwraca pending_approval i czeka do %{count} godz. na zatwierdzenie przez osobę."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format
@@ -21341,3 +21344,63 @@ msgstr "Katalog API"
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr "Ten serwis"
+
+#: lib/phoenix_kit/integrations/providers.ex:509
+#, elixir-autogen, elixir-format
+msgid "Anthropic"
+msgstr "Anthropic"
+
+#: lib/phoenix_kit/integrations/providers.ex:511
+#, elixir-autogen, elixir-format
+msgid "AI model access via Anthropic (Claude Opus, Sonnet and Haiku models)"
+msgstr "Dostęp do modeli AI przez Anthropic (modele Claude Opus, Sonnet i Haiku)"
+
+#: lib/phoenix_kit/integrations/providers.ex:530
+#, elixir-autogen, elixir-format
+msgid "From platform.claude.com/settings/keys"
+msgstr "Z platform.claude.com/settings/keys"
+
+#: lib/phoenix_kit/integrations/providers.ex:537
+#, elixir-autogen, elixir-format
+msgid "Create an Anthropic account"
+msgstr "Utwórz konto Anthropic"
+
+#: lib/phoenix_kit/integrations/providers.ex:539
+#, elixir-autogen, elixir-format
+msgid "Go to [platform.claude.com](https://platform.claude.com) and sign up or log in"
+msgstr "Przejdź na [platform.claude.com](https://platform.claude.com) i zarejestruj się lub zaloguj"
+
+#: lib/phoenix_kit/integrations/providers.ex:547
+#, elixir-autogen, elixir-format
+msgid "Go to [Billing](https://platform.claude.com/settings/billing) and add a payment method or buy credits"
+msgstr "Przejdź do [Billing](https://platform.claude.com/settings/billing) i dodaj metodę płatności lub kup kredyty"
+
+#: lib/phoenix_kit/integrations/providers.ex:550
+#, elixir-autogen, elixir-format
+msgid "Anthropic requires a positive credit balance before the API will answer requests"
+msgstr "Anthropic wymaga dodatniego salda kredytów, aby API odpowiadało na żądania"
+
+#: lib/phoenix_kit/integrations/providers.ex:555
+#, elixir-autogen, elixir-format
+msgid "API credits are billed separately from a Claude.ai subscription — a Pro or Max plan does not include them."
+msgstr "Kredyty API są rozliczane osobno od subskrypcji Claude.ai — plan Pro lub Max ich nie obejmuje."
+
+#: lib/phoenix_kit/integrations/providers.ex:562
+#, elixir-autogen, elixir-format
+msgid "Go to [API Keys](https://platform.claude.com/settings/keys)"
+msgstr "Przejdź do [API Keys](https://platform.claude.com/settings/keys)"
+
+#: lib/phoenix_kit/integrations/providers.ex:565
+#, elixir-autogen, elixir-format
+msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
+msgstr "Ogranicz klucz do jednego workspace (na przykład Default) — klucz bez workspace jest odrzucany"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Osobiste połączenia SMTP mogą używać tylko portów 25, 465, 587 lub 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "Host SMTP musi wskazywać na adres publiczny"

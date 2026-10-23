@@ -2086,7 +2086,7 @@ msgstr "Не подтверждён"
 #: lib/phoenix_kit/email/core_templates.ex:408
 #: lib/phoenix_kit/users/auth/user_notifier.ex:253
 #: lib/phoenix_kit_web/comments_gettext_manifest.ex:64
-#: lib/phoenix_kit_web/components/core/time_display.ex:183
+#: lib/phoenix_kit_web/components/core/time_display.ex:180
 #: lib/phoenix_kit_web/components/language_switcher.ex:832
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:108
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:249
@@ -5333,25 +5333,28 @@ msgstr "Истёк"
 msgid "Transactional"
 msgstr "Транзакционный"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:206
+#: lib/phoenix_kit_web/components/core/time_display.ex:219
 #, elixir-autogen, elixir-format
 msgid "No expiration"
 msgstr "Без срока действия"
 
 #: lib/phoenix_kit_web/components/core/date_nav.ex:138
 #: lib/phoenix_kit_web/components/core/date_nav.ex:141
-#: lib/phoenix_kit_web/components/core/time_display.ex:212
+#: lib/phoenix_kit_web/components/core/time_display.ex:225
 #: lib/phoenix_kit_web/live/notifications/inbox.ex:209
 #, elixir-autogen, elixir-format
 msgid "Today"
 msgstr "Сегодня"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:187
+#: lib/phoenix_kit_web/components/core/time_display.ex:189
 #, elixir-autogen, elixir-format
 msgid "%{count}s ago"
-msgstr "%{count} с назад"
+msgid_plural "%{count}s ago"
+msgstr[0] "%{count} с назад"
+msgstr[1] "%{count} с назад"
+msgstr[2] "%{count} с назад"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:188
+#: lib/phoenix_kit_web/components/core/time_display.ex:192
 #, elixir-autogen, elixir-format
 msgid "%{count}m ago"
 msgid_plural "%{count}m ago"
@@ -5359,7 +5362,7 @@ msgstr[0] "%{count} мин назад"
 msgstr[1] "%{count} мин назад"
 msgstr[2] "%{count} мин назад"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:189
+#: lib/phoenix_kit_web/components/core/time_display.ex:195
 #, elixir-autogen, elixir-format
 msgid "%{count}h ago"
 msgid_plural "%{count}h ago"
@@ -5367,13 +5370,13 @@ msgstr[0] "%{count} ч назад"
 msgstr[1] "%{count} ч назад"
 msgstr[2] "%{count} ч назад"
 
-#: lib/phoenix_kit_web/components/core/time_display.ex:190
+#: lib/phoenix_kit_web/components/core/time_display.ex:198
 #, elixir-autogen, elixir-format
 msgid "%{count}d ago"
 msgid_plural "%{count}d ago"
-msgstr[0] "%{count} дн назад"
-msgstr[1] "%{count} дн назад"
-msgstr[2] "%{count} дн назад"
+msgstr[0] "%{count} день назад"
+msgstr[1] "%{count} дня назад"
+msgstr[2] "%{count} дней назад"
 
 #: lib/phoenix_kit_web/live/modules/languages.html.heex:57
 #, elixir-autogen
@@ -20479,8 +20482,8 @@ msgstr "Требует одобрения"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:593
 #, elixir-autogen, elixir-format
-msgid "Dangerous operations of this key wait in the approval queue until a person approves them. Use it for keys given to AI agents."
-msgstr "Опасные операции этого ключа ждут в очереди одобрения, пока их не одобрит человек. Используйте это для ключей, выданных ИИ-агентам."
+msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
+msgstr "Любая запись этого ключа, опасная или нет, ждёт в очереди одобрения, пока её не одобрит человек; чтение выполняется сразу. Используйте это для ключей, выданных ИИ-агентам."
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:597
 #, elixir-autogen, elixir-format
@@ -21208,11 +21211,11 @@ msgstr[2] "От 16 до 128 символов: буквы, цифры, - и _. Т
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
 #, elixir-autogen, elixir-format
-msgid "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
-msgid_plural "A key that requires approval does not run a dangerous operation: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
-msgstr[0] "Ключ, которому нужно одобрение, не выполняет опасную операцию: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
-msgstr[1] "Ключ, которому нужно одобрение, не выполняет опасную операцию: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
-msgstr[2] "Ключ, которому нужно одобрение, не выполняет опасную операцию: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
+msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
+msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
+msgstr[0] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
+msgstr[1] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
+msgstr[2] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
 
 #: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
 #, elixir-autogen, elixir-format
@@ -21354,3 +21357,63 @@ msgstr "Каталог API"
 #, elixir-autogen, elixir-format
 msgid "This site"
 msgstr "Этот сайт"
+
+#: lib/phoenix_kit/integrations/providers.ex:509
+#, elixir-autogen, elixir-format
+msgid "Anthropic"
+msgstr "Anthropic"
+
+#: lib/phoenix_kit/integrations/providers.ex:511
+#, elixir-autogen, elixir-format
+msgid "AI model access via Anthropic (Claude Opus, Sonnet and Haiku models)"
+msgstr "Доступ к AI-моделям через Anthropic (модели Claude Opus, Sonnet и Haiku)"
+
+#: lib/phoenix_kit/integrations/providers.ex:530
+#, elixir-autogen, elixir-format
+msgid "From platform.claude.com/settings/keys"
+msgstr "С platform.claude.com/settings/keys"
+
+#: lib/phoenix_kit/integrations/providers.ex:537
+#, elixir-autogen, elixir-format
+msgid "Create an Anthropic account"
+msgstr "Создайте аккаунт Anthropic"
+
+#: lib/phoenix_kit/integrations/providers.ex:539
+#, elixir-autogen, elixir-format
+msgid "Go to [platform.claude.com](https://platform.claude.com) and sign up or log in"
+msgstr "Перейдите на [platform.claude.com](https://platform.claude.com) и зарегистрируйтесь или войдите"
+
+#: lib/phoenix_kit/integrations/providers.ex:547
+#, elixir-autogen, elixir-format
+msgid "Go to [Billing](https://platform.claude.com/settings/billing) and add a payment method or buy credits"
+msgstr "Перейдите в [Биллинг](https://platform.claude.com/settings/billing) и добавьте способ оплаты или купите кредиты"
+
+#: lib/phoenix_kit/integrations/providers.ex:550
+#, elixir-autogen, elixir-format
+msgid "Anthropic requires a positive credit balance before the API will answer requests"
+msgstr "Anthropic требует положительного баланса кредитов, прежде чем API начнёт отвечать на запросы"
+
+#: lib/phoenix_kit/integrations/providers.ex:555
+#, elixir-autogen, elixir-format
+msgid "API credits are billed separately from a Claude.ai subscription — a Pro or Max plan does not include them."
+msgstr "Кредиты API оплачиваются отдельно от подписки Claude.ai — тариф Pro или Max их не включает."
+
+#: lib/phoenix_kit/integrations/providers.ex:562
+#, elixir-autogen, elixir-format
+msgid "Go to [API Keys](https://platform.claude.com/settings/keys)"
+msgstr "Перейдите в [API Keys](https://platform.claude.com/settings/keys)"
+
+#: lib/phoenix_kit/integrations/providers.ex:565
+#, elixir-autogen, elixir-format
+msgid "Scope the key to a single workspace (for example Default) — a key without one is refused"
+msgstr "Привяжите ключ к одному workspace (например, Default) — ключ без привязки к workspace отклоняется"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:101
+#, elixir-autogen, elixir-format
+msgid "Personal SMTP connections may only use ports 25, 465, 587 or 2525"
+msgstr "Личные SMTP-подключения могут использовать только порты 25, 465, 587 или 2525"
+
+#: lib/phoenix_kit/mailer/smtp_endpoint_policy.ex:103
+#, elixir-autogen, elixir-format
+msgid "The SMTP host must resolve to a public address"
+msgstr "SMTP-сервер должен указывать на публичный адрес"

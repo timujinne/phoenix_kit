@@ -1,7 +1,7 @@
 defmodule PhoenixKit.API.Confirm.Confirmation do
   @moduledoc """
-  One confirmation code or approval request of a dangerous API operation (table
-  `phoenix_kit_api_confirmations`).
+  One confirmation code of a dangerous API operation, or one approval request of a write
+  call (table `phoenix_kit_api_confirmations`).
 
     * `kind` - `"token"` (a one-time code returned with a preview) or
       `"approval"` (a request that waits for a person).

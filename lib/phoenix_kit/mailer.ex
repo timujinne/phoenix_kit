@@ -29,6 +29,7 @@ defmodule PhoenixKit.Mailer do
   alias PhoenixKit.Email.CoreTemplates
   alias PhoenixKit.Email.Provider
   alias PhoenixKit.Integrations
+  alias PhoenixKit.Mailer.SmtpEndpointPolicy
   alias PhoenixKit.Mailer.SmtpTransport
   alias PhoenixKit.Users.Auth.User
 
@@ -222,9 +223,9 @@ defmodule PhoenixKit.Mailer do
           |> text_body(content.text)
           |> maybe_reply_to(Keyword.get(opts, :reply_to))
 
-        if content.db_template, do: Provider.current().track_usage(content.db_template)
-
-        deliver_email(email, delivery_opts(template_name, content, opts))
+        email
+        |> deliver_email(delivery_opts(template_name, content, opts))
+        |> track_usage_after_delivery(content.db_template)
     end
   end
 
@@ -594,6 +595,12 @@ defmodule PhoenixKit.Mailer do
     scratch, some Alpine builds) never noticed they had no CA store. Install one
     (e.g. `ca-certificates`) to restore sending. A relay with no credentials to
     protect still degrades rather than failing.
+  - `{:error, {:smtp_endpoint_refused, :blocked_port | :blocked_host}}` — SMTP
+    only, and only when the host enabled
+    `config :phoenix_kit, :personal_smtp_policy, :restricted`: a personal
+    (user-owned) connection points at a non-mail port, or at a host that is
+    internal or does not resolve, and no socket was opened.
+    `PhoenixKit.Mailer.SmtpEndpointPolicy.message/1` gives the sentence to show.
   """
   @spec deliver_via_integration(Swoosh.Email.t(), String.t(), keyword()) ::
           {:ok, term()} | {:error, term()}
@@ -708,8 +715,13 @@ defmodule PhoenixKit.Mailer do
     # that decides whether a connection is ready to actually send. That
     # check belongs here, before the (secret-bearing) config reaches
     # `Swoosh.Mailer.deliver/2`. See `require_fields/2`.
+    #
+    # A personal connection's host is checked (and pinned) here, right before
+    # every send — see `SmtpEndpointPolicy`. A no-op unless the host opted in.
     with :ok <- require_fields(creds, ~w(host)),
-         {:ok, options} <- SmtpTransport.config(creds) do
+         {:ok, options} <- SmtpTransport.config(creds),
+         {:ok, options} <-
+           SmtpEndpointPolicy.enforce(options, SmtpEndpointPolicy.policy_for(creds, :system)) do
       {:ok, {Swoosh.Adapters.SMTP, options}}
     end
   end
@@ -805,10 +817,8 @@ defmodule PhoenixKit.Mailer do
       |> html_body(content.html)
       |> text_body(content.text)
 
-    # Track template usage if a database template supplied the content
-    if content.db_template, do: Provider.current().track_usage(content.db_template)
-
-    deliver_email(email,
+    email
+    |> deliver_email(
       user_uuid: user.uuid,
       template_name: "magic_link",
       campaign_id: "authentication",
@@ -816,7 +826,40 @@ defmodule PhoenixKit.Mailer do
       source_module: "users",
       provider: detect_provider()
     )
+    |> track_usage_after_delivery(content.db_template)
   end
+
+  @doc false
+  # Counts a database template's use once its message was actually handed over:
+  # an adapter error, a blocklisted recipient or a send the dev mailbox gate
+  # suppressed (`suppressed: true`) is not a use. A message a provider took into
+  # its queue (`queued: true`) counts — it was accepted for delivery, and the
+  # worker that sends it later does not know the template. Returns `result`
+  # unchanged, and a provider whose `track_usage/1` fails must not turn a sent
+  # message into an error for the caller (who may then send it again).
+  def track_usage_after_delivery(result, nil), do: result
+  def track_usage_after_delivery({:ok, %{suppressed: true}} = result, _template), do: result
+
+  def track_usage_after_delivery({:ok, _} = result, template) do
+    Provider.current().track_usage(template)
+    result
+  rescue
+    error ->
+      Logger.warning(
+        "[PhoenixKit.Mailer] could not count a use of the email template: #{Exception.message(error)}"
+      )
+
+      result
+  catch
+    :exit, reason ->
+      Logger.warning(
+        "[PhoenixKit.Mailer] could not count a use of the email template: #{inspect(reason)}"
+      )
+
+      result
+  end
+
+  def track_usage_after_delivery(result, _template), do: result
 
   # Detect current email provider from configuration
   defp detect_provider do

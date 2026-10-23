@@ -98,13 +98,83 @@ defmodule PhoenixKit.Utils.RoutesTest do
       assert Routes.admin_path("/admin/users", "de") == "/phoenix_kit/de/admin/users"
     end
 
-    test "dialect-shaped locale code keeps its prefix verbatim" do
-      # Full dialect codes (e.g. en-US) shouldn't ever reach the helper —
-      # callers normalise to base via DialectMapper first — but if they
-      # do, the helper passes them through unchanged. Pinning this so a
-      # future "smart-strip" refactor doesn't accidentally treat
-      # "en-US" the same as "en" and drop the prefix.
-      assert Routes.admin_path("/admin/users", "en-US") == "/phoenix_kit/en-US/admin/users"
+    test "dialect-shaped locale code is emitted as its base and keeps the prefix" do
+      # en-US is not a configured dialect here, so its URL is the base
+      # code's — the locale plug redirects /en-US/ there. Normalising must
+      # not drop the prefix: with the setting OFF the primary keeps it.
+      assert Routes.admin_path("/admin/users", "en-US") == "/phoenix_kit/en/admin/users"
+    end
+  end
+
+  describe "explicit full-dialect locale — a base's only enabled dialect" do
+    # The URL segment is what the locale plug serves: a base's own dialect
+    # lives at its base code (the plug redirects /en-US/ to /en/).
+    setup do
+      LanguageSettings.put_languages(["et", "ru", "en-US"])
+    end
+
+    test "path/2 emits the base code, whatever the case" do
+      assert Routes.path("/users/log-in", locale: "en-US") == "/phoenix_kit/en/users/log-in"
+      assert Routes.path("/users/log-in", locale: "en-us") == "/phoenix_kit/en/users/log-in"
+    end
+
+    test "admin paths emit the base code too" do
+      assert Routes.path("/admin/orders", locale: "en-US") == "/phoenix_kit/en/admin/orders"
+      assert Routes.admin_path("/admin/orders", "en-US") == "/phoenix_kit/en/admin/orders"
+    end
+
+    test "a dialect that is not enabled is emitted as its base" do
+      assert Routes.path("/users/log-in", locale: "en-GB") == "/phoenix_kit/en/users/log-in"
+    end
+
+    test "the prefixless-primary rule applies after normalising" do
+      PhoenixKit.Cache.put(:settings, "default_language_no_prefix", "true")
+
+      assert Routes.path("/users/log-in", locale: "et-EE") == "/phoenix_kit/users/log-in"
+      assert Routes.admin_path("/admin/orders", "et-EE") == "/phoenix_kit/admin/orders"
+      assert Routes.path("/users/log-in", locale: "en-US") == "/phoenix_kit/en/users/log-in"
+    end
+
+    test ":none and nil are unchanged" do
+      assert Routes.path("/users/log-in", locale: :none) == "/phoenix_kit/users/log-in"
+      assert Routes.admin_path("/admin/users", nil) == Routes.path("/admin/users")
+    end
+  end
+
+  describe "explicit full-dialect locale — sibling dialects of one base" do
+    # en-US (primary) owns /en/; the en-GB sibling is addressed by its
+    # lowercase full code, the shape publishing's sibling URLs use.
+    setup do
+      LanguageSettings.put_languages(["en-US", "en-GB", "es"])
+    end
+
+    test "the primary dialect is emitted as its base code" do
+      assert Routes.path("/blog", locale: "en-US") == "/phoenix_kit/en/blog"
+    end
+
+    test "the sibling keeps its lowercase full code" do
+      assert Routes.path("/blog", locale: "en-GB") == "/phoenix_kit/en-gb/blog"
+      assert Routes.path("/blog", locale: "en-gb") == "/phoenix_kit/en-gb/blog"
+      assert Routes.admin_path("/admin/users", "en-GB") == "/phoenix_kit/en-gb/admin/users"
+    end
+
+    test "a base code is untouched" do
+      assert Routes.path("/blog", locale: "en") == "/phoenix_kit/en/blog"
+    end
+  end
+
+  describe "explicit full-dialect locale — siblings whose owner is ambiguous" do
+    # en-GB is the site's primary language (content serves it at /en/) while
+    # en-US is English's default dialect (core resolves /en/ to it). With the
+    # two disagreeing, neither is redirected away from its full code, so both
+    # keep their own URL.
+    setup do
+      LanguageSettings.put_languages(["en-GB", "en-US"])
+    end
+
+    test "both dialects keep their lowercase full codes" do
+      assert Routes.path("/blog", locale: "en-US") == "/phoenix_kit/en-us/blog"
+      assert Routes.path("/blog", locale: "en-GB") == "/phoenix_kit/en-gb/blog"
     end
   end
 

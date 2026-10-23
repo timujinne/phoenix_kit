@@ -1000,6 +1000,23 @@
         />
       </div>
       <div class="modal-backdrop" phx-click="close_viewer" phx-target={@myself}></div>
+      <%!-- Gallery mode: the Apple Photos way of stepping through pictures  --%>
+      <%!-- (Fresco.gallery, the ViewerGallery hook). A window of the        --%>
+      <%!-- pictures around this one; the strip slides between them and     --%>
+      <%!-- names the settled one back with `gallery_go`.                   --%>
+      <div
+        :if={@gallery_mode}
+        id={"#{@id}-gallery"}
+        phx-hook="ViewerGallery"
+        phx-target={@myself}
+        data-gallery={gallery_items_json(siblings, viewer_idx)}
+        data-current={f.file_uuid}
+        hidden
+      >
+      </div>
+      <%!-- Where the strip draws: LiveView leaves an ignored element's --%>
+      <%!-- children alone, so a patch of this modal cannot drop it.     --%>
+      <div :if={@gallery_mode} id={"#{@id}-gallery-layer"} phx-update="ignore"></div>
     </div>
   <% end %>
 

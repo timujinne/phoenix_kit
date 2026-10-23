@@ -6,7 +6,7 @@ defmodule PhoenixKit.Squash.S5Fixtures do
   ## Provenance
 
   Mined 2026-08-07 by reading (never modifying — CLAUDE.md forbids touching
-  that directory) `/www/app/priv/repo/migrations/`: 54 files matching
+  that directory) `<host-app>/priv/repo/migrations/`: 54 files matching
   `*phoenix_kit*`, in filename-timestamp order —
 
     * 1 unpinned installer (`add_phoenix_kit_tables.exs`,
@@ -26,8 +26,8 @@ defmodule PhoenixKit.Squash.S5Fixtures do
   the trace (spec 5.3: "traced and test-pinned").
 
   The 5 consumer-authored ones are reproduced with their REAL DDL shape
-  (not literal file copies — Andi's files hardcode `public.`/bare
-  unqualified table names because Andi always runs unprefixed; these take
+  (not literal file copies — the host app's files hardcode `public.`/bare
+  unqualified table names because the host app always runs unprefixed; these take
   `prefix` and schema-qualify explicitly so they are safe to run against a
   throwaway scratch schema instead).
 
@@ -43,13 +43,13 @@ defmodule PhoenixKit.Squash.S5Fixtures do
   |---|---|---|
   | 88 | `phoenix_kit_catalogue_v013_markup_percentage.exs` | new column, `add_if_not_exists` — always safe |
   | 88 | `phoenix_kit_catalogue_v013_base_price.exs` | **the S5(iii) precedent** — core V89 renamed `phoenix_kit_cat_items.price` to `base_price` (a below-floor version); this file's `IF EXISTS` guard is why it "survives" replay against the squashed baseline (which already has `base_price`, never `price`) — spec 5.3 |
-  | 104 | `add_prefix_to_phoenix_kit_cat_catalogues.exs` | the "shows the unguarded pattern" example (spec 5.3) — unguarded, but adds a column Andi owns exclusively (never in PK's own chain), so it is benign regardless of squash |
+  | 104 | `add_prefix_to_phoenix_kit_cat_catalogues.exs` | the "shows the unguarded pattern" example (spec 5.3) — unguarded, but adds a column the host app owns exclusively (never in PK's own chain), so it is benign regardless of squash |
   | 138 | `add_primary_supplier_uuid_to_phoenix_kit_cat_items.exs` | new column + FK to an existing table, unguarded, safe |
   | 139 | `create_phoenix_kit_warehouse_tables.exs` | byte-faithful early copy of core V140's DDL, entirely `IF NOT EXISTS`-guarded; reproduced here for ONE representative table (`phoenix_kit_warehouse_stock` + its unique index + check constraint) rather than all six — the additional five are the same idempotent-creation shape and add no further proof value; disclosed here rather than silently trimmed |
 
   S5(iii) additionally builds an UNGUARDED sibling of the `base_price` rename
   (`unguarded_price_rename/1`) — a synthetic negative fixture, not a real
-  Andi file — to pin the "documented, actionable failure mode" spec 5.3
+  host-app file — to pin the "documented, actionable failure mode" spec 5.3
   promises for the breakage class this guarded file happens to survive.
   """
 
@@ -200,7 +200,7 @@ defmodule PhoenixKit.Squash.S5Fixtures do
   above, minus its `IF EXISTS` guard — models "what if the guard had been
   missing" for the exact below-floor object (core V89's
   `phoenix_kit_cat_items.price` -> `base_price` rename) spec 5.3 names as
-  the flagship real breakage class. Not a real Andi file. `down/1` is
+  the flagship real breakage class. Not a real host-app file. `down/1` is
   intentionally omitted (S5(iii) never reaches it — the `up` is expected to
   raise).
   """
@@ -211,7 +211,7 @@ defmodule PhoenixKit.Squash.S5Fixtures do
   end
 
   # add_prefix_to_phoenix_kit_cat_catalogues.exs — spec 5.3's "shows the
-  # unguarded pattern" example. Adds a column Andi owns exclusively (never
+  # unguarded pattern" example. Adds a column the host app owns exclusively (never
   # part of PK's own chain), so it stays benign regardless of squash.
   defp add_prefix do
     %{

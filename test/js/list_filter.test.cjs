@@ -69,9 +69,9 @@ test("an empty or blank query matches everything", () => {
 });
 
 test("matches anywhere in the label, ignoring case", () => {
-  assert.equal(listFilterMatches("ANDI Kitchen Furniture", "kitchen"), true);
-  assert.equal(listFilterMatches("ANDI Kitchen Furniture", "FURN"), true);
-  assert.equal(listFilterMatches("ANDI Kitchen Furniture", "bath"), false);
+  assert.equal(listFilterMatches("ACME Kitchen Furniture", "kitchen"), true);
+  assert.equal(listFilterMatches("ACME Kitchen Furniture", "FURN"), true);
+  assert.equal(listFilterMatches("ACME Kitchen Furniture", "bath"), false);
 });
 
 test("ignores accents both ways, so Estonian names are findable on any keyboard", () => {

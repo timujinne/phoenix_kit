@@ -9,6 +9,23 @@ defmodule PhoenixKit.Integrations.Providers do
   Providers are defined in code, not in the database. New providers are
   added here as needed. External modules can also contribute providers
   via the `integration_providers/0` callback on `PhoenixKit.Module`.
+
+  ## Key validation
+
+  "Test Connection" on an `:api_key` / `:bot_token` provider checks the key
+  with one authenticated `GET` to `validation.url`: `200` is a pass, `401`
+  means the key was refused, `403` that it has no access. The key travels in
+  the header `validation.auth_header`, prefixed with `validation.auth_prefix`
+  (`"Authorization"` / `"Bearer "` for most providers, `"xi-api-key"` / `""`
+  for ElevenLabs).
+
+  A service that wants more than that one header declares
+  `validation.extra_headers`: a list of `{name, value}` pairs sent along with
+  the auth header, unchanged. Anthropic needs it — its native API reads the key
+  from `x-api-key` and wants the API version in `anthropic-version` alongside.
+  Leaving it out sends exactly the auth header, as before. A service whose
+  check is not a plain `GET` declares `validation.strategy` instead (see
+  `t:validation/0`).
   """
 
   use Gettext, backend: PhoenixKitWeb.Gettext
@@ -29,6 +46,22 @@ defmodule PhoenixKit.Integrations.Providers do
           options: [%{value: String.t(), label: String.t()}] | nil
         }
 
+  # How "Test Connection" checks a key. Either a plain authenticated `GET`
+  # (`url` + `auth_header` + `auth_prefix`, optionally `extra_headers`), or a
+  # `strategy` naming a dedicated check in `PhoenixKit.Integrations.Validators`.
+  # `method` is declared by the plain-`GET` providers; the check always issues a
+  # `GET`.
+  @type validation ::
+          %{
+            :url => String.t(),
+            :auth_header => String.t(),
+            :auth_prefix => String.t(),
+            optional(:method) => atom(),
+            # `{name, value}` pairs sent along with the auth header, as given.
+            optional(:extra_headers) => [{String.t(), String.t()}]
+          }
+          | %{:strategy => atom(), optional(atom()) => term()}
+
   @type provider :: %{
           :key => String.t(),
           :name => String.t(),
@@ -43,7 +76,7 @@ defmodule PhoenixKit.Integrations.Providers do
           # endpoint base by AI consumers). `validation` and `instructions`
           # are present on most built-ins but absent on a few, hence optional.
           optional(:base_url) => String.t(),
-          optional(:validation) => map(),
+          optional(:validation) => validation(),
           optional(:instructions) => [map()],
           # A module that shapes the setup form from what has been typed so far
           # (`setup_fields/2`, `setup_attrs/2`, `setup_changed/3`,
@@ -251,6 +284,7 @@ defmodule PhoenixKit.Integrations.Providers do
       google(),
       microsoft(),
       openai(),
+      anthropic(),
       openrouter(),
       mistral(),
       deepseek(),
@@ -449,6 +483,90 @@ defmodule PhoenixKit.Integrations.Providers do
             gettext(
               "If your account belongs to multiple organizations, keys are scoped to the org selected when the key was created."
             )
+        }
+      ]
+    }
+  end
+
+  # Anthropic's own API (`/v1/messages`) is not OpenAI-shaped; its OpenAI SDK
+  # compatibility layer is. `base_url` points AI consumers at that layer, which
+  # takes `Authorization: Bearer <key>` on `POST /v1/chat/completions` — what
+  # they send for every `:ai_completions` provider.
+  #
+  # The key check uses the native API instead: `GET /v1/models`. Anthropic
+  # documents `Authorization: Bearer` as the main header and `x-api-key` as a
+  # legacy fallback that is still supported; the check sends `x-api-key`.
+  # `anthropic-version` is required on the native API, which is why the version
+  # travels in `extra_headers`.
+  #
+  # A key that is not scoped to one workspace needs an `anthropic-workspace-id`
+  # header on every request and is refused with a 400 without it; the
+  # instructions below send the admin to a single-workspace key.
+  defp anthropic do
+    %{
+      key: "anthropic",
+      scopes: [:system, :personal],
+      name: gettext("Anthropic"),
+      description:
+        gettext("AI model access via Anthropic (Claude Opus, Sonnet and Haiku models)"),
+      icon: "hero-sparkles",
+      auth_type: :api_key,
+      oauth_config: nil,
+      base_url: "https://api.anthropic.com/v1",
+      validation: %{
+        url: "https://api.anthropic.com/v1/models",
+        method: :get,
+        auth_header: "x-api-key",
+        auth_prefix: "",
+        extra_headers: [{"anthropic-version", "2023-06-01"}]
+      },
+      setup_fields: [
+        %{
+          key: "api_key",
+          label: gettext("API Key"),
+          type: :password,
+          required: true,
+          placeholder: "sk-ant-...",
+          help: gettext("From platform.claude.com/settings/keys"),
+          options: nil
+        }
+      ],
+      capabilities: [:ai_completions],
+      instructions: [
+        %{
+          title: gettext("Create an Anthropic account"),
+          steps: [
+            {gettext(
+               "Go to [platform.claude.com](https://platform.claude.com) and sign up or log in"
+             ), nil}
+          ]
+        },
+        %{
+          title: gettext("Add credits"),
+          steps: [
+            {gettext(
+               "Go to [Billing](https://platform.claude.com/settings/billing) and add a payment method or buy credits"
+             ), nil},
+            {gettext(
+               "Anthropic requires a positive credit balance before the API will answer requests"
+             ), nil}
+          ],
+          note:
+            gettext(
+              "API credits are billed separately from a Claude.ai subscription — a Pro or Max plan does not include them."
+            )
+        },
+        %{
+          title: gettext("Create an API key"),
+          steps: [
+            {gettext("Go to [API Keys](https://platform.claude.com/settings/keys)"), nil},
+            {gettext("Click **Create Key**"), nil},
+            {gettext("Give it a name (e.g., your app name)"), nil},
+            {gettext(
+               "Scope the key to a single workspace (for example Default) — a key without one is refused"
+             ), nil},
+            {gettext("Copy the key (shown once) and paste it into the form above"), nil}
+          ]
         }
       ]
     }

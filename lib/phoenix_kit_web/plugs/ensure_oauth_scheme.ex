@@ -3,9 +3,43 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
   Ensures correct HTTPS scheme for OAuth callback URL generation behind reverse proxies.
 
   This plug checks (in order):
-  1. `X-Forwarded-Proto` header (nginx/apache standard)
-  2. Explicit `:phoenix_kit, :oauth_base_url` config
-  3. Endpoint URL configuration
+  1. `X-Forwarded-Proto` header (nginx/apache standard), believed only from a
+     trusted proxy (`PhoenixKit.Utils.IpAddress.trusted_proxy?/1`, which
+     follows `config :phoenix_kit, :trusted_proxies`); from any other peer
+     the header is ignored
+  2. Explicit `:phoenix_kit, :oauth_base_url` config (an empty string counts
+     as unset)
+  3. Endpoint URL configuration (`url: [scheme:, host:, port:]`)
+
+  Step 3 fills in what the endpoint does not state, so that a production
+  install keeps working without any OAuth setting:
+
+  * scheme — the endpoint's `:scheme` if given, else `https` when its `:port`
+    is 443, else the request's own scheme when BOTH the endpoint's host and the
+    request's host are loopback (a local dev server stays `http`), else
+    `https`. Providers accept an `http` redirect URI only for localhost, so
+    `https` is the safe default for any other host; a leftover
+    `url: [host: "localhost"]` in a production endpoint does not make a request
+    for another host `http`.
+  * host — the endpoint's `:host`, else the request's host.
+  * port — the endpoint's `:port`; else 443 when the scheme is `https`, else
+    the request's port.
+
+  What this changes in practice: the scheme and the port of the callback URL.
+  The host of the callback is still taken by Ueberauth from the request
+  (`X-Forwarded-Host` or `Host`), not from the endpoint `url:`, so the host
+  the endpoint names does not replace the one the request arrived with.
+  Compared with always forcing `https` on 443:
+
+  * a plain-http dev server on a loopback host keeps `http` and its own port;
+  * an endpoint `url: [host: ..., port: 4000]` without a `:scheme` now yields
+    `https` on 4000 (it was `https` on 443);
+  * a deployment with no endpoint `url:` on a non-loopback host still gets
+    `https` on 443, as before.
+
+  A deployment that serves plain `http` on a non-loopback host, or terminates
+  TLS on a port other than 443 behind a proxy that is not trusted, must say so
+  with `url: [scheme: ..., port: ...]` or `:oauth_base_url`.
 
   ## Usage
 
@@ -22,6 +56,8 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
 
   import Plug.Conn
 
+  alias PhoenixKit.Utils.IpAddress
+
   def init(opts), do: opts
 
   def call(conn, _opts) do
@@ -31,7 +67,7 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
         apply_scheme(conn, forwarded_proto)
 
       # 2. Check explicit oauth_base_url config
-      base_url = PhoenixKit.Config.get_string(:oauth_base_url) ->
+      base_url = non_empty(PhoenixKit.Config.get_string(:oauth_base_url, "")) ->
         apply_base_url(conn, base_url)
 
       # 3. Check endpoint URL config
@@ -42,10 +78,16 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
 
   defp get_forwarded_proto(conn) do
     case get_req_header(conn, "x-forwarded-proto") do
-      [proto | _] when proto in ["https", "http"] -> proto
-      _ -> nil
+      [proto | _] when proto in ["https", "http"] ->
+        if IpAddress.trusted_proxy?(conn.remote_ip), do: proto
+
+      _ ->
+        nil
     end
   end
+
+  defp non_empty(""), do: nil
+  defp non_empty(value), do: value
 
   defp apply_scheme(conn, "https"), do: %{conn | scheme: :https, port: 443}
   defp apply_scheme(conn, _), do: conn
@@ -62,26 +104,62 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
   end
 
   defp apply_endpoint_config(conn) do
-    endpoint = Phoenix.Controller.endpoint_module(conn)
+    url_config = endpoint_url_config(conn)
+    host = url_config[:host] || conn.host
+    {scheme, port} = scheme_and_port(conn, url_config, host)
 
-    with endpoint when not is_nil(endpoint) <- endpoint,
-         url_config when is_list(url_config) <- get_endpoint_url_config(endpoint) do
-      # Extract scheme, host, and port from endpoint URL config
-      scheme = url_config[:scheme]
-      host = url_config[:host]
-      port = url_config[:port]
+    %{conn | scheme: scheme, host: host, port: port}
+  end
 
-      # Apply each config value if present
-      conn
-      |> maybe_set_scheme(scheme)
-      |> maybe_set_host(host)
-      |> maybe_set_port(port)
-    else
-      _ -> conn
+  defp scheme_and_port(conn, url_config, host) do
+    port = url_port(url_config[:port])
+
+    cond do
+      url_config[:scheme] ->
+        case parse_scheme(url_config[:scheme]) do
+          :https -> {:https, port || 443}
+          scheme -> {scheme, port || conn.port}
+        end
+
+      port == 443 ->
+        {:https, 443}
+
+      loopback?(host) and loopback?(conn.host) ->
+        {conn.scheme, port || conn.port}
+
+      true ->
+        {:https, port || 443}
+    end
+  end
+
+  # Phoenix accepts the endpoint `url: [port: ...]` as an integer, a numeric string or
+  # `{:system, env_var}`; `conn.port` must stay an integer and `443` must match as one.
+  defp url_port(port) when is_integer(port), do: port
+  defp url_port({:system, env_var}), do: url_port(System.get_env(env_var))
+
+  defp url_port(port) when is_binary(port) do
+    case Integer.parse(port) do
+      {port, ""} -> port
+      _ -> nil
+    end
+  end
+
+  defp url_port(_), do: nil
+
+  defp endpoint_url_config(conn) do
+    case Phoenix.Controller.endpoint_module(conn) do
+      nil -> []
+      endpoint -> get_endpoint_url_config(endpoint)
     end
   rescue
-    KeyError -> conn
+    KeyError -> []
   end
+
+  defp loopback?(host) when is_binary(host) do
+    host in ["localhost", "127.0.0.1", "::1", "[::1]"] or String.ends_with?(host, ".localhost")
+  end
+
+  defp loopback?(_), do: false
 
   defp get_endpoint_url_config(endpoint_module) do
     # Get otp_app from endpoint config (correct way)
@@ -92,16 +170,6 @@ defmodule PhoenixKitWeb.Plugs.EnsureOAuthScheme do
       config -> Keyword.get(config, :url, [])
     end
   end
-
-  # Helper functions to conditionally set conn fields
-  defp maybe_set_scheme(conn, nil), do: conn
-  defp maybe_set_scheme(conn, scheme), do: %{conn | scheme: parse_scheme(scheme)}
-
-  defp maybe_set_host(conn, nil), do: conn
-  defp maybe_set_host(conn, host), do: %{conn | host: host}
-
-  defp maybe_set_port(conn, nil), do: conn
-  defp maybe_set_port(conn, port), do: %{conn | port: port}
 
   defp parse_scheme("https"), do: :https
   defp parse_scheme("http"), do: :http

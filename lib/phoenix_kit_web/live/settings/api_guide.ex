@@ -31,6 +31,7 @@ defmodule PhoenixKitWeb.Live.Settings.ApiGuide do
   alias PhoenixKit.API.FlowConfig
   alias PhoenixKit.API.MCP.Names
   alias PhoenixKit.API.MCP.Shape
+  alias PhoenixKit.API.Paths
   alias PhoenixKit.API.Problem
   alias PhoenixKit.API.Registry
   alias PhoenixKit.Settings
@@ -41,8 +42,8 @@ defmodule PhoenixKitWeb.Live.Settings.ApiGuide do
   @impl true
   def mount(_params, _session, socket) do
     base = Routes.base_url()
-    rest = base <> Routes.path("/api/admin/v1")
-    mcp = base <> Routes.path("/mcp/admin")
+    rest = base <> Routes.path(Paths.rest_path(:admin))
+    mcp = base <> Routes.path(Paths.mcp_path(:admin))
     project_title = Settings.get_project_title()
     name = server_name(project_title)
 
