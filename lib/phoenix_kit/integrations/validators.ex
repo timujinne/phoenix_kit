@@ -781,12 +781,20 @@ defmodule PhoenixKit.Integrations.Validators do
         {:invalid, code}
 
       # The signature is valid — the identity is real — it just lacks
-      # ListBuckets/ListAllMyBuckets. Realistic for a scoped token limited to
-      # a single bucket (common with R2 API tokens and B2 application keys),
-      # so this must not read as "wrong keys": that sends the operator off to
-      # reissue credentials that were never the problem.
+      # ListBuckets/ListAllMyBuckets. That is the normal shape of a scoped
+      # token limited to one bucket (R2 API tokens, B2 application keys), the
+      # key a site should hold, so a red cross here would sit permanently on a
+      # correctly configured connection. It passes with what was not verified
+      # attached, same as SES's AccessDenied: each bucket is checked on its
+      # own form.
       "AccessDenied" <> _ ->
-        {:error, gettext("Credentials are valid, but not authorized to list buckets")}
+        {:ok,
+         %{
+           fact:
+             gettext(
+               "Credentials are valid, but limited to specific buckets — bucket access was not verified"
+             )
+         }}
 
       # Rate-limited or a transient service-side hiccup, not a bad
       # credential — telling the operator to reissue keys over this would be

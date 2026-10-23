@@ -11933,10 +11933,10 @@ msgstr "Konto eemaldamine ebaõnnestus."
 msgid "Could not switch account."
 msgstr "Konto vahetamine ebaõnnestus."
 
-#: lib/phoenix_kit/integrations/validators.ex:771
+#: lib/phoenix_kit/integrations/validators.ex:794
 #, elixir-autogen, elixir-format
-msgid "Credentials are valid, but not authorized to list buckets"
-msgstr "Mandaadid on kehtivad, kuid puudub õigus bucketite loetlemiseks"
+msgid "Credentials are valid, but limited to specific buckets — bucket access was not verified"
+msgstr "Mandaadid on kehtivad, kuid piiratud kindlate bucketitega — ligipääsu bucketitele ei kontrollitud"
 
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:90
 #, elixir-autogen, elixir-format

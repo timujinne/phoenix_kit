@@ -11944,10 +11944,10 @@ msgstr "Не вдалося видалити обліковий запис."
 msgid "Could not switch account."
 msgstr "Не вдалося перемкнути обліковий запис."
 
-#: lib/phoenix_kit/integrations/validators.ex:771
+#: lib/phoenix_kit/integrations/validators.ex:794
 #, elixir-autogen, elixir-format
-msgid "Credentials are valid, but not authorized to list buckets"
-msgstr "Облікові дані дійсні, але не дають права переглядати список бакетів"
+msgid "Credentials are valid, but limited to specific buckets — bucket access was not verified"
+msgstr "Облікові дані дійсні, але обмежені окремими бакетами — доступ до бакетів не перевірявся"
 
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:90
 #, elixir-autogen, elixir-format

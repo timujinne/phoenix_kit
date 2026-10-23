@@ -11924,10 +11924,10 @@ msgstr "Impossible de supprimer le compte."
 msgid "Could not switch account."
 msgstr "Impossible de changer de compte."
 
-#: lib/phoenix_kit/integrations/validators.ex:771
+#: lib/phoenix_kit/integrations/validators.ex:794
 #, elixir-autogen, elixir-format
-msgid "Credentials are valid, but not authorized to list buckets"
-msgstr "Les identifiants sont valides, mais ne sont pas autorisés à lister les buckets"
+msgid "Credentials are valid, but limited to specific buckets — bucket access was not verified"
+msgstr "Les identifiants sont valides, mais limités à certains buckets — l’accès aux buckets n’a pas été vérifié"
 
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:90
 #, elixir-autogen, elixir-format

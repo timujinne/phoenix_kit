@@ -663,16 +663,16 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
       end
     end
 
-    test "AccessDenied means the key is real but lacks ListBuckets -- distinct from invalid credentials" do
-      # Realistic for a scoped token limited to a single bucket (common with R2
-      # API tokens and B2 application keys), so this must not read as "wrong
-      # keys" -- that would send the operator off to reissue credentials that
-      # were never the problem.
-      assert {:error, message} =
+    test "AccessDenied passes for a key limited to buckets, but says what it could not verify" do
+      # A scoped token limited to one bucket (R2 API tokens, B2 application
+      # keys) cannot call ListBuckets, and it is the key a site should hold --
+      # so this must neither read as "wrong keys" nor fail the check. A
+      # standing fact about these credentials, so it is stored with them.
+      assert {:ok, %{fact: note}} =
                Validators.interpret_object_storage_error(s3_error("AccessDenied"))
 
-      assert message =~ "not authorized"
-      refute message =~ "Invalid credentials"
+      assert note =~ "limited to specific buckets"
+      assert note =~ "not verified"
     end
 
     test "SlowDown, InternalError and ServiceUnavailable say to retry, not that credentials are wrong" do

@@ -11962,10 +11962,10 @@ msgstr "Не удалось удалить аккаунт."
 msgid "Could not switch account."
 msgstr "Не удалось переключить аккаунт."
 
-#: lib/phoenix_kit/integrations/validators.ex:771
+#: lib/phoenix_kit/integrations/validators.ex:794
 #, elixir-autogen, elixir-format
-msgid "Credentials are valid, but not authorized to list buckets"
-msgstr "Учётные данные верны, но не дают права перечислять бакеты"
+msgid "Credentials are valid, but limited to specific buckets — bucket access was not verified"
+msgstr "Учётные данные верны, но ограничены отдельными бакетами — доступ к бакетам не проверялся"
 
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:90
 #, elixir-autogen, elixir-format
