@@ -12,517 +12,530 @@
 >
   <div id="api-settings-page" class="px-4 py-6 space-y-6">
     <%!-- Guide --%>
-    <div id="api-guide-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 class="card-title text-lg">
-              <.icon name="hero-book-open" class="w-5 h-5" /> {gettext("API guide")}
-            </h2>
-            <p class="text-sm text-base-content/70">
-              {gettext(
-                "How to connect a program or an AI agent with a key: addresses, setup for Claude Code, Cursor and VS Code, tools and errors."
-              )}
-            </p>
-          </div>
-          <.button
-            id="api-guide-link"
-            variant="outline"
-            size="sm"
-            navigate={Routes.path("/admin/settings/api/guide")}
-          >
-            {gettext("Open the guide")}
-          </.button>
-        </div>
-      </div>
-    </div>
+    <.form_section
+      id="api-guide-card"
+      wrap_actions
+      title={gettext("API guide")}
+      icon="hero-book-open"
+      class="border border-base-200"
+    >
+      <:subtitle>
+        {gettext(
+          "How to connect a program or an AI agent with a key: addresses, setup for Claude Code, Cursor and VS Code, tools and errors."
+        )}
+      </:subtitle>
+      <:actions>
+        <.button
+          id="api-guide-link"
+          variant="outline"
+          size="sm"
+          navigate={Routes.path("/admin/settings/api/guide")}
+        >
+          {gettext("Open the guide")}
+        </.button>
+      </:actions>
+    </.form_section>
 
     <%!-- Switches --%>
-    <div id="api-switches" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body space-y-4">
-        <div>
-          <h2 class="card-title text-lg">
-            <.icon name="hero-power" class="w-5 h-5" /> {gettext("Switches")}
-          </h2>
-          <p class="text-sm text-base-content/70">
-            {gettext(
-              "Both sides are off until you switch them on. While a side is off, every address of it answers 404."
-            )}
+    <.form_section
+      id="api-switches"
+      title={gettext("Switches")}
+      icon="hero-power"
+      class="border border-base-200"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext(
+          "Both sides are off until you switch them on. While a side is off, every address of it answers 404."
+        )}
+      </:subtitle>
+
+      <div id="api-switch-admin-row" class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h3 id="api-switch-admin-title" class="font-medium">{gettext("Admin API")}</h3>
+          <p id="api-switch-admin-text" class="text-sm text-base-content/70">
+            {gettext("Programs with an API key read and change the catalogue, prices and stock.")}
           </p>
         </div>
-
-        <div id="api-switch-admin-row" class="flex items-start justify-between gap-4">
-          <div>
-            <div class="font-medium">{gettext("Admin API")}</div>
-            <p class="text-sm text-base-content/70">
-              {gettext(
-                "Programs with an API key read and change the catalogue, prices and stock."
-              )}
-            </p>
-          </div>
-          <.checkbox
-            id="api-switch-admin"
-            name="api-switch-admin"
-            variant="toggle"
-            class="toggle-lg"
-            wrapper_class="shrink-0 flex-row-reverse"
-            label={if @admin_enabled, do: gettext("Enabled"), else: gettext("Disabled")}
-            checked={@admin_enabled}
-            phx-click="toggle_switch"
-            phx-value-switch="admin"
-          />
-        </div>
-
-        <div id="api-switch-public-row" class="flex items-start justify-between gap-4">
-          <div>
-            <div class="font-medium">{gettext("Public API")}</div>
-            <p class="text-sm text-base-content/70">
-              {gettext(
-                "AI assistants and other programs use what the site offers, without a key."
-              )}
-            </p>
-          </div>
-          <.checkbox
-            id="api-switch-public"
-            name="api-switch-public"
-            variant="toggle"
-            class="toggle-lg"
-            wrapper_class="shrink-0 flex-row-reverse"
-            label={if @public_enabled, do: gettext("Enabled"), else: gettext("Disabled")}
-            checked={@public_enabled}
-            phx-click="toggle_switch"
-            phx-value-switch="public"
-          />
-        </div>
+        <.checkbox
+          id="api-switch-admin"
+          name="api-switch-admin"
+          variant="toggle"
+          class="toggle-lg"
+          wrapper_class="shrink-0 flex-row-reverse"
+          label={if @admin_enabled, do: gettext("Enabled"), else: gettext("Disabled")}
+          aria-labelledby="api-switch-admin-title"
+          aria-describedby="api-switch-admin-text"
+          checked={@admin_enabled}
+          phx-click="toggle_switch"
+          phx-value-switch="admin"
+        />
       </div>
-    </div>
+
+      <div id="api-switch-public-row" class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h3 id="api-switch-public-title" class="font-medium">{gettext("Public API")}</h3>
+          <p id="api-switch-public-text" class="text-sm text-base-content/70">
+            {gettext("AI assistants and other programs use what the site offers, without a key.")}
+          </p>
+        </div>
+        <.checkbox
+          id="api-switch-public"
+          name="api-switch-public"
+          variant="toggle"
+          class="toggle-lg"
+          wrapper_class="shrink-0 flex-row-reverse"
+          label={if @public_enabled, do: gettext("Enabled"), else: gettext("Disabled")}
+          aria-labelledby="api-switch-public-title"
+          aria-describedby="api-switch-public-text"
+          checked={@public_enabled}
+          phx-click="toggle_switch"
+          phx-value-switch="public"
+        />
+      </div>
+    </.form_section>
 
     <%!-- Modules --%>
-    <div id="api-modules-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body space-y-4">
-        <div>
-          <h2 class="card-title text-lg">
-            <.icon name="hero-puzzle-piece" class="w-5 h-5" /> {gettext("Modules")}
-          </h2>
+    <.form_section
+      id="api-modules-card"
+      title={gettext("Modules")}
+      icon="hero-puzzle-piece"
+      class="border border-base-200"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext(
+          "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
+        )}
+      </:subtitle>
+
+      <p
+        :if={Enum.any?(@api_modules, & &1.writes?)}
+        id="api-modules-session-write-hint"
+        class="text-sm text-base-content/70"
+      >
+        {gettext(
+          "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
+        )}
+      </p>
+
+      <div :if={@api_modules == []} id="api-modules-empty">
+        <.empty_state
+          variant="compact"
+          icon="hero-puzzle-piece"
+          title={gettext("No installed module offers tools to the API.")}
+        />
+      </div>
+
+      <div
+        :for={mod <- @api_modules}
+        id={"api-module-row-#{mod.key}"}
+        class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2"
+      >
+        <div class="min-w-0">
+          <h3 class="font-medium">{module_label(mod)}</h3>
           <p class="text-sm text-base-content/70">
-            {gettext(
-              "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
-            )}
-          </p>
-          <p
-            :if={Enum.any?(@api_modules, & &1.writes?)}
-            id="api-modules-session-write-hint"
-            class="text-sm text-base-content/70 mt-1"
-          >
-            {gettext(
-              "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
-            )}
+            {gettext("Tools: %{count}", count: mod.tools)}
+            <.status_badge
+              :if={not mod.enabled?}
+              status="inactive"
+              label={gettext("Module disabled")}
+              class="ml-1"
+            />
           </p>
         </div>
-
-        <p :if={@api_modules == []} id="api-modules-empty" class="text-sm text-base-content/70">
-          {gettext("No installed module offers tools to the API.")}
-        </p>
-
-        <div
-          :for={mod <- @api_modules}
-          id={"api-module-row-#{mod.key}"}
-          class="flex flex-wrap items-start justify-between gap-x-4 gap-y-2"
-        >
-          <div class="min-w-0">
-            <div class="font-medium">{Gettext.gettext(PhoenixKitWeb.Gettext, mod.name)}</div>
-            <p class="text-sm text-base-content/70">
-              {gettext("Tools: %{count}", count: mod.tools)}
-              <span :if={not mod.enabled?} class="badge badge-ghost badge-sm ml-1">
-                {gettext("Module disabled")}
-              </span>
-            </p>
-          </div>
-          <div class="ml-auto flex min-w-0 max-w-full flex-col items-end gap-2 [&_.label]:whitespace-normal">
-            <.checkbox
-              id={"api-module-switch-#{mod.key}"}
-              name={"api-module-switch-#{mod.key}"}
-              variant="toggle"
-              class="toggle-lg"
-              wrapper_class="shrink-0 flex-row-reverse"
-              label={if mod.api_on?, do: gettext("API on"), else: gettext("API off")}
-              aria-label={
-                if mod.api_on?,
-                  do: gettext("Switch the API of %{module} off", module: module_label(mod)),
-                  else: gettext("Switch the API of %{module} on", module: module_label(mod))
-              }
-              checked={mod.api_on?}
-              phx-click="set_module_api"
-              phx-value-module={mod.key}
-              phx-value-state={if mod.api_on?, do: "off", else: "on"}
-            />
-            <.checkbox
-              :if={mod.writes?}
-              id={"api-module-session-write-#{mod.key}"}
-              name={"api-module-session-write-#{mod.key}"}
-              class="checkbox-sm"
-              wrapper_class="flex-row-reverse"
-              label={gettext("Agent may act")}
-              aria-label={
-                if mod.session_write?,
-                  do: gettext("Stop the agent acting in %{module}", module: module_label(mod)),
-                  else: gettext("Let the agent act in %{module}", module: module_label(mod))
-              }
-              checked={mod.session_write?}
-              disabled={not mod.api_on? and not mod.session_write?}
-              phx-click="set_module_session_write"
-              phx-value-module={mod.key}
-              phx-value-state={if mod.session_write?, do: "off", else: "on"}
-            />
-          </div>
+        <div class="ml-auto flex min-w-0 max-w-full flex-col items-end gap-2">
+          <.checkbox
+            id={"api-module-switch-#{mod.key}"}
+            name={"api-module-switch-#{mod.key}"}
+            variant="toggle"
+            class="toggle-lg"
+            wrapper_class="shrink-0 flex-row-reverse"
+            label={if mod.api_on?, do: gettext("API on"), else: gettext("API off")}
+            aria-label={
+              if mod.api_on?,
+                do: gettext("Switch the API of %{module} off", module: module_label(mod)),
+                else: gettext("Switch the API of %{module} on", module: module_label(mod))
+            }
+            checked={mod.api_on?}
+            phx-click="set_module_api"
+            phx-value-module={mod.key}
+            phx-value-state={if mod.api_on?, do: "off", else: "on"}
+          />
+          <.checkbox
+            :if={mod.writes?}
+            id={"api-module-session-write-#{mod.key}"}
+            name={"api-module-session-write-#{mod.key}"}
+            class="checkbox-sm"
+            wrapper_class="flex-row-reverse"
+            label={gettext("Agent may act")}
+            aria-label={
+              if mod.session_write?,
+                do: gettext("Stop the agent acting in %{module}", module: module_label(mod)),
+                else: gettext("Let the agent act in %{module}", module: module_label(mod))
+            }
+            checked={mod.session_write?}
+            disabled={not mod.api_on? and not mod.session_write?}
+            phx-click="set_module_session_write"
+            phx-value-module={mod.key}
+            phx-value-state={if mod.session_write?, do: "off", else: "on"}
+          />
         </div>
       </div>
-    </div>
+    </.form_section>
 
     <%!-- Keys --%>
-    <div id="api-keys-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body space-y-4">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 class="card-title text-lg">
-              <.icon name="hero-key" class="w-5 h-5" /> {gettext("API keys")}
-            </h2>
-            <p class="text-sm text-base-content/70">
-              {gettext(
-                "A key acts with the rights of its owner, never with more. Removing a right from the owner takes it from the key at once."
-              )}
-            </p>
-          </div>
-          <.button id="api-new-key" type="button" size="sm" phx-click="open_create_key">
-            <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New key")}
-          </.button>
-        </div>
+    <.form_section
+      id="api-keys-card"
+      wrap_actions
+      title={gettext("API keys")}
+      icon="hero-key"
+      class="border border-base-200"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext(
+          "A key acts with the rights of its owner, never with more. Removing a right from the owner takes it from the key at once."
+        )}
+      </:subtitle>
+      <:actions>
+        <.button id="api-new-key" type="button" size="sm" phx-click="open_create_key">
+          <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New key")}
+        </.button>
+      </:actions>
 
-        <div :if={@keys != []} id="api-keys-table">
-          <.table_default>
-            <.table_default_header>
-              <.table_default_row>
-                <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Owner")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Scopes")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Status")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Last used")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Actions")}</.table_default_header_cell>
-              </.table_default_row>
-            </.table_default_header>
+      <div :if={@keys != []} id="api-keys-table">
+        <.table_default>
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Owner")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Scopes")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Status")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Last used")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Actions")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
 
-            <.table_default_body>
-              <.table_default_row :for={key <- @keys} id={"api-key-#{key.uuid}"}>
-                <.table_default_cell>
-                  <div class="font-medium">{key.name}</div>
-                  <div class="font-mono text-xs text-base-content/60">pk_{key.prefix}_…</div>
-                  <span :if={key.requires_approval} class="badge badge-warning badge-xs mt-1">
-                    {gettext("Needs approval")}
-                  </span>
-                </.table_default_cell>
-                <.table_default_cell class="text-sm">
-                  {Map.get(@owner_labels, key.user_uuid)}
-                </.table_default_cell>
-                <.table_default_cell>
-                  <div class="flex flex-wrap gap-1 max-w-xs">
-                    <span
-                      :for={scope <- Enum.take(key.scopes, 3)}
-                      class="badge badge-ghost badge-xs font-mono"
-                    >
-                      {scope}
-                    </span>
-                    <span :if={length(key.scopes) > 3} class="badge badge-ghost badge-xs">
-                      +{length(key.scopes) - 3}
-                    </span>
-                    <span :if={key.scopes == []} class="text-xs text-base-content/40">
-                      {gettext("identity only")}
-                    </span>
-                  </div>
-                </.table_default_cell>
-                <.table_default_cell>
-                  <span class={["badge badge-sm", status_class(key_status(key))]}>
-                    {status_label(key_status(key))}
-                  </span>
-                  <div
-                    :if={key_status(key) == :ending}
-                    class="text-xs text-base-content/60 mt-0.5"
+          <.table_default_body>
+            <.table_default_row :for={key <- @keys} id={"api-key-#{key.uuid}"}>
+              <.table_default_cell>
+                <div class="font-medium">{key.name}</div>
+                <div class="font-mono text-xs text-base-content/60">pk_{key.prefix}_…</div>
+                <.status_badge
+                  :if={key.requires_approval}
+                  status="pending_approval"
+                  label={gettext("Needs approval")}
+                  size={:xs}
+                  class="mt-1"
+                />
+              </.table_default_cell>
+              <.table_default_cell class="text-sm">
+                {Map.get(@owner_labels, key.user_uuid)}
+              </.table_default_cell>
+              <.table_default_cell>
+                <div class="flex flex-wrap gap-1 max-w-xs">
+                  <span
+                    :for={scope <- Enum.take(key.scopes, 3)}
+                    class="badge badge-ghost badge-xs font-mono"
                   >
-                    {gettext("until %{time}",
-                      time: Calendar.strftime(ends_at(key), "%Y-%m-%d %H:%M UTC")
-                    )}
-                  </div>
-                </.table_default_cell>
-                <.table_default_cell>
-                  <%= if key.last_used_at do %>
-                    <.time_ago datetime={key.last_used_at} id={"api-key-used-#{key.uuid}"} />
-                  <% else %>
-                    <span class="text-xs text-base-content/40">{gettext("Never")}</span>
-                  <% end %>
-                </.table_default_cell>
-                <.table_default_cell class="relative z-10">
-                  <.table_row_menu
-                    :if={live?(key)}
-                    id={"api-key-menu-#{key.uuid}"}
-                    mode="dropdown"
-                    label={gettext("Actions")}
-                  >
-                    <.table_row_menu_button
-                      phx-click="request_edit_scopes"
-                      phx-value-uuid={key.uuid}
-                      icon="hero-adjustments-horizontal"
-                      label={gettext("Edit scopes")}
-                    />
-                    <.table_row_menu_button
-                      phx-click="request_rotate"
-                      phx-value-uuid={key.uuid}
-                      icon="hero-arrow-path"
-                      label={gettext("Rotate")}
-                    />
-                    <.table_row_menu_button
-                      phx-click="request_revoke"
-                      phx-value-uuid={key.uuid}
-                      icon="hero-no-symbol"
-                      label={gettext("Revoke")}
-                      variant="error"
-                    />
-                  </.table_row_menu>
-                </.table_default_cell>
-              </.table_default_row>
-            </.table_default_body>
-          </.table_default>
-        </div>
-
-        <div :if={@keys == []} id="api-keys-empty">
-          <.empty_state
-            variant="compact"
-            icon="hero-key"
-            title={gettext("No API keys yet")}
-            description={
-              gettext("Create a key, copy it once, and give it to the program that needs it.")
-            }
-          />
-        </div>
+                    {scope}
+                  </span>
+                  <span :if={length(key.scopes) > 3} class="badge badge-ghost badge-xs">
+                    +{length(key.scopes) - 3}
+                  </span>
+                  <span :if={key.scopes == []} class="text-xs text-base-content/40">
+                    {gettext("identity only")}
+                  </span>
+                </div>
+              </.table_default_cell>
+              <.table_default_cell>
+                <.status_badge
+                  status={Atom.to_string(key_status(key))}
+                  label={status_label(key_status(key))}
+                />
+                <div
+                  :if={key_status(key) == :ending}
+                  class="text-xs text-base-content/60 mt-0.5"
+                >
+                  {gettext("until %{time}",
+                    time: Calendar.strftime(ends_at(key), "%Y-%m-%d %H:%M UTC")
+                  )}
+                </div>
+              </.table_default_cell>
+              <.table_default_cell>
+                <%= if key.last_used_at do %>
+                  <.time_ago datetime={key.last_used_at} id={"api-key-used-#{key.uuid}"} />
+                <% else %>
+                  <span class="text-xs text-base-content/40">{gettext("Never")}</span>
+                <% end %>
+              </.table_default_cell>
+              <.table_default_cell class="relative z-10">
+                <.table_row_menu
+                  :if={live?(key)}
+                  id={"api-key-menu-#{key.uuid}"}
+                  mode="dropdown"
+                  label={gettext("Actions")}
+                >
+                  <.table_row_menu_button
+                    phx-click="request_edit_scopes"
+                    phx-value-uuid={key.uuid}
+                    icon="hero-adjustments-horizontal"
+                    label={gettext("Edit scopes")}
+                  />
+                  <.table_row_menu_button
+                    phx-click="request_rotate"
+                    phx-value-uuid={key.uuid}
+                    icon="hero-arrow-path"
+                    label={gettext("Rotate")}
+                  />
+                  <.table_row_menu_button
+                    phx-click="request_revoke"
+                    phx-value-uuid={key.uuid}
+                    icon="hero-no-symbol"
+                    label={gettext("Revoke")}
+                    variant="error"
+                  />
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+        </.table_default>
       </div>
-    </div>
+
+      <div :if={@keys == []} id="api-keys-empty">
+        <.empty_state
+          variant="compact"
+          icon="hero-key"
+          title={gettext("No API keys yet")}
+          description={
+            gettext("Create a key, copy it once, and give it to the program that needs it.")
+          }
+        />
+      </div>
+    </.form_section>
 
     <%!-- Pending approvals --%>
-    <div id="api-approvals-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 class="card-title text-lg">
-              <.icon name="hero-shield-check" class="w-5 h-5" /> {gettext("Pending approvals")}
-            </h2>
-            <p class="text-sm text-base-content/70">
-              {gettext(
-                "Operations from keys that need a person's approval wait here. Nothing runs until you approve it."
-              )}
-            </p>
-          </div>
-          <.button
-            id="api-approvals-link"
-            variant="outline"
-            size="sm"
-            navigate={Routes.path("/admin/approvals")}
+    <.form_section
+      id="api-approvals-card"
+      wrap_actions
+      title={gettext("Pending approvals")}
+      icon="hero-shield-check"
+      class="border border-base-200"
+    >
+      <:subtitle>
+        {gettext(
+          "Operations from keys that need a person's approval wait here. Nothing runs until you approve it."
+        )}
+      </:subtitle>
+      <:actions>
+        <.button
+          id="api-approvals-link"
+          variant="outline"
+          size="sm"
+          navigate={Routes.path("/admin/approvals")}
+        >
+          {gettext("Review approvals")}
+          <span
+            :if={@pending_approvals > 0}
+            id="api-approvals-count"
+            class="badge badge-warning badge-sm"
           >
-            {gettext("Review approvals")}
-            <span
-              :if={@pending_approvals > 0}
-              id="api-approvals-count"
-              class="badge badge-warning badge-sm"
-            >
-              {@pending_approvals}
-            </span>
-          </.button>
-        </div>
-      </div>
-    </div>
+            {@pending_approvals}
+          </span>
+        </.button>
+      </:actions>
+    </.form_section>
 
     <%!-- Service users --%>
-    <div id="api-service-users-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body space-y-4">
-        <div class="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 class="card-title text-lg">
-              <.icon name="hero-cpu-chip" class="w-5 h-5" /> {gettext("Service users")}
-            </h2>
-            <p class="text-sm text-base-content/70">
-              {gettext(
-                "A service user is an account for a program. It cannot sign in to the website, and it holds only the roles you give it, never more than you hold yourself."
-              )}
-            </p>
-          </div>
-          <.button
-            id="api-new-service-user"
-            type="button"
-            size="sm"
-            variant="outline"
-            phx-click="open_service_user_form"
-          >
-            <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New service user")}
-          </.button>
-        </div>
+    <.form_section
+      id="api-service-users-card"
+      wrap_actions
+      title={gettext("Service users")}
+      icon="hero-cpu-chip"
+      class="border border-base-200"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext(
+          "A service user is an account for a program. It cannot sign in to the website, and it holds only the roles you give it, never more than you hold yourself."
+        )}
+      </:subtitle>
+      <:actions>
+        <.button
+          id="api-new-service-user"
+          type="button"
+          size="sm"
+          variant="outline"
+          phx-click="open_service_user_form"
+        >
+          <.icon name="hero-plus" class="w-4 h-4" /> {gettext("New service user")}
+        </.button>
+      </:actions>
 
-        <div :if={@service_users != []} id="api-service-users-table">
-          <.table_default>
-            <.table_default_header>
-              <.table_default_row>
-                <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Keys")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Created")}</.table_default_header_cell>
-                <.table_default_header_cell>{gettext("Actions")}</.table_default_header_cell>
-              </.table_default_row>
-            </.table_default_header>
+      <div :if={@service_users != []} id="api-service-users-table">
+        <.table_default>
+          <.table_default_header>
+            <.table_default_row>
+              <.table_default_header_cell>{gettext("Name")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Keys")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Created")}</.table_default_header_cell>
+              <.table_default_header_cell>{gettext("Actions")}</.table_default_header_cell>
+            </.table_default_row>
+          </.table_default_header>
 
-            <.table_default_body>
-              <.table_default_row
-                :for={service_user <- @service_users}
-                id={"api-service-user-#{service_user.uuid}"}
-              >
-                <.table_default_cell>
-                  <div class="font-medium">{user_label(service_user)}</div>
-                  <div class="font-mono text-xs text-base-content/60">{service_user.email}</div>
-                </.table_default_cell>
-                <.table_default_cell class="text-sm">
-                  {Map.get(@key_counts, service_user.uuid, 0)}
-                </.table_default_cell>
-                <.table_default_cell>
-                  <.time_ago
-                    datetime={service_user.inserted_at}
-                    id={"api-service-user-made-#{service_user.uuid}"}
+          <.table_default_body>
+            <.table_default_row
+              :for={service_user <- @service_users}
+              id={"api-service-user-#{service_user.uuid}"}
+            >
+              <.table_default_cell>
+                <div class="font-medium">{user_label(service_user)}</div>
+                <div class="font-mono text-xs text-base-content/60">{service_user.email}</div>
+              </.table_default_cell>
+              <.table_default_cell class="text-sm">
+                {Map.get(@key_counts, service_user.uuid, 0)}
+              </.table_default_cell>
+              <.table_default_cell>
+                <.time_ago
+                  datetime={service_user.inserted_at}
+                  id={"api-service-user-made-#{service_user.uuid}"}
+                />
+              </.table_default_cell>
+              <.table_default_cell class="relative z-10">
+                <.table_row_menu
+                  id={"api-service-user-menu-#{service_user.uuid}"}
+                  mode="dropdown"
+                  label={gettext("Actions")}
+                >
+                  <.table_row_menu_button
+                    phx-click="open_create_key"
+                    phx-value-owner={service_user.uuid}
+                    icon="hero-key"
+                    label={gettext("New key")}
                   />
-                </.table_default_cell>
-                <.table_default_cell class="relative z-10">
-                  <.table_row_menu
-                    id={"api-service-user-menu-#{service_user.uuid}"}
-                    mode="dropdown"
-                    label={gettext("Actions")}
-                  >
-                    <.table_row_menu_button
-                      phx-click="open_create_key"
-                      phx-value-owner={service_user.uuid}
-                      icon="hero-key"
-                      label={gettext("New key")}
-                    />
-                  </.table_row_menu>
-                </.table_default_cell>
-              </.table_default_row>
-            </.table_default_body>
-          </.table_default>
-        </div>
-
-        <div :if={@service_users == []} id="api-service-users-empty">
-          <.empty_state
-            variant="compact"
-            icon="hero-cpu-chip"
-            title={gettext("No service users yet")}
-            description={
-              gettext(
-                "Create one when a program should have a key that does not belong to a person."
-              )
-            }
-          />
-        </div>
+                </.table_row_menu>
+              </.table_default_cell>
+            </.table_default_row>
+          </.table_default_body>
+        </.table_default>
       </div>
-    </div>
+
+      <div :if={@service_users == []} id="api-service-users-empty">
+        <.empty_state
+          variant="compact"
+          icon="hero-cpu-chip"
+          title={gettext("No service users yet")}
+          description={
+            gettext(
+              "Create one when a program should have a key that does not belong to a person."
+            )
+          }
+        />
+      </div>
+    </.form_section>
 
     <%!-- Limits and advanced --%>
-    <div id="api-limits-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body space-y-4">
-        <div>
-          <h2 class="card-title text-lg">
-            <.icon name="hero-adjustments-horizontal" class="w-5 h-5" />
-            {gettext("Limits and advanced")}
-          </h2>
-          <p class="text-sm text-base-content/70">
-            {gettext(
-              "Rate limits and the lists of hidden tools and allowed origins. Every change is kept in the history of the settings."
-            )}
-          </p>
+    <.form_section
+      id="api-limits-card"
+      title={gettext("Limits and advanced")}
+      icon="hero-adjustments-horizontal"
+      class="border border-base-200"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext(
+          "Rate limits and the lists of hidden tools and allowed origins. Every change is kept in the history of the settings."
+        )}
+      </:subtitle>
+
+      <form id="api-limits-form" phx-submit="save_limits" class="space-y-4">
+        <div :if={@limits_errors != []} id="api-limits-errors" class="alert alert-error text-sm">
+          <ul class="list-disc pl-4">
+            <li :for={message <- @limits_errors}>{message}</li>
+          </ul>
         </div>
 
-        <form id="api-limits-form" phx-submit="save_limits" class="space-y-4">
-          <div :if={@limits_errors != []} id="api-limits-errors" class="alert alert-error text-sm">
-            <ul class="list-disc pl-4">
-              <li :for={message <- @limits_errors}>{message}</li>
-            </ul>
-          </div>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <.textarea
+            id="api-disabled-tools"
+            name="limits[disabled_tools]"
+            rows="4"
+            spellcheck="false"
+            class="font-mono text-sm"
+            wrap_label
+            label={gettext("Hidden tools (one per line)")}
+            hint={gettext("A hidden tool answers as if it did not exist, for every key.")}
+            value={@limits_params["disabled_tools"]}
+          />
+          <.textarea
+            id="api-mcp-origins"
+            name="limits[mcp_allowed_origins]"
+            rows="4"
+            spellcheck="false"
+            class="font-mono text-sm"
+            wrap_label
+            label={gettext("Allowed MCP origins (one per line)")}
+            hint={
+              gettext(
+                "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
+              )
+            }
+            value={@limits_params["mcp_allowed_origins"]}
+          />
+        </div>
 
-          <div class="grid gap-4 md:grid-cols-2 [&>*]:min-w-0 [&_.label]:whitespace-normal">
-            <div class="fieldset">
-              <label class="fieldset-legend" for="api-disabled-tools">
-                {gettext("Hidden tools (one per line)")}
-              </label>
-              <textarea
-                id="api-disabled-tools"
-                name="limits[disabled_tools]"
-                rows="4"
-                spellcheck="false"
-                class="textarea textarea-bordered w-full font-mono text-sm"
-              >{@limits_params["disabled_tools"]}</textarea>
-              <p class="label">
-                {gettext("A hidden tool answers as if it did not exist, for every key.")}
-              </p>
-            </div>
+        <div class="grid grid-cols-1 items-end gap-4 md:grid-cols-2">
+          <.input
+            id="api-limit-preauth-fail-per-min"
+            name="limits[preauth_fail_per_min]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Failed sign-ins per minute, per address")}
+            value={@limits_params["preauth_fail_per_min"]}
+          />
+          <.input
+            id="api-limit-admin-per-min"
+            name="limits[admin_per_min]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Calls per minute, per key (admin API)")}
+            value={@limits_params["admin_per_min"]}
+          />
+          <.input
+            id="api-limit-public-token-per-min"
+            name="limits[public_token_per_min]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Calls per minute, per client token (public API)")}
+            value={@limits_params["public_token_per_min"]}
+          />
+          <.input
+            id="api-limit-public-ip-per-min"
+            name="limits[public_ip_per_min]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Calls per minute, per address (public API)")}
+            value={@limits_params["public_ip_per_min"]}
+          />
+        </div>
 
-            <div class="fieldset">
-              <label class="fieldset-legend" for="api-mcp-origins">
-                {gettext("Allowed MCP origins (one per line)")}
-              </label>
-              <textarea
-                id="api-mcp-origins"
-                name="limits[mcp_allowed_origins]"
-                rows="4"
-                spellcheck="false"
-                class="textarea textarea-bordered w-full font-mono text-sm"
-              >{@limits_params["mcp_allowed_origins"]}</textarea>
-              <p class="label">
-                {gettext(
-                  "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
-                )}
-              </p>
-            </div>
-          </div>
-
-          <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 [&>*]:min-w-0 [&_.label]:whitespace-normal">
-            <.input
-              id="api-limit-preauth-fail-per-min"
-              name="limits[preauth_fail_per_min]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Failed sign-ins per minute, per address")}
-              value={@limits_params["preauth_fail_per_min"]}
-            />
-            <.input
-              id="api-limit-admin-per-min"
-              name="limits[admin_per_min]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Calls per minute, per key (admin API)")}
-              value={@limits_params["admin_per_min"]}
-            />
-            <.input
-              id="api-limit-public-token-per-min"
-              name="limits[public_token_per_min]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Calls per minute, per client token (public API)")}
-              value={@limits_params["public_token_per_min"]}
-            />
-            <.input
-              id="api-limit-public-ip-per-min"
-              name="limits[public_ip_per_min]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Calls per minute, per address (public API)")}
-              value={@limits_params["public_ip_per_min"]}
-            />
+        <%!-- The two new-row limits share one subject: the legend names it for both. --%>
+        <fieldset id="api-limits-new-rows" class="min-w-0">
+          <legend id="api-limit-new-rows-help" class="mb-3 text-sm font-semibold">
+            {gettext("Rows a module creates for callers without a key")}
+          </legend>
+          <div class="grid grid-cols-1 items-end gap-4 md:grid-cols-2">
             <.input
               id="api-limit-new-rows-ip-hour"
               name="limits[new_rows_ip_hour]"
               type="text"
               inputmode="numeric"
-              aria-describedby="api-limit-new-rows-help"
+              wrap_label
               label={gettext("New rows per hour, per address")}
               value={@limits_params["new_rows_ip_hour"]}
             />
@@ -531,117 +544,119 @@
               name="limits[new_rows_global_hour]"
               type="text"
               inputmode="numeric"
-              aria-describedby="api-limit-new-rows-help"
+              wrap_label
               label={gettext("New rows per hour, all addresses")}
               value={@limits_params["new_rows_global_hour"]}
             />
           </div>
-          <p id="api-limit-new-rows-help" class="text-sm text-base-content/70">
-            {gettext("Rows a module creates for callers without a key")}
-          </p>
+        </fieldset>
 
-          <div class="flex justify-end">
-            <.button type="submit" id="api-limits-submit">
-              {gettext("Save the limits")}
-            </.button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div class="flex justify-end">
+          <.button type="submit" id="api-limits-submit">
+            {gettext("Save the limits")}
+          </.button>
+        </div>
+      </form>
+    </.form_section>
 
     <%!-- Confirmation, approvals and repeats --%>
-    <div id="api-flow-card" class="card bg-base-100 shadow-lg border border-base-200">
-      <div class="card-body space-y-4">
-        <div>
-          <h2 class="card-title text-lg">
-            <.icon name="hero-shield-check" class="w-5 h-5" />
-            {gettext("Confirmation, approvals and repeats")}
-          </h2>
-          <p class="text-sm text-base-content/70">
-            {gettext(
-              "How long confirmation codes and approvals live, and when an operation counts as a big one. Every change is kept in the history of the settings."
-            )}
-          </p>
+    <.form_section
+      id="api-flow-card"
+      title={gettext("Confirmation, approvals and repeats")}
+      icon="hero-shield-check"
+      class="border border-base-200"
+      body_class="space-y-4"
+    >
+      <:subtitle>
+        {gettext(
+          "How long confirmation codes and approvals live, and when an operation counts as a big one. Every change is kept in the history of the settings."
+        )}
+      </:subtitle>
+
+      <form id="api-flow-form" phx-submit="save_flow" class="space-y-4">
+        <div :if={@flow_errors != []} id="api-flow-errors" class="alert alert-error text-sm">
+          <ul class="list-disc pl-4">
+            <li :for={message <- @flow_errors}>{message}</li>
+          </ul>
         </div>
 
-        <form id="api-flow-form" phx-submit="save_flow" class="space-y-4">
-          <div :if={@flow_errors != []} id="api-flow-errors" class="alert alert-error text-sm">
-            <ul class="list-disc pl-4">
-              <li :for={message <- @flow_errors}>{message}</li>
-            </ul>
-          </div>
+        <div class="grid grid-cols-1 items-end gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <.input
+            id="api-flow-confirm-batch-over"
+            name="flow[confirm_batch_over]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Ask for confirmation above this many rows")}
+            value={@flow_params["confirm_batch_over"]}
+          />
+          <.input
+            id="api-flow-confirm-ttl-seconds"
+            name="flow[confirm_ttl_seconds]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Confirmation code lifetime in seconds (10 to 600)")}
+            value={@flow_params["confirm_ttl_seconds"]}
+          />
+          <.input
+            id="api-flow-user-confirm-ttl-seconds"
+            name="flow[user_confirm_ttl_seconds]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={
+              gettext(
+                "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
+              )
+            }
+            value={@flow_params["user_confirm_ttl_seconds"]}
+          />
+          <.input
+            id="api-flow-approval-ttl-hours"
+            name="flow[approval_ttl_hours]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Approval lifetime in hours")}
+            value={@flow_params["approval_ttl_hours"]}
+          />
+          <.input
+            id="api-flow-approval-pending-max"
+            name="flow[approval_pending_max]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Approvals one key may have waiting")}
+            value={@flow_params["approval_pending_max"]}
+          />
+          <.input
+            id="api-flow-idempotency-ttl-hours"
+            name="flow[idempotency_ttl_hours]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Repeat protection lifetime in hours")}
+            value={@flow_params["idempotency_ttl_hours"]}
+          />
+          <.input
+            id="api-flow-idempotency-lease-seconds"
+            name="flow[idempotency_lease_seconds]"
+            type="text"
+            inputmode="numeric"
+            wrap_label
+            label={gettext("Repeat protection lease in seconds")}
+            value={@flow_params["idempotency_lease_seconds"]}
+          />
+        </div>
 
-          <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3 [&>*]:min-w-0 [&_.label]:whitespace-normal">
-            <.input
-              id="api-flow-confirm-batch-over"
-              name="flow[confirm_batch_over]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Ask for confirmation above this many rows")}
-              value={@flow_params["confirm_batch_over"]}
-            />
-            <.input
-              id="api-flow-confirm-ttl-seconds"
-              name="flow[confirm_ttl_seconds]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Confirmation code lifetime in seconds (10 to 600)")}
-              value={@flow_params["confirm_ttl_seconds"]}
-            />
-            <.input
-              id="api-flow-user-confirm-ttl-seconds"
-              name="flow[user_confirm_ttl_seconds]"
-              type="text"
-              inputmode="numeric"
-              label={
-                gettext(
-                  "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
-                )
-              }
-              value={@flow_params["user_confirm_ttl_seconds"]}
-            />
-            <.input
-              id="api-flow-approval-ttl-hours"
-              name="flow[approval_ttl_hours]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Approval lifetime in hours")}
-              value={@flow_params["approval_ttl_hours"]}
-            />
-            <.input
-              id="api-flow-approval-pending-max"
-              name="flow[approval_pending_max]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Approvals one key may have waiting")}
-              value={@flow_params["approval_pending_max"]}
-            />
-            <.input
-              id="api-flow-idempotency-ttl-hours"
-              name="flow[idempotency_ttl_hours]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Repeat protection lifetime in hours")}
-              value={@flow_params["idempotency_ttl_hours"]}
-            />
-            <.input
-              id="api-flow-idempotency-lease-seconds"
-              name="flow[idempotency_lease_seconds]"
-              type="text"
-              inputmode="numeric"
-              label={gettext("Repeat protection lease in seconds")}
-              value={@flow_params["idempotency_lease_seconds"]}
-            />
-          </div>
-
-          <div class="flex justify-end">
-            <.button type="submit" id="api-flow-submit">
-              {gettext("Save the settings")}
-            </.button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div class="flex justify-end">
+          <.button type="submit" id="api-flow-submit">
+            {gettext("Save the settings")}
+          </.button>
+        </div>
+      </form>
+    </.form_section>
   </div>
 
   <%!-- Create key --%>
@@ -649,6 +664,7 @@
     show={@show_key_form}
     on_close="close_create_key"
     id="create-api-key-modal"
+    actions_class="flex-wrap"
     max_width="2xl"
   >
     <:title>
@@ -669,6 +685,7 @@
 
       <.input
         id="api-key-name"
+        wrap_label
         name="key[name]"
         type="text"
         label={gettext("Name")}
@@ -679,35 +696,33 @@
 
       <.select
         id="api-key-owner"
+        wrap_label
         name="key[owner]"
         label={gettext("Owner")}
         value={@key_params["owner"]}
         options={owner_options(@service_users)}
       />
 
-      <div id="api-key-scopes" class="fieldset">
+      <fieldset id="api-key-scopes" class="fieldset min-w-0">
         <legend class="fieldset-legend">{gettext("Scopes")}</legend>
         <p :if={@scope_options == []} class="text-sm text-base-content/60">
           {gettext(
             "No scopes are available to this owner. The key can still read its own identity."
           )}
         </p>
-        <label :for={scope <- @scope_options} class="flex items-start gap-2 py-1 cursor-pointer">
-          <input
-            type="checkbox"
-            class="checkbox checkbox-sm mt-0.5"
-            name="key[scopes][]"
-            value={scope}
-            checked={scope in @key_params["scopes"]}
-          />
-          <span>
-            <span class="font-mono text-sm">{scope}</span>
-            <span class="block text-xs text-base-content/60">
-              {Enum.join(Map.get(@scope_tools, scope, []), ", ")}
-            </span>
-          </span>
-        </label>
-      </div>
+        <.checkbox
+          :for={scope <- @scope_options}
+          name="key[scopes][]"
+          value={scope}
+          unchecked_value={nil}
+          checked={scope in @key_params["scopes"]}
+          class="checkbox-sm"
+          wrapper_class="py-1"
+        >
+          <span class="font-mono">{scope}</span>
+          <:description>{Enum.join(Map.get(@scope_tools, scope, []), ", ")}</:description>
+        </.checkbox>
+      </fieldset>
 
       <.checkbox
         id="api-key-requires-approval"
@@ -730,6 +745,7 @@
 
       <.input
         id="api-key-allowed-ips"
+        wrap_label
         name="key[allowed_ips]"
         type="text"
         label={gettext("Allowed addresses (optional)")}
@@ -761,6 +777,7 @@
     show={@new_token != nil}
     on_close="dismiss_token"
     id="new-api-token-modal"
+    actions_class="flex-wrap"
     max_width="xl"
     closeable={false}
   >
@@ -782,26 +799,32 @@
         {gettext("Key: %{name}", name: @new_token_name)}
       </p>
 
+      <%!-- No `name`: the key is in no form, so it is never sent back as a param. --%>
       <div class="flex items-center gap-2">
-        <input
+        <.input
           id="new-api-token"
+          name={nil}
           type="text"
           readonly
           autocomplete="off"
           spellcheck="false"
+          aria-label={gettext("New API key")}
           value={@new_token}
-          class="input input-bordered w-full font-mono text-sm"
+          class="font-mono text-sm"
+          wrapper_class="min-w-0 grow"
         />
-        <button
+        <.button
           type="button"
           id="new-api-token-copy"
-          class="btn btn-sm btn-outline"
+          size="sm"
+          variant="outline"
+          class="shrink-0"
           phx-hook="CopyToClipboard"
           data-copy-target="#new-api-token"
         >
           <span data-copy-idle>{gettext("Copy")}</span>
           <span data-copy-feedback class="hidden">{gettext("Copied!")}</span>
-        </button>
+        </.button>
       </div>
 
       <p class="text-xs text-base-content/60">
@@ -823,6 +846,7 @@
     show={@scopes_form.show}
     on_close="cancel_edit_scopes"
     id="edit-key-scopes-modal"
+    actions_class="flex-wrap"
     max_width="2xl"
   >
     <:title>
@@ -844,37 +868,33 @@
         </ul>
       </div>
 
-      <div class="fieldset">
+      <fieldset class="fieldset min-w-0">
         <legend class="fieldset-legend">{gettext("Scopes")}</legend>
         <p :if={Map.get(@scopes_form, :options, []) == []} class="text-sm text-base-content/60">
           {gettext(
             "No scopes are available to this owner. The key can still read its own identity."
           )}
         </p>
-        <label
+        <.checkbox
           :for={scope <- Map.get(@scopes_form, :options, [])}
-          class="flex items-start gap-2 py-1 cursor-pointer"
+          name="key_scopes[scopes][]"
+          value={scope}
+          unchecked_value={nil}
+          checked={scope in Map.get(@scopes_form, :selected, [])}
+          class="checkbox-sm"
+          wrapper_class="py-1"
         >
-          <input
-            type="checkbox"
-            class="checkbox checkbox-sm mt-0.5"
-            name="key_scopes[scopes][]"
-            value={scope}
-            checked={scope in Map.get(@scopes_form, :selected, [])}
-          />
-          <span>
-            <span class="font-mono text-sm">{scope}</span>
-            <span class="block text-xs text-base-content/60">
-              {Enum.join(Map.get(Map.get(@scopes_form, :tools, %{}), scope, []), ", ")}
-            </span>
-          </span>
-        </label>
+          <span class="font-mono">{scope}</span>
+          <:description>
+            {Enum.join(Map.get(Map.get(@scopes_form, :tools, %{}), scope, []), ", ")}
+          </:description>
+        </.checkbox>
         <div
           :if={Map.get(@scopes_form, :inactive, []) != []}
           id="edit-key-scopes-inactive"
           class="mt-2"
         >
-          <p class="label">
+          <p class="text-sm text-base-content/70">
             {gettext(
               "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
             )}
@@ -889,7 +909,7 @@
             </li>
           </ul>
         </div>
-      </div>
+      </fieldset>
     </form>
 
     <:actions>
@@ -907,6 +927,7 @@
     show={@rotate_form.show}
     on_close="cancel_rotate"
     id="rotate-api-key-modal"
+    actions_class="flex-wrap"
     max_width="lg"
   >
     <:title>
@@ -925,6 +946,7 @@
       </div>
       <.select
         id="rotate-grace-hours"
+        wrap_label
         name="rotate[grace_hours]"
         label={gettext("Grace period in hours (0 to 24)")}
         value={@rotate_form[:hours]}
@@ -947,6 +969,7 @@
     show={@show_service_user_form}
     on_close="close_service_user_form"
     id="create-service-user-modal"
+    actions_class="flex-wrap"
     max_width="lg"
   >
     <:title>
@@ -966,6 +989,7 @@
 
       <.input
         id="service-user-name"
+        wrap_label
         name="service_user[name]"
         type="text"
         label={gettext("Name")}
@@ -973,32 +997,42 @@
         placeholder={gettext("The program, for example Stock sync")}
       />
 
-      <div id="service-user-roles" class="fieldset">
+      <fieldset
+        id="service-user-roles"
+        class="fieldset min-w-0"
+        aria-describedby="service-user-roles-help"
+      >
         <legend class="fieldset-legend">{gettext("Roles")}</legend>
         <p :if={@allowed_roles == []} class="text-sm text-base-content/60">
           {gettext("There is no role you may hand out.")}
         </p>
-        <label :for={role <- @allowed_roles} class="flex items-center gap-2 py-1 cursor-pointer">
-          <input
-            type="checkbox"
-            class="checkbox checkbox-sm"
-            name="service_user[roles][]"
-            value={role.name}
-            checked={role.name in @service_user_params["roles"]}
-          />
-          <span class="text-sm">{role.name}</span>
-        </label>
-        <p class="label mt-1">
+        <.checkbox
+          :for={role <- @allowed_roles}
+          name="service_user[roles][]"
+          value={role.name}
+          unchecked_value={nil}
+          checked={role.name in @service_user_params["roles"]}
+          label={role.name}
+          class="checkbox-sm"
+          wrapper_class="py-1"
+        />
+        <p id="service-user-roles-help" class="mt-1 text-sm text-base-content/70">
           {gettext("Only roles that hold no more rights than you do are listed.")}
         </p>
-      </div>
+      </fieldset>
     </form>
 
     <:actions>
       <.button type="button" variant="ghost" phx-click="close_service_user_form">
         {gettext("Cancel")}
       </.button>
-      <.button type="submit" form="create-service-user-form" id="create-service-user-submit">
+      <%!-- The longest label of the page's dialogs (ru, uk): on a phone it wraps. --%>
+      <.button
+        type="submit"
+        form="create-service-user-form"
+        id="create-service-user-submit"
+        class="h-auto min-h-10 shrink py-2"
+      >
         {gettext("Create the service user")}
       </.button>
     </:actions>
