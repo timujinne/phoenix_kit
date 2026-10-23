@@ -524,6 +524,7 @@ defmodule PhoenixKit.API.ExecutorGateTest do
         )
 
       assert keyed.status == 422
+      assert [%{"path" => "idempotency_key"}] = json(keyed)["context"]["errors"]
       assert rows("token") == []
 
       first = public_call("flowkit.drop_session", args)

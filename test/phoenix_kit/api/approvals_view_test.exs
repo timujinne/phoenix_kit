@@ -170,6 +170,17 @@ defmodule PhoenixKit.API.Approvals.ViewTest do
       assert view.technical == preview
     end
 
+    test "a reason is cut by code points, not graphemes" do
+      # One letter and 200000 combining marks is a single grapheme.
+      long = "a" <> String.duplicate("\u0301", 200_000)
+      error = %{"message" => "Failed.", "context" => %{"errors" => [%{"message" => long}]}}
+      preview = %{"rows" => [%{"ref" => "a", "error" => error}]}
+
+      assert [%{error_reasons: [reason]}] = View.preview(preview).rows
+      assert length(String.to_charlist(reason)) == 160
+      assert String.ends_with?(reason, "…")
+    end
+
     test "message and detail are both shown, the message first" do
       error = %{"message" => "The product could not be saved.", "detail" => "Try again later."}
       view = View.preview(%{"rows" => [%{"ref" => "a", "error" => error}]})

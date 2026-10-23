@@ -30,6 +30,8 @@ defmodule PhoenixKit.API.Approvals.View do
   The functions return data; the words around it belong to the page.
   """
 
+  alias PhoenixKit.API.LogSafe
+
   @max_rows 25
   @max_text 160
   @max_reasons 5
@@ -261,10 +263,13 @@ defmodule PhoenixKit.API.Approvals.View do
 
   defp reason(_other), do: :error
 
+  # By code points, not graphemes: the path and the message come from the client, and a
+  # single grapheme can carry any number of combining marks.
   defp cap(text) do
-    if String.length(text) > @max_text,
-      do: {String.slice(text, 0, @max_text - 1) <> "…", true},
-      else: {text, false}
+    case LogSafe.take_codepoints(text, @max_text) do
+      ^text -> {text, false}
+      head -> {LogSafe.take_codepoints(head, @max_text - 1) <> "…", true}
+    end
   end
 
   defp binary_value(map, key) do
