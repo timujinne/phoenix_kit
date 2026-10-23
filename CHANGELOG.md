@@ -63,6 +63,9 @@
 
 ### Fixed
 
+- **`<.integration_picker>` no longer shows every card as selected.** The check's size and colour were joined without a
+  space (`h-5text-base-content/20`), so the browser ignored both and an unselected card's check showed in full colour; the
+  status badge lost its colour and its hide-while-loading rule the same way.
 - **An HDR video no longer makes renditions a browser cannot play, nor a washed-out poster.** A phone records HDR as 10-bit HEVC
   (HLG or PQ, BT.2020). Its renditions were encoded as 10-bit H.264 ("High 10"), which most browsers refuse, and its poster was
   a raw frame grab with the HDR signal squeezed into an SDR picture (flat colours, blown highlights). `VideoSource.probe/1`
