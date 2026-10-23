@@ -20,6 +20,10 @@ defmodule PhoenixKitWeb.Components.Core.Select do
 
   attr :errors, :list, default: []
 
+  attr :wrap_label, :boolean,
+    default: false,
+    doc: "let a long label wrap inside its column (daisyUI's `.label` does not wrap)"
+
   attr :class, :any,
     default: nil,
     doc:
@@ -46,7 +50,12 @@ defmodule PhoenixKitWeb.Components.Core.Select do
       <%!-- No extra class: `block` here made a select's label a different
            box from the `<.input>` label beside it (24px tall against 16px),
            so a row of mixed fields sat on two baselines. --%>
-      <.label :if={@label && @label != ""} for={@id} required={!!@rest[:required]}>
+      <.label
+        :if={@label && @label != ""}
+        for={@id}
+        required={!!@rest[:required]}
+        class={if @wrap_label, do: "whitespace-normal"}
+      >
         {@label}
       </.label>
 

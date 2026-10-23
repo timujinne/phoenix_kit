@@ -61,4 +61,21 @@ defmodule PhoenixKitWeb.Components.Core.SelectTest do
     [label] = Regex.run(~r/<label[^>]*>/, html)
     refute label =~ ~r/class="[^"]*\bblock\b/
   end
+
+  test "wrap_label lets a long label wrap; by default it does not" do
+    assigns = %{}
+
+    wrapped =
+      render(~H"""
+      <.select name="hours" value="1" label="Grace period" wrap_label options={[{"1", "1"}]} />
+      """)
+
+    plain =
+      render(~H"""
+      <.select name="hours" value="1" label="Grace period" options={[{"1", "1"}]} />
+      """)
+
+    assert wrapped =~ ~s(class="label mb-2 whitespace-normal")
+    refute plain =~ "whitespace-normal"
+  end
 end

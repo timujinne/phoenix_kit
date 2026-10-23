@@ -7,6 +7,7 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
 
   import PhoenixKitWeb.Components.Core.FormFieldLabel, only: [label: 1]
   import PhoenixKitWeb.Components.Core.FormFieldError, only: [error: 1]
+  import PhoenixKitWeb.Components.Core.FormFieldHint, only: [field_hint: 1, describe_by_hint: 2]
   import PhoenixKitWeb.Components.Core.Input, only: [translate_error: 1]
 
   attr :field, Phoenix.HTML.FormField
@@ -17,6 +18,15 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
   attr :value, :any
 
   attr :errors, :list, default: []
+
+  attr :hint, :string,
+    default: nil,
+    doc:
+      "help text under the textarea, linked to it with `aria-describedby` (the `<p>` gets the id `\"<id>-help\"`)"
+
+  attr :wrap_label, :boolean,
+    default: false,
+    doc: "let a long label wrap inside its column (daisyUI's `.label` does not wrap)"
 
   attr :class, :any,
     default: nil,
@@ -49,12 +59,20 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
     # The site switch, checked at render: with mentions off the field is an
     # ordinary textarea again — no hook, no hint promising a feature that
     # would silently return nothing.
-    assigns = assign(assigns, :mentions, assigns.mentions and PhoenixKit.Mentions.enabled?())
+    assigns =
+      assigns
+      |> assign(:mentions, assigns.mentions and PhoenixKit.Mentions.enabled?())
+      |> assign(:rest, describe_by_hint(assigns.rest, assigns))
 
     ~H"""
     <div phx-feedback-for={@name}>
       <%!-- Required marker, kept in sync with `<.input>`. --%>
-      <.label :if={@label && @label != ""} for={@id} required={!!@rest[:required]}>
+      <.label
+        :if={@label && @label != ""}
+        for={@id}
+        required={!!@rest[:required]}
+        class={if @wrap_label, do: "whitespace-normal"}
+      >
         {@label}
       </.label>
 
@@ -69,6 +87,8 @@ defmodule PhoenixKitWeb.Components.Core.Textarea do
         ]}
         {@rest}
       ><%= Phoenix.HTML.Form.normalize_value("textarea", @value) %></textarea>
+
+      <.field_hint id={@id} hint={@hint} />
 
       <p :if={@mentions} class="mt-1 text-xs opacity-50">
         {gettext("Type @ to mention someone, # to link a record.")}
