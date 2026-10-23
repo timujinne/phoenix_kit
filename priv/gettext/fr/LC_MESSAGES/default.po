@@ -21376,3 +21376,43 @@ msgstr "« L'agent peut agir » permet à un assistant qui travaille dans la ses
 #, elixir-autogen, elixir-format
 msgid "The preview is cut: %{count} rows are not shown. Confirming runs the whole operation, not only the rows shown."
 msgstr "L'aperçu est tronqué : %{count} lignes ne sont pas affichées. La confirmation exécute toute l'opération, pas seulement les lignes affichées."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:187
+#, elixir-autogen, elixir-format
+msgid "Tools for the assistant: %{available} of %{total} available"
+msgstr "Outils pour l'assistant : %{available} sur %{total} disponibles"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:194
+#, elixir-autogen, elixir-format
+msgid "What an assistant working in a person's signed-in session may call, by these settings alone. Rights are still checked for each person: a tool shown as available is refused to someone whose roles lack its permission."
+msgstr "Ce qu'un assistant qui travaille dans la session connectée d'une personne peut appeler, d'après ces seuls paramètres. Les droits restent vérifiés pour chaque personne : un outil affiché comme disponible est refusé à quiconque dont les rôles n'accordent pas sa permission."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:218
+#, elixir-autogen, elixir-format
+msgid "Permission: %{permission}"
+msgstr "Permission : %{permission}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:229
+#, elixir-autogen, elixir-format
+msgid "Closed"
+msgstr "Fermé"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:529
+#, elixir-autogen, elixir-format
+msgid "The module is switched off."
+msgstr "Le module est désactivé."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:530
+#, elixir-autogen, elixir-format
+msgid "The module's API is off."
+msgstr "L'API du module est désactivée."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:533
+#, elixir-autogen, elixir-format
+msgid "The tool is hidden in “Limits and advanced”."
+msgstr "L'outil est masqué dans « Limites et paramètres avancés »."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:536
+#, elixir-autogen, elixir-format
+msgid "It writes, and “Agent may act” is off."
+msgstr "Il écrit, et « L'agent peut agir » est désactivé."

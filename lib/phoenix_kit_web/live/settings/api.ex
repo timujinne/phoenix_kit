@@ -43,6 +43,15 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   can still be taken off. API keys do not read it. The event and the checks are the
   switch's.
 
+  ## The tools of each module
+
+  A module's row also lists its admin tools in a collapsible section: whether it reads or
+  writes, its permission, and whether an assistant in a person's live session may call it
+  by the install's settings alone (`PhoenixKit.API.Executor.tool_availability/1` without a
+  scope), or why not. It is read again after the module's switch, its "Agent may act" box
+  and the hidden tools change. The rights of each person are checked on top of it, which
+  the section says.
+
   ## Rights are checked on the server
 
   The form only offers what the person may do, and every event checks it again:
@@ -79,6 +88,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   alias PhoenixKit.API.Access
   alias PhoenixKit.API.Approvals
   alias PhoenixKit.API.Config
+  alias PhoenixKit.API.Executor
   alias PhoenixKit.API.FlowConfig
   alias PhoenixKit.API.Keys
   alias PhoenixKit.API.Keys.DisplayToken
@@ -416,7 +426,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     socket
     |> assign(:admin_enabled, Config.admin_enabled?())
     |> assign(:public_enabled, Config.public_enabled?())
-    |> assign(:api_modules, api_modules())
+    |> assign_api_modules()
     |> assign(:keys, keys)
     |> assign(:service_users, service_users)
     |> assign(:pending_approvals, Approvals.pending_count(scope))
@@ -497,6 +507,33 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
       |> Map.put(:session_write?, mod.key in writes)
     end)
   end
+
+  # The card's modules, each with its admin tools as an assistant in a person's live session
+  # finds them by the install's settings alone (`Executor.tool_availability/1` without a
+  # scope): the rights of each person are checked on top of that.
+  defp assign_api_modules(socket) do
+    tools = Enum.group_by(Executor.tool_availability(), & &1.module_key)
+
+    assign(
+      socket,
+      :api_modules,
+      Enum.map(api_modules(), &Map.put(&1, :assistant_tools, Map.get(tools, &1.key, [])))
+    )
+  end
+
+  defp available_count(tools), do: Enum.count(tools, &(&1.status == :available))
+
+  defp closed_reasons(%{status: {:closed, reasons}}), do: reasons
+  defp closed_reasons(%{status: :available}), do: []
+
+  defp closed_reason_text(:module_disabled), do: gettext("The module is switched off.")
+  defp closed_reason_text(:api_off), do: gettext("The module's API is off.")
+
+  defp closed_reason_text(:tool_hidden),
+    do: gettext("The tool is hidden in “Limits and advanced”.")
+
+  defp closed_reason_text(:agent_writes_off),
+    do: gettext("It writes, and “Agent may act” is off.")
 
   defp switch_on?("admin"), do: Config.admin_enabled?()
   defp switch_on?("public"), do: Config.public_enabled?()
@@ -933,7 +970,8 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
         Settings.update_setting_with_module(setting, value, "api", history(socket))
       end)
 
-    socket = assign_limits(socket)
+    # A hidden tool is closed to the assistant too: the modules' tool lists follow.
+    socket = socket |> assign_limits() |> assign_api_modules()
 
     if Enum.all?(results, &match?({:ok, _setting}, &1)) do
       put_flash(socket, :info, gettext("The limits were saved."))

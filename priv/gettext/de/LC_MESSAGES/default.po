@@ -21376,3 +21376,43 @@ msgstr "„Agent darf handeln“ erlaubt einem Assistenten, der in der angemelde
 #, elixir-autogen, elixir-format
 msgid "The preview is cut: %{count} rows are not shown. Confirming runs the whole operation, not only the rows shown."
 msgstr "Die Vorschau ist gekürzt: %{count} Zeilen werden nicht angezeigt. Die Bestätigung führt den gesamten Vorgang aus, nicht nur die angezeigten Zeilen."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:187
+#, elixir-autogen, elixir-format
+msgid "Tools for the assistant: %{available} of %{total} available"
+msgstr "Werkzeuge für den Assistenten: %{available} von %{total} verfügbar"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:194
+#, elixir-autogen, elixir-format
+msgid "What an assistant working in a person's signed-in session may call, by these settings alone. Rights are still checked for each person: a tool shown as available is refused to someone whose roles lack its permission."
+msgstr "Was ein Assistent, der in der angemeldeten Sitzung einer Person arbeitet, allein nach diesen Einstellungen aufrufen darf. Die Rechte werden trotzdem für jede Person geprüft: Ein als verfügbar angezeigtes Werkzeug wird jemandem verweigert, dessen Rollen seine Berechtigung nicht gewähren."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:218
+#, elixir-autogen, elixir-format
+msgid "Permission: %{permission}"
+msgstr "Berechtigung: %{permission}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:229
+#, elixir-autogen, elixir-format
+msgid "Closed"
+msgstr "Gesperrt"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:529
+#, elixir-autogen, elixir-format
+msgid "The module is switched off."
+msgstr "Das Modul ist ausgeschaltet."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:530
+#, elixir-autogen, elixir-format
+msgid "The module's API is off."
+msgstr "Die API des Moduls ist ausgeschaltet."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:533
+#, elixir-autogen, elixir-format
+msgid "The tool is hidden in “Limits and advanced”."
+msgstr "Das Werkzeug ist in „Limits und erweiterte Einstellungen“ ausgeblendet."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:536
+#, elixir-autogen, elixir-format
+msgid "It writes, and “Agent may act” is off."
+msgstr "Es schreibt, und „Agent darf handeln“ ist aus."

@@ -181,6 +181,66 @@
             phx-value-state={if mod.session_write?, do: "off", else: "on"}
           />
         </div>
+        <div :if={mod.assistant_tools != []} class="min-w-0 basis-full">
+          <.accordion id={"api-module-tools-#{mod.key}"} class="min-w-0">
+            <:title>
+              {gettext("Tools for the assistant: %{available} of %{total} available",
+                available: available_count(mod.assistant_tools),
+                total: length(mod.assistant_tools)
+              )}
+            </:title>
+            <:content>
+              <p id={"api-module-tools-note-#{mod.key}"} class="text-sm text-base-content/70">
+                {gettext(
+                  "What an assistant working in a person's signed-in session may call, by these settings alone. Rights are still checked for each person: a tool shown as available is refused to someone whose roles lack its permission."
+                )}
+              </p>
+              <ul class="mt-2 divide-y divide-base-200">
+                <li
+                  :for={tool <- mod.assistant_tools}
+                  id={"api-module-tool-#{tool.name}"}
+                  data-status={if tool.status == :available, do: "available", else: "closed"}
+                  class="min-w-0 space-y-1 py-2"
+                >
+                  <div class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                    <code class="min-w-0 break-all font-mono text-xs">{tool.name}</code>
+                    <span
+                      :if={tool.kind == :write}
+                      class="badge badge-sm badge-outline badge-warning h-auto"
+                    >
+                      {gettext("Writes")}
+                    </span>
+                    <span :if={tool.kind == :read} class="badge badge-sm badge-ghost h-auto">
+                      {gettext("Read only")}
+                    </span>
+                  </div>
+                  <p :if={tool.permission} class="break-all text-xs text-base-content/70">
+                    {gettext("Permission: %{permission}", permission: tool.permission)}
+                  </p>
+                  <div class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1 text-sm">
+                    <.status_badge
+                      :if={tool.status == :available}
+                      status="active"
+                      label={gettext("Available")}
+                    />
+                    <.status_badge
+                      :if={tool.status != :available}
+                      status="inactive"
+                      label={gettext("Closed")}
+                    />
+                    <span
+                      :for={reason <- closed_reasons(tool)}
+                      data-reason={reason}
+                      class="min-w-0"
+                    >
+                      {closed_reason_text(reason)}
+                    </span>
+                  </div>
+                </li>
+              </ul>
+            </:content>
+          </.accordion>
+        </div>
       </div>
     </.form_section>
 
