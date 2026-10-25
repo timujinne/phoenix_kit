@@ -853,6 +853,37 @@ defmodule PhoenixKit.Module do
   """
   @callback header_widgets() :: [PhoenixKit.HeaderWidget.entry()]
 
+  @doc """
+  Tabs this module adds to the signed-in user's settings strip, `/profile/settings/<id>`.
+
+  Each is a map described in `PhoenixKit.ProfileSettingsTab` (`:id`, `:label`, `:icon`,
+  `:after`, `:permission`, `:visible`, `:live_view`). The tab links to a page of the
+  module's own, which renders `PhoenixKitWeb.Components.ProfileSettingsTabs.profile_tabs/1`
+  with `active` set to the tab's id. With `:live_view`, core declares the route; the route
+  exists whether or not the module is enabled, the tab is offered only while it is, so the
+  page checks `enabled?/0` in its own `mount/3`.
+
+  ## Example
+
+      def profile_settings_tabs do
+        [
+          %{
+            id: "my-tab",
+            # `use Gettext, backend: MyModule.Gettext` in this module; called on
+            # every render, after the request's locale is set
+            label: fn -> gettext("My tab") end,
+            icon: "hero-puzzle-piece",
+            after: "security",
+            live_view: MyModule.Web.MyTabLive
+          }
+        ]
+      end
+
+  A module that must also compile against an older core, which has no such callback,
+  defines `profile_settings_tabs/0` without `@impl`.
+  """
+  @callback profile_settings_tabs() :: [map()]
+
   @optional_callbacks [
     get_config: 0,
     permission_metadata: 0,
@@ -883,7 +914,8 @@ defmodule PhoenixKit.Module do
     job_kinds: 0,
     api_tools: 0,
     api_problems: 0,
-    header_widgets: 0
+    header_widgets: 0,
+    profile_settings_tabs: 0
   ]
 
   defmacro __using__(_opts) do

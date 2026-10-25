@@ -8,6 +8,7 @@ defmodule PhoenixKit.Users.FormatCountryTest do
   alias PhoenixKit.Users.Auth.User
   alias PhoenixKit.Users.FormatCountry
   alias PhoenixKit.Utils.Date, as: UtilsDate
+  alias PhoenixKitWeb.Users.Auth, as: WebAuth
 
   setup do
     FormatCountry.clear_viewer()
@@ -19,15 +20,16 @@ defmodule PhoenixKit.Users.FormatCountryTest do
     user |> Ecto.Changeset.change(attrs) |> Repo.update!()
   end
 
-  # `async: false`, but the settings cache outlives a test: prime and clear one key.
+  # `async: false`, but the settings cache outlives a test: prime and restore one key.
   defp with_site_default(code, fun) do
     ensure_settings_cache()
+    previous = Cache.get(:settings, "format_country", "")
     Cache.put(:settings, "format_country", code)
 
     try do
       fun.()
     after
-      Cache.invalidate(:settings, "format_country")
+      Cache.put(:settings, "format_country", previous)
     end
   end
 
@@ -120,6 +122,28 @@ defmodule PhoenixKit.Users.FormatCountryTest do
       with_site_default("US", fn -> assert FormatCountry.viewer() == "US" end)
     end
 
+    test "a viewer without a personal country follows a changed site default" do
+      FormatCountry.put_viewer(%User{})
+      assert FormatCountry.viewer() == nil
+
+      with_site_default("US", fn -> assert FormatCountry.viewer() == "US" end)
+      with_site_default("DE", fn -> assert FormatCountry.viewer() == "DE" end)
+      assert FormatCountry.viewer() == nil
+    end
+
+    test "an explicit user without a country follows a changed site default" do
+      user = %User{uuid: Ecto.UUID.generate()}
+      FormatCountry.put_viewer(user)
+      with_site_default("US", fn -> assert FormatCountry.for_user(user) == "US" end)
+      with_site_default("DE", fn -> assert FormatCountry.for_user(user) == "DE" end)
+    end
+
+    test "a personal country still wins when the site default changes" do
+      FormatCountry.put_viewer(%User{country: "GB"})
+      assert FormatCountry.viewer() == "GB"
+      with_site_default("DE", fn -> assert FormatCountry.viewer() == "GB" end)
+    end
+
     test "is resolved from the user put, company included" do
       org = put_user(user_fixture(), account_type: "organization", country: "FR")
       user = put_user(user_fixture(), organization_uuid: org.uuid)
@@ -136,6 +160,19 @@ defmodule PhoenixKit.Users.FormatCountryTest do
 
       assert FormatCountry.for_user(viewer) == "DE"
       assert FormatCountry.for_user(other) == "US"
+      assert FormatCountry.viewer() == "DE"
+    end
+
+    test "embedded identity sets the viewer too" do
+      user = put_user(user_fixture(), country: "DE")
+      socket = %Phoenix.LiveView.Socket{assigns: %{__changed__: %{}}}
+
+      socket =
+        WebAuth.assign_embedded_current_user(socket, %{
+          "current_user_uuid" => user.uuid
+        })
+
+      assert socket.assigns.phoenix_kit_current_user.uuid == user.uuid
       assert FormatCountry.viewer() == "DE"
     end
 

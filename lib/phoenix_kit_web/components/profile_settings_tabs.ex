@@ -22,6 +22,10 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
       anyone who can open the media viewer; the library card inside keeps
       its own gate.
 
+  A host or a module adds tabs of its own (`PhoenixKit.ProfileSettingsTab`):
+  each links to a page of its own, placed with `after:`, offered by its
+  `permission:` / `visible:` check.
+
   `/profile/settings` opens the first tab. Every section of
   `PhoenixKitWeb.Live.Components.UserSettings.default_sections/0` is on
   exactly one tab (a section on none would be one nobody can reach).
@@ -42,6 +46,7 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
 
   alias PhoenixKit.Modules.Storage.Libraries
   alias PhoenixKit.Notifications.Types, as: NotificationTypes
+  alias PhoenixKit.ProfileSettingsTab
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.Routes
 
@@ -175,9 +180,51 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
   @spec all_sections() :: [atom()]
   def all_sections, do: @sections |> Map.values() |> List.flatten()
 
-  @doc "The ids of the tabs `scope` is offered, in order."
+  @doc "The ids of the tabs `scope` is offered, in order: core's and the registered ones."
   @spec tab_ids(Scope.t() | nil) :: [String.t()]
-  def tab_ids(scope), do: Enum.filter(@order, &visible?(&1, scope))
+  def tab_ids(scope), do: tab_ids(scope, ProfileSettingsTab.all())
+
+  defp tab_ids(scope, registered) do
+    by_id = Map.new(registered, &{&1.id, &1})
+
+    registered
+    |> ordered_ids()
+    |> Enum.filter(fn id ->
+      case by_id do
+        %{^id => tab} -> ProfileSettingsTab.visible?(tab, scope)
+        _core -> visible?(id, scope)
+      end
+    end)
+  end
+
+  # Core's tabs in their order, each followed by the registered tabs that
+  # name it in `after:` (and theirs, in turn), in declared order. A tab whose
+  # `after:` names nothing that exists — or that sits in an `after:` cycle —
+  # goes at the end. Placement ignores visibility: a tab after one this user
+  # is not offered still sits where that tab would be.
+  defp ordered_ids(registered) do
+    children = Enum.group_by(registered, & &1.after, & &1.id)
+
+    {ids, seen} =
+      Enum.reduce(@order, {[], MapSet.new()}, &place(&1, children, &2))
+
+    {ids, _seen} =
+      registered
+      |> Enum.map(& &1.id)
+      |> Enum.reduce({ids, seen}, &place(&1, children, &2))
+
+    Enum.reverse(ids)
+  end
+
+  defp place(id, children, {ids, seen}) do
+    if MapSet.member?(seen, id) do
+      {ids, seen}
+    else
+      children
+      |> Map.get(id, [])
+      |> Enum.reduce({[id | ids], MapSet.put(seen, id)}, &place(&1, children, &2))
+    end
+  end
 
   defp visible?("notifications", _scope),
     do: NotificationTypes.list() != [] and sections("notifications") != []
@@ -205,14 +252,22 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
   @doc """
   The tab strip. `active` is the tab being shown; `scope` decides which tabs
   are offered. Tabs rendered by the same LiveView patch; the integrations
-  tab, a LiveView of its own, navigates.
+  tab and the registered ones, each a LiveView of its own, navigate. A
+  registered tab's page renders the strip with its own id as `active`.
   """
   attr :active, :string, required: true
   attr :scope, :any, required: true
 
   def profile_tabs(assigns) do
+    registered = ProfileSettingsTab.all()
+    by_id = Map.new(registered, &{&1.id, &1})
+
     assigns =
-      assign(assigns, :tabs, Enum.map(tab_ids(assigns.scope), &tab(&1, assigns.active)))
+      assign(
+        assigns,
+        :tabs,
+        Enum.map(tab_ids(assigns.scope, registered), &tab(&1, by_id, assigns.active))
+      )
 
     ~H"""
     <.nav_tabs active_tab={@active} tabs={@tabs} variant={:border} class="mb-6" />
@@ -220,28 +275,56 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
   end
 
   # From inside `ProfileSettings`, the tabs it renders itself patch and the
-  # integrations tab navigates; from the integrations page every tab
-  # navigates back into `ProfileSettings`.
-  defp tab(id, active) do
+  # others navigate; from a page of its own every tab navigates.
+  defp tab(id, registered, active) do
     link =
-      if id != "integrations" and rendered_here?(active),
+      if rendered_here?(id) and rendered_here?(active),
         do: [patch: path(id)],
         else: [navigate: path(id)]
 
-    Map.merge(%{id: id, label: tab_label(id), icon: tab_icon(id)}, Map.new(link))
+    Map.merge(
+      %{id: id, label: label(id, registered), icon: icon(id, registered)},
+      Map.new(link)
+    )
   end
 
-  defp tab_label("account"), do: gettext("Account")
-  defp tab_label("security"), do: gettext("Security")
-  defp tab_label("sessions"), do: gettext("Sessions")
-  defp tab_label("notifications"), do: gettext("Notifications")
-  defp tab_label("integrations"), do: gettext("Integrations")
-  defp tab_label("media"), do: gettext("Media")
+  defp label(id, registered) do
+    case registered do
+      %{^id => tab} -> ProfileSettingsTab.label(tab)
+      _core -> core_label(id)
+    end
+  end
 
-  defp tab_icon("account"), do: "hero-user-circle"
-  defp tab_icon("security"), do: "hero-lock-closed"
-  defp tab_icon("sessions"), do: "hero-computer-desktop"
-  defp tab_icon("notifications"), do: "hero-bell"
-  defp tab_icon("integrations"), do: "hero-link"
-  defp tab_icon("media"), do: "hero-rectangle-stack"
+  defp icon(id, registered) do
+    case registered do
+      %{^id => tab} -> tab.icon
+      _core -> core_icon(id)
+    end
+  end
+
+  @doc "The label of a tab, core's or a registered one; the id for one that is neither."
+  @spec tab_label(String.t()) :: String.t()
+  def tab_label(id), do: label(id, registered_by_id())
+
+  @doc "The icon of a tab, core's or a registered one."
+  @spec tab_icon(String.t()) :: String.t()
+  def tab_icon(id), do: icon(id, registered_by_id())
+
+  defp registered_by_id, do: Map.new(ProfileSettingsTab.all(), &{&1.id, &1})
+
+  defp core_label("account"), do: gettext("Account")
+  defp core_label("security"), do: gettext("Security")
+  defp core_label("sessions"), do: gettext("Sessions")
+  defp core_label("notifications"), do: gettext("Notifications")
+  defp core_label("integrations"), do: gettext("Integrations")
+  defp core_label("media"), do: gettext("Media")
+  defp core_label(id), do: id
+
+  defp core_icon("account"), do: "hero-user-circle"
+  defp core_icon("security"), do: "hero-lock-closed"
+  defp core_icon("sessions"), do: "hero-computer-desktop"
+  defp core_icon("notifications"), do: "hero-bell"
+  defp core_icon("integrations"), do: "hero-link"
+  defp core_icon("media"), do: "hero-rectangle-stack"
+  defp core_icon(_id), do: "hero-squares-2x2"
 end

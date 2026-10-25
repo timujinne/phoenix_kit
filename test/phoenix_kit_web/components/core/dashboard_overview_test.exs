@@ -162,4 +162,14 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverviewTest do
       assert html =~ ">#{value}<" or html =~ "#{value}"
     end
   end
+
+  test "grids follow the width of their container, not of the window" do
+    # With a dock open the content area is narrower while the window stays
+    # wide, so viewport variants would squeeze six columns into it.
+    html = render_overview(users: true, statistics: true)
+
+    assert html =~ "@container"
+    assert html =~ "@7xl:grid-cols-6"
+    refute html =~ ~r/(?<![@\w-])(sm|md|lg|xl|2xl):grid-cols/
+  end
 end

@@ -30,27 +30,59 @@ defmodule PhoenixKit.Integrations.Validator do
         end
       end
 
-  `validate_connection/1` gets the connection's data (the saved setup fields,
-  string keys) once it is known to hold credentials, and answers like any other
-  check: `:ok`, `{:ok, note}` (see `t:PhoenixKit.Integrations.Probe.note/0`),
-  `:unverified` when it has no way to tell, or `{:error, message}` with
-  something the operator can read (`{:inconclusive, message}` is reported as an
-  error too). It runs through
-  `PhoenixKit.Integrations.Probe`: in its own process, under a hard deadline,
-  with `PhoenixKitWeb.Gettext` already in the operator's locale. A crash or an
-  overrun comes back as an error; it does not reach the page.
+  `validate_connection/1` (or `/2`, below) gets the connection's data (string
+  keys: the setup fields, and for a saved connection what is stored beside
+  them, such as `"status"`, so match on the keys you need and ignore the rest)
+  once every required setup field of the provider is filled in, whether the
+  connection is saved or the operator is testing it before saving; with a field
+  missing the check is not run and "No credentials configured" is reported.
+  Optional fields may still be absent, so a module that matches on one needs a
+  clause for it being missing. The check answers like any other: `:ok`,
+  `{:ok, note}` (see `t:PhoenixKit.Integrations.Probe.note/0`, `:fact` and
+  `:reading` strings only), `:unverified` when it has no way to tell, or
+  `{:error, message}` with something the operator can read
+  (`{:inconclusive, message}` is reported as an error too). Any other answer is
+  reported as an error.
 
-  A module that is not loaded, or has no `validate_connection/1`, leaves the
-  provider as it was: `:unverified`.
+  It runs through `PhoenixKit.Integrations.Probe`: in its own process, under a
+  hard deadline, with `PhoenixKitWeb.Gettext` already in the operator's locale.
+  A crash or an overrun comes back as an error; it does not reach the page. A
+  crash is logged by its exception module only, because the arguments of a
+  failed call are the credentials. Do the same for anything the module logs.
+
+  Implement `validate_connection/2` to receive `owner:` in a keyword list:
+  `:system` for a website-wide connection, or `{type, uuid}` for an owned one.
+  Before saving, this comes from the caller's `:owner` option; for a saved
+  connection it comes from the stored row, even with an owner-agnostic read.
+  If both callbacks are exported, `/2` takes precedence. Implement at least one.
+
+  A check that dials an operator-supplied host must use `/2` and apply the
+  appropriate endpoint policy (for example `PhoenixKit.Modules.Storage.Endpoint`
+  with `:personal` for any typed owner). The `/1` callback remains supported for
+  checks against fixed service endpoints. Owner context does not itself enforce
+  an endpoint policy; the module must check before connecting, including on its
+  normal service requests.
+
+  A module that is not loaded, or exports neither callback, leaves the
+  provider as it was: `:unverified`. So does a provider whose `validation` names
+  no `module:`.
   """
 
   alias PhoenixKit.Integrations.Probe
 
+  @type verdict ::
+          :ok
+          | {:ok, Probe.note() | String.t()}
+          | :unverified
+          | {:error, String.t()}
+          | {:inconclusive, String.t()}
+
   @doc "Checks the connection `data` against the service."
-  @callback validate_connection(data :: map()) ::
-              :ok
-              | {:ok, Probe.note() | String.t()}
-              | :unverified
-              | {:error, String.t()}
-              | {:inconclusive, String.t()}
+  @callback validate_connection(data :: map()) :: verdict()
+
+  @doc "Checks the connection with trusted owner context for endpoint policy decisions."
+  @callback validate_connection(data :: map(), opts :: [owner: PhoenixKit.Integrations.owner()]) ::
+              verdict()
+
+  @optional_callbacks validate_connection: 1, validate_connection: 2
 end

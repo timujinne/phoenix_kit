@@ -2343,6 +2343,13 @@ defmodule PhoenixKit.Settings do
       (changeset.params || %{})
       |> Enum.map(fn {k, v} ->
         key = to_string(k)
+        # Country codes are canonicalized by SettingsForm. Persist that value,
+        # while still writing only keys this form submitted.
+        v =
+          if key == "format_country",
+            do: Ecto.Changeset.get_field(changeset, :format_country),
+            else: v
+
         # Use default value if nil or empty string
         value = if is_nil(v) or v == "", do: Map.get(defaults, key, ""), else: v
         {key, value}

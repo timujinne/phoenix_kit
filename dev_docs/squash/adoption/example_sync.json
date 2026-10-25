@@ -1,0 +1,21 @@
+{
+ "ddl": "sync_ddl.ex",
+ "module": "PhoenixKitSync.Migrations",
+ "app_module": "PhoenixKitSync",
+ "package": "phoenix_kit_sync",
+ "repo": "PhoenixKitSync.Test.Repo",
+ "marker": "pksyn_schema:",
+ "version_table": "phoenix_kit_sync_connections",
+ "n_words": "two",
+ "table_noun": "sync tables",
+ "test_path": "test/phoenix_kit_sync/migrations_test.exs",
+ "alone_path": "test/integration/migrations_build_alone_test.exs",
+ "history": "Their shape is core's V135 baseline plus V218, which sets the default of `phoenix_kit_sync_connections.rate_limit_requests_per_minute` to 600. The statements below re-state what a fresh core install builds today, with core's exact object names. V218 is why the package requires core 2.63.0 or later.\n\n  `PhoenixKitSync.Migration` (singular) predates this chain: a fallback a host may still call from its own migration file. It is not the chain, and `mix phoenix_kit.update` never runs it.",
+ "rows": "The rows are\n  the site's sync connections and their transfer history, and on every current\n  install core created the tables.",
+ "order_doc": "  V1 order: every `CREATE TABLE`, then every constraint guard (primary keys,\n  then foreign keys), then every index, then the version marker last.",
+ "tables_comment": "  # Columns, types, defaults and order as a fresh core install builds them.",
+ "constraints_comment": "  # Core's constraint names.",
+ "out_coord": "../phoenix_kit_sync/lib/phoenix_kit_sync/migrations.ex",
+ "out_test": "../phoenix_kit_sync/test/phoenix_kit_sync/migrations_test.exs",
+ "out_alone": "../phoenix_kit_sync/test/integration/migrations_build_alone_test.exs"
+}

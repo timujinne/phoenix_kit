@@ -452,4 +452,40 @@ defmodule PhoenixKit.ModuleRegistryApiToolsTest do
       end)
     end
   end
+
+  describe "api_module_tools/0" do
+    test "lists every module with tools, switched on or off, its tools tagged" do
+      with_registered([OverridingModule, OnModule, OffModule, NoCallbackModule], fn ->
+        entries =
+          Enum.filter(
+            ModuleRegistry.api_module_tools(),
+            &(&1.module in [OverridingModule, OnModule, OffModule, NoCallbackModule])
+          )
+
+        assert [
+                 %{module: OverridingModule, key: "api_tools_overriding_fake", enabled?: true},
+                 %{module: OnModule, key: nil, enabled?: true, tools: on_tools},
+                 %{module: OffModule, key: nil, enabled?: false, tools: [off_tool]}
+               ] = entries
+
+        assert ["apifake_on.list_things", "apifake_on.search_things"] == names(on_tools)
+        assert Enum.all?(on_tools, &(&1.module == OnModule))
+        assert %Tool{name: "apifake_off.list_things", module: OffModule} = off_tool
+        assert Enum.all?(entries, &is_binary(&1.name))
+      end)
+    end
+
+    test "drops an invalid tool and a system.* name, as the other readers do" do
+      capture_log(fn ->
+        with_registered([BadEntriesModule, SystemSquatterModule], fn ->
+          tools =
+            ModuleRegistry.api_module_tools()
+            |> Enum.filter(&(&1.module in [BadEntriesModule, SystemSquatterModule]))
+            |> Enum.flat_map(& &1.tools)
+
+          assert ["apifake_bad.good_one", "apifake_sys.good_one"] == names(tools)
+        end)
+      end)
+    end
+  end
 end

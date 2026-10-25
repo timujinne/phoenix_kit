@@ -48,6 +48,8 @@ Routes auto-discovered at compile time via `ModuleDiscovery` beam scanning. The 
 1. **Single page** — set `live_view: {Module.Web.IndexLive, :index}` on a tab in `admin_tabs/0` or `settings_tabs/0`. Route auto-generated; dynamic segments (`"hello-world/:id/edit"`) are spliced verbatim, and hidden CRUD pages are tabs with `visible: false`. Tab-only modules: calendar, comments, dashboards, db, locations, posts, staff, user_connections.
 2. **Multi-page** — implement `route_module/0` returning a module with `admin_routes/0` and `admin_locale_routes/0` (admin LiveViews, both variants with distinct `:as`), plus `generate/1` / `public_routes/1` for controllers, forwards and public pages. Route-module-only: ai, entities, publishing, newsletters. Most other modules mix the two (tabs for the admin pages, a route module for public/controller routes); never put `live_view:` on a tab AND declare the same path in the route module.
 
+**Profile settings tabs** — `profile_settings_tabs/0` returns maps (`id`, `label`, `icon`, `after`, `permission`, `visible`, `live_view`; reference: `PhoenixKit.ProfileSettingsTab`) that add a tab to `/profile/settings/<id>`. With `live_view:` core routes the page in its authenticated session, both URL shapes, before its own `/profile/settings/:tab`; the page renders `ProfileSettingsTabs.profile_tabs/1` with `active` set to its id. The route exists while the module is disabled, so the page checks `enabled?/0` itself. A host declares the same maps in `config :phoenix_kit, :profile_settings_tabs`.
+
 Only one `live_view:` per path (core deduplicates, first wins — avoid). Fallback for failed auto-discovery:
 
 ```elixir

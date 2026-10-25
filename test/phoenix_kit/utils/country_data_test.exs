@@ -18,20 +18,20 @@ defmodule PhoenixKit.Utils.CountryDataTest do
 
   defp by_code(entries), do: Map.new(entries, fn {display, code} -> {code, display} end)
 
-  # The display name carries a flag emoji, which sorts by country code rather
-  # than by name — compare the names the sort actually keys on.
-  defp without_flag(display), do: display |> String.split(" ", parts: 2) |> List.last()
+  # The display name ends in a flag emoji — compare the names the sort
+  # actually keys on.
+  defp without_flag(display), do: String.replace(display, ~r/ [\x{1F1E6}-\x{1F1FF}]{2}$/u, "")
 
   describe "countries_for_select/1 locale" do
     test "translates names into the requested locale" do
       names = by_code(CountryData.countries_for_select(locale: "ru"))
-      assert names["EE"] == "🇪🇪 Эстония"
-      assert names["DE"] == "🇩🇪 Германия"
+      assert names["EE"] == "Эстония 🇪🇪"
+      assert names["DE"] == "Германия 🇩🇪"
     end
 
     test "falls back to English for a locale with no translations" do
       names = by_code(CountryData.countries_for_select(locale: "xx"))
-      assert names["EE"] == "🇪🇪 Estonia"
+      assert names["EE"] == "Estonia 🇪🇪"
     end
 
     test "reduces a dialect to its base code" do
@@ -58,9 +58,9 @@ defmodule PhoenixKit.Utils.CountryDataTest do
       result = CountryData.countries_for_select(locale: "en", priority: ["EE", "FI", "LV"])
 
       assert Enum.take(result, 3) == [
-               {"🇪🇪 Estonia", "EE"},
-               {"🇫🇮 Finland", "FI"},
-               {"🇱🇻 Latvia", "LV"}
+               {"Estonia 🇪🇪", "EE"},
+               {"Finland 🇫🇮", "FI"},
+               {"Latvia 🇱🇻", "LV"}
              ]
     end
 
@@ -75,7 +75,7 @@ defmodule PhoenixKit.Utils.CountryDataTest do
 
     test "ignores unknown codes and normalizes case" do
       result = CountryData.countries_for_select(locale: "en", priority: ["zz", "ee"])
-      assert hd(result) == {"🇪🇪 Estonia", "EE"}
+      assert hd(result) == {"Estonia 🇪🇪", "EE"}
     end
 
     test "pins nothing when no priority is given or stored" do
@@ -84,7 +84,7 @@ defmodule PhoenixKit.Utils.CountryDataTest do
       # key must have no effect whatsoever.
       Application.put_env(:phoenix_kit, :country_select_priority, ["FI"])
 
-      assert hd(CountryData.countries_for_select(locale: "en")) == {"🇦🇫 Afghanistan", "AF"}
+      assert hd(CountryData.countries_for_select(locale: "en")) == {"Afghanistan 🇦🇫", "AF"}
     end
 
     test "sorts the unpinned remainder alphabetically, accents folded" do
@@ -152,8 +152,8 @@ defmodule PhoenixKit.Utils.CountryDataTest do
       put_priority_setting("EE, LV")
 
       assert CountryData.countries_for_select(locale: "en") |> Enum.take(2) == [
-               {"\u{1F1EA}\u{1F1EA} Estonia", "EE"},
-               {"\u{1F1F1}\u{1F1FB} Latvia", "LV"}
+               {"Estonia \u{1F1EA}\u{1F1EA}", "EE"},
+               {"Latvia \u{1F1F1}\u{1F1FB}", "LV"}
              ]
     end
 
@@ -161,14 +161,14 @@ defmodule PhoenixKit.Utils.CountryDataTest do
       put_priority_setting("")
 
       assert hd(CountryData.countries_for_select(locale: "en")) ==
-               {"\u{1F1E6}\u{1F1EB} Afghanistan", "AF"}
+               {"Afghanistan \u{1F1E6}\u{1F1EB}", "AF"}
     end
 
     test "an absent setting pins nothing" do
       # No put_priority_setting call: a host that never opened the settings
       # page. Nothing is pinned — there is no config underneath to inherit.
       assert hd(CountryData.countries_for_select(locale: "en")) ==
-               {"\u{1F1E6}\u{1F1EB} Afghanistan", "AF"}
+               {"Afghanistan \u{1F1E6}\u{1F1EB}", "AF"}
     end
 
     test "the old config key is ignored entirely" do
@@ -176,19 +176,19 @@ defmodule PhoenixKit.Utils.CountryDataTest do
       put_priority_setting("EE")
 
       assert hd(CountryData.countries_for_select(locale: "en")) ==
-               {"\u{1F1EA}\u{1F1EA} Estonia", "EE"}
+               {"Estonia \u{1F1EA}\u{1F1EA}", "EE"}
 
       put_priority_setting("")
 
       assert hd(CountryData.countries_for_select(locale: "en")) ==
-               {"\u{1F1E6}\u{1F1EB} Afghanistan", "AF"}
+               {"Afghanistan \u{1F1E6}\u{1F1EB}", "AF"}
     end
 
     test "an explicit :priority overrides the setting" do
       put_priority_setting("EE")
 
       assert hd(CountryData.countries_for_select(locale: "en", priority: ["LV"])) ==
-               {"\u{1F1F1}\u{1F1FB} Latvia", "LV"}
+               {"Latvia \u{1F1F1}\u{1F1FB}", "LV"}
     end
   end
 
@@ -291,7 +291,7 @@ defmodule PhoenixKit.Utils.CountryDataTest do
   describe "eu_countries_for_select/1" do
     test "translates and pins like countries_for_select/1" do
       result = CountryData.eu_countries_for_select(locale: "ru", priority: ["EE"])
-      assert hd(result) == {"🇪🇪 Эстония", "EE"}
+      assert hd(result) == {"Эстония 🇪🇪", "EE"}
       assert length(result) == 27
     end
   end
@@ -319,7 +319,7 @@ defmodule PhoenixKit.Utils.CountryDataTest do
       Gettext.put_locale(PhoenixKitWeb.Gettext, "ru")
 
       names = by_code(CountryData.countries_for_select())
-      assert names["EE"] == "🇪🇪 Эстония"
+      assert names["EE"] == "Эстония 🇪🇪"
     end
   end
 end

@@ -109,4 +109,28 @@ defmodule PhoenixKitWeb.Components.Core.ModalPlacementTest do
       assert html =~ "max-height: 70vh; max-height: 70dvh"
     end
   end
+
+  test "actions_class merges onto the actions row; without it the row is as before" do
+    assigns = %{}
+
+    html =
+      rendered_to_string(~H"""
+      <.modal show={true} on_close="close" actions_class="flex-wrap">
+        body
+        <:actions><button>Cancel</button></:actions>
+      </.modal>
+      """)
+
+    assert html =~ ~s(class="modal-action flex-shrink-0 mt-4 flex-wrap")
+
+    plain =
+      rendered_to_string(~H"""
+      <.modal show={true} on_close="close">
+        body
+        <:actions><button>Cancel</button></:actions>
+      </.modal>
+      """)
+
+    assert plain =~ ~s(class="modal-action flex-shrink-0 mt-4")
+  end
 end

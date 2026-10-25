@@ -1057,6 +1057,10 @@ a bucket's object URL for one.
   which a private file refuses: they fail closed.
 - Building URLs by hand: `URLSigner.signed_url(uuid, variant, private: true)`,
   with `Libraries.private_file?/1`, or `Libraries.private_among/1` for a batch.
+- `Storage.direct_urls/1` returns **permanent public object URLs** (a public
+  bucket's `cdn_url` or native URL) for many variants at once, and leaves out
+  every private file: those still go through `Storage.authorized_url/3`. The
+  URLs carry no `?v=`, so a browser caches them as the bucket's own headers say.
 - ⚠️ **A `MediaBrowser` given a `library_uuid` refuses any event that names a
   file or folder of another library.** A host embedding it for a user
   library relies on that: the scope-folder check alone admits everything.

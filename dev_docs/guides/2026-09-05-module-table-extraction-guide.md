@@ -45,6 +45,35 @@ example `phoenix_kit_shop_products` once the shop reads products from
 <date>: …'` by the host app, never dropped by anyone in this cycle; the
 squash of Phase 2 decides their fate.
 
+## Proving the chain builds the tables without core
+
+Phase 2 needs a module's V1 to really create its tables, but on every host
+core's chain runs first, so that DDL never runs.
+`PhoenixKit.TestSupport.ModuleChainCheck` (in the first core release after
+2.64.1) makes it run. In a scratch schema it builds core's chain, runs the
+module's chain the way `mix phoenix_kit.update` does, records the module's
+tables, drops them, runs the module's chain again alone, and compares the two
+(columns, indexes, constraints, triggers — by name and definition):
+
+```elixir
+defmodule MyModule.MigrationsBuildAloneTest do
+  use ExUnit.Case, async: false
+
+  @moduletag :integration
+
+  test "the chain builds the module's tables without core" do
+    assert :ok = PhoenixKit.TestSupport.ModuleChainCheck.check(MyModule.Test.Repo, MyModule.Migrations)
+  end
+end
+```
+
+`ExUnit.Case`, not a sandboxed `DataCase`: the check runs `Ecto.Migrator`
+on its own connections and puts the sandbox in `:auto` mode while it does.
+A failure lists every difference, or the error a version raises when its
+tables are not already there. Run against every module chain on 2026-10-25,
+it passed 21 of 25; the four that fail are the work of
+`dev_docs/plans/2026-10-25-module-table-ownership.md` steps 4 and 5.
+
 ## What the adoption marker means today — and how a module can strengthen that
 
 The `COMMENT ON TABLE ... IS '<ns>_schema:<N>'` marker has always meant
@@ -157,6 +186,15 @@ decline-and-raise vs. the `:warn` override above: `PhoenixKit.Migrations.
 Adoption`'s moduledoc, which this section mirrors in short form.
 
 ## Inventory: which core-baseline tables are already module-owned
+
+**The complete, current list is `PhoenixKit.Migrations.ModuleOwnedTables`**
+(2026-10-25): every table core's chain creates, as core's own (40) or under
+its owning module (141 tables, 25 modules), held against the chain by
+`test/phoenix_kit/migrations/module_owned_tables_test.exs`, which also fails a
+core version after V223 that names a module's table. Finishing all three
+phases for every module is planned and tracked in
+`dev_docs/plans/2026-10-25-module-table-ownership.md`. The per-module notes
+below predate that list and cover only the first three modules to adopt.
 
 Each module below is at Phase 0 (adopted, `down/1` only unstamps) or
 already past it. Core's baseline still creates every table listed — this

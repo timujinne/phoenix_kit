@@ -350,6 +350,7 @@ defmodule PhoenixKit.Settings.Setting do
     use Ecto.Schema
     import Ecto.Changeset
 
+    alias PhoenixKit.Users.FormatCountry
     alias PhoenixKit.Utils.Routes, as: RouteUtils
     alias PhoenixKit.Utils.TimeZone
 
@@ -642,15 +643,19 @@ defmodule PhoenixKit.Settings.Setting do
       )
     end
 
-    # Blank means "no site default country"; anything else must be a code
-    # BeamLabCountries knows.
+    # Store the same canonical alpha-2 code as the user profile; blank clears it.
     defp validate_format_country(changeset) do
       case get_change(changeset, :format_country) do
-        code when is_binary(code) and code != "" ->
-          if BeamLabCountries.get(String.upcase(code)) do
-            changeset
-          else
-            add_error(changeset, :format_country, "must be a valid country code")
+        code when is_binary(code) ->
+          cond do
+            String.trim(code) == "" ->
+              put_change(changeset, :format_country, nil)
+
+            normalized = FormatCountry.normalize(code) ->
+              put_change(changeset, :format_country, normalized)
+
+            true ->
+              add_error(changeset, :format_country, "must be a valid country code")
           end
 
         _ ->

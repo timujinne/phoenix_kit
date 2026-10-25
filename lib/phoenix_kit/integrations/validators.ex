@@ -617,6 +617,12 @@ defmodule PhoenixKit.Integrations.Validators do
   `PhoenixKit.Modules.Storage.Providers.S3`'s `aws_config/1`, which builds the
   same request for the same four providers.
 
+  A refused `ListBuckets` (`AccessDenied`) passes with a note that bucket
+  access was not verified: the signature was accepted, so the key is real,
+  and a Cloudflare R2 token scoped to specific objects, for one, cannot list
+  buckets. Each bucket is checked on its own form. Rejected keys
+  (`InvalidAccessKeyId`, `SignatureDoesNotMatch`) still fail.
+
   Without a custom endpoint, the standard regional AWS host is used —
   including the `.amazonaws.com.cn` host for the China partition. A GovCloud
   environment that requires the FIPS endpoint (`s3-fips.<region>.amazonaws.com`)
@@ -771,7 +777,9 @@ defmodule PhoenixKit.Integrations.Validators do
   # Pure: an ExAws error reason in, an operator-facing verdict out. Public so
   # the mapping can be tested without a network round trip. Same shape as
   # `interpret_ses_error/1` — `{:invalid, code}` for the codes worth
-  # confirming before the final verdict, `{:error, message}` everywhere else.
+  # confirming before the final verdict, `{:ok, %{fact: note}}` for a refused
+  # `ListBuckets` (the credentials are real, what they cover is not known),
+  # `{:error, message}` everywhere else.
   # Mapped against AWS's own S3 error codes; R2/B2/Tigris mirror these for
   # S3-API compatibility, but a provider-specific code not in this list still
   # surfaces verbatim rather than being misclassified.
@@ -781,18 +789,21 @@ defmodule PhoenixKit.Integrations.Validators do
         {:invalid, code}
 
       # The signature is valid — the identity is real — it just lacks
-      # ListBuckets/ListAllMyBuckets. That is the normal shape of a scoped
-      # token limited to one bucket (R2 API tokens, B2 application keys), the
-      # key a site should hold, so a red cross here would sit permanently on a
-      # correctly configured connection. It passes with what was not verified
-      # attached, same as SES's AccessDenied: each bucket is checked on its
-      # own form.
+      # ListBuckets/ListAllMyBuckets. That is the normal shape of a token
+      # limited to one bucket (a Cloudflare R2 token scoped to specific
+      # objects cannot list buckets), the key a site should hold, so a red
+      # cross here would sit permanently on a correctly configured connection.
+      # It passes with what was not verified attached, same as SES's
+      # AccessDenied: each bucket is checked on its own form. The note states
+      # only what was observed — AccessDenied also comes back for an IAM user
+      # with no S3 rights or a key from another account, so it does not name
+      # the cause.
       "AccessDenied" <> _ ->
         {:ok,
          %{
            fact:
              gettext(
-               "Credentials are valid, but limited to specific buckets — bucket access was not verified"
+               "Credentials are valid, but not allowed to list buckets — bucket access was not verified"
              )
          }}
 

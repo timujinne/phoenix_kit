@@ -90,11 +90,11 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
     assigns = assign(assigns, :show_action_cards, any_action_card?(assigns))
 
     ~H"""
-    <div :if={@show_action_cards or @show_statistics} class={["flex-col", @class]}>
+    <div :if={@show_action_cards or @show_statistics} class={["@container flex-col", @class]}>
       <%!-- Admin Menu Actions --%>
       <div
         :if={@show_action_cards}
-        class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6 mb-8"
+        class="grid grid-cols-1 @xl:grid-cols-2 @3xl:grid-cols-3 @7xl:grid-cols-6 gap-6 mb-8"
       >
         <.link
           :if={@show_users_card}
@@ -103,10 +103,12 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-users" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Users")}</h3>
-                <p class="text-sm opacity-75">{gettext("User management")}</p>
+              <.icon name="hero-users" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">{gettext("Users")}</h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("User management")}
+                </p>
               </div>
             </div>
           </div>
@@ -119,10 +121,12 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-shield-check" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Roles")}</h3>
-                <p class="text-sm opacity-75">{gettext("Role management")}</p>
+              <.icon name="hero-shield-check" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">{gettext("Roles")}</h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("Role management")}
+                </p>
               </div>
             </div>
           </div>
@@ -135,10 +139,12 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-computer-desktop" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Sessions")}</h3>
-                <p class="text-sm opacity-75">{gettext("Active sessions")}</p>
+              <.icon name="hero-computer-desktop" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">{gettext("Sessions")}</h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("Active sessions")}
+                </p>
               </div>
             </div>
           </div>
@@ -151,10 +157,14 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-eye" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Live Activity")}</h3>
-                <p class="text-sm opacity-75">{gettext("Real-time visitors")}</p>
+              <.icon name="hero-eye" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">
+                  {gettext("Live Activity")}
+                </h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("Real-time visitors")}
+                </p>
               </div>
             </div>
           </div>
@@ -167,10 +177,12 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-user-plus" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Add User")}</h3>
-                <p class="text-sm opacity-75">{gettext("Create new account")}</p>
+              <.icon name="hero-user-plus" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">{gettext("Add User")}</h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("Create new account")}
+                </p>
               </div>
             </div>
           </div>
@@ -183,10 +195,12 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-envelope" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Email")}</h3>
-                <p class="text-sm opacity-75">{gettext("Email logs & analytics")}</p>
+              <.icon name="hero-envelope" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">{gettext("Email")}</h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("Email logs & analytics")}
+                </p>
               </div>
             </div>
           </div>
@@ -199,10 +213,12 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         >
           <div class="card-body">
             <div class="flex items-center">
-              <.icon name="hero-arrow-path" class="w-8 h-8 mr-3" />
-              <div>
-                <h3 class="card-title text-lg">{gettext("Refresh")}</h3>
-                <p class="text-sm opacity-75">{gettext("Update statistics")}</p>
+              <.icon name="hero-arrow-path" class="w-8 h-8 mr-3 shrink-0" />
+              <div class="min-w-0">
+                <h3 class="card-title text-lg break-words hyphens-auto">{gettext("Refresh")}</h3>
+                <p class="text-sm opacity-75 break-words hyphens-auto">
+                  {gettext("Update statistics")}
+                </p>
               </div>
             </div>
           </div>
@@ -216,7 +232,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         </h2>
 
         <%!-- Main Statistics Cards --%>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
+        <div class="grid grid-cols-1 @xl:grid-cols-2 @4xl:grid-cols-3 gap-8 mb-12">
           <%!-- System Owners Card --%>
           <PhoenixKitWeb.Components.Core.HeroStatCard.hero_stat_card
             value={@stats.owner_count}
@@ -257,7 +273,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         <%!-- Sessions Statistics --%>
         <div class="mb-8">
           <h3 class="text-xl font-bold text-base-content mb-4">{gettext("Active Sessions")}</h3>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="grid grid-cols-1 @2xl:grid-cols-2 @4xl:grid-cols-4 gap-4">
             <%!-- Total Active Sessions --%>
             <PhoenixKitWeb.Components.Core.StatCard.stat_card
               value={@session_stats.total_active}
@@ -311,7 +327,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         <%!-- Real-Time Presence Statistics --%>
         <div class="mb-8">
           <h3 class="text-xl font-bold text-base-content mb-4">{gettext("Real-Time Activity")}</h3>
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div class="grid grid-cols-1 @2xl:grid-cols-2 @4xl:grid-cols-4 gap-4">
             <%!-- Total Active Visitors --%>
             <PhoenixKitWeb.Components.Core.StatCard.stat_card
               value={@presence_stats.total_sessions}
@@ -366,7 +382,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
         </div>
 
         <%!-- Secondary Statistics - Gradient Cards --%>
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="grid grid-cols-1 @xl:grid-cols-2 @6xl:grid-cols-5 gap-4">
           <%!-- Active Users --%>
           <PhoenixKitWeb.Components.Core.StatCard.stat_card
             rounded="2xl"
@@ -442,7 +458,7 @@ defmodule PhoenixKitWeb.Components.Core.DashboardOverview do
 
         <div class="card bg-base-100 shadow-xl">
           <div class="card-body">
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <div class="grid grid-cols-1 @2xl:grid-cols-2 @4xl:grid-cols-4 gap-6">
               <div class="text-center">
                 <div class="text-2xl font-bold text-primary mb-2">{@phoenix_kit_version}</div>
                 <div class="text-sm text-base-content/70">{gettext("PhoenixKit Version")}</div>

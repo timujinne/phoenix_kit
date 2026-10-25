@@ -12,12 +12,20 @@ defmodule PhoenixKit.Migrations.Postgres.V193Test do
 
   use PhoenixKit.DataCase, async: false
 
-  alias PhoenixKit.Migrations.Postgres.V193
+  alias PhoenixKit.Migrations.Postgres.{V193, V223}
   alias PhoenixKit.Test.Repo
 
   @indexes ~w(phoenix_kit_ai_requests_endpoint_spend_idx phoenix_kit_ai_requests_user_spend_idx)
 
   defp run(statements), do: Enum.each(statements, &Repo.query!/1)
+
+  # V193's SQL names `cost_cents`, which V223 renamed to `cost`: put the
+  # column back as V193 knew it (inside the test's transaction, so the database is
+  # left at the chain head).
+  setup do
+    run(V223.down_statements("public"))
+    :ok
+  end
 
   defp present_indexes do
     %{rows: rows} =

@@ -362,27 +362,53 @@ defmodule PhoenixKit.Modules.Storage.Manager do
   end
 
   @doc """
-  The URL a browser can load the object at `key` from itself, decided from
-  its ranked location rows (`Locations.ranked/2`) without asking any bucket:
-  the object URL of the bucket `get_file_access/2` would serve it from, when
-  that is a public bucket with a public URL (an R2 bucket's `cdn_url`).
-  `nil` when the app serves it: from a local bucket, through a private or
-  signed bucket, or when no recorded bucket is enabled.
+  The URLs a browser can load many objects from itself, decided from their
+  ranked location rows (`Locations.ranked_all/1`) without asking any bucket.
+  `entries` are `{ref, key, ranked}`; the result maps each `ref` that has
+  one to the object URL of the bucket `get_file_access/2` would serve `key`
+  from: the first enabled, non-backup bucket its rows name, when that is a
+  public bucket whose provider has a public URL (an R2 bucket's `cdn_url`,
+  or the native object URL of another S3-compatible one).
+
+  A `ref` is left out when the app serves the object itself: no location
+  rows, no recorded bucket enabled (a disabled or deleted one), a local
+  bucket first, a private or signed bucket, or a provider with no public URL
+  (R2 without `cdn_url`, an endpoint it refuses).
+
+  The buckets are read once for the whole list: the cached pool of enabled
+  buckets, then one `Storage.get_buckets/1` for the uuids outside it (a
+  disabled bucket, a user's own), however many entries name them. The URLs
+  carry no version, so how long a browser keeps one is the bucket's own
+  caching headers.
 
   The rows are trusted, where `public_url/2` probes the bucket: this is for
   pages that link many objects at once. A row the reconciler has not caught
   up with yet costs a broken image, not a wrong one.
   """
-  @spec direct_url(String.t(), [%{bucket_uuid: String.t(), role: String.t() | nil}]) ::
-          String.t() | nil
-  def direct_url(key, ranked) when is_binary(key) and is_list(ranked) do
-    serving = Enum.reject(ranked, &(&1.role == "backup"))
+  @spec direct_urls([{term(), String.t(), [%{bucket_uuid: String.t(), role: String.t() | nil}]}]) ::
+          %{term() => String.t()}
+  def direct_urls([]), do: %{}
+
+  def direct_urls(entries) when is_list(entries) do
+    serving =
+      Enum.map(entries, fn {ref, key, ranked} ->
+        {ref, key, Enum.reject(ranked, &(&1.role == "backup"))}
+      end)
 
     by_uuid =
       get_enabled_buckets()
       |> Map.new(&{to_string(&1.uuid), &1})
-      |> with_owned_buckets(serving)
+      |> with_owned_buckets(Enum.flat_map(serving, &elem(&1, 2)))
 
+    Enum.reduce(serving, %{}, fn {ref, key, ranked}, acc ->
+      case direct_url(key, ranked, by_uuid) do
+        nil -> acc
+        url -> Map.put(acc, ref, url)
+      end
+    end)
+  end
+
+  defp direct_url(key, serving, by_uuid) do
     case Enum.find_value(serving, &Map.get(by_uuid, &1.bucket_uuid)) do
       nil ->
         nil
@@ -629,7 +655,8 @@ defmodule PhoenixKit.Modules.Storage.Manager do
   # read: the fallback that tries every other bucket is built from the site's
   # pool alone, so a miss never probes anyone's own storage.
   defp with_owned_buckets(by_uuid, ranked) do
-    missing = for %{bucket_uuid: uuid} <- ranked, not Map.has_key?(by_uuid, uuid), do: uuid
+    missing =
+      for %{bucket_uuid: uuid} <- ranked, not Map.has_key?(by_uuid, uuid), uniq: true, do: uuid
 
     missing
     |> Storage.get_buckets()

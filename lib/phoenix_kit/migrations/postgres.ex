@@ -7,7 +7,24 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V221 - A country on the user ⚡ LATEST
+  ### V223 - An AI request's cost in dollars; the AI tables' leftovers ⚡ LATEST
+
+  `phoenix_kit_ai_requests.cost_cents` (`integer`, which held millionths of a dollar)
+  becomes `cost` (`numeric(28,18)`, US dollars), every stored cost converted. The AI
+  spend caps are converted by `phoenix_kit_ai`'s own chain, not here. Also: the requests'
+  `model` widened to `varchar(150)` (the endpoints' width); the unused pre-V34
+  `phoenix_kit_ai_accounts` table and `phoenix_kit_ai_requests.account_uuid` dropped;
+  the unique `uuid` indexes beside the AI tables' primary keys dropped, the foreign keys
+  bound to them re-added on the primary keys. A rollback restores the V222 shape (the
+  accounts table empty).
+
+  ### V222 - Confirmations of a live session
+
+  `phoenix_kit_api_confirmations.actor_user_uuid` (foreign key to the users, deleted with
+  the user) binds a confirmation to the person whose live session asked for the write; the
+  actor CHECK accepts it, and `(actor_user_uuid, status)` is indexed. No row is created.
+
+  ### V221 - A country on the user
 
   `phoenix_kit_users.country` (`varchar(2)`, nullable): the ISO 3166-1 alpha-2
   code that decides how dates are written for that account. Nothing is backfilled.
@@ -1008,7 +1025,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 221
+  @current_version 223
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries

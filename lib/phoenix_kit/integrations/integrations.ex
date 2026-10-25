@@ -70,6 +70,7 @@ defmodule PhoenixKit.Integrations do
 
   require Logger
 
+  alias PhoenixKit.API.LogSafe
   alias PhoenixKit.Integrations.Encryption
   alias PhoenixKit.Integrations.Events
   alias PhoenixKit.Integrations.OAuth
@@ -983,7 +984,7 @@ defmodule PhoenixKit.Integrations do
             cond do
               is_nil(provider) -> {:error, gettext("Unknown provider")}
               not has_credentials?(data) -> {:error, gettext("Not configured")}
-              true -> do_validate(provider, data, owner: Keyword.get(opts, :owner, :system))
+              true -> do_validate(provider, data, owner: owner_of(data))
             end
 
           {inner, base_provider, name}
@@ -1129,25 +1130,35 @@ defmodule PhoenixKit.Integrations do
   defp do_validate(%{auth_type: :credentials, validation: %{strategy: :smtp}}, data, opts),
     do: Validators.smtp(data, opts)
 
-  defp do_validate(provider, data, _opts), do: do_validate(provider, data)
-
   # A provider that another module contributes cannot add a named strategy
   # here, so it names a module to ask instead — see
   # `PhoenixKit.Integrations.Validator`. Ahead of the auth-type clauses: the
   # module knows how its service is checked, whatever the auth type.
-  defp do_validate(%{validation: %{strategy: :module, module: module}} = provider, data)
-       when is_atom(module) do
-    if Code.ensure_loaded?(module) and function_exported?(module, :validate_connection, 1) do
-      module |> module_check(data) |> Probe.run() |> module_verdict()
-    else
-      Logger.warning(
-        "[Integrations] #{inspect(module)} has no validate_connection/1 " <>
-          "(provider #{inspect(provider[:key])}); connection left unverified"
-      )
+  defp do_validate(%{validation: %{strategy: :module} = validation} = provider, data, opts) do
+    module = Map.get(validation, :module)
+    arity = module_check_arity(module)
 
-      :unverified
+    cond do
+      is_nil(arity) ->
+        Logger.warning(
+          "[Integrations] #{inspect(module)} has no validate_connection/1 or /2 " <>
+            "(provider #{inspect(provider[:key])}); connection left unverified"
+        )
+
+        :unverified
+
+      not required_fields_filled?(provider, data) ->
+        {:error, gettext("No credentials configured")}
+
+      true ->
+        module |> module_check(arity, data, opts) |> Probe.run() |> module_verdict()
     end
   end
+
+  defp do_validate(provider, data, _opts), do: do_validate(provider, data)
+
+  defp do_validate(%{validation: %{strategy: :module}} = provider, data),
+    do: do_validate(provider, data, owner: owner_of(data))
 
   defp do_validate(%{auth_type: :oauth2} = provider, data) do
     token = data["access_token"]
@@ -1170,9 +1181,8 @@ defmodule PhoenixKit.Integrations do
   defp do_validate(%{auth_type: :key_secret, validation: %{strategy: :aws_ses}}, data),
     do: Validators.aws_ses(data)
 
-  # Reached without the caller's owner (`validate_connection_without_logging/2`):
-  # a saved personal row still carries its `owner_uuid`, which is what makes
-  # `SmtpEndpointPolicy` treat it as personal.
+  # Direct /2 checks have no caller options; a saved personal row still carries
+  # its `owner_uuid`, which makes `SmtpEndpointPolicy` treat it as personal.
   defp do_validate(%{auth_type: :credentials, validation: %{strategy: :smtp}}, data),
     do: Validators.smtp(data, owner: :system)
 
@@ -1222,19 +1232,75 @@ defmodule PhoenixKit.Integrations do
     def __do_validate__(provider, data), do: do_validate(provider, data)
   end
 
-  defp module_check(module, data), do: fn -> module.validate_connection(data) end
+  defp module_check_arity(module) do
+    if is_atom(module) and Code.ensure_loaded?(module) do
+      cond do
+        function_exported?(module, :validate_connection, 2) -> 2
+        function_exported?(module, :validate_connection, 1) -> 1
+        true -> nil
+      end
+    end
+  end
+
+  # The module is a stranger to this code: the data it is handed holds the
+  # credentials, and a blamed `FunctionClauseError` (or its crash report)
+  # prints the arguments of the call. So nothing is left to crash — the
+  # exception is caught here and only its label reaches the log.
+  defp module_check(module, arity, data, opts) do
+    fn ->
+      try do
+        args = if arity == 2, do: [data, opts], else: [data]
+        apply(module, :validate_connection, args)
+      rescue
+        error -> module_check_failed(module, arity, "with #{LogSafe.exception_label(error)}")
+      catch
+        kind, _reason -> module_check_failed(module, arity, "with an uncaught #{kind}")
+      end
+    end
+  end
+
+  defp module_check_failed(module, arity, what) do
+    Logger.warning(
+      "[Integrations] #{inspect(module)}.validate_connection/#{arity} failed #{what}"
+    )
+
+    {:error, gettext("Validation failed unexpectedly")}
+  end
+
+  # A connection with no credentials is never handed to the module. A saved
+  # row is checked for that by `validate_connection/3`; the pre-save probe has
+  # only what the form holds, so the required fields the form shows stand in
+  # for "has credentials" on both paths.
+  defp required_fields_filled?(provider, data) do
+    provider
+    |> Providers.setup_fields(data)
+    |> Enum.filter(&Map.get(&1, :required, false))
+    |> Enum.all?(&field_present?(Map.get(data, &1.key)))
+  end
 
   # What a module's check may answer is `PhoenixKit.Integrations.Validator`'s
   # contract; anything else is reported, not guessed at.
   defp module_verdict(verdict) when verdict in [:ok, :unverified], do: verdict
-  defp module_verdict({:ok, note}) when is_binary(note) or is_map(note), do: {:ok, note}
+  defp module_verdict({:ok, ""}), do: :ok
+  defp module_verdict({:ok, note}) when is_binary(note), do: {:ok, note}
+
+  defp module_verdict({:ok, %{} = note} = verdict) do
+    if note?(note), do: {:ok, note}, else: unexpected_verdict(verdict)
+  end
+
   defp module_verdict({:error, message}) when is_binary(message), do: {:error, message}
   defp module_verdict({:inconclusive, message}) when is_binary(message), do: {:error, message}
+  defp module_verdict(other), do: unexpected_verdict(other)
 
-  defp module_verdict(other) do
-    Logger.warning(
-      "[Integrations] a module's connection check answered #{inspect(other, limit: 5)}"
-    )
+  # `Probe.note/0`: a plain map of `:fact` and `:reading` strings. A struct or
+  # string keys are a module author's slip, reported rather than dropped.
+  defp note?(%_{}), do: false
+
+  defp note?(note),
+    do: Enum.all?(note, fn {key, value} -> key in [:fact, :reading] and is_binary(value) end)
+
+  defp unexpected_verdict(other) do
+    Logger.warning("[Integrations] a module's connection check answered #{LogSafe.shape(other)}")
 
     {:error, gettext("The connection check gave an unexpected answer")}
   end
@@ -1320,7 +1386,7 @@ defmodule PhoenixKit.Integrations do
 
           provider ->
             if has_credentials?(data),
-              do: do_validate(provider, data),
+              do: do_validate(provider, data, owner: owner_of(data)),
               else: {:error, gettext("Not configured")}
         end
 

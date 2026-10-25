@@ -12,12 +12,14 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
       approval is decided or expires.
     * `context` - language, currency, hosts, base URL and request id of the original
       request (an approval runs without a request).
-    * `actor_key_uuid` / `client_token_hash` - who it belongs to: an API key, or the hash of
-      a public caller's client token. (The database column keeps the name it was
-      created with; the field's `source:` maps it.)
+    * `actor_key_uuid` / `client_token_hash` / `actor_user_uuid` - who it belongs to: an API
+      key, the hash of a public caller's client token (the database column keeps the name it
+      was created with; the field's `source:` maps it), or the person whose live session
+      asked for the operation.
     * `preview` - what the person sees.
-    * `status` - codes: `unused | used | expired`. Approvals: `pending | approved |
-      executing | executed | failed | rejected | stale | expired`.
+    * `status` - codes: `unused | used | expired | rejected` (`rejected`: a session's row the
+      person turned down). Approvals: `pending | approved | executing | executed | failed |
+      rejected | stale | expired`.
     * `result` - an approval's result, error and partial results.
 
   The flow is in `PhoenixKit.API.Confirm` and `PhoenixKit.API.Approvals`.
@@ -46,6 +48,7 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
     field :context, :map, default: %{}
     field :actor_key_uuid, UUIDv7
     field :client_token_hash, :string, source: :cart_token_hash
+    field :actor_user_uuid, UUIDv7
     field :preview, :map, default: %{}
     field :status, :string
     field :expires_at, :utc_datetime
@@ -89,6 +92,7 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
       :context,
       :actor_key_uuid,
       :client_token_hash,
+      :actor_user_uuid,
       :preview,
       :status,
       :expires_at
@@ -106,10 +110,11 @@ defmodule PhoenixKit.API.Confirm.Confirmation do
   end
 
   defp validate_actor(changeset) do
-    if get_field(changeset, :actor_key_uuid) || get_field(changeset, :client_token_hash) do
+    if get_field(changeset, :actor_key_uuid) || get_field(changeset, :client_token_hash) ||
+         get_field(changeset, :actor_user_uuid) do
       changeset
     else
-      add_error(changeset, :actor_key_uuid, "or a client token hash is required")
+      add_error(changeset, :actor_key_uuid, "or a client token hash or a user is required")
     end
   end
 end

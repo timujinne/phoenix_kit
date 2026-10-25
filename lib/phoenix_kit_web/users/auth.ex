@@ -1556,6 +1556,7 @@ defmodule PhoenixKitWeb.Users.Auth do
   def assign_embedded_current_user(socket, session) when is_map(session) do
     if is_nil(socket.assigns[:phoenix_kit_current_scope]) do
       {user, scope} = reconstruct_embedded_identity(Map.get(session, "current_user_uuid"))
+      FormatCountry.put_viewer(user)
 
       socket
       |> Phoenix.Component.assign(:phoenix_kit_current_user, user)
@@ -2943,6 +2944,8 @@ defmodule PhoenixKitWeb.Users.Auth do
       %User{uuid: user_uuid} ->
         case reload_session_user(socket, user_uuid) do
           %User{} = user ->
+            FormatCountry.put_viewer(user)
+
             scope =
               user
               |> Scope.for_user()
@@ -2957,6 +2960,7 @@ defmodule PhoenixKitWeb.Users.Auth do
             {socket, scope}
 
           nil ->
+            FormatCountry.put_viewer(nil)
             scope = Scope.for_user(nil)
 
             socket =

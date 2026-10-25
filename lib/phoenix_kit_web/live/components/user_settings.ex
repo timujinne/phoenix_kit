@@ -383,6 +383,7 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
         socket =
           socket
           |> assign(:user, updated_user)
+          |> assign(:profile_form, to_form(Auth.change_user_profile(updated_user)))
           |> assign(:profile_success_message, gettext("Profile updated successfully"))
 
         {:noreply, socket}

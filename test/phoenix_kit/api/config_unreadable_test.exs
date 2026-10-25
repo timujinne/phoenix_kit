@@ -2,6 +2,7 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
   use ExUnit.Case, async: false
 
   alias PhoenixKit.API.Config
+  alias PhoenixKit.API.Executor
   alias PhoenixKit.API.Registry
 
   defmodule UnreadableRepo do
@@ -20,6 +21,15 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
       case Process.get(:modules_read) do
         :exit -> exit(:database_unavailable)
         :raise -> raise DBConnection.ConnectionError, message: "database unavailable"
+        _ -> nil
+      end
+    end
+
+    def get_by(_schema, key: "api_session_write_modules") do
+      case Process.get(:session_writes_read) do
+        :exit -> exit(:database_unavailable)
+        :raise -> raise DBConnection.ConnectionError, message: "database unavailable"
+        {:value, value} -> %PhoenixKit.Settings.Setting{value: value}
         _ -> nil
       end
     end
@@ -95,6 +105,35 @@ defmodule PhoenixKit.API.ConfigUnreadableTest do
     Process.put(:modules_read, :exit)
     assert Config.fetch_disabled_modules() == :unreadable
     assert Registry.all_tools() == []
+  end
+
+  @tag capture_log: true
+  test "a list of the modules a session may write in that cannot be read opens none" do
+    Process.put(:session_writes_read, {:value, "api_session_tools"})
+    assert Config.fetch_session_write_modules() == {:ok, ["api_session_tools"]}
+
+    for failure <- [:raise, :exit] do
+      PhoenixKit.Cache.clear(:settings)
+      Process.put(:session_writes_read, failure)
+
+      assert Config.fetch_session_write_modules() == :unreadable
+      assert Config.session_write_modules() == []
+    end
+  end
+
+  @tag capture_log: true
+  test "a hidden list that cannot be read shows every tool closed as :api_off" do
+    :ok = PhoenixKit.ModuleRegistry.register(PhoenixKit.Test.ApiTools)
+    on_exit(fn -> PhoenixKit.ModuleRegistry.unregister(PhoenixKit.Test.ApiTools) end)
+
+    assert [_ | _] = cold = Executor.tool_availability()
+    assert Enum.all?(cold, &match?({:closed, [:api_off | _]}, &1.status))
+
+    PhoenixKit.Cache.put(:settings, "api_disabled_tools", "")
+    Process.put(:modules_read, :raise)
+
+    assert [_ | _] = modules_unreadable = Executor.tool_availability()
+    assert Enum.all?(modules_unreadable, &match?({:closed, [:api_off | _]}, &1.status))
   end
 
   test "an explicitly empty cached list of hidden modules is readable during a DB outage" do

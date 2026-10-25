@@ -308,10 +308,13 @@ defmodule PhoenixKit.Migrations.Postgres.V220Test do
       assert problems == []
     end
 
+    # By V220 or a later version (V222 adds `actor_user_uuid`).
     test "every column of the two tables is declared, and nothing else is" do
       for table <- ["phoenix_kit_api_confirmations", "phoenix_kit_api_idempotency"] do
         declared =
-          for %{class: :column, id: "column:" <> rest} <- declared_by_v220(),
+          for %{class: :column, since: since, id: "column:" <> rest} <-
+                ExpectedSchema.objects("public"),
+              since >= 220,
               [^table, name] <- [String.split(rest, ".")],
               do: name
 

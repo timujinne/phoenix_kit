@@ -282,6 +282,19 @@ defmodule PhoenixKit.API.MCPTransportTest do
       assert text =~ "2025-06-18"
     end
 
+    test "an unsupported value is clipped by code points, not graphemes", %{token: token} do
+      # One letter and 8000 combining marks is a single grapheme.
+      version = "a" <> String.duplicate("\u0301", 8_000)
+      headers = [{"accept", "application/json"}, {"mcp-protocol-version", version}]
+      conn = post_rpc(:admin, message("ping", nil, 5), token: token, headers: headers)
+
+      assert conn.status == 400
+      assert %{"error" => %{"message" => text}} = json(conn)
+      assert text =~ "Unsupported MCP-Protocol-Version"
+      # 40 code points of the value, not the whole header.
+      assert String.length(text) < 400
+    end
+
     test "two values are 400", %{token: token} do
       conn =
         :post

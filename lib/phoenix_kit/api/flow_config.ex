@@ -7,6 +7,7 @@ defmodule PhoenixKit.API.FlowConfig do
   |---|---|---|
   | `api_confirm_batch_over` | `50` | 1 to 500 |
   | `api_confirm_ttl_seconds` | `120` | 10 to 600 |
+  | `api_user_confirm_ttl_seconds` | `600` | 60 to 86400 |
   | `api_approval_ttl_hours` | `72` | 1 to 720 |
   | `api_approval_pending_max` | `20` | 1 to 1000 |
   | `api_idempotency_ttl_hours` | `24` | 1 to 720 |
@@ -43,6 +44,14 @@ defmodule PhoenixKit.API.FlowConfig do
       min: 10,
       max: 600,
       reader: :confirm_ttl_seconds
+    },
+    %{
+      field: "user_confirm_ttl_seconds",
+      setting: "api_user_confirm_ttl_seconds",
+      default: 600,
+      min: 60,
+      max: 86_400,
+      reader: :user_confirm_ttl_seconds
     },
     %{
       field: "approval_ttl_hours",
@@ -86,6 +95,14 @@ defmodule PhoenixKit.API.FlowConfig do
   @spec confirm_ttl_seconds() :: pos_integer()
   def confirm_ttl_seconds, do: read("api_confirm_ttl_seconds")
 
+  @doc """
+  Seconds a confirmation of a person's live session lives (`api_user_confirm_ttl_seconds`,
+  at most a day): the person confirms in the page, which takes longer than an agent's
+  second call.
+  """
+  @spec user_confirm_ttl_seconds() :: pos_integer()
+  def user_confirm_ttl_seconds, do: read("api_user_confirm_ttl_seconds")
+
   @doc "Hours a pending approval lives (`api_approval_ttl_hours`)."
   @spec approval_ttl_hours() :: pos_integer()
   def approval_ttl_hours, do: read("api_approval_ttl_hours")
@@ -102,7 +119,7 @@ defmodule PhoenixKit.API.FlowConfig do
   @spec approval_pending_max() :: pos_integer()
   def approval_pending_max, do: read("api_approval_pending_max")
 
-  @doc "The six fields of the form, in the order the page shows them."
+  @doc "The seven fields of the form, in the order the page shows them."
   @spec fields() :: [map()]
   def fields, do: @fields
 

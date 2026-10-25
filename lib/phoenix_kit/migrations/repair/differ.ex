@@ -245,6 +245,13 @@ defmodule PhoenixKit.Migrations.Repair.Differ do
   defp result([]), do: :match
   defp result(reasons), do: {:mismatch, Enum.reverse(reasons)}
 
+  # The canonical text of a column default, index predicate or constraint
+  # definition, so two deparses of the same expression compare equal. Also
+  # used by `PhoenixKit.TestSupport.ModuleChainCheck`.
+  @doc false
+  @spec canonical_expression(String.t() | nil) :: String.t() | nil
+  def canonical_expression(text), do: normalize_default(text)
+
   # `nil` and `nil` compare equal already; this exists so accidental
   # whitespace differences in an expression string (generation server vs
   # target server pretty-printing) do not manufacture a false mismatch.

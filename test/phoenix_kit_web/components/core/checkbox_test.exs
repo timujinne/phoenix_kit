@@ -154,4 +154,26 @@ defmodule PhoenixKitWeb.Components.Core.CheckboxTest do
       assert html =~ ~s(<input type="hidden" name="x" value="false">)
     end
   end
+
+  describe "value and unchecked_value" do
+    test "by default the box submits true and an unchecked one false" do
+      assigns = %{}
+      html = render(~H|<.checkbox name="x" label="X" checked={false} />|)
+      assert html =~ ~s(<input type="hidden" name="x" value="false">)
+      assert html =~ ~s(value="true")
+    end
+
+    test "one box of a name[] group: its own value and no hidden fallback" do
+      assigns = %{}
+
+      html =
+        render(~H"""
+        <.checkbox name="scopes[]" value="items:read" unchecked_value={nil} checked label="Read" />
+        """)
+
+      assert html =~ ~s(value="items:read")
+      refute html =~ ~s(type="hidden")
+      refute html =~ ~s(value="true")
+    end
+  end
 end

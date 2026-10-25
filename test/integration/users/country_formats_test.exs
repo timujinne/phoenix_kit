@@ -75,6 +75,7 @@ defmodule PhoenixKit.Integration.Users.CountryFormatsTest do
 
       reloaded = Repo.get!(Auth.User, target.uuid)
       assert reloaded.country == nil
+      assert reloaded.custom_fields["country"] == "Narnia"
     end
   end
 
@@ -91,6 +92,7 @@ defmodule PhoenixKit.Integration.Users.CountryFormatsTest do
       |> render_submit(%{"user" => %{"country" => "fi"}})
 
       assert Repo.get!(Auth.User, user.uuid).country == "FI"
+      assert has_element?(view, "select[name='user[country]'] option[value='FI'][selected]")
     end
   end
 
@@ -107,6 +109,19 @@ defmodule PhoenixKit.Integration.Users.CountryFormatsTest do
 
       assert html =~ "07.03.2026"
       refute html =~ "2026-03-07"
+    end
+
+    test "a scope refresh also refreshes the viewer's country", %{conn: conn, target: target} do
+      viewer = admin_user(country: "DE")
+      conn = log_in_user(conn, viewer)
+      {:ok, view, html} = live(conn, Routes.path("/admin/users/view/#{target.uuid}"))
+      assert html =~ "07.03.2026"
+
+      viewer |> Ecto.Changeset.change(country: "US") |> Repo.update!()
+      send(view.pid, {:phoenix_kit_scope_roles_updated, viewer.uuid})
+      # Change the displayed record so HEEx recomputes its date as well.
+      send(view.pid, {:user_updated, %{target | first_name: "Updated"}})
+      assert render(view) =~ "3/7/2026"
     end
 
     test "an American admin reads 3/7/2026", %{conn: conn, target: target} do
@@ -143,6 +158,23 @@ defmodule PhoenixKit.Integration.Users.CountryFormatsTest do
 
       refute changeset.valid?
       assert Keyword.has_key?(changeset.errors, :format_country)
+    end
+
+    test "normalizes the value that is actually persisted" do
+      for code <- ["de", " de "] do
+        params = Map.put(Settings.get_defaults(), "format_country", code)
+        assert {:ok, saved} = Settings.update_settings(params)
+        assert saved["format_country"] == "DE"
+        assert Settings.get_setting("format_country") == "DE"
+      end
+    end
+
+    test "blank clears the stored default" do
+      assert {:ok, _} = Settings.update_setting("format_country", "DE")
+      params = Map.put(Settings.get_defaults(), "format_country", "  ")
+      assert {:ok, saved} = Settings.update_settings(params)
+      assert saved["format_country"] == ""
+      assert Settings.get_setting("format_country") == ""
     end
 
     test "accepts a code, in either case, and blank" do

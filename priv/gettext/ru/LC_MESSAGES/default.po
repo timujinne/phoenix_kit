@@ -72,7 +72,7 @@ msgstr "Управление пользователями"
 
 #: lib/phoenix_kit/dashboard/admin_tabs.ex:184
 #: lib/phoenix_kit_web/components/core/dashboard_overview.ex:124
-#: lib/phoenix_kit_web/live/settings/api.html.heex:850
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1060
 #: lib/phoenix_kit_web/live/settings/users.ex:97
 #: lib/phoenix_kit_web/live/users/user_details.html.heex:44
 #: lib/phoenix_kit_web/live/users/user_details.html.heex:170
@@ -383,7 +383,7 @@ msgstr "Аутентификация"
 #: lib/phoenix_kit_web/components/core/badge.ex:191
 #: lib/phoenix_kit_web/components/core/dashboard_overview.ex:463
 #: lib/phoenix_kit_web/live/modules.html.heex:35
-#: lib/phoenix_kit_web/live/settings/api.ex:902
+#: lib/phoenix_kit_web/live/settings/api.ex:1121
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:114
 #: lib/phoenix_kit_web/live/users/live_sessions.html.heex:267
 #: lib/phoenix_kit_web/live/users/user_details.html.heex:145
@@ -412,8 +412,10 @@ msgstr "Активно"
 #: lib/phoenix_kit_web/live/modules.html.heex:147
 #: lib/phoenix_kit_web/live/modules.html.heex:223
 #: lib/phoenix_kit_web/live/modules/languages.html.heex:97
-#: lib/phoenix_kit_web/live/settings/api.html.heex:43
-#: lib/phoenix_kit_web/live/settings/api.html.heex:63
+#: lib/phoenix_kit_web/live/settings/api.html.heex:50
+#: lib/phoenix_kit_web/live/settings/api.html.heex:74
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:25
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:34
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:41
 #: lib/phoenix_kit_web/live/settings/send_profile_form.html.heex:90
 #: lib/phoenix_kit_web/live/settings/users.html.heex:547
@@ -512,10 +514,10 @@ msgstr "Информация об аккаунте"
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:303
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:335
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:74
-#: lib/phoenix_kit_web/live/settings/api.html.heex:100
-#: lib/phoenix_kit_web/live/settings/api.html.heex:157
-#: lib/phoenix_kit_web/live/settings/api.html.heex:263
-#: lib/phoenix_kit_web/live/settings/api.html.heex:289
+#: lib/phoenix_kit_web/live/settings/api.html.heex:264
+#: lib/phoenix_kit_web/live/settings/api.html.heex:326
+#: lib/phoenix_kit_web/live/settings/api.html.heex:399
+#: lib/phoenix_kit_web/live/settings/api.html.heex:425
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:141
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:201
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:244
@@ -664,10 +666,10 @@ msgstr "Маркированный список"
 #: lib/phoenix_kit_web/live/components/user_settings.ex:1792
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:170
 #: lib/phoenix_kit_web/live/notifications/settings.ex:434
-#: lib/phoenix_kit_web/live/settings/api.html.heex:624
-#: lib/phoenix_kit_web/live/settings/api.html.heex:770
-#: lib/phoenix_kit_web/live/settings/api.html.heex:810
-#: lib/phoenix_kit_web/live/settings/api.html.heex:872
+#: lib/phoenix_kit_web/live/settings/api.html.heex:822
+#: lib/phoenix_kit_web/live/settings/api.html.heex:972
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1014
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1082
 #: lib/phoenix_kit_web/live/settings/organization.html.heex:486
 #: lib/phoenix_kit_web/live/settings/send_profile_form.html.heex:152
 #: lib/phoenix_kit_web/live/settings/users.html.heex:927
@@ -876,7 +878,7 @@ msgstr "Создание и управление ролями пользоват
 #: lib/phoenix_kit_web/components/core/file_exif_panel.ex:190
 #: lib/phoenix_kit_web/components/core/integration_picker.ex:305
 #: lib/phoenix_kit_web/live/modules/jobs/runs_components.ex:217
-#: lib/phoenix_kit_web/live/settings/api.html.heex:262
+#: lib/phoenix_kit_web/live/settings/api.html.heex:398
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:238
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:344
 #, elixir-autogen, elixir-format
@@ -989,8 +991,10 @@ msgstr "Описание"
 #: lib/phoenix_kit_web/live/modules.html.heex:88
 #: lib/phoenix_kit_web/live/modules.html.heex:147
 #: lib/phoenix_kit_web/live/modules.html.heex:223
-#: lib/phoenix_kit_web/live/settings/api.html.heex:43
-#: lib/phoenix_kit_web/live/settings/api.html.heex:63
+#: lib/phoenix_kit_web/live/settings/api.html.heex:50
+#: lib/phoenix_kit_web/live/settings/api.html.heex:74
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:25
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:34
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:41
 #: lib/phoenix_kit_web/live/settings/users.html.heex:548
 #: lib/phoenix_kit_web/live/settings/users.html.heex:624
@@ -1891,7 +1895,7 @@ msgstr "Выберите, к каким разделам и модулям эт�
 #: lib/phoenix_kit_web/components/user_dashboard_nav.ex:170
 #: lib/phoenix_kit_web/live/modules/languages.ex:51
 #: lib/phoenix_kit_web/live/settings.ex:67
-#: lib/phoenix_kit_web/live/settings/api.ex:89
+#: lib/phoenix_kit_web/live/settings/api.ex:134
 #: lib/phoenix_kit_web/live/settings/authorization.ex:50
 #: lib/phoenix_kit_web/live/settings/crawlers.ex:43
 #: lib/phoenix_kit_web/live/settings/email_preview.ex:44
@@ -1955,7 +1959,9 @@ msgstr "Регион/Область"
 #: lib/phoenix_kit/users/table_columns.ex:291
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:189
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:244
-#: lib/phoenix_kit_web/live/settings/api.html.heex:98
+#: lib/phoenix_kit_web/live/settings/api.html.heex:262
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:7
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:314
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:286
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:64
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:139
@@ -2372,8 +2378,8 @@ msgstr "Провайдер"
 msgid "Quick Actions"
 msgstr "Быстрые действия"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:175
-#: lib/phoenix_kit_web/live/settings/api.html.heex:888
+#: lib/phoenix_kit_web/live/settings/api.html.heex:344
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1104
 #: lib/phoenix_kit_web/live/settings/website_access.html.heex:186
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:326
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:432
@@ -2688,7 +2694,7 @@ msgstr "Настройте системные параметры и опции"
 msgid "Consider \"User\" for most installations to maintain security."
 msgstr "Для большинства установок используйте «Пользователь» в целях безопасности."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:675
+#: lib/phoenix_kit_web/live/settings/api.html.heex:880
 #: lib/phoenix_kit_web/live/settings/authorization.html.heex:556
 #: lib/phoenix_kit_web/live/settings/authorization.html.heex:647
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:177
@@ -2979,10 +2985,10 @@ msgstr "Управляйте регистрацией пользователей
 #: lib/phoenix_kit_web/live/components/library_settings.ex:791
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:204
 #: lib/phoenix_kit_web/live/integrations/my_integrations.ex:242
-#: lib/phoenix_kit_web/live/settings/api.html.heex:95
-#: lib/phoenix_kit_web/live/settings/api.html.heex:260
-#: lib/phoenix_kit_web/live/settings/api.html.heex:547
-#: lib/phoenix_kit_web/live/settings/api.html.heex:844
+#: lib/phoenix_kit_web/live/settings/api.html.heex:259
+#: lib/phoenix_kit_web/live/settings/api.html.heex:396
+#: lib/phoenix_kit_web/live/settings/api.html.heex:746
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1050
 #: lib/phoenix_kit_web/live/settings/email_sending.html.heex:285
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:81
 #: lib/phoenix_kit_web/live/settings/integrations.html.heex:133
@@ -5149,6 +5155,7 @@ msgid "Auto-regenerate"
 msgstr "Авто-обновление"
 
 #: lib/phoenix_kit_web/components/core/column_settings.ex:141
+#: lib/phoenix_kit_web/live/settings/api.html.heex:210
 #, elixir-autogen, elixir-format
 msgid "Available"
 msgstr "Доступно"
@@ -5237,6 +5244,7 @@ msgstr "Управление модулями"
 
 #: lib/phoenix_kit/dashboard/admin_tabs.ex:312
 #: lib/phoenix_kit_web/live/modules.html.heex:5
+#: lib/phoenix_kit_web/live/settings/api.html.heex:87
 #, elixir-autogen, elixir-format
 msgid "Modules"
 msgstr "Модули"
@@ -5322,7 +5330,7 @@ msgstr "Медиа"
 #: lib/phoenix_kit_web/components/core/badge.ex:125
 #: lib/phoenix_kit_web/components/core/badge.ex:128
 #: lib/phoenix_kit_web/live/approvals.ex:436
-#: lib/phoenix_kit_web/live/settings/api.ex:904
+#: lib/phoenix_kit_web/live/settings/api.ex:1123
 #: lib/phoenix_kit_web/live/users/sessions.html.heex:272
 #, elixir-autogen, elixir-format
 msgid "Expired"
@@ -7865,7 +7873,7 @@ msgstr "Мониторинг и управление активными сесс
 
 #: lib/modules/storage/web/bucket_page.html.heex:370
 #: lib/phoenix_kit/integrations/providers.ex:1165
-#: lib/phoenix_kit_web/live/settings/api.html.heex:149
+#: lib/phoenix_kit_web/live/settings/api.html.heex:318
 #: lib/phoenix_kit_web/live/users/users.ex:835
 #: lib/phoenix_kit_web/live/users/users.html.heex:653
 #, elixir-autogen, elixir-format
@@ -11071,7 +11079,7 @@ msgstr "Проверка…"
 msgid "Continue"
 msgstr "Продолжить"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:676
+#: lib/phoenix_kit_web/live/settings/api.html.heex:881
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:178
 #: lib/phoenix_kit_web/live/settings/website_access.html.heex:180
 #, elixir-autogen, elixir-format
@@ -11962,10 +11970,10 @@ msgstr "Не удалось удалить аккаунт."
 msgid "Could not switch account."
 msgstr "Не удалось переключить аккаунт."
 
-#: lib/phoenix_kit/integrations/validators.ex:794
+#: lib/phoenix_kit/integrations/validators.ex:805
 #, elixir-autogen, elixir-format
-msgid "Credentials are valid, but limited to specific buckets — bucket access was not verified"
-msgstr "Учётные данные верны, но ограничены отдельными бакетами — доступ к бакетам не проверялся"
+msgid "Credentials are valid, but not allowed to list buckets — bucket access was not verified"
+msgstr "Учётные данные верны, но не дают права перечислять бакеты — доступ к бакетам не проверен"
 
 #: lib/phoenix_kit_web/live/settings/crawlers.html.heex:90
 #, elixir-autogen, elixir-format
@@ -15410,8 +15418,8 @@ msgid "Opening a user's library is recorded in the audit log."
 msgstr "Открытие библиотеки пользователя записывается в журнал аудита."
 
 #: lib/modules/storage/web/libraries_component.ex:438
-#: lib/phoenix_kit_web/live/settings/api.html.heex:96
-#: lib/phoenix_kit_web/live/settings/api.html.heex:556
+#: lib/phoenix_kit_web/live/settings/api.html.heex:260
+#: lib/phoenix_kit_web/live/settings/api.html.heex:756
 #: lib/phoenix_kit_web/live/users/libraries.ex:231
 #: lib/phoenix_kit_web/live/users/libraries.html.heex:84
 #, elixir-autogen, elixir-format
@@ -15886,6 +15894,7 @@ msgid "Tool"
 msgstr "Инструмент"
 
 #: lib/modules/storage/web/settings.ex:127
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:161
 #, elixir-autogen, elixir-format
 msgid "Tools"
 msgstr "Инструменты"
@@ -16468,6 +16477,7 @@ msgstr "Кнопка"
 msgid "Change the logo, site name or site URL in Settings → General"
 msgstr "Измените логотип, название или URL сайта в разделе Настройки → Общие"
 
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.ex:145
 #: lib/phoenix_kit_web/live/settings/email_preview.ex:128
 #, elixir-autogen, elixir-format
 msgid "Core"
@@ -19997,364 +20007,370 @@ msgstr "Анимация"
 msgid "Keep the animation"
 msgstr "Сохранять анимацию"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:30
+#: lib/phoenix_kit_web/live/settings/api.html.heex:37
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:20
 #, elixir-autogen, elixir-format
 msgid "Admin API"
 msgstr "API администратора"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#: lib/phoenix_kit_web/live/settings/api.html.heex:245
 #, elixir-autogen, elixir-format
 msgid "A key acts with the rights of its owner, never with more. Removing a right from the owner takes it from the key at once."
 msgstr "Ключ действует с правами своего владельца, но никогда с большими. Если у владельца отнять право, ключ сразу его теряет."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:608
+#: lib/phoenix_kit_web/live/settings/api.html.heex:806
 #, elixir-autogen, elixir-format
 msgid "Allowed addresses (optional)"
 msgstr "Разрешённые адреса (необязательно)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:792
+#: lib/phoenix_kit_web/live/settings/api.html.heex:995
 #, elixir-autogen, elixir-format
 msgid "A new key is created with the same owner, scopes and limits. The old key keeps working for the grace period, then stops."
 msgstr "Создаётся новый ключ с тем же владельцем, областями доступа и ограничениями. Старый ключ продолжает работать в течение переходного периода, затем перестаёт."
 
 #: lib/phoenix_kit/dashboard/admin_tabs.ex:476
-#: lib/phoenix_kit_web/live/settings/api.ex:84
+#: lib/phoenix_kit_web/live/settings/api.ex:129
 #, elixir-autogen, elixir-format
 msgid "API"
 msgstr "API"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:78
+#: lib/phoenix_kit_web/live/settings/api.html.heex:239
 #, elixir-autogen, elixir-format
 msgid "API keys"
 msgstr "API-ключи"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:240
+#: lib/phoenix_kit_web/live/settings/api.html.heex:376
 #, elixir-autogen, elixir-format
 msgid "A service user is an account for a program. It cannot sign in to the website, and it holds only the roles you give it, never more than you hold yourself."
 msgstr "Служебный пользователь — это учётная запись для программы. Он не может входить на сайт и имеет только те роли, которые вы ему дадите, но никогда больше, чем есть у вас самих."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:22
+#: lib/phoenix_kit_web/live/settings/api.html.heex:30
 #, elixir-autogen, elixir-format
 msgid "Both sides are off until you switch them on. While a side is off, every address of it answers 404."
 msgstr "Обе стороны выключены, пока вы их не включите. Пока сторона выключена, каждый её адрес отвечает 404."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:641
+#: lib/phoenix_kit_web/live/settings/api.html.heex:840
 #, elixir-autogen, elixir-format
 msgid "Copy your new key now"
 msgstr "Скопируйте новый ключ сейчас"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:191
+#: lib/phoenix_kit_web/live/settings/api.html.heex:360
 #, elixir-autogen, elixir-format
 msgid "Create a key, copy it once, and give it to the program that needs it."
 msgstr "Создайте ключ, скопируйте его один раз и передайте программе, которой он нужен."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:310
+#: lib/phoenix_kit_web/live/settings/api.html.heex:446
 #, elixir-autogen, elixir-format
 msgid "Create one when a program should have a key that does not belong to a person."
 msgstr "Создайте его, когда программе нужен ключ, не принадлежащий человеку."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:627
+#: lib/phoenix_kit_web/live/settings/api.html.heex:825
 #, elixir-autogen, elixir-format
 msgid "Create the key"
 msgstr "Создать ключ"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:875
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1091
 #, elixir-autogen, elixir-format
 msgid "Create the service user"
 msgstr "Создать служебного пользователя"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:395
+#: lib/phoenix_kit_web/live/settings/api.ex:606
 #, elixir-autogen, elixir-format
 msgid "Deleted user"
 msgstr "Удалённый пользователь"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:903
+#: lib/phoenix_kit_web/live/settings/api.ex:1122
 #, elixir-autogen, elixir-format
 msgid "Ending"
 msgstr "Заканчивается"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:617
+#: lib/phoenix_kit_web/live/settings/api.html.heex:815
 #, elixir-autogen, elixir-format
 msgid "Expires on (optional)"
 msgstr "Действует до (необязательно)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:797
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1000
 #, elixir-autogen, elixir-format
 msgid "Give a whole number of hours from 0 to 24."
 msgstr "Укажите целое число часов от 0 до 24."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:802
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1006
 #, elixir-autogen, elixir-format
 msgid "Grace period in hours (0 to 24)"
 msgstr "Переходный период в часах (от 0 до 24)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:128
+#: lib/phoenix_kit_web/live/settings/api.html.heex:296
 #, elixir-autogen, elixir-format
 msgid "identity only"
 msgstr "только идентификация"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:689
+#: lib/phoenix_kit_web/live/settings/api.html.heex:894
 #, elixir-autogen, elixir-format
 msgid "I have stored the key"
 msgstr "Ключ сохранён"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:655
+#: lib/phoenix_kit_web/live/settings/api.html.heex:854
 #, elixir-autogen, elixir-format
 msgid "Key: %{name}"
 msgstr "Ключ: %{name}"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:261
+#: lib/phoenix_kit_web/live/settings/api.html.heex:397
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:219
 #, elixir-autogen, elixir-format
 msgid "Keys"
 msgstr "Ключи"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:99
+#: lib/phoenix_kit_web/live/settings/api.html.heex:263
 #, elixir-autogen, elixir-format
 msgid "Last used"
 msgstr "Последнее использование"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:481
+#: lib/phoenix_kit_web/live/settings/api.ex:692
 #, elixir-autogen, elixir-format
 msgid "Me"
 msgstr "Я"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:528
+#: lib/phoenix_kit_web/live/settings/api.html.heex:726
+#: lib/phoenix_kit_web/live/settings/api.html.heex:866
 #, elixir-autogen, elixir-format
 msgid "New API key"
 msgstr "Новый API-ключ"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:87
-#: lib/phoenix_kit_web/live/settings/api.html.heex:295
+#: lib/phoenix_kit_web/live/settings/api.html.heex:251
+#: lib/phoenix_kit_web/live/settings/api.html.heex:431
 #, elixir-autogen, elixir-format
 msgid "New key"
 msgstr "Новый ключ"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:252
-#: lib/phoenix_kit_web/live/settings/api.html.heex:826
+#: lib/phoenix_kit_web/live/settings/api.html.heex:388
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1031
 #, elixir-autogen, elixir-format
 msgid "New service user"
 msgstr "Новый служебный пользователь"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:189
+#: lib/phoenix_kit_web/live/settings/api.html.heex:358
 #, elixir-autogen, elixir-format
 msgid "No API keys yet"
 msgstr "Пока нет API-ключей"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:564
-#: lib/phoenix_kit_web/live/settings/api.html.heex:723
+#: lib/phoenix_kit_web/live/settings/api.html.heex:764
+#: lib/phoenix_kit_web/live/settings/api.html.heex:929
 #, elixir-autogen, elixir-format
 msgid "No scopes are available to this owner. The key can still read its own identity."
 msgstr "Для этого владельца нет доступных областей доступа. Ключ всё равно сможет получить сведения о себе."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:308
+#: lib/phoenix_kit_web/live/settings/api.html.heex:444
 #, elixir-autogen, elixir-format
 msgid "No service users yet"
 msgstr "Пока нет служебных пользователей"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:865
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1075
 #, elixir-autogen, elixir-format
 msgid "Only roles that hold no more rights than you do are listed."
 msgstr "Показаны только роли, у которых прав не больше, чем у вас."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:891
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1107
 #, elixir-autogen, elixir-format
 msgid "Programs that use this key stop working at once. This cannot be undone."
 msgstr "Программы, использующие этот ключ, сразу перестанут работать. Это нельзя отменить."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:32
+#: lib/phoenix_kit_web/live/settings/api.html.heex:39
 #, elixir-autogen, elixir-format
 msgid "Programs with an API key read and change the catalogue, prices and stock."
 msgstr "Программы с API-ключом читают и меняют каталог, цены и остатки."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:52
+#: lib/phoenix_kit_web/live/settings/api.html.heex:61
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:29
 #, elixir-autogen, elixir-format
 msgid "Public API"
 msgstr "Публичный API"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:905
+#: lib/phoenix_kit_web/live/settings/api.ex:1124
 #, elixir-autogen, elixir-format
 msgid "Revoked"
 msgstr "Отозван"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:885
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1101
 #, elixir-autogen, elixir-format
 msgid "Revoke this key?"
 msgstr "Отозвать этот ключ?"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:169
+#: lib/phoenix_kit_web/live/settings/api.html.heex:338
 #, elixir-autogen, elixir-format
 msgid "Rotate"
 msgstr "Перевыпустить"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:813
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1017
 #, elixir-autogen, elixir-format
 msgid "Rotate the key"
 msgstr "Перевыпустить ключ"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:786
+#: lib/phoenix_kit_web/live/settings/api.html.heex:989
 #, elixir-autogen, elixir-format
 msgid "Rotate this key"
 msgstr "Перевыпустить этот ключ"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:97
-#: lib/phoenix_kit_web/live/settings/api.html.heex:562
-#: lib/phoenix_kit_web/live/settings/api.html.heex:721
+#: lib/phoenix_kit_web/live/settings/api.html.heex:261
+#: lib/phoenix_kit_web/live/settings/api.html.heex:762
+#: lib/phoenix_kit_web/live/settings/api.html.heex:927
 #, elixir-autogen, elixir-format
 msgid "Scopes"
 msgstr "Области доступа"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:681
+#: lib/phoenix_kit_web/live/settings/api.html.heex:886
 #, elixir-autogen, elixir-format
 msgid "Send it only in the Authorization header, as Bearer and the key. A key in a web address is refused."
 msgstr "Передавайте его только в заголовке Authorization в виде Bearer и ключа. Ключ в веб-адресе отклоняется."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:237
+#: lib/phoenix_kit_web/live/settings/api.html.heex:370
 #, elixir-autogen, elixir-format
 msgid "Service users"
 msgstr "Служебные пользователи"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#: lib/phoenix_kit_web/live/settings/api.html.heex:63
 #, elixir-autogen, elixir-format
 msgid "AI assistants and other programs use what the site offers, without a key."
 msgstr "ИИ-помощники и другие программы пользуются тем, что предлагает сайт, без ключа."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:531
+#: lib/phoenix_kit_web/live/settings/api.ex:742
 #, elixir-autogen, elixir-format
 msgid "Some of the chosen scopes are not available to that owner."
 msgstr "Некоторые из выбранных областей доступа недоступны этому владельцу."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:19
+#: lib/phoenix_kit_web/live/settings/api.html.heex:24
 #, elixir-autogen, elixir-format
 msgid "Switches"
 msgstr "Переключатели"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:87
+#: lib/phoenix_kit_web/live/settings/api.ex:132
 #, elixir-autogen, elixir-format
 msgid "Switches and keys for the API that outside programs and AI agents use."
 msgstr "Переключатели и ключи для API, которым пользуются внешние программы и ИИ-агенты."
 
 #: lib/phoenix_kit_web/live/approvals.ex:118
-#: lib/phoenix_kit_web/live/settings/api.ex:322
-#: lib/phoenix_kit_web/live/settings/api.ex:353
+#: lib/phoenix_kit_web/live/settings/api.ex:418
+#: lib/phoenix_kit_web/live/settings/api.ex:449
 #, elixir-autogen, elixir-format
 msgid "That action is not available."
 msgstr "Это действие недоступно."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:548
+#: lib/phoenix_kit_web/live/settings/api.ex:759
 #, elixir-autogen, elixir-format
 msgid "That could not be saved."
 msgstr "Не удалось сохранить."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:197
-#: lib/phoenix_kit_web/live/settings/api.ex:216
-#: lib/phoenix_kit_web/live/settings/api.ex:227
-#: lib/phoenix_kit_web/live/settings/api.ex:261
-#: lib/phoenix_kit_web/live/settings/api.ex:282
-#: lib/phoenix_kit_web/live/settings/api.ex:569
-#: lib/phoenix_kit_web/live/settings/api.ex:637
+#: lib/phoenix_kit_web/live/settings/api.ex:293
+#: lib/phoenix_kit_web/live/settings/api.ex:312
+#: lib/phoenix_kit_web/live/settings/api.ex:323
+#: lib/phoenix_kit_web/live/settings/api.ex:357
+#: lib/phoenix_kit_web/live/settings/api.ex:378
+#: lib/phoenix_kit_web/live/settings/api.ex:780
+#: lib/phoenix_kit_web/live/settings/api.ex:848
 #, elixir-autogen, elixir-format
 msgid "That key was not found."
 msgstr "Этот ключ не найден."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:378
+#: lib/phoenix_kit_web/live/settings/api.ex:589
 #, elixir-autogen, elixir-format
 msgid "The admin API setting was saved."
 msgstr "Настройка API администратора сохранена."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:534
+#: lib/phoenix_kit_web/live/settings/api.ex:745
 #, elixir-autogen, elixir-format
 msgid "The expiry date must be a date from today on."
 msgstr "Дата окончания должна быть не раньше сегодняшней."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:560
+#: lib/phoenix_kit_web/live/settings/api.ex:771
 #, elixir-autogen, elixir-format
 msgid "The key could not be revoked."
 msgstr "Не удалось отозвать ключ."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:587
+#: lib/phoenix_kit_web/live/settings/api.ex:798
 #, elixir-autogen, elixir-format
 msgid "The key could not be rotated."
 msgstr "Не удалось перевыпустить ключ."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:557
+#: lib/phoenix_kit_web/live/settings/api.ex:768
 #, elixir-autogen, elixir-format
 msgid "The key was revoked. It stops working at once."
 msgstr "Ключ отозван. Он перестаёт работать сразу."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:846
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1052
 #, elixir-autogen, elixir-format
 msgid "The program, for example Stock sync"
 msgstr "Программа, например «Синхронизация остатков»"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:379
+#: lib/phoenix_kit_web/live/settings/api.ex:590
 #, elixir-autogen, elixir-format
 msgid "The public API setting was saved."
 msgstr "Настройка публичного API сохранена."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:852
+#: lib/phoenix_kit_web/live/settings/api.html.heex:1062
 #, elixir-autogen, elixir-format
 msgid "There is no role you may hand out."
 msgstr "Нет ролей, которые вы можете выдать."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:862
+#: lib/phoenix_kit_web/live/settings/api.ex:1081
 #, elixir-autogen, elixir-format
 msgid "The service user was created. You can give it keys now."
 msgstr "Служебный пользователь создан. Теперь вы можете выдать ему ключи."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:135
+#: lib/phoenix_kit_web/live/settings/api.ex:205
+#: lib/phoenix_kit_web/live/settings/api.ex:492
+#: lib/phoenix_kit_web/live/settings/api.ex:514
 #, elixir-autogen, elixir-format
 msgid "The switch could not be saved."
 msgstr "Не удалось сохранить переключатель."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:648
+#: lib/phoenix_kit_web/live/settings/api.html.heex:847
 #, elixir-autogen, elixir-format
 msgid "This is the only time the key is shown. Keep it in a password manager or a secret store. If it is lost, revoke it and create a new one."
 msgstr "Ключ показывается только один раз. Сохраните его в менеджере паролей или хранилище секретов. Если он потеряется, отзовите его и создайте новый."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:140
+#: lib/phoenix_kit_web/live/settings/api.html.heex:309
 #, elixir-autogen, elixir-format
 msgid "until %{time}"
 msgstr "до %{time}"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:549
+#: lib/phoenix_kit_web/live/settings/api.html.heex:748
 #, elixir-autogen, elixir-format
 msgid "What the key is for, for example Stock sync"
 msgstr "Для чего ключ, например «Синхронизация остатков»"
 
 #: lib/phoenix_kit_web/live/approvals.ex:91
 #: lib/phoenix_kit_web/live/approvals.ex:113
-#: lib/phoenix_kit_web/live/settings/api.ex:338
-#: lib/phoenix_kit_web/live/settings/api.ex:537
+#: lib/phoenix_kit_web/live/settings/api.ex:434
+#: lib/phoenix_kit_web/live/settings/api.ex:748
 #, elixir-autogen, elixir-format
 msgid "You are not allowed to do that."
 msgstr "У вас нет прав на это действие."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:528
+#: lib/phoenix_kit_web/live/settings/api.ex:739
 #, elixir-autogen, elixir-format
 msgid "You cannot create keys for that owner."
 msgstr "Вы не можете создавать ключи для этого владельца."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:540
+#: lib/phoenix_kit_web/live/settings/api.ex:751
 #, elixir-autogen, elixir-format
 msgid "You cannot give a role that holds more rights than you do."
 msgstr "Вы не можете выдать роль, у которой прав больше, чем у вас."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:163
+#: lib/phoenix_kit_web/live/settings/api.html.heex:332
 #, elixir-autogen, elixir-format
 msgid "Edit scopes"
 msgstr "Изменить области доступа"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:703
+#: lib/phoenix_kit_web/live/settings/api.html.heex:909
 #, elixir-autogen, elixir-format
 msgid "Edit the scopes of this key"
 msgstr "Изменить области доступа этого ключа"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:773
+#: lib/phoenix_kit_web/live/settings/api.html.heex:975
 #, elixir-autogen, elixir-format
 msgid "Save the scopes"
 msgstr "Сохранить области доступа"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:632
+#: lib/phoenix_kit_web/live/settings/api.ex:843
 #, elixir-autogen, elixir-format
 msgid "The scopes were saved."
 msgstr "Области доступа сохранены."
@@ -20364,189 +20380,190 @@ msgstr "Области доступа сохранены."
 msgid "These scopes are inactive because the owner can no longer use them. They stay on the key when you save."
 msgstr "Эти области доступа неактивны, потому что владелец больше не может их использовать. При сохранении они остаются у ключа."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:325
+#: lib/phoenix_kit_web/live/settings/api.html.heex:491
 #, elixir-autogen, elixir-format
 msgid "Limits and advanced"
 msgstr "Лимиты и дополнительные настройки"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:328
+#: lib/phoenix_kit_web/live/settings/api.html.heex:497
 #, elixir-autogen, elixir-format
 msgid "Rate limits and the lists of hidden tools and allowed origins. Every change is kept in the history of the settings."
 msgstr "Лимиты запросов и списки скрытых инструментов и разрешённых источников (origin). Каждое изменение сохраняется в истории настроек."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:344
+#: lib/phoenix_kit_web/live/settings/api.html.heex:517
 #, elixir-autogen, elixir-format
 msgid "Hidden tools (one per line)"
 msgstr "Скрытые инструменты (по одному в строке)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:354
+#: lib/phoenix_kit_web/live/settings/api.html.heex:518
 #, elixir-autogen, elixir-format
 msgid "A hidden tool answers as if it did not exist, for every key."
 msgstr "Скрытый инструмент отвечает так, будто его не существует, для любого ключа."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:360
+#: lib/phoenix_kit_web/live/settings/api.html.heex:528
 #, elixir-autogen, elixir-format
 msgid "Allowed MCP origins (one per line)"
 msgstr "Разрешённые источники MCP (по одному в строке)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:370
+#: lib/phoenix_kit_web/live/settings/api.html.heex:530
 #, elixir-autogen, elixir-format
 msgid "Web origins that may call the MCP endpoint besides the site itself, for example https://assistant.example.com"
 msgstr "Веб-источники, которым разрешено обращаться к точке доступа MCP, помимо самого сайта, например https://assistant.example.com"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:383
+#: lib/phoenix_kit_web/live/settings/api.html.heex:545
 #, elixir-autogen, elixir-format
 msgid "Failed sign-ins per minute, per address"
 msgstr "Неудачные попытки входа в минуту, на один адрес"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:391
+#: lib/phoenix_kit_web/live/settings/api.html.heex:554
 #, elixir-autogen, elixir-format
 msgid "Calls per minute, per key (admin API)"
 msgstr "Вызовов в минуту, на один ключ (API администратора)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:399
+#: lib/phoenix_kit_web/live/settings/api.html.heex:563
 #, elixir-autogen, elixir-format
 msgid "Calls per minute, per client token (public API)"
 msgstr "Вызовов в минуту, на один токен клиента (публичный API)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:407
+#: lib/phoenix_kit_web/live/settings/api.html.heex:572
 #, elixir-autogen, elixir-format
 msgid "Calls per minute, per address (public API)"
 msgstr "Вызовов в минуту, на один адрес (публичный API)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:415
+#: lib/phoenix_kit_web/live/settings/api.html.heex:589
 #, elixir-autogen, elixir-format
 msgid "New rows per hour, per address"
 msgstr "Новых строк в час, на один адрес"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:423
+#: lib/phoenix_kit_web/live/settings/api.html.heex:598
 #, elixir-autogen, elixir-format
 msgid "New rows per hour, all addresses"
 msgstr "Новых строк в час, все адреса вместе"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:511
+#: lib/phoenix_kit_web/live/settings/api.html.heex:580
 #, elixir-autogen, elixir-format
 msgid "Rows a module creates for callers without a key"
 msgstr "Строки, которые модуль создаёт для вызывающих без ключа"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:430
+#: lib/phoenix_kit_web/live/settings/api.html.heex:606
 #, elixir-autogen, elixir-format
 msgid "Save the limits"
 msgstr "Сохранить лимиты"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:806
+#: lib/phoenix_kit_web/live/settings/api.ex:1025
 #, elixir-autogen, elixir-format
 msgid "The limits were saved."
 msgstr "Лимиты сохранены."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:725
+#: lib/phoenix_kit_web/live/settings/api.ex:936
 #, elixir-autogen, elixir-format
 msgid "Tool names look like catalogue.list_categories: lowercase words with underscores, a dot between the two parts."
 msgstr "Имена инструментов выглядят так: catalogue.list_categories, то есть строчные буквы с подчёркиваниями и точка между двумя частями."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:732
+#: lib/phoenix_kit_web/live/settings/api.ex:943
 #, elixir-autogen, elixir-format
 msgid "Origins look like https://example.com: a scheme and a host, without a path."
 msgstr "Источник выглядит так: https://example.com, то есть схема и хост, без пути."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:738
+#: lib/phoenix_kit_web/live/settings/api.ex:949
 #, elixir-autogen, elixir-format
 msgid "Every limit must be a whole number from 1 to 1000000."
 msgstr "Каждый лимит должен быть целым числом от 1 до 1000000."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:808
+#: lib/phoenix_kit_web/live/settings/api.ex:1027
 #, elixir-autogen, elixir-format
 msgid "The limits could not be saved."
 msgstr "Не удалось сохранить лимиты."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:829
+#: lib/phoenix_kit_web/live/settings/api.ex:1048
 #, elixir-autogen, elixir-format
 msgid "The settings were saved."
 msgstr "Настройки сохранены."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:834
+#: lib/phoenix_kit_web/live/settings/api.ex:1053
 #, elixir-autogen, elixir-format
 msgid "The settings could not be saved."
 msgstr "Не удалось сохранить настройки."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:839
+#: lib/phoenix_kit_web/live/settings/api.ex:1058
 #, elixir-autogen, elixir-format
 msgid "Every value must be a whole number inside its range."
 msgstr "Каждое значение должно быть целым числом в допустимом диапазоне."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:110
-#: lib/phoenix_kit_web/live/settings/api.html.heex:590
+#: lib/phoenix_kit_web/live/settings/api.html.heex:276
+#: lib/phoenix_kit_web/live/settings/api.html.heex:787
 #, elixir-autogen, elixir-format
 msgid "Needs approval"
 msgstr "Требует одобрения"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:593
+#: lib/phoenix_kit_web/live/settings/api.html.heex:790
 #, elixir-autogen, elixir-format
 msgid "Every write of this key waits in the approval queue until a person approves it, dangerous or not; reads run at once. Use it for keys given to AI agents."
 msgstr "Любая запись этого ключа, опасная или нет, ждёт в очереди одобрения, пока её не одобрит человек; чтение выполняется сразу. Используйте это для ключей, выданных ИИ-агентам."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:597
+#: lib/phoenix_kit_web/live/settings/api.html.heex:794
 #, elixir-autogen, elixir-format
 msgid "Without this option a key confirms its own operations with a code. That protects against mistakes, not against whoever holds the key."
 msgstr "Без этой опции ключ сам подтверждает свои операции кодом. Это защищает от ошибок, но не от того, у кого есть ключ."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:204
+#: lib/phoenix_kit_web/live/settings/api.html.heex:460
 #, elixir-autogen, elixir-format
 msgid "Pending approvals"
 msgstr "Ожидающие одобрения"
 
 #: lib/phoenix_kit_web/live/approvals.ex:60
-#: lib/phoenix_kit_web/live/settings/api.html.heex:207
+#: lib/phoenix_kit_web/live/settings/api.html.heex:465
 #, elixir-autogen, elixir-format
 msgid "Operations from keys that need a person's approval wait here. Nothing runs until you approve it."
 msgstr "Операции ключей, которым нужно одобрение человека, ждут здесь. Ничего не выполняется, пока вы это не одобрите."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:218
+#: lib/phoenix_kit_web/live/settings/api.html.heex:476
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:291
 #, elixir-autogen, elixir-format
 msgid "Review approvals"
 msgstr "Просмотреть одобрения"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:443
+#: lib/phoenix_kit_web/live/settings/api.html.heex:615
 #, elixir-autogen, elixir-format
 msgid "Confirmation, approvals and repeats"
 msgstr "Подтверждение, одобрения и повторы"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:446
+#: lib/phoenix_kit_web/live/settings/api.html.heex:621
 #, elixir-autogen, elixir-format
 msgid "How long confirmation codes and approvals live, and when an operation counts as a big one. Every change is kept in the history of the settings."
 msgstr "Как долго действуют коды подтверждения и одобрения и с какого размера операция считается крупной. Каждое изменение сохраняется в истории настроек."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:465
+#: lib/phoenix_kit_web/live/settings/api.html.heex:640
 #, elixir-autogen, elixir-format
 msgid "Ask for confirmation above this many rows"
 msgstr "Требовать подтверждение, если строк больше"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:473
+#: lib/phoenix_kit_web/live/settings/api.html.heex:649
 #, elixir-autogen, elixir-format
 msgid "Confirmation code lifetime in seconds (10 to 600)"
 msgstr "Срок действия кода подтверждения в секундах (от 10 до 600)"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:481
+#: lib/phoenix_kit_web/live/settings/api.html.heex:671
 #, elixir-autogen, elixir-format
 msgid "Approval lifetime in hours"
 msgstr "Срок действия одобрения в часах"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:489
+#: lib/phoenix_kit_web/live/settings/api.html.heex:680
 #, elixir-autogen, elixir-format
 msgid "Approvals one key may have waiting"
 msgstr "Сколько одобрений может ждать у одного ключа"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:497
+#: lib/phoenix_kit_web/live/settings/api.html.heex:689
 #, elixir-autogen, elixir-format
 msgid "Repeat protection lifetime in hours"
 msgstr "Срок действия защиты от повторов в часах"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:505
+#: lib/phoenix_kit_web/live/settings/api.html.heex:698
 #, elixir-autogen, elixir-format
 msgid "Repeat protection lease in seconds"
 msgstr "Время блокировки защиты от повторов в секундах"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:512
+#: lib/phoenix_kit_web/live/settings/api.html.heex:705
 #, elixir-autogen, elixir-format
 msgid "Save the settings"
 msgstr "Сохранить настройки"
@@ -20867,59 +20884,59 @@ msgstr "Постер HDR-видео"
 msgid "The picture shown for an HDR video (an iPhone's HLG recording) is made as an HDR photo, with a gain map, so bright areas glow on an HDR screen; other screens show the ordinary picture. Without it the picture is an ordinary one. It applies to videos processed from now on."
 msgstr "Изображение, показываемое для HDR-видео (записи HLG с iPhone), создаётся как HDR-фото с картой усиления (gain map), поэтому яркие участки светятся на HDR-экране; на других экранах показывается обычное изображение. Без этой опции изображение обычное. Применяется к видео, обработанным с этого момента."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:800
+#: lib/phoenix_kit_web/live/settings/api.html.heex:953
 #, elixir-autogen, elixir-format
 msgid "These scopes are inactive because the owner can no longer use them or their module's API is switched off. They stay on the key when you save."
 msgstr "Эти области доступа неактивны, потому что владелец больше не может их использовать или API их модуля выключен. При сохранении они остаются у ключа."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:81
+#: lib/phoenix_kit_web/live/settings/api.html.heex:93
 #, elixir-autogen, elixir-format
 msgid "Each module below offers tools to the API. Switch a module off and all its tools answer as if they did not exist, for every key. Modules are on until you switch them off."
 msgstr "Каждый модуль ниже предоставляет инструменты для API. Если выключить модуль, все его инструменты отвечают так, будто их нет, для любого ключа. Модули включены, пока вы их не выключите."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:87
+#: lib/phoenix_kit_web/live/settings/api.html.heex:112
 #, elixir-autogen, elixir-format
 msgid "No installed module offers tools to the API."
 msgstr "Ни один установленный модуль не предоставляет инструменты для API."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:98
+#: lib/phoenix_kit_web/live/settings/api.html.heex:124
 #, elixir-autogen, elixir-format
 msgid "Tools: %{count}"
 msgstr "Инструментов: %{count}"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:100
+#: lib/phoenix_kit_web/live/settings/api.html.heex:128
 #, elixir-autogen, elixir-format
 msgid "Module disabled"
 msgstr "Модуль отключён"
 
-#: lib/phoenix_kit_web/live/settings/api.ex:424
+#: lib/phoenix_kit_web/live/settings/api.ex:525
 #, elixir-autogen, elixir-format
 msgid "The API of %{module} is on."
 msgstr "API модуля %{module} включён."
 
-#: lib/phoenix_kit_web/live/settings/api.ex:427
+#: lib/phoenix_kit_web/live/settings/api.ex:528
 #, elixir-autogen, elixir-format
 msgid "The API of %{module} is off."
 msgstr "API модуля %{module} выключен."
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:113
+#: lib/phoenix_kit_web/live/settings/api.html.heex:143
 #, elixir-autogen, elixir-format
 msgid "Switch the API of %{module} off"
 msgstr "Выключить API модуля %{module}"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:114
+#: lib/phoenix_kit_web/live/settings/api.html.heex:144
 #, elixir-autogen, elixir-format
 msgid "Switch the API of %{module} on"
 msgstr "Включить API модуля %{module}"
 
 #: lib/phoenix_kit_web/live/modules.ex:120
-#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#: lib/phoenix_kit_web/live/settings/api.html.heex:140
 #, elixir-autogen, elixir-format
 msgid "API on"
 msgstr "API включён"
 
 #: lib/phoenix_kit_web/live/modules.ex:121
-#: lib/phoenix_kit_web/live/settings/api.html.heex:110
+#: lib/phoenix_kit_web/live/settings/api.html.heex:140
 #, elixir-autogen, elixir-format
 msgid "API off"
 msgstr "API выключен"
@@ -20999,193 +21016,189 @@ msgstr "Выберите дату не раньше %{min}"
 msgid "Pick a date on or before %{max}"
 msgstr "Выберите дату не позже %{max}"
 
-#: lib/phoenix_kit_web/live/settings/api.html.heex:20
-#: lib/phoenix_kit_web/live/settings/api_guide.ex:51
+#: lib/phoenix_kit_web/live/settings/api.ex:183
 #, elixir-autogen, elixir-format
 msgid "API guide"
 msgstr "Руководство по API"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.ex:54
-#, elixir-autogen, elixir-format
-msgid "How to connect a program or an AI agent to the admin API with a key."
-msgstr "Как подключить программу или ИИ-агента к API администратора с помощью ключа."
-
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:27
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:15
 #, elixir-autogen, elixir-format
 msgid "Open the switches"
 msgstr "Открыть переключатели"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:57
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:45
 #, elixir-autogen, elixir-format
 msgid "Endpoints"
 msgstr "Конечные точки"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:60
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:48
 #, elixir-autogen, elixir-format
 msgid "Base URL"
 msgstr "Базовый URL"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:62
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:50
 #, elixir-autogen, elixir-format
 msgid "REST"
 msgstr "REST"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:64
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:52
 #, elixir-autogen, elixir-format
 msgid "MCP server"
 msgstr "MCP-сервер"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:66
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:54
 #, elixir-autogen, elixir-format
 msgid "OpenAPI document"
 msgstr "Документ OpenAPI"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:70
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:58
 #, elixir-autogen, elixir-format
 msgid "With a key it lists only the tools that key unlocks."
 msgstr "С ключом в нём перечислены только инструменты, которые открывает этот ключ."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:75
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:63
 #, elixir-autogen, elixir-format
 msgid "On a site with several domains every domain serves the same API; use the one your program can reach."
 msgstr "На сайте с несколькими доменами каждый домен обслуживает один и тот же API; используйте тот, до которого может дотянуться ваша программа."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:81
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:69
 #, elixir-autogen, elixir-format
 msgid "Headers"
 msgstr "Заголовки"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:85
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:73
 #, elixir-autogen, elixir-format
 msgid "The API key, as a Bearer token. Never put a key in a URL: such a request is refused."
 msgstr "Ключ API в виде Bearer-токена. Никогда не помещайте ключ в URL: такой запрос отклоняется."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:91
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:79
 #, elixir-autogen, elixir-format
 msgid "Makes the retry of a write call safe. Over MCP, send idempotency_key as an argument instead."
 msgstr "Делает безопасным повтор вызова с записью. Через MCP вместо этого передавайте idempotency_key как аргумент."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:102
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:90
 #, elixir-autogen, elixir-format
 msgid "How many calls the key has left in the window and when it resets. After a 429, Retry-After says how many seconds to wait."
 msgstr "Сколько вызовов осталось у ключа в окне и когда счётчик сбрасывается. После ответа 429 заголовок Retry-After сообщает, сколько секунд ждать."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:115
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:103
 #, elixir-autogen, elixir-format
 msgid "Connect a client"
 msgstr "Подключение клиента"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:118
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:106
 #, elixir-autogen, elixir-format
 msgid "Give the program a key that holds only the scopes it needs. Create it on Settings -> API."
 msgstr "Дайте программе ключ только с теми областями доступа, которые ей нужны. Создайте его в разделе Настройки -> API."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:125
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:113
 #, elixir-autogen, elixir-format
 msgid "Replace <your key> with the key. Never commit a key to a repository or paste it into a file others can read."
 msgstr "Замените <your key> на ключ. Никогда не коммитьте ключ в репозиторий и не вставляйте его в файл, который могут прочитать другие."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:131
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:119
 #, elixir-autogen, elixir-format
 msgid "The server name ends in -admin so that it does not clash with the public server of this site."
 msgstr "Имя сервера оканчивается на -admin, чтобы не конфликтовать с публичным сервером этого сайта."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:137
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:125
 #, elixir-autogen, elixir-format
 msgid "Claude Code"
 msgstr "Claude Code"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:139
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:127
 #, elixir-autogen, elixir-format
 msgid "Run this in your project folder. It is saved in your local scope, not in the file the team shares."
 msgstr "Выполните это в папке проекта. Сервер сохраняется в вашей локальной области, а не в файле, которым пользуется вся команда."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:147
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:135
 #, elixir-autogen, elixir-format
 msgid "Cursor"
 msgstr "Cursor"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:149
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:137
 #, elixir-autogen, elixir-format
 msgid "Cursor reads this user file for every project, so no repository holds it:"
 msgstr "Cursor читает этот пользовательский файл для каждого проекта, поэтому ни один репозиторий его не содержит:"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:156
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:144
 #, elixir-autogen, elixir-format
 msgid "VS Code"
 msgstr "VS Code"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:158
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:146
 #, elixir-autogen, elixir-format
 msgid "Save it in your project folder as:"
 msgstr "Сохраните его в папке проекта под именем:"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:159
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:147
 #, elixir-autogen, elixir-format
 msgid "VS Code asks for the key when the server starts and keeps it out of the file."
 msgstr "VS Code запрашивает ключ при запуске сервера и не хранит его в файле."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:176
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:164
 #, elixir-autogen, elixir-format
 msgid "A key sees only the tools its scopes unlock."
 msgstr "Ключ видит только те инструменты, которые открывают его области доступа."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:177
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:165
 #, elixir-autogen, elixir-format
 msgid "Tools switched off one by one, and the tools of a module whose API is switched off, are not listed."
 msgstr "Инструменты, выключенные по одному, и инструменты модуля, API которого выключен, не показываются."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:180
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:168
 #, elixir-autogen, elixir-format
 msgid "Any write tool may also ask for confirmation when a call touches more rows than the limit under Dangerous operations."
 msgstr "Любой инструмент записи также может запросить подтверждение, если вызов затрагивает больше строк, чем лимит в разделе Опасные операции."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:207
+#: lib/phoenix_kit_web/live/settings/api.html.heex:197
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:195
 #, elixir-autogen, elixir-format
 msgid "Writes"
 msgstr "Изменяет данные"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:210
+#: lib/phoenix_kit_web/live/settings/api.html.heex:200
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:198
 #, elixir-autogen, elixir-format
 msgid "Read only"
 msgstr "Только чтение"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:216
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:204
 #, elixir-autogen, elixir-format
 msgid "May ask for confirmation"
 msgstr "Может запросить подтверждение"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:235
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:223
 #, elixir-autogen, elixir-format
 msgid "A key acts as its owner. A call may do what the key's scopes allow and the owner's permissions allow at that moment: take a permission from the owner and the key loses it on the next call."
 msgstr "Ключ действует от имени своего владельца. Вызов может делать то, что в этот момент разрешают области доступа ключа и права владельца: отнимите у владельца право, и ключ потеряет его при следующем вызове."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:240
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:228
 #, elixir-autogen, elixir-format
 msgid "For a program, give the key to a service user: an account without a login that holds only the roles you choose."
 msgstr "Для программы выдайте ключ служебному пользователю: аккаунту без входа, у которого есть только выбранные вами роли."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:245
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:233
 #, elixir-autogen, elixir-format
 msgid "A key is shown once, when it is created. If it leaks, revoke it. To replace it, rotate it: the old key can keep working for a grace period you choose."
 msgstr "Ключ показывается один раз, при создании. Если он утёк, отзовите его. Чтобы заменить, перевыпустите: старый ключ может продолжать работать в течение выбранного вами льготного периода."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:257
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:245
 #, elixir-autogen, elixir-format
 msgid "Dangerous operations"
 msgstr "Опасные операции"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:262
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:248
 #, elixir-autogen, elixir-format
 msgid "A write tool takes three optional fields: in the body over REST, as arguments over MCP."
 msgstr "Инструмент записи принимает три необязательных поля: в теле запроса при REST, в аргументах при MCP."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:268
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:254
 #, elixir-autogen, elixir-format
 msgid "Runs the tool without changing anything and returns a preview."
 msgstr "Запускает инструмент, ничего не меняя, и возвращает предпросмотр."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:271
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:257
 #, elixir-autogen, elixir-format
 msgid "A dangerous operation first returns a preview and a one-time code. Repeat the same call with confirm_token set to that code within %{count} second."
 msgid_plural "A dangerous operation first returns a preview and a one-time code. Repeat the same call with confirm_token set to that code within %{count} seconds."
@@ -21193,7 +21206,7 @@ msgstr[0] "Опасная операция сначала возвращает �
 msgstr[1] "Опасная операция сначала возвращает предпросмотр и одноразовый код. Повторите тот же вызов с confirm_token, равным этому коду, в течение %{count} с."
 msgstr[2] "Опасная операция сначала возвращает предпросмотр и одноразовый код. Повторите тот же вызов с confirm_token, равным этому коду, в течение %{count} с."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:276
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:262
 #, elixir-autogen, elixir-format
 msgid "Any write that touches more than %{count} row is dangerous too."
 msgid_plural "Any write that touches more than %{count} rows is dangerous too."
@@ -21201,7 +21214,7 @@ msgstr[0] "Любая запись, затрагивающая более %{coun
 msgstr[1] "Любая запись, затрагивающая более %{count} строк, тоже считается опасной."
 msgstr[2] "Любая запись, затрагивающая более %{count} строк, тоже считается опасной."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:284
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:270
 #, elixir-autogen, elixir-format
 msgid "16 to 128 characters: letters, digits, - and _. The same key with the same arguments returns the first answer instead of running twice; answers are kept for %{count} hour."
 msgid_plural "16 to 128 characters: letters, digits, - and _. The same key with the same arguments returns the first answer instead of running twice; answers are kept for %{count} hours."
@@ -21209,7 +21222,7 @@ msgstr[0] "От 16 до 128 символов: буквы, цифры, - и _. Т
 msgstr[1] "От 16 до 128 символов: буквы, цифры, - и _. Тот же ключ с теми же аргументами возвращает первый ответ вместо повторного выполнения; ответы хранятся %{count} ч."
 msgstr[2] "От 16 до 128 символов: буквы, цифры, - и _. Тот же ключ с теми же аргументами возвращает первый ответ вместо повторного выполнения; ответы хранятся %{count} ч."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:293
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:279
 #, elixir-autogen, elixir-format
 msgid "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hour for a person to approve it."
 msgid_plural "A key that requires approval does not run any write, dangerous or not: the call returns pending_approval and waits up to %{count} hours for a person to approve it."
@@ -21217,35 +21230,25 @@ msgstr[0] "Ключ, которому нужно одобрение, не вып
 msgstr[1] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
 msgstr[2] "Ключ, которому нужно одобрение, не выполняет ни одной записи, опасной или нет: вызов возвращает pending_approval и ждёт до %{count} ч, пока человек её одобрит."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:316
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:302
 #, elixir-autogen, elixir-format
 msgid "Errors"
 msgstr "Ошибки"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:319
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:305
 #, elixir-autogen, elixir-format
 msgid "An error is a problem+json document with a stable code. Branch on the code, not on the text."
 msgstr "Ошибка — это документ problem+json со стабильным кодом. Ориентируйтесь на код, а не на текст."
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:329
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:315
 #, elixir-autogen, elixir-format
 msgid "Code"
 msgstr "Код"
 
-#: lib/phoenix_kit_web/live/settings/api_guide.html.heex:330
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:316
 #, elixir-autogen, elixir-format
 msgid "What to do"
 msgstr "Что делать"
-
-#: lib/phoenix_kit_web/live/settings/api.html.heex:23
-#, elixir-autogen, elixir-format
-msgid "How to connect a program or an AI agent with a key: addresses, setup for Claude Code, Cursor and VS Code, tools and errors."
-msgstr "Как подключить программу или ИИ-агента с помощью ключа: адреса, настройка для Claude Code, Cursor и VS Code, инструменты и ошибки."
-
-#: lib/phoenix_kit_web/live/settings/api.html.heex:34
-#, elixir-autogen, elixir-format
-msgid "Open the guide"
-msgstr "Открыть руководство"
 
 #: lib/phoenix_kit/api/public_discovery/guide.ex:49
 #, elixir-autogen, elixir-format
@@ -21418,6 +21421,87 @@ msgstr "Личные SMTP-подключения могут использова
 msgid "The SMTP host must resolve to a public address"
 msgstr "SMTP-сервер должен указывать на публичный адрес"
 
+#: lib/phoenix_kit_web/live/settings/api.html.heex:659
+#, elixir-autogen, elixir-format
+msgid "Lifetime of a confirmation in a signed-in session, in seconds (60 to 86400)"
+msgstr "Срок действия подтверждения в сеансе пользователя в секундах (от 60 до 86400)"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:157
+#, elixir-autogen, elixir-format
+msgid "Agent may act"
+msgstr "Агент может выполнять действия"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:161
+#, elixir-autogen, elixir-format
+msgid "Let the agent act in %{module}"
+msgstr "Разрешить агенту выполнять действия в модуле %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:160
+#, elixir-autogen, elixir-format
+msgid "Stop the agent acting in %{module}"
+msgstr "Запретить агенту выполнять действия в модуле %{module}"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:519
+#, elixir-autogen, elixir-format
+msgid "The agent may act in %{module}."
+msgstr "Агент может выполнять действия в модуле %{module}."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:522
+#, elixir-autogen, elixir-format
+msgid "The agent may no longer act in %{module}."
+msgstr "Агент больше не может выполнять действия в модуле %{module}."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:103
+#, elixir-autogen, elixir-format
+msgid "“Agent may act” lets an assistant that works in a person's signed-in session propose the module's changes; each change runs only after that person confirms it. It is off until you turn it on and does not change what API keys may do."
+msgstr "«Агент может выполнять действия» позволяет ассистенту, работающему в сеансе вошедшего пользователя, предлагать изменения модуля; каждое изменение выполняется только после подтверждения этим пользователем. Выключено, пока вы его не включите, и не меняет того, что могут делать API-ключи."
+
+#: lib/phoenix_kit_web/components/core/operation_preview.ex:99
+#, elixir-autogen, elixir-format
+msgid "The preview is cut: %{count} rows are not shown. Confirming runs the whole operation, not only the rows shown."
+msgstr "Предпросмотр сокращён: не показано строк: %{count}. Подтверждение выполнит всю операцию, а не только показанные строки."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:173
+#, elixir-autogen, elixir-format
+msgid "Tools for the assistant: %{available} of %{total} available"
+msgstr "Инструменты для ассистента: доступно %{available} из %{total}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:180
+#, elixir-autogen, elixir-format
+msgid "What an assistant working in a person's signed-in session may call, by these settings alone. Rights are still checked for each person: a tool shown as available is refused to someone whose roles lack its permission."
+msgstr "Что может вызывать ассистент, работающий в сеансе вошедшего пользователя, — только по этим настройкам. Права всё равно проверяются для каждого пользователя: инструмент, показанный как доступный, будет отклонён тому, чьи роли не дают его права."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex:204
+#, elixir-autogen, elixir-format
+msgid "Permission: %{permission}"
+msgstr "Право: %{permission}"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:584
+#: lib/phoenix_kit_web/live/settings/api.html.heex:215
+#, elixir-autogen, elixir-format
+msgid "Closed"
+msgstr "Закрыт"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:574
+#, elixir-autogen, elixir-format
+msgid "The module is switched off."
+msgstr "Модуль отключён."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:575
+#, elixir-autogen, elixir-format
+msgid "The module's API is off."
+msgstr "API модуля выключен."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:578
+#, elixir-autogen, elixir-format
+msgid "The tool is hidden in “Limits and advanced”."
+msgstr "Инструмент скрыт в «Лимиты и дополнительные настройки»."
+
+#: lib/phoenix_kit_web/live/settings/api.ex:581
+#, elixir-autogen, elixir-format
+msgid "It writes, and “Agent may act” is off."
+msgstr "Инструмент изменяет данные, а «Агент может выполнять действия» выключено."
+
 #: lib/phoenix_kit_web/users/user_form.html.heex:272
 #: lib/phoenix_kit_web/live/components/user_settings.ex:1227
 #, elixir-autogen, elixir-format
@@ -21493,3 +21577,23 @@ msgstr "Существующий ключ аккаунта, у которого 
 #, elixir-autogen, elixir-format
 msgid "Go to [API Keys](https://z.ai/manage-apikey/apikey-list) and create a key under **Standard API Key**"
 msgstr "Перейдите в [API Keys](https://z.ai/manage-apikey/apikey-list) и создайте ключ в разделе **Standard API Key**"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:180
+#, elixir-autogen, elixir-format
+msgid "Switches and modules"
+msgstr "Переключатели и модули"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:181
+#, elixir-autogen, elixir-format
+msgid "Keys and service users"
+msgstr "Ключи и служебные пользователи"
+
+#: lib/phoenix_kit_web/live/settings/api.ex:182
+#, elixir-autogen, elixir-format
+msgid "Approvals and limits"
+msgstr "Одобрения и лимиты"
+
+#: lib/phoenix_kit/integrations/integrations.ex:1290
+#, elixir-autogen, elixir-format
+msgid "The connection check gave an unexpected answer"
+msgstr "Проверка подключения дала неожиданный ответ"

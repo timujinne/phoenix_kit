@@ -11,8 +11,8 @@ defmodule PhoenixKitWeb.Live.Settings.ApiGuideTranslationsTest do
   use ExUnit.Case, async: true
 
   @page_sources ~w(
-    lib/phoenix_kit_web/live/settings/api_guide.ex
-    lib/phoenix_kit_web/live/settings/api_guide.html.heex
+    lib/phoenix_kit_web/live/settings/api_guide_panel.ex
+    lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
   )
   @locales ~w(de es et fr it pl ru uk)
   @root Path.expand("../../../..", __DIR__)

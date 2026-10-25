@@ -163,6 +163,7 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         danger: :always,
         client_token: "session_token"
       ),
+      # The no-replay twin of `flowkit.clear_session`.
       public(
         "flowkit.drop_session",
         @destructive,

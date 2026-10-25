@@ -1942,18 +1942,12 @@ defmodule PhoenixKit.Users.Permissions do
       {:ok, _} ->
         :ok
 
-      {:error, %Ecto.Changeset{}} = error ->
+      {:error, reason} ->
         if match?(%{value: "true"}, SettingsQueries.get_setting_by_key(flag_key)),
           do: :ok,
-          else: flag_not_saved(error)
-
-      other ->
-        flag_not_saved(other)
+          else: {:error, {:flag_not_saved, reason}}
     end
   end
-
-  defp flag_not_saved({:error, reason}), do: {:error, {:flag_not_saved, reason}}
-  defp flag_not_saved(other), do: {:error, {:flag_not_saved, other}}
 
   # Coerces a value to a string, returning the default for nil.
   # Handles atoms, integers, and other types gracefully via to_string/1.

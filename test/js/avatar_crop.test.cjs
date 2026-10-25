@@ -126,3 +126,86 @@ test("an axis the image only just covers pins to center", () => {
   near(c.y, 0.5, "no vertical freedom");
   near(c.x, 0.75, "horizontal freedom is real but clamped");
 });
+
+// --- The AvatarCrop hook itself: pointer, wheel and pinch gestures -------
+
+// A 200×200 frame at the viewport origin, holding a square image.
+function mountCrop(crop) {
+  const listeners = {};
+  const frame = {
+    style: {},
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 200, height: 200 }),
+    addEventListener: (type, fn) => { listeners[type] = fn; },
+    removeEventListener: noop,
+    setPointerCapture: noop,
+    hasPointerCapture: () => false,
+    releasePointerCapture: noop,
+  };
+  const img = { style: {}, complete: false, naturalWidth: 0, addEventListener: noop };
+  const el = {
+    dataset: { crop: JSON.stringify(crop) },
+    closest: () => null,
+    querySelector: (sel) =>
+      sel === "[data-crop-frame]" ? frame : sel === "[data-crop-img]" ? img : null,
+  };
+  const pushes = [];
+  const hook = Object.assign(Object.create(window.PhoenixKitHooks.AvatarCrop), {
+    el,
+    pushEventTo: (_el, event, payload) => pushes.push({ event, payload }),
+  });
+  hook.mounted();
+  const fire = (type, e) =>
+    listeners[type](Object.assign({ preventDefault: noop, pointerType: "mouse", button: 0 }, e));
+  return { hook, fire, pushes };
+}
+
+test("a drag keeps panning after its first move", () => {
+  // The regression: pointermove replaced the drag state with the pointer
+  // position alone, so from the second move on the focal point was NaN
+  // and the picture froze.
+  const { hook, fire, pushes } = mountCrop({ x: 0.5, y: 0.5, zoom: 2, ar: 1 });
+  fire("pointerdown", { pointerId: 1, clientX: 100, clientY: 100 });
+  const xs = [];
+  for (const cx of [90, 80, 70]) {
+    fire("pointermove", { pointerId: 1, clientX: cx, clientY: 100 });
+    assert.ok(Number.isFinite(hook.crop.x), "focal x stays a number");
+    xs.push(hook.crop.x);
+  }
+  // Image 400px wide in a 200px frame: 10px left = 1/40 of the image right.
+  near(xs[0], 0.525, "first move");
+  near(xs[1], 0.55, "second move still pans");
+  near(xs[2], 0.575, "third move still pans");
+  fire("pointerup", { pointerId: 1 });
+  assert.equal(pushes.length, 1, "one push when the gesture ends");
+  near(pushes[0].payload.x, 0.575, "the pushed crop is the dragged one");
+});
+
+test("the wheel zooms toward the point under the cursor", () => {
+  const { hook, fire } = mountCrop({ x: 0.5, y: 0.5, zoom: 2, ar: 1 });
+  // Image point under the cursor at (150, 50) before the zoom.
+  const at = (l) => ({ u: (75 - l.left) / l.width, v: (25 - l.top) / l.height });
+  const before = at(avatarCropLayout(hook.crop));
+  fire("wheel", { clientX: 150, clientY: 50, deltaY: -100, deltaMode: 0 });
+  assert.ok(hook.crop.zoom > 2, "wheel up zooms in");
+  const after = at(avatarCropLayout(hook.crop));
+  near(after.u, before.u, "same image column under the cursor");
+  near(after.v, before.v, "same image row under the cursor");
+  clearTimeout(hook._wheelTimer);
+});
+
+test("two pointers pinch to zoom; lifting one carries on panning", () => {
+  const { hook, fire } = mountCrop({ x: 0.5, y: 0.5, zoom: 2, ar: 1 });
+  const touch = { pointerType: "touch" };
+  fire("pointerdown", { ...touch, pointerId: 1, clientX: 80, clientY: 100 });
+  fire("pointerdown", { ...touch, pointerId: 2, clientX: 120, clientY: 100 });
+  // Fingers twice as far apart about the same midpoint: zoom doubles.
+  fire("pointermove", { ...touch, pointerId: 1, clientX: 60, clientY: 100 });
+  fire("pointermove", { ...touch, pointerId: 2, clientX: 140, clientY: 100 });
+  near(hook.crop.zoom, 4, "pinch out doubles the zoom");
+  near(hook.crop.x, 0.5, "zoom about the centre keeps the focal point");
+
+  fire("pointerup", { ...touch, pointerId: 2 });
+  const x = hook.crop.x;
+  fire("pointermove", { ...touch, pointerId: 1, clientX: 40, clientY: 100 });
+  assert.ok(Number.isFinite(hook.crop.x) && hook.crop.x > x, "the remaining finger pans");
+});

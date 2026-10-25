@@ -12473,53 +12473,116 @@ if (typeof window.Chart === "undefined") {
       if (this.slider) {
         this.slider.value = String(this.crop.zoom);
         this.slider.addEventListener("input", function () {
-          self.crop.zoom = clamp(parseFloat(self.slider.value) || 1, 1, maxZoom);
-          self.crop = clampAvatarCropFocal(self.crop);
-          self._render();
+          // About the frame's centre: what is in the middle stays there.
+          var r = self.frame.getBoundingClientRect();
+          self._zoomAt(r.left + r.width / 2, r.top + r.height / 2, parseFloat(self.slider.value) || 1);
         });
         this.slider.addEventListener("change", function () {
           self._push();
         });
       }
 
-      // Drag pans the focal point: moving the image right means the point
-      // being looked at sits further LEFT in the image.
-      var drag = null;
-      this._onPointerDown = function (e) {
-        // The frame cannot resize mid-drag; one layout read per gesture,
-        // not one per pointermove.
+      // Zoom to `zoom`, keeping the image point under (clientX, clientY)
+      // where it is on screen — the way a photo app zooms toward the cursor
+      // or the fingers. The slider passes the frame's centre.
+      this._zoomAt = function (clientX, clientY, zoom) {
         var rect = self.frame.getBoundingClientRect();
-        drag = { x: e.clientX, y: e.clientY, w: rect.width, h: rect.height };
-        self.frame.setPointerCapture(e.pointerId);
-        self.frame.style.cursor = "grabbing";
-      };
-      this._onPointerMove = function (e) {
-        if (!drag) return;
-        var l = avatarCropLayout(self.crop);
-        var widthPx = (drag.w * l.width) / 100;
-        var heightPx = (drag.h * l.height) / 100;
-        self.crop.x -= (e.clientX - drag.x) / widthPx;
-        self.crop.y -= (e.clientY - drag.y) / heightPx;
-        drag = { x: e.clientX, y: e.clientY };
-        self.crop = clampAvatarCropFocal(self.crop);
-        self._render();
-      };
-      this._onPointerUp = function (e) {
-        if (!drag) return;
-        drag = null;
-        self.frame.style.cursor = "grab";
-        if (self.frame.hasPointerCapture(e.pointerId)) {
-          self.frame.releasePointerCapture(e.pointerId);
-        }
-        self._push();
-      };
-      this._onWheel = function (e) {
-        e.preventDefault();
-        var factor = e.deltaY < 0 ? 1.08 : 1 / 1.08;
-        self.crop.zoom = clamp(self.crop.zoom * factor, 1, maxZoom);
+        if (!(rect.width > 0 && rect.height > 0)) return;
+        var px = ((clientX - rect.left) / rect.width) * 100;
+        var py = ((clientY - rect.top) / rect.height) * 100;
+        var before = avatarCropLayout(self.crop);
+        var u = (px - before.left) / before.width;
+        var v = (py - before.top) / before.height;
+        self.crop.zoom = clamp(zoom, 1, maxZoom);
+        var after = avatarCropLayout(self.crop);
+        self.crop.x = (50 - (px - u * after.width)) / after.width;
+        self.crop.y = (50 - (py - v * after.height)) / after.height;
         self.crop = clampAvatarCropFocal(self.crop);
         if (self.slider) self.slider.value = String(self.crop.zoom);
         self._render();
+      };
+
+      // Pan by a screen distance: moving the image right means the point
+      // being looked at sits further LEFT in the image.
+      this._panBy = function (dx, dy, rect) {
+        var l = avatarCropLayout(self.crop);
+        self.crop.x -= dx / ((rect.width * l.width) / 100);
+        self.crop.y -= dy / ((rect.height * l.height) / 100);
+        self.crop = clampAvatarCropFocal(self.crop);
+        self._render();
+      };
+
+      // One pointer pans; two (fingers on a phone) pinch to zoom about
+      // their midpoint and pan as the midpoint moves.
+      var pointers = {};
+      var gesture = null;
+      var pointerList = function () {
+        return Object.keys(pointers).map(function (k) { return pointers[k]; });
+      };
+      var startGesture = function () {
+        var list = pointerList();
+        var rect = self.frame.getBoundingClientRect();
+        if (list.length >= 2) {
+          var a = list[0], b = list[1];
+          gesture = {
+            rect: rect,
+            dist: Math.hypot(b.x - a.x, b.y - a.y) || 1,
+            mid: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+          };
+        } else if (list.length === 1) {
+          gesture = { rect: rect, last: { x: list[0].x, y: list[0].y } };
+        } else {
+          gesture = null;
+        }
+      };
+      this._onPointerDown = function (e) {
+        if (e.pointerType === "mouse" && e.button !== 0) return;
+        e.preventDefault();
+        pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+        try { self.frame.setPointerCapture(e.pointerId); } catch (_e) {}
+        self.frame.style.cursor = "grabbing";
+        startGesture();
+      };
+      this._onPointerMove = function (e) {
+        if (!pointers[e.pointerId] || !gesture) return;
+        pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+        var list = pointerList();
+        if (list.length >= 2 && gesture.dist) {
+          var a = list[0], b = list[1];
+          var dist = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+          var mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+          self._panBy(mid.x - gesture.mid.x, mid.y - gesture.mid.y, gesture.rect);
+          self._zoomAt(mid.x, mid.y, self.crop.zoom * (dist / gesture.dist));
+          gesture.dist = dist;
+          gesture.mid = mid;
+        } else if (gesture.last) {
+          self._panBy(e.clientX - gesture.last.x, e.clientY - gesture.last.y, gesture.rect);
+          gesture.last = { x: e.clientX, y: e.clientY };
+        }
+      };
+      this._onPointerUp = function (e) {
+        if (!pointers[e.pointerId]) return;
+        delete pointers[e.pointerId];
+        try {
+          if (self.frame.hasPointerCapture(e.pointerId)) self.frame.releasePointerCapture(e.pointerId);
+        } catch (_e) {}
+        // A finger lifted mid-pinch: the other carries on panning.
+        startGesture();
+        if (!gesture) {
+          self.frame.style.cursor = "grab";
+          self._push();
+        }
+      };
+      // A wheel notch, a trackpad scroll or a trackpad pinch (ctrlKey)
+      // zooms toward the cursor, in proportion to how far it turned, so a
+      // trackpad is smooth and a mouse steps.
+      this._onWheel = function (e) {
+        e.preventDefault();
+        var dy = e.deltaY;
+        if (e.deltaMode === 1) dy *= 40;
+        else if (e.deltaMode === 2) dy *= 800;
+        var k = Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015));
+        self._zoomAt(e.clientX, e.clientY, self.crop.zoom * k);
         clearTimeout(self._wheelTimer);
         self._wheelTimer = setTimeout(function () {
           self._push();

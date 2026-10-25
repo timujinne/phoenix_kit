@@ -476,9 +476,16 @@ defmodule PhoenixKit.Integration.Users.AdminGrantsNoOwnerTest do
 
   import ExUnit.CaptureLog
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias PhoenixKit.Users.Permissions
 
   @moduletag :integration
+
+  # A test before this one may have left the pool in shared mode with an owner that has
+  # since exited, which answers a checkout with an exit instead of an ownership error.
+  setup do
+    Sandbox.mode(PhoenixKit.Test.Repo, :manual)
+  end
 
   test "a missing database owner is a warning, returned and never retried" do
     log =

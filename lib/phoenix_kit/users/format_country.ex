@@ -14,9 +14,10 @@ defmodule PhoenixKit.Users.FormatCountry do
 
   ## The viewer
 
-  A page is written for whoever looks at it, so the country is resolved once for
-  the viewer, when the scope is mounted (`put_viewer/1`), and kept in the process
-  dictionary - the same way the Gettext locale is. `PhoenixKit.Utils.Date` reads
+  A page is written for whoever looks at it. Mounting or refreshing the scope
+  sets the viewer (`put_viewer/1`); their country is resolved on first use and
+  kept in the process dictionary, as the Gettext locale is. A site-default
+  fallback follows the settings cache rather than being kept for the session. `PhoenixKit.Utils.Date` reads
   it (`viewer/0`) so every date a page prints follows the viewer without the
   caller passing anything. With no viewer set (a background job, a signed-out
   visitor) `viewer/0` is the site default.
@@ -44,8 +45,7 @@ defmodule PhoenixKit.Users.FormatCountry do
   """
   @spec resolve(User.t() | term()) :: String.t() | nil
   def resolve(%User{} = user) do
-    normalize(user.country) || company_country(user) || normalize(user.registration_country) ||
-      site_default()
+    user_country(user) || site_default()
   end
 
   # Nobody signed in, or something that is not a user row (a caller that
@@ -68,7 +68,7 @@ defmodule PhoenixKit.Users.FormatCountry do
   @spec for_user(User.t() | term()) :: String.t() | nil
   def for_user(%User{uuid: uuid} = user) when is_binary(uuid) do
     case Process.get(@viewer_key) do
-      {:resolved, ^uuid, code} -> code
+      {:resolved, ^uuid, code} -> code || site_default()
       {:pending, %User{uuid: ^uuid}} -> viewer()
       _ -> resolve(user)
     end
@@ -91,18 +91,20 @@ defmodule PhoenixKit.Users.FormatCountry do
 
   @doc """
   The viewer's country: what `put_viewer/1` named, or the site default when
-  nobody was set for this process.
+  nobody was set for this process. Only the user's country sources are memoized;
+  the site default is read from the settings cache so a settings change applies
+  to an already-mounted viewer too.
   """
   @spec viewer() :: String.t() | nil
   def viewer do
     case Process.get(@viewer_key) do
       {:resolved, _uuid, code} ->
-        code
+        code || site_default()
 
       {:pending, user} ->
-        code = resolve(user)
+        code = user_country(user)
         Process.put(@viewer_key, {:resolved, user && user.uuid, code})
-        code
+        code || site_default()
 
       nil ->
         site_default()
@@ -129,6 +131,12 @@ defmodule PhoenixKit.Users.FormatCountry do
   end
 
   def normalize(_), do: nil
+
+  defp user_country(%User{} = user) do
+    normalize(user.country) || company_country(user) || normalize(user.registration_country)
+  end
+
+  defp user_country(_), do: nil
 
   # The company is another account row; read only its `country`, one primary-key
   # lookup, and only when the user has none of their own and belongs to one.

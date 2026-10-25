@@ -141,6 +141,8 @@ defmodule PhoenixKit.Modules.Storage.Locations do
       %{}
   end
 
+  def ranked_all(_pairs), do: %{}
+
   defp rank(rows) do
     rows
     |> Enum.map(fn {bucket_uuid, role, serve_order} ->

@@ -44,6 +44,7 @@ defmodule PhoenixKit.ModuleRegistry do
 
   use GenServer
 
+  alias PhoenixKit.API.ControlFields
   alias PhoenixKit.API.Problem
   alias PhoenixKit.API.Tool
   alias PhoenixKit.Dashboard.Tab
@@ -220,6 +221,25 @@ defmodule PhoenixKit.ModuleRegistry do
     all_modules()
     |> Enum.flat_map(&safe_call(&1, :user_dashboard_tabs, []))
     |> Enum.map(&Tab.resolve_path(&1, :user_dashboard))
+  end
+
+  @doc """
+  Collect the profile settings tabs (`c:PhoenixKit.Module.profile_settings_tabs/0`) of the
+  **enabled** modules, as `PhoenixKit.ProfileSettingsTab` structs tagged with `:module`.
+  Duplicate ids are resolved before enablement, matching the compiled routes: disabling
+  the first declaring module cannot hand its URL to a different module's tab.
+  Only modules whose declarations survive are asked whether they are enabled.
+  """
+  @spec all_profile_settings_tabs() :: [PhoenixKit.ProfileSettingsTab.t()]
+  def all_profile_settings_tabs do
+    all_modules()
+    |> Enum.filter(fn mod ->
+      Code.ensure_loaded?(mod) and function_exported?(mod, :profile_settings_tabs, 0) and
+        function_exported?(mod, :enabled?, 0)
+    end)
+    |> Enum.flat_map(&PhoenixKit.ProfileSettingsTab.from_module/1)
+    |> PhoenixKit.ProfileSettingsTab.drop_duplicates()
+    |> Enum.filter(&safe_enabled?(&1.module))
   end
 
   @doc "Collect all supervisor child specs from all registered modules."
@@ -918,6 +938,46 @@ defmodule PhoenixKit.ModuleRegistry do
   end
 
   @doc """
+  Every registered module that declares at least one valid API tool, switched on or off, in
+  registration order: `%{module, key, name, enabled?, tools}`, where `tools` are its tools
+  tagged with `:module` (validated as in `all_api_tools/1`) and `key` is `nil` for a module
+  without a usable `module_key/0`.
+
+  For enumeration only (what could be offered, and what keeps it closed); it is not a gate:
+  `PhoenixKit.API.Registry` decides what is callable.
+  """
+  @spec api_module_tools() :: [
+          %{
+            module: module(),
+            key: String.t() | nil,
+            name: String.t(),
+            enabled?: boolean(),
+            tools: [Tool.t(), ...]
+          }
+        ]
+  def api_module_tools do
+    enabled = enabled_modules()
+
+    Enum.flat_map(all_modules(), fn mod ->
+      case module_api_tools(mod) do
+        [] ->
+          []
+
+        tools ->
+          [
+            %{
+              module: mod,
+              key: api_module_key(mod),
+              name: api_module_name(mod),
+              enabled?: mod in enabled,
+              tools: tools
+            }
+          ]
+      end
+    end)
+  end
+
+  @doc """
   Collect the API error codes (`c:PhoenixKit.Module.api_problems/0`) of the **enabled**
   modules as `%{code => %{status, title, advice}}`.
 
@@ -955,8 +1015,9 @@ defmodule PhoenixKit.ModuleRegistry do
 
   @doc """
   The registered modules that declare at least one valid API tool, switched on or off,
-  sorted by name: `%{module, key, name, enabled?, tools, audiences}` (`tools` is how many,
-  `audiences` the audiences they serve).
+  sorted by name: `%{module, key, name, enabled?, tools, audiences, writes?}` (`tools` is
+  how many, `audiences` the audiences they serve, `writes?` whether one of them is an admin
+  tool that writes, `PhoenixKit.API.ControlFields.write_tool?/1`).
 
   For the screens that list them (the API switch per module in Settings -> API, the badge
   on the Modules page). It is not a gate: `PhoenixKit.API.Registry` decides what is callable.
@@ -968,7 +1029,8 @@ defmodule PhoenixKit.ModuleRegistry do
             name: String.t(),
             enabled?: boolean(),
             tools: pos_integer(),
-            audiences: [Tool.audience()]
+            audiences: [Tool.audience()],
+            writes?: boolean()
           }
         ]
   def api_modules do
@@ -985,7 +1047,9 @@ defmodule PhoenixKit.ModuleRegistry do
               name: api_module_name(mod),
               enabled?: mod in enabled,
               tools: length(tools),
-              audiences: tools |> Enum.map(& &1.audience) |> Enum.uniq() |> Enum.sort()
+              audiences: tools |> Enum.map(& &1.audience) |> Enum.uniq() |> Enum.sort(),
+              writes?:
+                Enum.any?(tools, &(&1.audience == :admin and ControlFields.write_tool?(&1)))
             }
           ]
 
@@ -1145,9 +1209,17 @@ defmodule PhoenixKit.ModuleRegistry do
   defp api_hidden?(_mod, []), do: false
   defp api_hidden?(mod, hidden_keys), do: api_module_key(mod) in hidden_keys
 
+  @doc """
+  The key a module's API switches are stored under (its `module_key/0`), or `nil` for a
+  module without a usable one. `PhoenixKit.API.Executor` reads it to match a tool's
+  `:module` against `api_session_write_modules`.
+  """
+  @spec api_module_key(module() | nil) :: String.t() | nil
+  def api_module_key(nil), do: nil
+
   # Like `call_api_tools/1`, a failing `module_key/0` is reported once per module: the
   # switch is read on the request path, where `safe_call/3` would log on every request.
-  defp api_module_key(mod) do
+  def api_module_key(mod) do
     if Code.ensure_loaded?(mod) and function_exported?(mod, :module_key, 0) do
       mod.module_key()
     end

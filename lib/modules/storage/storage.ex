@@ -5599,22 +5599,35 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   @doc """
-  Direct bucket URLs for many file variants at once, in two queries and with
-  no request to any bucket: for pages that show many images, so the browser
+  Direct bucket URLs for many file variants at once, in a fixed number of
+  queries (five at most, however many files and libraries) and with no
+  request to any bucket: for pages that show many images, so the browser
   loads them from the bucket (its CDN) instead of through the app's
   `/file/...` route and its redirect.
 
-  `pairs` are `{file_uuid, variant_name}`. The result maps a pair to the
-  object URL of the bucket the file route would serve it from
-  (`Manager.direct_url/2`); a pair left out is served by the app, so link
-  it with `URLSigner.signed_url/3` as before. Left out: a variant not made
-  yet, a trashed or system-managed file, a file in a private library, one
-  with an image edit in progress, a type the app does not show inline, and
-  every copy served from a local, private or signed bucket.
+  `pairs` are `{file_uuid, variant_name}`, both strings: the uuid in its
+  canonical lower-case form (a pair with any other spelling, or one that is
+  not a uuid, is left out) and the variant a name such as `"medium"`. The
+  result maps a pair to the object URL of the bucket the file route would
+  serve it from (`Manager.direct_urls/1`): a public bucket's `cdn_url`, or
+  the native object URL of a public S3-compatible one without it. A pair
+  left out is served by the app, so link it with `URLSigner.signed_url/3` as
+  before. Left out: a variant not made yet, a trashed or system-managed
+  file, a file in a private library, one with an image edit in progress or
+  failed, a type the app does not show inline, and every copy served from a
+  local, private or signed bucket.
+
+  The URLs are permanent and public, with no version: how long a browser
+  keeps one is up to the bucket's own caching headers. Private files never
+  get one; mint theirs with `authorized_url/3`.
   """
   @spec direct_urls([{String.t(), String.t()}]) :: %{{String.t(), String.t()} => String.t()}
   def direct_urls(pairs) when is_list(pairs) do
-    wanted = MapSet.new(pairs, fn {uuid, variant} -> {to_string(uuid), variant} end)
+    # Non-string values are left out so one malformed pair cannot fail the batch.
+    wanted =
+      for {uuid, variant} <- pairs, is_binary(uuid), is_binary(variant), into: MapSet.new() do
+        {uuid, variant}
+      end
 
     case Enum.flat_map(wanted, &cast_pair_uuid/1) do
       [] -> %{}
@@ -5639,25 +5652,32 @@ defmodule PhoenixKit.Modules.Storage do
         i.file_uuid in ^uuids and i.variant_name in ^variants and
           i.processing_status == "completed" and f.status != "trashed" and
           f.system_managed == false,
-      select: {i.file_uuid, i.variant_name, i.file_name, i.mime_type, f}
+      select:
+        {i.file_uuid, i.variant_name, i.file_name, i.mime_type,
+         struct(f, [:edit_state, :library_uuid])}
     )
     |> repo().all()
     |> Enum.filter(fn {uuid, variant, _key, mime, file} ->
       MapSet.member?(wanted, {to_string(uuid), variant}) and
         not ImageEditing.edit_in_progress?(file) and
-        PhoenixKitWeb.FileController.disposition_for(mime) == "inline"
+        inline_type?(mime)
     end)
     |> reject_private_libraries()
   end
 
-  # A private library's files are never linked to their object: one
-  # lookup per library, not per file.
+  # The file route redirects to a bucket only for a type it serves inline
+  # (`FileController.disposition_for/1`), and answers any other from the
+  # app. This is that same list, not a copy: a type added to or removed from
+  # it there changes what is linked here, so the two must stay in step.
+  defp inline_type?(mime), do: PhoenixKitWeb.FileController.disposition_for(mime) == "inline"
+
+  # A private library's files are never linked to their object: one query
+  # for all the libraries of the batch (Media is answered without one).
   defp reject_private_libraries(rows) do
     private =
       rows
       |> Enum.map(fn {_uuid, _variant, _key, _mime, file} -> file.library_uuid end)
-      |> Enum.uniq()
-      |> Enum.filter(&Libraries.private?/1)
+      |> Libraries.private_among()
       |> MapSet.new()
 
     Enum.reject(rows, fn {_uuid, _variant, _key, _mime, file} ->
@@ -5665,20 +5685,21 @@ defmodule PhoenixKit.Modules.Storage do
     end)
   end
 
+  # The ranked location rows of every pair in one query, then the buckets
+  # they name in one more: `Manager.direct_urls/1` decides each pair from
+  # those, with no query of its own.
   defp direct_urls_for(rows) do
     ranked =
       rows
       |> Enum.map(fn {uuid, _variant, key, _mime, _file} -> {key, to_string(uuid)} end)
       |> Locations.ranked_all()
 
-    Enum.reduce(rows, %{}, fn {uuid, variant, key, _mime, _file}, acc ->
+    rows
+    |> Enum.map(fn {uuid, variant, key, _mime, _file} ->
       uuid = to_string(uuid)
-
-      case Manager.direct_url(key, Map.get(ranked, {key, uuid}, [])) do
-        nil -> acc
-        url -> Map.put(acc, {uuid, variant}, url)
-      end
+      {{uuid, variant}, key, Map.get(ranked, {key, uuid}, [])}
     end)
+    |> Manager.direct_urls()
   end
 
   @doc """

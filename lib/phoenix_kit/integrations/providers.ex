@@ -50,7 +50,9 @@ defmodule PhoenixKit.Integrations.Providers do
 
   # How "Test Connection" checks a key. Either a plain authenticated `GET`
   # (`url` + `auth_header` + `auth_prefix`, optionally `extra_headers`), or a
-  # `strategy` naming a dedicated check in `PhoenixKit.Integrations.Validators`.
+  # `strategy` naming a dedicated check in `PhoenixKit.Integrations.Validators`,
+  # or, for a provider another module contributes, `strategy: :module` with the
+  # `module` that does the check (`PhoenixKit.Integrations.Validator`).
   # `method` is declared by the plain-`GET` providers; the check always issues a
   # `GET`.
   @type validation ::
@@ -62,6 +64,7 @@ defmodule PhoenixKit.Integrations.Providers do
             # `{name, value}` pairs sent along with the auth header, as given.
             optional(:extra_headers) => [{String.t(), String.t()}]
           }
+          | %{:strategy => :module, :module => module()}
           | %{:strategy => atom(), optional(atom()) => term()}
 
   @type provider :: %{

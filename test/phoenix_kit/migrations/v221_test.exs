@@ -45,11 +45,15 @@ defmodule PhoenixKit.Migrations.Postgres.V221Test do
     end
 
     test "nothing is copied from registration_country" do
-      assert [] =
-               query("""
-               SELECT 1 FROM public.phoenix_kit_users
-               WHERE country IS NOT NULL AND registration_country IS NULL
-               """)
+      user = user_fixture()
+      user |> Ecto.Changeset.change(registration_country: "EE") |> Repo.update!()
+
+      # Recreate the pre-V221 shape with an existing GeoIP country, then apply
+      # the migration. An empty database cannot prove that no backfill happens.
+      run(V221.down_statements("public"))
+      run(V221.up_statements("public"))
+
+      assert %User{registration_country: "EE", country: nil} = Repo.get!(User, user.uuid)
     end
   end
 

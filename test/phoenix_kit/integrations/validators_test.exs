@@ -654,6 +654,20 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
       assert {:error, "Storage service is busy"} =
                Validators.request_list_buckets(%{}, requester)
     end
+
+    test "a pass with a note is handed through unchanged, without a retry" do
+      note = %{fact: "bucket access was not verified"}
+      requester = stub1([{:ok, note}, {:invalid, "should never be asked for"}])
+
+      assert {:ok, ^note} = Validators.request_list_buckets(%{}, requester)
+    end
+
+    test "a rejection that gives way to a pass with a note returns the note" do
+      note = %{fact: "bucket access was not verified"}
+      requester = stub1([{:invalid, "SignatureDoesNotMatch"}, {:ok, note}])
+
+      assert {:ok, ^note} = Validators.request_list_buckets(%{}, requester)
+    end
   end
 
   describe "interpret_object_storage_error/1" do
@@ -663,16 +677,19 @@ defmodule PhoenixKit.Integrations.ValidatorsTest do
       end
     end
 
-    test "AccessDenied passes for a key limited to buckets, but says what it could not verify" do
-      # A scoped token limited to one bucket (R2 API tokens, B2 application
-      # keys) cannot call ListBuckets, and it is the key a site should hold --
-      # so this must neither read as "wrong keys" nor fail the check. A
-      # standing fact about these credentials, so it is stored with them.
+    test "AccessDenied passes with a note that bucket access was not verified" do
+      # A Cloudflare R2 token scoped to specific objects cannot call
+      # ListBuckets, and it is the key a site should hold -- so this must
+      # neither read as "wrong keys" nor fail the check. AccessDenied also
+      # comes back for an IAM user with no S3 rights, so the note states only
+      # what was observed. A standing fact about these credentials, so it is
+      # stored with them.
       assert {:ok, %{fact: note}} =
                Validators.interpret_object_storage_error(s3_error("AccessDenied"))
 
-      assert note =~ "limited to specific buckets"
+      assert note =~ "not allowed to list buckets"
       assert note =~ "not verified"
+      refute note =~ "Invalid credentials"
     end
 
     test "SlowDown, InternalError and ServiceUnavailable say to retry, not that credentials are wrong" do

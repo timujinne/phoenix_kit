@@ -12,7 +12,7 @@ defmodule PhoenixKit.Utils.CountryData do
 
       # Get list of countries for dropdown
       countries = CountryData.countries_for_select()
-      # [{"🇦🇩 Andorra", "AD"}, {"🇦🇪 United Arab Emirates", "AE"}, ...]
+      # [{"Andorra 🇦🇩", "AD"}, {"United Arab Emirates 🇦🇪", "AE"}, ...]
 
       # Get standard VAT rate
       rate = CountryData.get_standard_vat_rate("EE")
@@ -364,12 +364,12 @@ defmodule PhoenixKit.Utils.CountryData do
   ## Examples
 
       iex> countries = CountryData.countries_for_select(locale: "en")
-      iex> {"🇦🇫 Afghanistan", "AF"} in countries
+      iex> {"Afghanistan 🇦🇫", "AF"} in countries
       true
 
       iex> CountryData.countries_for_select(locale: "ru", priority: ["EE", "FI"])
       ...> |> Enum.take(2)
-      [{"🇪🇪 Эстония", "EE"}, {"🇫🇮 Финляндия", "FI"}]
+      [{"Эстония 🇪🇪", "EE"}, {"Финляндия 🇫🇮", "FI"}]
   """
   def countries_for_select(opts \\ []) when is_list(opts) do
     locale = opts |> fetch_opt(:locale, &active_locale/0) |> normalize_locale()
@@ -636,7 +636,9 @@ defmodule PhoenixKit.Utils.CountryData do
     Enum.map(pinned ++ rest, fn {_name, display_name, code} -> {display_name, code} end)
   end
 
-  # {sortable_name, display_name, alpha2} for one country in `locale`.
+  # {sortable_name, display_name, alpha2} for one country in `locale`. The
+  # flag goes AFTER the name: a native <select> jumps to an option by the
+  # first characters typed, so a leading flag made typing "Est" find nothing.
   defp select_entry(country, locale) do
     name = translated_name(country, locale)
 
@@ -644,7 +646,7 @@ defmodule PhoenixKit.Utils.CountryData do
       case country.flag do
         nil -> name
         "" -> name
-        flag -> flag <> " " <> name
+        flag -> name <> " " <> flag
       end
 
     {name, display_name, country.alpha2}

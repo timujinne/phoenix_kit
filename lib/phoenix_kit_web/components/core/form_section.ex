@@ -21,6 +21,8 @@ defmodule PhoenixKitWeb.Components.Core.FormSection do
   - `class` — Extra classes appended to the outer card wrapper.
   - `body_class` — Extra classes appended to the card body wrapper
     (typical use: `"space-y-4"` for vertical field spacing).
+  - `wrap_actions` — Let the `:actions` drop under the title when the row
+    has no room for both. Off by default.
 
   ## Slots
 
@@ -65,6 +67,11 @@ defmodule PhoenixKitWeb.Components.Core.FormSection do
   attr :body_class, :string, default: nil
   attr :rest, :global
 
+  attr :wrap_actions, :boolean,
+    default: false,
+    doc:
+      "Let the `:actions` drop under the title when the row has no room for both (a long button label on a narrow screen), instead of pushing the card wider than the screen."
+
   slot :inner_block, required: true
   slot :subtitle
 
@@ -75,7 +82,14 @@ defmodule PhoenixKitWeb.Components.Core.FormSection do
     ~H"""
     <section class={["card bg-base-100 shadow-lg", @class]} {@rest}>
       <div class={["card-body", @body_class]}>
-        <div :if={@actions != []} class="flex items-start justify-between gap-3">
+        <div
+          :if={@actions != []}
+          class={
+            if @wrap_actions,
+              do: "flex flex-wrap items-start justify-between gap-3",
+              else: "flex items-start justify-between gap-3"
+          }
+        >
           <h2 :if={@title} class="card-title text-lg">
             <.icon :if={@icon} name={@icon} class="w-5 h-5" /> {@title}
           </h2>

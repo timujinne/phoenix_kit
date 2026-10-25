@@ -2,7 +2,26 @@
 
 Full reference for the auth surface: session persistence policy, post-auth
 destinations, the email-confirmation toggle, and the traps each one hides.
-Settings all live on the admin **Users settings** page (`/admin/settings/users`).
+Authentication policy settings live on the admin **Users settings** page (`/admin/settings/users`).
+
+## Country and date formats
+
+`User.country` is an optional ISO 3166-1 alpha-2 code, stored uppercase and validated
+against `BeamLabCountries`. The profile and admin user forms edit it; it is separate
+from the GeoIP `registration_country` and from any custom field named `country`.
+New registrations start with a recognized registration country, while V221 leaves
+existing profiles untouched.
+
+`PhoenixKit.Users.FormatCountry.resolve/1` chooses the user's country, then their
+organization account's country, then their registration country, then General
+Settings → **Default Country for Formats** (`format_country`). Unknown codes are
+skipped. With none set, date helpers keep the site's `date_format`.
+
+The auth plugs, LiveView mount hooks and embedded identity helper set the viewer.
+The country is resolved on first use; scope refreshes and profile saves reset it.
+The site-default fallback follows the settings cache, including in an open LiveView.
+Date helpers given a user format for that user; helpers without one format for the
+current viewer. Time formats and date input parsing still follow the site settings.
 
 ## Session persistence
 

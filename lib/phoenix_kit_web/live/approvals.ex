@@ -36,6 +36,9 @@ defmodule PhoenixKitWeb.Live.Approvals do
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
 
+  import PhoenixKitWeb.Components.Core.OperationPreview,
+    only: [preview_item: 1, sentence: 1, show: 1, json_text: 1]
+
   alias PhoenixKit.API.Access
   alias PhoenixKit.API.Approvals
   alias PhoenixKit.API.Approvals.View
@@ -309,113 +312,6 @@ defmodule PhoenixKitWeb.Live.Approvals do
   defp error_text(:expired), do: gettext("That approval has expired.")
 
   # ── Template helpers ─────────────────────────────────────────────
-
-  attr :row, :map, required: true
-  attr :id, :string, required: true
-
-  defp preview_item(assigns) do
-    ~H"""
-    <div id={@id}>
-      <div class="font-medium">{@row.label}</div>
-      <div :if={@row.sub} class="font-mono text-xs text-base-content/60">{@row.sub}</div>
-      <div
-        :if={action_badge?(@row) || @row.error}
-        class="mt-1 flex flex-wrap items-center gap-1 text-sm"
-      >
-        <span :if={action_badge?(@row)} id={@id <> "-action"} class="badge badge-ghost badge-sm">
-          {row_action(@row.action)}
-        </span>
-        <span
-          :if={@row.error}
-          id={@id <> "-error"}
-          class="inline-flex flex-wrap items-center gap-1 text-error"
-        >
-          <span :if={@row.error_code} class="badge badge-error badge-outline badge-sm font-mono">
-            {@row.error_code}
-          </span>
-          {@row.error}
-        </span>
-      </div>
-      <ul
-        :if={@row.error_reasons != []}
-        id={@id <> "-reasons"}
-        class="mt-1 list-disc space-y-0.5 pl-5 text-xs text-error"
-      >
-        <li :for={reason <- @row.error_reasons}>{reason}</li>
-      </ul>
-      <div :for={warning <- @row.warnings} class="mt-1 flex items-start gap-1 text-xs text-warning">
-        <.icon name="hero-exclamation-triangle" class="w-3.5 h-3.5 mt-0.5 shrink-0" />
-        <span>{warning}</span>
-      </div>
-    </div>
-    """
-  end
-
-  # The error of a row says that it failed; an "error" badge next to it would say it twice.
-  defp action_badge?(%{action: nil}), do: false
-  defp action_badge?(%{action: "error", error: error}), do: error == nil
-  defp action_badge?(_row), do: true
-
-  # JSON, not Elixir terms: the approver reads the same keys an API client reads.
-  defp json_text(term), do: Jason.encode!(term, pretty: true)
-
-  defp show(nil), do: "—"
-  defp show(value) when is_binary(value), do: value
-  defp show(value) when is_number(value) or is_boolean(value), do: to_string(value)
-  defp show(value), do: Jason.encode!(value)
-
-  # "rows 3, update 2": the totals of a preview, or the numbers of a result, as one phrase.
-  defp sentence(facts) do
-    Enum.map_join(facts, ", ", fn
-      {key, true} -> fact_label(key)
-      {key, value} -> fact_label(key) <> " " <> to_string(value)
-    end)
-  end
-
-  # The counts of what was or will be done, in words; a key nobody here knows is shown as the
-  # tool wrote it.
-  defp fact_label(key) when key in ["create", "created"],
-    do: pgettext("approval summary", "created")
-
-  defp fact_label(key) when key in ["update", "updated"],
-    do: pgettext("approval summary", "updated")
-
-  defp fact_label(key) when key in ["delete", "deleted"],
-    do: pgettext("approval summary", "deleted")
-
-  defp fact_label(key) when key in ["remove", "removed"],
-    do: pgettext("approval summary", "removed")
-
-  defp fact_label("unchanged"), do: pgettext("approval summary", "unchanged")
-
-  defp fact_label(key) when key in ["skip", "skipped"],
-    do: pgettext("approval summary", "skipped")
-
-  defp fact_label("error"), do: pgettext("approval summary", "error")
-  defp fact_label(key), do: key |> String.replace(["_", "."], " ") |> String.trim()
-
-  # What a row of a preview will do, as a short badge: the preview is of something still
-  # waiting for a decision, so these are not the past tense of the counts above. Tools write
-  # either form ("update" and "updated"); a word nobody here knows is shown as the tool wrote
-  # it, cleaned up like a count word.
-  defp row_action(action) when action in ["create", "created"],
-    do: pgettext("approval row action", "create")
-
-  defp row_action(action) when action in ["update", "updated"],
-    do: pgettext("approval row action", "update")
-
-  defp row_action(action) when action in ["delete", "deleted"],
-    do: pgettext("approval row action", "delete")
-
-  defp row_action(action) when action in ["remove", "removed"],
-    do: pgettext("approval row action", "remove")
-
-  defp row_action(action) when action in ["skip", "skipped"],
-    do: pgettext("approval row action", "skip")
-
-  defp row_action("unchanged"), do: pgettext("approval row action", "unchanged")
-  defp row_action("error"), do: pgettext("approval row action", "error")
-  defp row_action(action), do: action |> String.replace(["_", "."], " ") |> String.trim()
 
   defp expires_in(%DateTime{} = expires_at) do
     seconds = DateTime.diff(expires_at, DateTime.utc_now(), :second)

@@ -115,6 +115,10 @@ defmodule PhoenixKit.API.Executor do
       `PhoenixKit.API.RequestContext`); `:base_url` is `nil` for a live session whose
       caller passed none;
     * `:request_id`;
+    * `:via`, what asks on behalf of a live session: the `:via` option of `execute_as/5` and
+      `redeem_as/6` (`"session"` by default, e.g. `"agent"`), the same value as the audit
+      entry's `metadata.via`, for a module's own audit of the change. `nil` for a key, a
+      public caller and an approved operation;
     * `:dry_run?`, `true` while the danger gate asks for a preview (the handler
       must then write nothing and answer `{:preview, preview, fingerprint}`, where `fingerprint`
       is a hash of the current values the operation would touch: 1 to 64 bytes of UTF-8, e.g. a
@@ -129,8 +133,8 @@ defmodule PhoenixKit.API.Executor do
 
   ## On behalf of a live session
 
-  `visible_for/3` and `execute_as/5` run the same flow in process, without a
-  `Plug.Conn`, for a person's live browser session (`PhoenixKit.Users.Auth.SessionRef`,
+  `visible_for/3`, `execute_as/5` and `redeem_as/6` run the same flow in process, without
+  a `Plug.Conn`, for a person's live browser session (`PhoenixKit.Users.Auth.SessionRef`,
   an `Actor` of kind `:user`). What differs from a key:
 
     * the scope is rebuilt from the session **on every call**
@@ -142,15 +146,32 @@ defmodule PhoenixKit.API.Executor do
     * the effective scopes are `PhoenixKit.API.Keys.held_scopes_of/1` of that scope, and
       the tool's own permission is checked too (`Scope.can?/2`); a tool without a
       permission (`system.*`, which describe the calling key) is not callable;
-    * only read tools: `allow: :read` (the default, and the only value in this version)
-      refuses a write tool (`PhoenixKit.API.ControlFields.write_tool?/1`) before
-      validation and before `Flow.gate/1`, so nothing runs; `visible_for/3` lists none;
+    * reads only by default: `allow: :read` refuses a write tool
+      (`PhoenixKit.API.ControlFields.write_tool?/1`) before validation and before
+      `Flow.gate/1`, so nothing runs, and `visible_for/3` lists none;
+    * `allow: :all` opens the write tools of the modules listed in
+      `api_session_write_modules` (the "Agent may act" boxes of Settings -> API, none by
+      default; `PhoenixKit.API.Config.session_write_modules/0`). A write tool of another
+      module is not listed and is refused with `403 module_write_disabled`, before anything
+      runs or is stored. API keys never read that list;
+    * a write never runs on the first call, dangerous or not: `Flow.gate/1` answers the
+      preview and holds the call in a confirmation row bound to the person
+      (`PhoenixKit.API.Confirm.issue_for_user/6`), `{"status": "confirmation_required",
+      "confirmation_id", "preview", "expires_at", "expires_in_seconds"}`, with no code. The
+      person confirms with `redeem_as/6`, which repeats the whole path of the call with the
+      same tool and arguments (see there). A `confirm_token` a session sends is refused;
     * the request context comes from the `:request_context` option, not from a
       connection, and the host's `:api_request_context` hook (which expects a
       `Plug.Conn`) is not called;
     * the rate limit is the user's own bucket (`RateLimit.check_user/2`), shared by the
       user's sessions; `api_admin_enabled` does not apply (it switches the HTTP API);
-    * reads are not audited, as for a key;
+    * reads are not audited, as for a key. A write call that was charged writes one
+      `api.request` Activity entry with `resource_type: "user"`, the user as actor and
+      resource, and `metadata` `via` (the `:via` option, `"session"` by default), `tool`,
+      `request_id`, `outcome`, `code` and `confirmation_uuid` (for a refused `redeem_as/6`,
+      the uuid it was asked for), plus `replaces_confirmation_uuid` when a row whose values
+      changed was replaced: never the input, the preview or the result. The handler reads
+      the same `via` as `ctx.via`;
     * maintenance mode is not checked on this path: the web shows the maintenance layout
       at mount, where nothing that calls the Executor is rendered.
 
@@ -188,6 +209,7 @@ defmodule PhoenixKit.API.Executor do
 
   alias PhoenixKit.Activity
   alias PhoenixKit.API.Actor
+  alias PhoenixKit.API.Config
   alias PhoenixKit.API.Confirm.Confirmation
   alias PhoenixKit.API.ControlFields
   alias PhoenixKit.API.Flow
@@ -202,9 +224,11 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.API.Tool
   alias PhoenixKit.API.Validator
   alias PhoenixKit.Integrations.Telegram.Linking
+  alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.Auth.SessionRef
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Utils.IpAddress
 
   @empty_schema %{"type" => "object", "properties" => %{}, "additionalProperties" => false}
@@ -342,10 +366,11 @@ defmodule PhoenixKit.API.Executor do
   The tools the live session `session_ref` (`{session_token_uuid, user_uuid}`, see
   `PhoenixKit.Users.Auth.SessionRef`) may call, for the admin audience: the read tools
   whose scope the session's scope holds (`PhoenixKit.API.Keys.held_scopes_of/1`) and whose
-  permission it holds. No write tool and no `system.*` tool. Costs one unit of the user's
-  rate-limit bucket.
+  permission it holds. No `system.*` tool. Costs one unit of the user's rate-limit bucket.
 
-  Options: `:allow`, only `:read` (the default); any other value raises `ArgumentError`.
+  Options: `:allow`, `:read` (the default: no write tool) or `:all` (also the write tools
+  the session's rights reach, of the modules in `api_session_write_modules`); any other
+  value raises `ArgumentError`.
 
   A linked Telegram chat (`t:telegram_link/0`) is listed the same way.
 
@@ -356,16 +381,17 @@ defmodule PhoenixKit.API.Executor do
   @spec visible_for(actor_ref(), :admin, keyword()) ::
           {:ok, [Tool.t()], headers()} | {:error, atom(), String.t(), map(), headers()}
   def visible_for(session_ref, :admin, opts \\ []) do
-    :read = allow!(opts)
     state = session_state(session_ref, nil, %{}, opts)
 
     with {:ok, state} <- session_actor(state),
          {:ok, state} <- take_scopes(state),
          {:ok, state} <- rate_limit(state) do
+      writes = session_write_modules(state)
+
       tools =
         :admin
         |> Registry.visible_tools(state.scopes)
-        |> Enum.filter(&session_may_call?(state.actor.scope, &1))
+        |> Enum.filter(&session_may_call?(state.actor.scope, &1, writes))
 
       {:ok, tools, state.headers}
     else
@@ -382,15 +408,26 @@ defmodule PhoenixKit.API.Executor do
 
   Options:
 
-    * `:allow` - only `:read` (the default); a write tool is refused with `403
-      forbidden` before anything runs. Any other value raises `ArgumentError`.
+    * `:allow` - `:read` (the default): a write tool is refused with `403 forbidden` before
+      anything runs. `:all`: a write tool of a module in `api_session_write_modules` is
+      held for the person's confirmation (the answer has `"status":
+      "confirmation_required"` and the `"confirmation_id"` to pass to `redeem_as/6`); one
+      of another module is refused with `403 module_write_disabled`. Any other value
+      raises `ArgumentError`.
     * `:request_context` - keyword list: `:language`, `:base_url`, `:hosts`, `:currency`
       (the handler context, `PhoenixKit.API.RequestContext.from_options/1`),
       `:request_id` (the context's `:request_id`) and `:ip` (the actor's `ip`).
+    * `:via` - what asks, for the audit entry of a write (`metadata.via`) and the handler's
+      `ctx.via`: a non-empty string of at most 64 bytes, `"session"` by default. Anything
+      else raises `ArgumentError`.
+
+  The core does not tell an impersonated session from the person's own: a caller that
+  passes `allow: :all` must refuse a session that
+  `PhoenixKitWeb.Users.MultiSession.impersonated?/1` marks, before it calls, so an
+  administrator acting as somebody else cannot propose writes in their name.
   """
   @spec execute_as(actor_ref(), :admin, String.t(), term(), keyword()) :: outcome()
   def execute_as(session_ref, :admin, tool_name, input, opts \\ []) do
-    :read = allow!(opts)
     state = session_state(session_ref, tool_name, input, opts)
 
     with {:ok, state} <- session_actor(state),
@@ -398,7 +435,7 @@ defmodule PhoenixKit.API.Executor do
          {:ok, state} <- take_scopes(state),
          {:ok, state} <- check_scope(state),
          {:ok, state} <- check_permission(state),
-         {:ok, state} <- reads_only(state),
+         {:ok, state} <- session_writes(state),
          {:ok, state} <- charge_after_lookup(state),
          {:ok, state} <- validate(state),
          {:ok, state} <- Flow.split_control(state),
@@ -412,14 +449,240 @@ defmodule PhoenixKit.API.Executor do
     end
   end
 
+  @doc """
+  The person confirms the write their session's `execute_as/5` call was held for
+  (`confirmation_uuid`, the `"confirmation_id"` of that answer). The caller brings the
+  same `tool_name` and `input` again (without control fields: a `dry_run`,
+  `confirm_token` or `idempotency_key` is refused with `422`); the core keeps only their
+  hash.
+
+  The call passes the whole path again, with the rights of the session that confirms
+  **now**: the session must still act (`401`), the tool exist and its module be on
+  (`api_disabled_modules`, `api_disabled_tools`), the module be in
+  `api_session_write_modules` (`403 module_write_disabled`), the session hold the tool's
+  scope and permission (`403 forbidden`), the rate limit allow it, the input validate.
+  Then `PhoenixKit.API.Flow.redeem_for_session/2`: the row must be this person's, for the
+  same tool and arguments, still waiting; a fresh dry run must give the fingerprint of the
+  preview; the row is spent atomically, so a second confirmation of the same row is
+  refused (`used`). Only then the handler runs, with `ctx.confirmation_uuid` set.
+
+  Returns `outcome()` as `execute_as/5` does: the handler's result; the prompt of a new
+  row when the values changed since the preview (`"reason": "changed"`, the old row is
+  expired); or a refusal, `409 confirm_token_invalid` with `context.reason` one of
+  `invalid` (unknown, or somebody else's: the same answer), `other_arguments`, `used`,
+  `rejected`, `expired`. A refusal before the row is spent leaves it waiting.
+
+  Options: `:request_context` and `:via`, as for `execute_as/5`.
+
+  As with `execute_as/5` and `allow: :all`, the caller must refuse an impersonated session
+  (`PhoenixKitWeb.Users.MultiSession.impersonated?/1`) before it calls: the core cannot tell
+  it from the person's own.
+  """
+  @spec redeem_as(SessionRef.t(), :admin, term(), String.t(), term(), keyword()) :: outcome()
+  def redeem_as(session_ref, :admin, confirmation_uuid, tool_name, input, opts \\ []) do
+    state =
+      session_ref
+      |> session_state(tool_name, input, Keyword.put(opts, :allow, :all))
+      |> Map.put(:requested_confirmation_uuid, cast_uuid(confirmation_uuid))
+
+    with {:ok, state} <- session_actor(state),
+         {:ok, state} <- find_tool(state),
+         {:ok, state} <- take_scopes(state),
+         {:ok, state} <- check_scope(state),
+         {:ok, state} <- check_permission(state),
+         {:ok, state} <- writes_only(state),
+         {:ok, state} <- session_writes(state),
+         {:ok, state} <- charge_after_lookup(state),
+         {:ok, state} <- validate(state),
+         {:ok, state} <- Flow.split_control(state),
+         {:ok, state} <- no_control(state),
+         {:ok, state} <- Flow.redeem_for_session(state, confirmation_uuid),
+         {:ok, state} <- run(state) do
+      complete(state)
+    else
+      {:done, state} -> complete(state)
+      {:error, code, detail, context, state} -> refused(state, code, detail, context)
+    end
+  end
+
+  @typedoc "Why `tool_availability/1` shows a tool closed to a live session."
+  @type closed_reason ::
+          :module_disabled | :api_off | :tool_hidden | :agent_writes_off | :no_permission
+
+  @typedoc "One admin tool as `tool_availability/1` shows it."
+  @type availability :: %{
+          module_key: String.t() | nil,
+          module_name: String.t(),
+          name: String.t(),
+          kind: :read | :write,
+          permission: String.t(),
+          scope: String.t(),
+          danger: nil | :always | {module(), atom()},
+          status: :available | {:closed, [closed_reason(), ...]}
+        }
+
+  @closed_reasons [:module_disabled, :api_off, :tool_hidden, :agent_writes_off, :no_permission]
+
+  @doc """
+  Every admin tool of every registered module, switched on or off, with whether a person's
+  live session may call it (`visible_for/3` and `execute_as/5` with `allow: :all`) and, if
+  not, why. Read-only: nothing is charged or written (no audit entry). API keys are not
+  affected (they never read `api_session_write_modules`).
+
+  Each entry is `%{module_key, module_name, name, kind, permission, scope, danger, status}`:
+  `kind` is `:read` or `:write` (`PhoenixKit.API.ControlFields.write_tool?/1`), `danger` the
+  tool's own, `status` `:available` or `{:closed, reasons}`, the reasons in this order:
+
+    * `:module_disabled` - the module is switched off;
+    * `:api_off` - the module's API is switched off (`api_disabled_modules`). When
+      `api_disabled_tools` or `api_disabled_modules` cannot be read every tool is closed as
+      `:api_off`, since the registry then serves nothing;
+    * `:tool_hidden` - the tool is listed in `api_disabled_tools`;
+    * `:agent_writes_off` - a write tool whose module is not in `api_session_write_modules`
+      (the "Agent may act" boxes of Settings -> API; a list that cannot be read is empty);
+    * `:no_permission` - only when `scope` (a `PhoenixKit.Users.Auth.Scope`) is given. For a
+      tool the settings leave open: the scope fails the checks of `visible_for/3`, its
+      permission (`PhoenixKit.Users.Auth.Scope.can?/2`) or its scope
+      (`PhoenixKit.API.Keys.held_scopes_of/1`). For a tool the settings close: the scope's
+      roles do not grant the tool's permission, whether or not the module behind it is on.
+      The scope rule is not applied to a closed tool, so opening it may still leave it
+      closed as `:no_permission`, when another tool on its scope needs a permission the
+      scope lacks.
+
+  The scope is taken as given, account checks included: a session's own is
+  `SessionRef.scope_for_session/2` (which refuses an inactive or unconfirmed account),
+  narrowed to the role it acts as; a scope built otherwise is the caller's to vouch for.
+
+  Without `scope` the reasons are the install's settings alone. With the scope of a live
+  session, the `:available` tools are exactly what `visible_for/3` lists for it with
+  `allow: :all`. `api_admin_enabled` switches the HTTP API and does not apply to a session,
+  so it is not a reason here. Core's `system.*` tools (never callable by a session) and
+  public tools are not listed; neither is a tool the registry ignores because another module
+  declared its name first. Sorted by module name, then by tool name.
+
+  The list names every admin tool whatever `scope` is given, so gate who may see it. It
+  walks every module's tools and reads the settings on each call: call it once per page
+  (mount or params), not per render.
+  """
+  @spec tool_availability(Scope.t() | nil) :: [availability()]
+  def tool_availability(scope \\ nil)
+
+  def tool_availability(scope) when is_nil(scope) or is_struct(scope, Scope) do
+    settings = availability_settings()
+    held = if scope, do: Keys.held_scopes_of(scope), else: []
+
+    ModuleRegistry.api_module_tools()
+    |> Enum.flat_map(fn module -> Enum.map(module.tools, &{module, &1}) end)
+    |> Enum.filter(fn {_module, tool} -> tool.audience == :admin end)
+    |> Enum.reject(&shadowed?(&1, settings))
+    |> Enum.uniq_by(fn {module, tool} -> {module.module, tool.name} end)
+    |> Enum.map(fn {module, tool} -> availability(module, tool, settings, scope, held) end)
+    |> Enum.sort_by(&{String.downcase(&1.module_name), &1.name})
+  end
+
+  # The settings the registry and a session's writes read, once per call. `served` is the
+  # module tools the registry keeps (enabled modules, API on), as `{module, name}` pairs.
+  defp availability_settings do
+    writes = Config.session_write_modules()
+
+    with {:ok, hidden_tools} <- Config.fetch_disabled_tools(),
+         {:ok, hidden_modules} <- Config.fetch_disabled_modules() do
+      served =
+        hidden_modules
+        |> ModuleRegistry.all_api_tools()
+        |> MapSet.new(&{&1.module, &1.name})
+
+      %{
+        readable?: true,
+        hidden_tools: hidden_tools,
+        hidden_modules: hidden_modules,
+        served: served,
+        writes: writes
+      }
+    else
+      :unreadable ->
+        %{readable?: false, hidden_tools: [], hidden_modules: [], served: nil, writes: writes}
+    end
+  end
+
+  # A tool of a module that is on, with its API on, that the registry dropped anyway: its
+  # name was taken by a module registered before it.
+  defp shadowed?({module, tool}, %{readable?: true} = settings) do
+    module.enabled? and module.key not in settings.hidden_modules and
+      not MapSet.member?(settings.served, {module.module, tool.name})
+  end
+
+  defp shadowed?(_module_tool, _settings), do: false
+
+  defp availability(module, tool, settings, scope, held) do
+    configured? =
+      module.enabled? and settings.readable? and module.key not in settings.hidden_modules and
+        tool.name not in settings.hidden_tools
+
+    reasons = %{
+      module_disabled: not module.enabled?,
+      api_off: not settings.readable? or module.key in settings.hidden_modules,
+      tool_hidden: tool.name in settings.hidden_tools,
+      agent_writes_off: write?(tool) and module.key not in settings.writes,
+      no_permission: scope != nil and not session_reaches?(scope, tool, held, configured?)
+    }
+
+    %{
+      module_key: module.key,
+      module_name: module.name,
+      name: tool.name,
+      kind: if(write?(tool), do: :write, else: :read),
+      permission: tool.permission,
+      scope: tool.scope,
+      danger: tool.danger,
+      status:
+        case Enum.filter(@closed_reasons, &Map.fetch!(reasons, &1)) do
+          [] -> :available
+          closed -> {:closed, closed}
+        end
+    }
+  end
+
+  # The checks of `visible_for/3` for a tool the settings leave open. For a closed tool,
+  # whether its role grants the tool's permission at all: `Scope.can?/2` also asks the
+  # module behind the key to be on, so a switched-off module's own key would read as
+  # missing; and a closed tool's scope is never held (`Keys.held_scopes_of/1` counts the
+  # callable tools only).
+  defp session_reaches?(scope, tool, held, true = _configured?),
+    do: tool.scope in held and session_may_hold?(scope, tool)
+
+  defp session_reaches?(scope, %Tool{permission: permission}, _held, false = _configured?),
+    do: permission_granted?(scope, permission)
+
+  defp permission_granted?(scope, permission) when is_binary(permission) do
+    Scope.has_module_access?(scope, permission) and
+      case Permissions.parent_key(permission) do
+        nil -> true
+        base -> Scope.has_module_access?(scope, base)
+      end
+  end
+
+  defp permission_granted?(_scope, _permission), do: false
+
   defp allow!(opts) do
     case Keyword.get(opts, :allow, :read) do
-      :read ->
-        :read
+      allow when allow in [:read, :all] ->
+        allow
 
       other ->
         raise ArgumentError,
-              "allow: #{inspect(other)} is not supported: a session may only read (allow: :read)"
+              "allow: #{inspect(other)} is not supported: a session may read (allow: :read) or also write with confirmation (allow: :all)"
+    end
+  end
+
+  defp via!(opts) do
+    case Keyword.get(opts, :via, "session") do
+      via when is_binary(via) and byte_size(via) in 1..64 ->
+        via
+
+      other ->
+        raise ArgumentError,
+              "via: #{inspect(other)} is not supported: give a non-empty string of at most 64 bytes"
     end
   end
 
@@ -442,6 +705,8 @@ defmodule PhoenixKit.API.Executor do
     :admin
     |> base_state(tool_name, input, idempotency_header: false)
     |> Map.merge(%{
+      allow: allow!(opts),
+      via: via!(opts),
       session_ref: session_pair(session_ref),
       client_ip: binary_option(request, :ip),
       request_id: binary_option(request, :request_id),
@@ -461,6 +726,17 @@ defmodule PhoenixKit.API.Executor do
 
   defp session_pair(_other), do: nil
 
+  # The confirmation a `redeem_as/6` asks for, for its audit entry: only a uuid is written
+  # down, whatever else the caller passed.
+  defp cast_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp cast_uuid(_value), do: nil
+
   # Only `{atom, value}` pairs count: anything else in the list (or a list that is not a
   # keyword list at all) is dropped, so a malformed context gets the defaults.
   defp request_options(options) when is_list(options) or is_map(options),
@@ -479,6 +755,8 @@ defmodule PhoenixKit.API.Executor do
     %{
       conn: nil,
       session_ref: nil,
+      allow: :read,
+      via: nil,
       client_ip: nil,
       request_id: nil,
       audience: audience,
@@ -502,6 +780,8 @@ defmodule PhoenixKit.API.Executor do
       store?: true,
       outcome: nil,
       confirmation: nil,
+      requested_confirmation_uuid: nil,
+      replaces_confirmation_uuid: nil,
       preview: nil,
       result: nil,
       request_context: nil
@@ -674,17 +954,79 @@ defmodule PhoenixKit.API.Executor do
 
   defp session_may_hold?(_scope, _tool), do: false
 
-  defp session_may_call?(scope, %Tool{} = tool),
-    do: not write?(tool) and session_may_hold?(scope, tool)
+  @doc false
+  # Whether the live session's `scope` may still write with `tool_name`, by the checks
+  # `redeem_as/6` makes before it runs: the tool is callable (`Registry.find/2`: its module
+  # on, the module's API on, the tool not hidden) and writes, the scope holds its scope and
+  # its permission, and its module is in `api_session_write_modules`.
+  # `PhoenixKit.API.Confirm.get_for_user/3` reads a preview only then.
+  @spec session_may_write?(Scope.t(), String.t()) :: boolean()
+  def session_may_write?(%Scope{} = scope, tool_name) when is_binary(tool_name) do
+    case Registry.find(tool_name, :admin) do
+      {:ok, %Tool{} = tool} ->
+        write?(tool) and tool.scope in Keys.held_scopes_of(scope) and
+          session_may_hold?(scope, tool) and
+          module_writes?(tool, Config.session_write_modules())
 
-  # `allow: :read`: a write tool is refused here, before validation and `Flow.gate/1`.
-  defp reads_only(%{tool: %Tool{} = tool} = state) do
-    if write?(tool) do
-      {:error, :forbidden, "#{tool.name} writes; this call allows reads only.",
-       %{tool: tool.name}, state}
-    else
-      {:ok, state}
+      {:error, _reason} ->
+        false
     end
+  end
+
+  # `writes` is the list of modules whose writes the call may see (`[]` for `allow: :read`).
+  defp session_may_call?(scope, %Tool{} = tool, writes),
+    do: session_may_hold?(scope, tool) and (not write?(tool) or module_writes?(tool, writes))
+
+  defp session_write_modules(%{allow: :all}), do: Config.session_write_modules()
+  defp session_write_modules(_state), do: []
+
+  defp module_writes?(%Tool{module: module}, writes),
+    do: ModuleRegistry.api_module_key(module) in writes
+
+  # A write tool of a session, before validation and `Flow.gate/1`: refused under
+  # `allow: :read`; under `allow: :all` refused unless its module is in
+  # `api_session_write_modules`, so a module nobody opened neither runs nor stores a
+  # confirmation.
+  defp session_writes(%{tool: %Tool{} = tool, allow: allow} = state) do
+    cond do
+      not write?(tool) ->
+        {:ok, state}
+
+      allow != :all ->
+        {:error, :forbidden, "#{tool.name} writes; this call allows reads only.",
+         %{tool: tool.name}, state}
+
+      module_writes?(tool, session_write_modules(state)) ->
+        {:ok, state}
+
+      true ->
+        {:error, :module_write_disabled,
+         "The module that provides #{tool.name} does not let a session write.",
+         %{tool: tool.name}, state}
+    end
+  end
+
+  # `redeem_as/6`: only a write was held for confirmation.
+  defp writes_only(%{tool: %Tool{} = tool} = state) do
+    if write?(tool) do
+      {:ok, state}
+    else
+      {:error, :forbidden, "#{tool.name} does not write: there is nothing to confirm.",
+       %{tool: tool.name}, state}
+    end
+  end
+
+  # `redeem_as/6` repeats the held call; a control field would change what it does (a
+  # `dry_run` would spend the confirmation without running), so none is accepted.
+  defp no_control(%{control: control} = state) when map_size(control) == 0, do: {:ok, state}
+
+  defp no_control(%{control: control} = state) do
+    errors =
+      for name <- control |> Map.keys() |> Enum.sort(),
+          do: %{path: name, message: "is not accepted when confirming", limit: nil, allowed: nil}
+
+    {:error, :validation_failed, "The input does not match the schema of #{state.tool.name}.",
+     %{errors: errors}, state}
   end
 
   # `Registry.find/2` costs about 2 ms on a miss (it asks the switched-off
@@ -822,6 +1164,7 @@ defmodule PhoenixKit.API.Executor do
       dry_run?: Map.get(fields, :dry_run?) == true,
       approved_by_uuid: Map.get(fields, :approved_by_uuid),
       confirmation_uuid: Map.get(fields, :confirmation_uuid),
+      via: Map.get(fields, :via),
       progress: Map.get(fields, :progress) || fn _partial -> :ok end
     }
   end
@@ -1045,13 +1388,14 @@ defmodule PhoenixKit.API.Executor do
 
   # Only calls that were charged (`charged?` is set once rights and rate limit
   # have passed; for the public audience the charge comes before the lookup,
-  # so the tool may still be unknown), and only for a key: an anonymous public
-  # write belongs to the module that owns it and must not fill the activity
-  # table.
+  # so the tool may still be unknown), and only for a key or a live session: an
+  # anonymous public write belongs to the module that owns it and must not fill the
+  # activity table.
   defp audit?(%{replayed?: true}), do: false
 
-  defp audit?(%{charged?: true, tool: %Tool{} = tool, actor: %Actor{kind: :key}}),
-    do: write?(tool)
+  defp audit?(%{charged?: true, tool: %Tool{} = tool, actor: %Actor{kind: kind}})
+       when kind in [:key, :user],
+       do: write?(tool)
 
   defp audit?(_state), do: false
 
@@ -1061,6 +1405,37 @@ defmodule PhoenixKit.API.Executor do
     if audit?(state), do: write_entry(state, tool, actor, outcome, code)
 
     :ok
+  end
+
+  # A session's entry: who, through what, which tool and how it ended. Never the input, the
+  # preview or the result, which hold the data the person works on. `confirmation_uuid` is
+  # the row the call held, spent or was answered with; for a `redeem_as/6` refused before
+  # (or without) a claim, the uuid it asked for. An answer that replaced a row whose values
+  # changed also names the old one, `replaces_confirmation_uuid`.
+  defp write_entry(state, tool, %Actor{kind: :user} = actor, outcome, code) do
+    metadata = %{
+      "via" => state.via,
+      "tool" => tool.name,
+      "request_id" => request_id(state),
+      "outcome" => outcome,
+      "code" => code && Atom.to_string(code),
+      "confirmation_uuid" =>
+        (state.confirmation && state.confirmation.uuid) || state.requested_confirmation_uuid
+    }
+
+    metadata =
+      case state.replaces_confirmation_uuid do
+        nil -> metadata
+        old_uuid -> Map.put(metadata, "replaces_confirmation_uuid", old_uuid)
+      end
+
+    Activity.log("api", "api.request",
+      actor_uuid: actor.user_uuid,
+      mode: "auto",
+      resource_type: "user",
+      resource_uuid: actor.user_uuid,
+      metadata: metadata
+    )
   end
 
   defp write_entry(state, tool, actor, outcome, code) do
@@ -1101,7 +1476,8 @@ defmodule PhoenixKit.API.Executor do
       base_url: context.base_url,
       request_id: request_id(state),
       dry_run?: state.dry_run?,
-      confirmation_uuid: state.confirmation && state.confirmation.uuid
+      confirmation_uuid: state.confirmation && state.confirmation.uuid,
+      via: Map.get(state, :via)
     })
   end
 

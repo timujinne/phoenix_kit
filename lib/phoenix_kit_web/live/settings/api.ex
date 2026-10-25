@@ -6,6 +6,13 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   one-time dialog that shows a new key, and the "Limits and advanced" settings
   (rate limits, hidden tools, allowed MCP origins).
 
+  The page is split into tabs held in the URL (`?tab=…`, see
+  `PhoenixKitWeb.Live.Settings.UrlTabs`): switches and modules (the default), keys and
+  service users, approvals and limits, and the API guide
+  (`PhoenixKitWeb.Live.Settings.ApiGuidePanel`, built each time its tab is opened). The
+  other panes are all rendered and only hidden, so a form keeps what was typed when the
+  tab changes; the dialogs sit outside the panes.
+
   Gated by the `api` permission (opt-in for Admin; see
   `PhoenixKitWeb.Users.Auth`'s view map). Every change goes through
   `PhoenixKit.API.Keys` and `PhoenixKit.Settings`, with this admin as the actor.
@@ -32,6 +39,25 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   `PhoenixKit.API.Registry` then withholds all its tools like hidden ones. The event names
   the module by key and the state it wants; the key must be one of the listed modules and
   the other keys of the setting are kept as they are.
+
+  ## "Agent may act"
+
+  A module that has write tools also has the box "Agent may act" beside its switch. On, its
+  key is in `api_session_write_modules`, and a person's live session (an assistant that
+  works in the browser, `PhoenixKit.API.Executor.execute_as/5` with `allow: :all`) may
+  propose its writes, each held until that person confirms it. Off by default; while the
+  module's API is off it cannot be turned on (an unticked box is disabled), but a ticked one
+  can still be taken off. API keys do not read it. The event and the checks are the
+  switch's.
+
+  ## The tools of each module
+
+  A module's row also lists its admin tools in a collapsible section: whether it reads or
+  writes, its permission, and whether an assistant in a person's live session may call it
+  by the install's settings alone (`PhoenixKit.API.Executor.tool_availability/1` without a
+  scope), or why not. It is read again after the module's switch, its "Agent may act" box
+  and the hidden tools change. The rights of each person are checked on top of it, which
+  the section says.
 
   ## Rights are checked on the server
 
@@ -69,6 +95,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   alias PhoenixKit.API.Access
   alias PhoenixKit.API.Approvals
   alias PhoenixKit.API.Config
+  alias PhoenixKit.API.Executor
   alias PhoenixKit.API.FlowConfig
   alias PhoenixKit.API.Keys
   alias PhoenixKit.API.Keys.DisplayToken
@@ -79,6 +106,8 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Actor
+  alias PhoenixKitWeb.Live.Settings.ApiGuidePanel
+  alias PhoenixKitWeb.Live.Settings.UrlTabs
 
   # The two switches: the name used in the page, the setting it writes.
   @switches %{"admin" => "api_admin_enabled", "public" => "api_public_enabled"}
@@ -123,11 +152,36 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
       |> assign(:service_user_params, default_service_user_params())
       |> assign(:service_user_errors, [])
       |> assign(:api_scope, socket.assigns.phoenix_kit_current_scope)
+      |> assign(:guide, nil)
       |> assign_limits()
       |> assign_flow()
       |> assign_state()
 
     {:ok, socket}
+  end
+
+  # The tab lives in the URL (`?tab=keys`); see `UrlTabs`. The guide is built when its
+  # tab is opened, so the other tabs do not read the tool registry and the guide shows
+  # the switches as they are now.
+  @impl true
+  def handle_params(params, _url, socket) do
+    socket = assign(socket, :active_tab, UrlTabs.active(params, tabs()))
+
+    socket =
+      if socket.assigns.active_tab == "guide",
+        do: ApiGuidePanel.assign_guide(socket),
+        else: socket
+
+    {:noreply, socket}
+  end
+
+  defp tabs do
+    [
+      %{id: "access", label: gettext("Switches and modules"), icon: "hero-power"},
+      %{id: "keys", label: gettext("Keys and service users"), icon: "hero-key"},
+      %{id: "approvals", label: gettext("Approvals and limits"), icon: "hero-shield-check"},
+      %{id: "guide", label: gettext("API guide"), icon: "hero-book-open"}
+    ]
   end
 
   # ── Switches ───────────────────────────────────────────────────────
@@ -161,6 +215,20 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
       case Enum.find(ModuleRegistry.api_modules(), &(&1.key == key)) do
         nil -> refuse(socket)
         mod -> set_module_api(socket, mod, state == "on")
+      end
+    end)
+  end
+
+  # The "Agent may act" box: only a listed module that has write tools, and it may be
+  # turned on only while the module's API is on (an unticked box is disabled otherwise);
+  # off is always accepted. As with the switch, the state asked for, not a flip.
+  def handle_event("set_module_session_write", %{"module" => key, "state" => state}, socket)
+      when is_binary(key) and state in ["on", "off"] do
+    with_access(socket, fn socket ->
+      case Enum.find(api_modules(), &(&1.key == key and &1.writes?)) do
+        nil -> refuse(socket)
+        %{api_on?: false} when state == "on" -> refuse(socket)
+        mod -> set_module_session_write(socket, mod, state == "on")
       end
     end)
   end
@@ -392,7 +460,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     socket
     |> assign(:admin_enabled, Config.admin_enabled?())
     |> assign(:public_enabled, Config.public_enabled?())
-    |> assign(:api_modules, api_modules())
+    |> assign_api_modules()
     |> assign(:keys, keys)
     |> assign(:service_users, service_users)
     |> assign(:pending_approvals, Approvals.pending_count(scope))
@@ -425,19 +493,102 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     end
   end
 
+  # Like `set_module_api/3`: only this module's key changes, read under a row lock.
+  defp set_module_session_write(socket, %{key: key} = mod, on?) do
+    change = fn stored ->
+      listed = Config.parse_list(stored)
+      wanted = if(on?, do: Enum.uniq(listed ++ [key]), else: List.delete(listed, key))
+      if wanted == listed, do: :unchanged, else: Config.encode_list(wanted)
+    end
+
+    case Settings.modify_setting_with_module(
+           "api_session_write_modules",
+           "api",
+           change,
+           history(socket)
+         ) do
+      {:ok, _setting} ->
+        socket |> assign_state() |> put_flash(:info, session_write_saved(mod, on?))
+
+      {:error, _changeset} ->
+        put_flash(socket, :error, gettext("The switch could not be saved."))
+    end
+  end
+
+  defp session_write_saved(mod, true),
+    do: gettext("The agent may act in %{module}.", module: module_label(mod))
+
+  defp session_write_saved(mod, false),
+    do: gettext("The agent may no longer act in %{module}.", module: module_label(mod))
+
   defp module_api_saved(mod, true),
     do: gettext("The API of %{module} is on.", module: module_label(mod))
 
   defp module_api_saved(mod, false),
     do: gettext("The API of %{module} is off.", module: module_label(mod))
 
-  defp module_label(%{name: name}), do: Gettext.gettext(PhoenixKitWeb.Gettext, name)
+  @doc false
+  # A module's name, translated: by the gettext backend the module declares in its
+  # `permission_metadata/0` (the one the permissions matrix uses for its label), then by
+  # core's own catalogue. A module without a backend reads as before. A module of
+  # `api_modules/0` already carries its `:label`; resolving one asks every module for its
+  # metadata, which the template must not repeat for each row and aria-label of a render.
+  def module_label(%{label: label}) when is_binary(label), do: label
+  def module_label(mod), do: label_in(ModuleRegistry.permission_gettext(), mod)
 
-  # The modules with tools and whether their API is on right now.
+  defp label_in(backends, %{key: key, name: name}) do
+    with {backend, domain} <- Map.get(backends, key),
+         translated when translated != name <- Gettext.dgettext(backend, domain, name) do
+      translated
+    else
+      _ -> Gettext.gettext(PhoenixKitWeb.Gettext, name)
+    end
+  end
+
+  # The modules with tools, whether their API is on right now and whether the agent may act
+  # in them (`api_session_write_modules`).
   defp api_modules do
     disabled = Config.disabled_modules()
-    Enum.map(ModuleRegistry.api_modules(), &Map.put(&1, :api_on?, &1.key not in disabled))
+    writes = Config.session_write_modules()
+    backends = ModuleRegistry.permission_gettext()
+
+    Enum.map(ModuleRegistry.api_modules(), fn mod ->
+      mod
+      |> Map.put(:api_on?, mod.key not in disabled)
+      |> Map.put(:session_write?, mod.key in writes)
+      |> Map.put(:label, label_in(backends, mod))
+    end)
   end
+
+  # The card's modules, each with its admin tools as an assistant in a person's live session
+  # finds them by the install's settings alone (`Executor.tool_availability/1` without a
+  # scope): the rights of each person are checked on top of that.
+  defp assign_api_modules(socket) do
+    tools = Enum.group_by(Executor.tool_availability(), & &1.module_key)
+
+    assign(
+      socket,
+      :api_modules,
+      Enum.map(api_modules(), &Map.put(&1, :assistant_tools, Map.get(tools, &1.key, [])))
+    )
+  end
+
+  defp available_count(tools), do: Enum.count(tools, &(&1.status == :available))
+
+  defp closed_reasons(%{status: {:closed, reasons}}), do: reasons
+  defp closed_reasons(%{status: :available}), do: []
+
+  defp closed_reason_text(:module_disabled), do: gettext("The module is switched off.")
+  defp closed_reason_text(:api_off), do: gettext("The module's API is off.")
+
+  defp closed_reason_text(:tool_hidden),
+    do: gettext("The tool is hidden in “Limits and advanced”.")
+
+  defp closed_reason_text(:agent_writes_off),
+    do: gettext("It writes, and “Agent may act” is off.")
+
+  # A reason this page does not name (a later addition) still renders.
+  defp closed_reason_text(_other), do: gettext("Closed")
 
   defp switch_on?("admin"), do: Config.admin_enabled?()
   defp switch_on?("public"), do: Config.public_enabled?()
@@ -874,7 +1025,8 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
         Settings.update_setting_with_module(setting, value, "api", history(socket))
       end)
 
-    socket = assign_limits(socket)
+    # A hidden tool is closed to the assistant too: the modules' tool lists follow.
+    socket = socket |> assign_limits() |> assign_api_modules()
 
     if Enum.all?(results, &match?({:ok, _setting}, &1)) do
       put_flash(socket, :info, gettext("The limits were saved."))
@@ -891,7 +1043,7 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
     socket |> assign(:flow_params, FlowConfig.current()) |> assign(:flow_errors, [])
   end
 
-  # Only the six fields of the form survive, each a string.
+  # Only the fields of the form survive, each a string.
   defp normalize_flow_params(params) do
     Map.new(FlowConfig.fields(), fn %{field: field} -> {field, text(params[field], "")} end)
   end
@@ -977,10 +1129,6 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   defp status_label(:ending), do: gettext("Ending")
   defp status_label(:expired), do: gettext("Expired")
   defp status_label(:revoked), do: gettext("Revoked")
-
-  defp status_class(:active), do: "badge-success"
-  defp status_class(:ending), do: "badge-warning"
-  defp status_class(_dead), do: "badge-ghost"
 
   # The earliest moment the key stops working, if it has one.
   defp ends_at(key) do

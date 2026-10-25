@@ -796,6 +796,8 @@ defmodule PhoenixKitWeb.Integration do
     user_tab_routes =
       compile_module_user_routes(__CALLER__.module) |> dedupe_admin_routes_by_path([])
 
+    profile_tab_routes = compile_profile_settings_tab_routes(__CALLER__.module)
+
     quote do
       # The signed-in user's own account page. UNCONDITIONAL, unlike the
       # dashboard routes below: the user dashboard is optional (a host can
@@ -813,6 +815,13 @@ defmodule PhoenixKitWeb.Integration do
       live "/profile/settings/integrations", Live.Integrations.MyIntegrations, :index
       live "/profile/settings/integrations/new", Live.Integrations.MyIntegrationForm, :new
       live "/profile/settings/integrations/:uuid", Live.Integrations.MyIntegrationForm, :edit
+
+      # Registered tabs with a page of their own (`PhoenixKit.ProfileSettingsTab`,
+      # host config and module `profile_settings_tabs/0`). Full module names,
+      # and before `:tab`, which would otherwise take them.
+      scope "/", alias: false do
+        (unquote_splicing(profile_tab_routes))
+      end
 
       # The other tabs of the settings page (`ProfileSettingsTabs`). After
       # the integrations routes, so `integrations` is never taken for a tab.
@@ -861,6 +870,29 @@ defmodule PhoenixKitWeb.Integration do
         end
       end)
     end
+  end
+
+  # The routes of the registered profile settings tabs that name a
+  # `live_view`. Module tabs are skipped for PhoenixKit's own dev/test
+  # router, as in `compile_module_user_routes/1`; the host config is read
+  # either way (the router's `__mix_recompile__?/0` watches it).
+  @doc false
+  def compile_profile_settings_tab_routes(caller_module) do
+    modules =
+      if caller_module == PhoenixKitWeb.Router do
+        []
+      else
+        PhoenixKit.ModuleDiscovery.discover_external_modules()
+        |> Enum.filter(&match?({:module, _}, Code.ensure_compiled(&1)))
+      end
+
+    modules
+    |> PhoenixKit.ProfileSettingsTab.routed()
+    |> Enum.map(fn %{id: id, live_view: {live_view, action}} ->
+      quote do
+        live unquote("/profile/settings/#{id}"), unquote(live_view), unquote(action)
+      end
+    end)
   end
 
   defp authenticated_live_routes do
@@ -1949,7 +1981,9 @@ defmodule PhoenixKitWeb.Integration do
             Application.get_env(:phoenix_kit, :extra_live_session_on_mount, []) or
           unquote(PhoenixKit.Config.get_admin_path()) != PhoenixKit.Config.get_admin_path() or
           unquote(PhoenixKit.Config.user_dashboard_enabled?()) !=
-            PhoenixKit.Config.user_dashboard_enabled?()
+            PhoenixKit.Config.user_dashboard_enabled?() or
+          unquote(:erlang.phash2(PhoenixKit.ProfileSettingsTab.config_entries())) !=
+            :erlang.phash2(PhoenixKit.ProfileSettingsTab.config_entries())
       end
 
       # Compile-time dependency on each route module (see the comment at

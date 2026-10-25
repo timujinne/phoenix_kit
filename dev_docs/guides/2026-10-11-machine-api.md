@@ -22,8 +22,8 @@ This guide describes what exists in core: REST, MCP and the generated OpenAPI do
 | Paths | `PhoenixKit.API.Paths` | The one table of API paths; the router and the body guard both read it |
 | Legacy | `PhoenixKit.API.Legacy` | Every deprecated name (paths, settings keys, error codes), deleted in 3.0.0; see "Deprecated aliases" |
 | Body guard | `PhoenixKit.API.BodyGuard` | Endpoint plug before `Plug.Parsers`: 2 MB limit, JSON errors as problem+json (JSON-RPC parse errors on `/mcp/*`) |
-| Admin page | `PhoenixKitWeb.Live.Settings.Api` | Switches, keys, service users, limits and advanced (route `/admin/settings/api`) |
-| Admin guide | `PhoenixKitWeb.Live.Settings.ApiGuide` | Read-only "how to connect" page generated from the registry: endpoints, client snippets, tools by module, errors (route `/admin/settings/api/guide`, permission `api`) |
+| Admin page | `PhoenixKitWeb.Live.Settings.Api` | Four tabs held in the URL (`?tab=access\|keys\|approvals\|guide`): switches and modules, keys and service users, approvals and limits, the guide (route `/admin/settings/api`) |
+| Admin guide | `PhoenixKitWeb.Live.Settings.ApiGuidePanel` | Read-only "how to connect" tab (`/admin/settings/api?tab=guide`, permission `api`), built when the tab is opened from the registry: endpoints, client snippets, tools by module, errors. `ApiGuide` is only the redirect of the retired `/admin/settings/api/guide` |
 
 ## Switching it on
 
@@ -43,6 +43,12 @@ Limits and lists are settings too (`api_admin_rate_per_min`, `api_admin_preauth_
 `api_disabled_modules` is a newline-separated list of module keys (`module_key/0`). A module in the list has its API switched off: `PhoenixKit.API.Registry` withholds all its tools exactly like tools in `api_disabled_tools`. Its tools are left out of the REST list, MCP `tools/list` and the OpenAPI document, and a call to one (REST, MCP `tools/call`, the executor) answers `404 not_found`, as does an approval or a confirmation code issued before the switch. A scope of such a module grants nothing until it is switched back on, but it stays on the keys that hold it. A module that is not listed is on, so existing installs keep working; core's own `system.*` tools belong to no module and cannot be switched off. The list is read through the same cached settings path as `api_disabled_tools` and fails closed the same way. The settings cache is per node (5 minutes), so on an install with several web nodes a change reaches the other nodes within that time, not on their next request.
 
 Each module that declares tools (`PhoenixKit.ModuleRegistry.api_modules/0`) has a switch in the "Modules" card of Settings -> API (event `set_module_api`, checked on the server like every other event of the page). The event reads the stored list from the database under a row lock (`PhoenixKit.Settings.modify_setting_with_module/4`), not from the cache, so two admins, or a node with a stale cache, cannot undo each other's change. The change is a `setting.changed` entry in the Activity log with the admin as actor.
+
+### Writes of a person's live session
+
+An in-app assistant calls the tools in process for the signed-in person (`PhoenixKit.API.Executor.visible_for/3` and `execute_as/5`, actor `kind: :user`). It reads by default (`allow: :read`). With `allow: :all` it may also propose the writes of the modules listed in `api_session_write_modules` (newline-separated module keys, empty by default; a list that cannot be read opens none), which the "Agent may act" box beside a module's switch sets (event `set_module_session_write`; shown only for a module with admin write tools; while the module's API is off it cannot be turned on, but a ticked box can be taken off; a `setting.changed` entry like the switch). A write of another module answers `403 module_write_disabled`. API keys never read the list.
+
+A write of a session never runs on its first call, dangerous or not: the answer is the preview with `"status": "confirmation_required"`, a `confirmation_id` and `expires_at` (`api_user_confirm_ttl_seconds`), and no code. Once the person confirms, the caller passes that id with the same tool and arguments to `Executor.redeem_as/6`, which goes through the whole request path again with the rights of the confirming session, checks the row (the person's, the same tool and arguments, still waiting), takes a fresh dry run and spends the row with one atomic update, so a double click runs once. Values that changed since the preview give a new row with a fresh preview (`"reason": "changed"`) and the old one expires; another person's id and an unknown one get the same `409 confirm_token_invalid` (`invalid`). `PhoenixKit.API.Confirm.get_for_user/2` reads the row for the page (`{:error, :forbidden}`, without the preview, once the session may no longer write with its tool), `reject_for_user/2` turns it down, and `<.operation_preview>` (`PhoenixKitWeb.Components.Core.OperationPreview`, opt-in) draws its preview. Every charged write of a session is an `api.request` Activity entry with `resource_type: "user"` and `metadata.via` (the `:via` option, `"session"` by default, which the handler also reads as `ctx.via`), never with the input, the preview or the result. The core does not tell an impersonated session from the person's own: a caller of `execute_as/5` with `allow: :all`, `redeem_as/6`, `get_for_user/2` or `reject_for_user/2` must refuse a session that `PhoenixKitWeb.Users.MultiSession.impersonated?/1` marks.
 
 On the Modules page every such module that has a card carries a badge that links to the "Modules" card of Settings -> API: "API off" when its switch is off, "API idle" when its switch is on but nothing can call it now (the module is disabled, or every audience its tools serve, admin or public, is switched off in the two switches at the top of the page), and "API on" when it can be called. The badge looks at the switches and the module only: while the website password gate is on, the public side also answers `404` to every client that is not on the gate's allow-list, and the badge does not show that.
 
@@ -234,7 +240,7 @@ end
 - Without `permission_metadata/0` the module has no card on the Modules page and no permission key of its own. A tool uses a key the host already has, or one it registers at start with `PhoenixKit.Users.Permissions.register_custom_key/2`; pass `auto_grant_admin: false` unless every Admin should get it.
 - A handler reads and writes only what `ctx.scope` may reach, and answers nothing without one.
 - The router depends at compile time on this module and on every module it names, so a change in any of them recompiles the router: keep the module to declarations and name handlers as above.
-- REST and MCP serve the admin tools to keys that hold their scopes; an in-app assistant acting for a signed-in person (`PhoenixKit.API.Executor.visible_for/3`) gets the read tools that person may call. Check the tools with the lint below.
+- REST and MCP serve the admin tools to keys that hold their scopes; an in-app assistant acting for a signed-in person (`PhoenixKit.API.Executor.visible_for/3`) gets the read tools that person may call, and with `allow: :all` the write tools of the modules an admin let it act in ("Writes of a person's live session"). Check the tools with the lint below.
 
 ## Installing and upgrading a host
 
@@ -291,7 +297,7 @@ A request without an `Origin` header (every client that is not a browser) passes
 
 ### Connecting a client
 
-An MCP client that lets you set a request header for a remote server takes the key as `Authorization: Bearer <key>` and the endpoint URL `https://<host>/mcp/admin` (or `/mcp/public` without a key). Settings -> API -> Guide (`/admin/settings/api/guide`) shows the ready-made lines for this site, with the placeholder `<your key>`:
+An MCP client that lets you set a request header for a remote server takes the key as `Authorization: Bearer <key>` and the endpoint URL `https://<host>/mcp/admin` (or `/mcp/public` without a key). Settings -> API -> API guide tab (`/admin/settings/api?tab=guide`) shows the ready-made lines for this site, with the placeholder `<your key>`:
 
 ```sh
 claude mcp add --transport http <name>-admin 'https://<host>/mcp/admin' --header 'Authorization: Bearer <your key>'
@@ -398,11 +404,11 @@ Approvals (a menu entry for holders of `api` while the site uses approvals — a
 
 ### Settings
 
-`api_confirm_batch_over` (50), `api_confirm_ttl_seconds` (120, at most 600), `api_approval_ttl_hours` (72), `api_approval_pending_max` (20), `api_idempotency_ttl_hours` (24), `api_idempotency_lease_seconds` (120): Settings -> API -> Confirmation, approvals and repeats. A module that decides `danger:` from a threshold keeps that setting itself.
+`api_confirm_batch_over` (50), `api_confirm_ttl_seconds` (120, at most 600), `api_user_confirm_ttl_seconds` (600, 60 to 86400: a confirmation of a live session), `api_approval_ttl_hours` (72), `api_approval_pending_max` (20), `api_idempotency_ttl_hours` (24), `api_idempotency_lease_seconds` (120): Settings -> API -> Confirmation, approvals and repeats. A module that decides `danger:` from a threshold keeps that setting itself.
 
 ### Upgrading a host
 
-`mix phoenix_kit.update` runs V220 (`phoenix_kit_api_confirmations`, `phoenix_kit_api_idempotency`) and adds three cron entries to the host's Oban config: `PhoenixKit.API.Idempotency.PruneWorker` (daily), `PhoenixKit.API.Confirm.ExpiryWorker` (every five minutes) and `PhoenixKit.API.Confirm.PruneWorker` (daily). Without the update there are no tables and a dangerous call answers `500`. The host's `:phoenix, :filter_parameters` should contain `idempotency_key` (`PhoenixKit.boot/1` adds it). Confirmation codes are signed with the host's `secret_key_base`; with none, no code is issued.
+`mix phoenix_kit.update` runs V220 (`phoenix_kit_api_confirmations`, `phoenix_kit_api_idempotency`) and V222 (`phoenix_kit_api_confirmations.actor_user_uuid`, the confirmations of live sessions) and adds three cron entries to the host's Oban config: `PhoenixKit.API.Idempotency.PruneWorker` (daily), `PhoenixKit.API.Confirm.ExpiryWorker` (every five minutes) and `PhoenixKit.API.Confirm.PruneWorker` (daily). Without the update there are no tables and a dangerous call answers `500`. The host's `:phoenix, :filter_parameters` should contain `idempotency_key` (`PhoenixKit.boot/1` adds it). Confirmation codes are signed with the host's `secret_key_base`; with none, no code is issued.
 
 ### Testing a write tool
 
