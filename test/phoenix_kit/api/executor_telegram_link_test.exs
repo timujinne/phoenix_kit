@@ -176,6 +176,13 @@ defmodule PhoenixKit.API.ExecutorTelegramLinkTest do
 
       assert_raise ArgumentError, fn -> run(ref, @write_item, %{"name" => "x"}, allow: :all) end
 
+      # Nor listed, held or confirmed with the write tools: a chat reads only.
+      assert_raise ArgumentError, fn -> Executor.visible_for(ref, :admin, allow: :all) end
+
+      assert_raise ArgumentError, fn ->
+        Executor.redeem_as(ref, :admin, Ecto.UUID.generate(), @write_item, %{"name" => "x"})
+      end
+
       assert Repo.aggregate(
                from(e in Entry, where: e.action == "api.request" and e.actor_uuid == ^user.uuid),
                :count

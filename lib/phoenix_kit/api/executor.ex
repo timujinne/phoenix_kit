@@ -195,6 +195,7 @@ defmodule PhoenixKit.API.Executor do
     * the account gate is the session's own (`SessionRef.scope_for_user/2`), so a blocked,
       unconfirmed or invite-parked user is refused with the same answer a session gets;
     * the scope is the user's full one (`narrow: false`): a chat has no role switcher;
+    * a chat reads only: `allow: :all` (and so `redeem_as/6`) raises `ArgumentError`;
     * the actor is `kind: :user` with `source: "telegram"`, so a handler (and whatever it
       logs) tells the chat from a browser session.
 
@@ -675,6 +676,16 @@ defmodule PhoenixKit.API.Executor do
     end
   end
 
+  # A linked Telegram chat reads only: no write is held for confirmation from a chat, and
+  # none is confirmed from one (`redeem_as/6` runs with `allow: :all`).
+  defp link_reads_only!({:telegram_link, _user_uuid, _connection_uuid, _chat_id}, allow)
+       when allow != :read do
+    raise ArgumentError,
+          "allow: #{inspect(allow)} is not supported for a linked Telegram chat: it reads only (allow: :read)"
+  end
+
+  defp link_reads_only!(_session_ref, _allow), do: :ok
+
   defp via!(opts) do
     case Keyword.get(opts, :via, "session") do
       via when is_binary(via) and byte_size(via) in 1..64 ->
@@ -702,10 +713,13 @@ defmodule PhoenixKit.API.Executor do
   defp session_state(session_ref, tool_name, input, opts) do
     request = request_options(Keyword.get(opts, :request_context, []))
 
+    allow = allow!(opts)
+    link_reads_only!(session_ref, allow)
+
     :admin
     |> base_state(tool_name, input, idempotency_header: false)
     |> Map.merge(%{
-      allow: allow!(opts),
+      allow: allow,
       via: via!(opts),
       session_ref: session_pair(session_ref),
       client_ip: binary_option(request, :ip),
