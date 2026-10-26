@@ -230,7 +230,11 @@ defmodule PhoenixKit.Module do
   filter in `PhoenixKit.Notifications.maybe_create_from_activity/1` resolves each
   action to its most-specific type/sub-type via `PhoenixKit.Notifications.Types`
   and skips the fan-out when the user has muted it. Labels/descriptions are
-  runtime data — `mix gettext.extract` won't see them.
+  runtime data — `mix gettext.extract` won't see them — so register each in
+  your module's backend with `gettext_noop/1` and name that backend as
+  `gettext_backend:` on the type: the settings pages show them through it in
+  the reader's locale, the sub-types included
+  (`PhoenixKit.Notifications.Types.translate/2`).
 
   Headless modules (no user-facing actions) can skip this callback — the
   default is `[]`.
@@ -241,8 +245,9 @@ defmodule PhoenixKit.Module do
         [
           %{
             key: "reviews",
-            label: "Reviews",
-            description: "Reviews people leave you",
+            label: gettext_noop("Reviews"),
+            description: gettext_noop("Reviews people leave you"),
+            gettext_backend: MyModule.Gettext,
             actions: [],
             default: true,
             sub_types: [
@@ -642,6 +647,80 @@ defmodule PhoenixKit.Module do
   @callback media_reorganizer() :: module() | nil
 
   @doc """
+  The places in this module's own tables that point at a stored file, so the
+  orphan check of `PhoenixKit.Modules.Storage` does not take a file the module
+  uses for an orphan.
+
+  Returns `{table, condition}` pairs. `condition` is an `Ecto.Query.dynamic/2`
+  over the file (`f`) that is true when **this table does not reference the
+  file**, normally a `NOT EXISTS` — the same shape as an entry of the host's
+  `:file_reference_sources` config, and ANDed onto the orphan query the same way. The
+  table name is what core checks first: a pair whose table does not exist in
+  the database is left out, so a module whose tables are not migrated yet
+  cannot break the check.
+
+  Collected from **all** modules, enabled or not
+  (`PhoenixKit.ModuleRegistry.all_file_references/0`): a disabled
+  module's data still holds its files. Fails closed: if this function raises,
+  or returns anything but a list of such pairs, no file is treated as orphaned
+  until it is fixed.
+
+  ## Example
+
+      import Ecto.Query, only: [dynamic: 2]
+
+      @impl PhoenixKit.Module
+      def file_references do
+        [
+          {"phoenix_kit_post_media",
+           dynamic(
+             [f],
+             fragment(
+               "NOT EXISTS (SELECT 1 FROM phoenix_kit_post_media pm WHERE pm.file_uuid = ?)",
+               f.uuid
+             )
+           )}
+        ]
+      end
+
+  **Replaces core's list for this module's tables.** Until core 3.0 core keeps
+  its own built-in checks for the tables it created for modules, and skips one
+  only when the module that owns the table implements this callback, so a
+  module must return *every* table of its own that holds a file reference, not
+  only the new ones. A module whose tables hold no file reference skips the
+  callback; one that must compile against an older core defines it without
+  `@impl`.
+  """
+  @callback file_references() :: [{String.t(), Ecto.Query.dynamic_expr()}]
+
+  @doc """
+  The manifest of this module's own tables, so `mix phoenix_kit.repair` and
+  `mix phoenix_kit.doctor` can check and repair them.
+
+  Returns a module implementing `PhoenixKit.Migrations.ExpectedSchema.Behaviour`
+  (the same contract as core's own manifest), or `nil`. It describes the
+  tables the module's own migration chain builds, **as that chain leaves them
+  at its current version**, and is generated from that chain, never written by
+  hand (`dev_docs/squash/generate_module_manifest.exs` in core).
+
+  Repair checks the module only while the database is at the chain's current
+  version (`migration_module/0`'s `migrated_version/1` equals
+  `current_version/0`): a module that is behind, or was never migrated, is
+  reported as such, not healed against a shape it is not supposed to have yet.
+  Like all of repair it is additive: it creates what is missing and reports the
+  rest, and never drops, alters or rewrites anything.
+
+  Collected from all modules, enabled or not
+  (`PhoenixKit.ModuleRegistry.all_expected_schemas/0`). A module that must
+  compile against a core that lacks this callback defines it without `@impl`.
+
+  ## Example
+
+      def expected_schema, do: PhoenixKitCustomerSupport.ExpectedSchema
+  """
+  @callback expected_schema() :: module() | nil
+
+  @doc """
   The kinds of job run this module contributes — modules implementing
   `PhoenixKit.Jobs.Kind`.
 
@@ -911,6 +990,8 @@ defmodule PhoenixKit.Module do
     email_settings_sections: 0,
     email_templates: 0,
     media_reorganizer: 0,
+    file_references: 0,
+    expected_schema: 0,
     job_kinds: 0,
     api_tools: 0,
     api_problems: 0,

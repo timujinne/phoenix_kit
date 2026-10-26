@@ -107,9 +107,13 @@ defmodule PhoenixKit.API.ServiceUsers do
       else: {:error, :role_not_allowed}
   end
 
+  # A failed read of the role's keys refuses (not `[]`, which would pass).
   defp assignable?(creator_scope, %Role{name: name} = role) do
     name != Role.system_roles().owner and
-      Scope.has_all_module_access?(creator_scope, Permissions.get_permissions_for_role(role.uuid))
+      case Permissions.fetch_permissions_for_role(to_string(role.uuid)) do
+        {:ok, keys} -> Scope.has_all_module_access?(creator_scope, keys)
+        {:error, _} -> false
+      end
   end
 
   defp insert(creator, name, role_names) do

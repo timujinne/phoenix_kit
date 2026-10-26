@@ -12,6 +12,16 @@ defmodule PhoenixKit.Users.Roles do
   - Check user permissions
   - Bulk role operations
 
+  ## Who may change roles
+
+  Every entry point that gives a role, takes one away or deletes one accepts an
+  `:actor` (a `%User{}` or a `%Scope{}`; omitted or `:system` = unrestricted, for
+  seeding and system callers). With a real actor the rule is
+  `can_manage_role?/2`: an Owner may do anything; anyone else only for a role
+  that is neither Owner nor Admin and whose every permission key they hold
+  themselves (a role holding `"*"` only by a holder of `"*"`). Nobody but an
+  Owner changes their own roles (`{:error, :cannot_modify_own_roles}`).
+
   ## System Roles
 
   PhoenixKit includes three built-in system roles:
@@ -43,7 +53,9 @@ defmodule PhoenixKit.Users.Roles do
   alias Ecto.Adapters.SQL
   alias PhoenixKit.Admin.Events
   alias PhoenixKit.RepoHelper
+  alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Users.Permissions
   alias PhoenixKit.Users.{Role, RoleAssignment, ScopeNotifier}
   alias PhoenixKit.Users.Sessions
   alias PhoenixKit.Utils.Date, as: UtilsDate
@@ -61,6 +73,10 @@ defmodule PhoenixKit.Users.Roles do
   - `user`: The user to assign the role to
   - `role_name`: The name of the role to assign
   - `assigned_by` (optional): The user who is assigning the role
+  - `opts`: `:broadcast` (default `true`); `:actor` — the acting `%User{}` or
+    `%Scope{}`, checked against `can_manage_role?/2` and the own-roles rule
+    (`{:error, :not_permitted}` / `{:error, :cannot_modify_own_roles}`).
+    Omitted = a system caller, unchecked.
 
   ## Examples
 
@@ -80,11 +96,16 @@ defmodule PhoenixKit.Users.Roles do
       when is_binary(role_name) do
     roles = Role.system_roles()
 
-    # Prevent manual assignment of Owner role
-    if role_name == roles.owner do
-      {:error, :owner_role_protected}
-    else
-      assign_role_internal(user, role_name, assigned_by, opts)
+    cond do
+      # Prevent manual assignment of Owner role
+      role_name == roles.owner ->
+        {:error, :owner_role_protected}
+
+      (refusal = actor_refusal(Keyword.get(opts, :actor, :system), user, role_name)) != :ok ->
+        refusal
+
+      true ->
+        assign_role_internal(user, role_name, assigned_by, opts)
     end
   end
 
@@ -136,6 +157,7 @@ defmodule PhoenixKit.Users.Roles do
 
   - `user`: The user to remove the role from
   - `role_name`: The name of the role to remove
+  - `opts`: `:broadcast` (default `true`); `:actor`, as for `assign_role/4`
 
   ## Examples
 
@@ -149,6 +171,12 @@ defmodule PhoenixKit.Users.Roles do
     repo = RepoHelper.repo()
     broadcast? = Keyword.get(opts, :broadcast, true)
 
+    with :ok <- actor_refusal(Keyword.get(opts, :actor, :system), user, role_name) do
+      do_remove_role(repo, user, role_name, broadcast?)
+    end
+  end
+
+  defp do_remove_role(repo, user, role_name, broadcast?) do
     case get_assignment(user.uuid, role_name) do
       nil ->
         {:error, :assignment_not_found}
@@ -653,16 +681,21 @@ defmodule PhoenixKit.Users.Roles do
 
   - `user`: The user to promote
   - `assigned_by` (optional): The user who is doing the promotion
+  - `opts`: `:actor` — as for `assign_role/4`. Admin is a system role, so only
+    an Owner actor may promote (`{:error, :not_permitted}` otherwise). Omitted =
+    a system caller (seeding, fixtures), unchecked — no web page calls this.
 
   ## Examples
 
       iex> promote_to_admin(user)
       {:ok, %RoleAssignment{}}
   """
-  def promote_to_admin(%User{} = user, assigned_by \\ nil) do
-    # Admin role can be assigned through normal process
+  def promote_to_admin(%User{} = user, assigned_by \\ nil, opts \\ []) do
     roles = Role.system_roles()
-    assign_role_internal(user, roles.admin, assigned_by)
+
+    with :ok <- actor_refusal(Keyword.get(opts, :actor, :system), user, roles.admin) do
+      assign_role_internal(user, roles.admin, assigned_by)
+    end
   end
 
   @doc """
@@ -673,6 +706,8 @@ defmodule PhoenixKit.Users.Roles do
   ## Parameters
 
   - `user`: The user to demote
+  - `opts`: `:actor` — as for `remove_role/3`: only an Owner actor may take
+    Owner or Admin away. Omitted = a system caller, unchecked.
 
   ## Examples
 
@@ -682,17 +717,17 @@ defmodule PhoenixKit.Users.Roles do
       iex> demote_to_user(last_owner)
       {:error, :cannot_demote_last_owner}
   """
-  def demote_to_user(%User{} = user) do
+  def demote_to_user(%User{} = user, opts \\ []) do
     roles = Role.system_roles()
 
     cond do
       user_has_role?(user, roles.owner) ->
         # Use safe removal for Owner role
-        safely_remove_role(user, roles.owner)
+        safely_remove_role(user, roles.owner, opts)
 
       user_has_role?(user, roles.admin) ->
         # Admin can be demoted safely
-        remove_role(user, roles.admin)
+        remove_role(user, roles.admin, opts)
 
       true ->
         # User has no roles to demote from
@@ -854,7 +889,7 @@ defmodule PhoenixKit.Users.Roles do
 
         count when is_integer(count) and count > 0 ->
           # Active owners exist, assign default role
-          default_role_name = get_safe_default_role()
+          default_role_name = default_role_for_new_users()
 
           case assign_role_internal(user, default_role_name) do
             {:ok, _assignment} ->
@@ -943,6 +978,7 @@ defmodule PhoenixKit.Users.Roles do
 
   - `user`: User to remove role from
   - `role_name`: Name of role to remove
+  - `opts`: `:actor` — as for `remove_role/3`. Omitted = a system caller.
 
   ## Examples
 
@@ -952,9 +988,22 @@ defmodule PhoenixKit.Users.Roles do
       iex> safely_remove_role(admin_user, "Admin")
       {:ok, %RoleAssignment{}}
   """
-  def safely_remove_role(%User{} = user, role_name) when role_name == "Owner" do
+  def safely_remove_role(user, role_name, opts \\ [])
+
+  def safely_remove_role(%User{} = user, "Owner" = role_name, opts) do
     repo = RepoHelper.repo()
 
+    with :ok <- actor_refusal(Keyword.get(opts, :actor, :system), user, role_name) do
+      remove_last_safe_owner(repo, user, role_name)
+    end
+  end
+
+  def safely_remove_role(%User{} = user, role_name, opts) do
+    # Non-Owner roles can be removed safely
+    remove_role(user, role_name, opts)
+  end
+
+  defp remove_last_safe_owner(repo, user, role_name) do
     repo.transaction(fn ->
       remaining_owners = count_remaining_owners(repo, user.uuid)
 
@@ -964,11 +1013,6 @@ defmodule PhoenixKit.Users.Roles do
         execute_role_removal(user, role_name, repo)
       end
     end)
-  end
-
-  def safely_remove_role(%User{} = user, role_name) do
-    # Non-Owner roles can be removed safely
-    remove_role(user, role_name)
   end
 
   @doc """
@@ -1070,6 +1114,9 @@ defmodule PhoenixKit.Users.Roles do
   ## Parameters
 
   - `role`: The role to delete
+  - `opts`: `:actor` — the acting `%User{}` or `%Scope{}`. Only an actor who
+    holds every key of the role may delete it (`can_manage_role?/2`; an Owner
+    always): `{:error, :not_permitted}` otherwise. Omitted = a system caller.
 
   ## Examples
 
@@ -1082,12 +1129,15 @@ defmodule PhoenixKit.Users.Roles do
       iex> delete_role(role_with_users)
       {:error, :role_in_use}
   """
-  def delete_role(%Role{} = role) do
+  def delete_role(%Role{} = role, opts \\ []) do
     repo = RepoHelper.repo()
 
     cond do
       role.is_system_role ->
         {:error, :system_role_protected}
+
+      not can_manage_role?(Keyword.get(opts, :actor, :system), role) ->
+        {:error, :not_permitted}
 
       role_has_assignments?(role) ->
         {:error, :role_in_use}
@@ -1120,6 +1170,13 @@ defmodule PhoenixKit.Users.Roles do
     account (privilege escalation) or to strip them (the disabled-checkbox
     form drops Owner from the submitted set, which would otherwise read as a
     removal) is DROPPED — that role is left exactly as it was.
+  - Any other role is changed only when the actor may manage it
+    (`can_manage_role?/2`: the actor holds every permission key of the role).
+    A change the actor may not make is DROPPED like a system-role change and
+    its role name is returned in `:refused`, so the caller can say so.
+  - A non-Owner actor may not change **their own** roles at all: the whole
+    call fails with `{:error, :cannot_modify_own_roles}` when it would change
+    anything.
   - The **last Owner** can never be removed, regardless of actor, via the
     same guard as `safely_remove_role/2`.
 
@@ -1130,10 +1187,10 @@ defmodule PhoenixKit.Users.Roles do
 
   - `user`: The user to synchronize roles for
   - `role_names`: List of role names the user should have
-  - `opts`: `:actor` — the acting `%User{}` (see above)
+  - `opts`: `:actor` — the acting `%User{}` or `%Scope{}` (see above)
 
-  Returns `{:ok, %{assignments: [...], roles_before: [...], roles_after: [...]}}`
-  on success — `roles_before`/`roles_after` are the role-name lists captured
+  Returns `{:ok, %{assignments: [...], roles_before: [...], roles_after: [...],
+  refused: [...]}}` on success — `roles_before`/`roles_after` are the role-name lists captured
   inside the transaction, so callers can audit the exact delta this transaction
   applied (which can differ from what was submitted when unauthorized changes
   are dropped or a concurrent edit intervened).
@@ -1147,7 +1204,7 @@ defmodule PhoenixKit.Users.Roles do
 
   def sync_user_roles(%User{} = user, role_names, opts) when is_list(role_names) do
     repo = RepoHelper.repo()
-    actor = Keyword.get(opts, :actor, :system)
+    actor = actor_context(Keyword.get(opts, :actor, :system))
 
     case repo.transaction(fn ->
            # Serialize concurrent role edits for THIS user (per-user key, so
@@ -1162,15 +1219,20 @@ defmodule PhoenixKit.Users.Roles do
            roles_before = get_user_roles(user)
 
            # Determine roles to add and remove
-           roles_to_add = role_names -- roles_before
+           roles_to_add = Enum.uniq(role_names) -- roles_before
            roles_to_remove = roles_before -- role_names
 
+           if own_roles_refused?(actor, user) and (roles_to_add != [] or roles_to_remove != []) do
+             repo.rollback(:cannot_modify_own_roles)
+           end
+
            # Drop changes the actor isn't authorized to make (system-role
-           # grants/revocations require Owner). Silently leaving them
-           # unchanged matches the disabled-checkbox UI intent and blocks
-           # both escalation and the Owner-wipe.
-           roles_to_add = authorize_role_changes(roles_to_add, actor)
-           roles_to_remove = authorize_role_changes(roles_to_remove, actor)
+           # grants/revocations require Owner; any other role needs every one
+           # of its keys). Leaving them unchanged matches the disabled-checkbox
+           # UI intent and blocks both escalation and the Owner-wipe; the
+           # dropped names come back in `:refused`.
+           {roles_to_add, refused_add} = authorize_role_changes(roles_to_add, actor)
+           {roles_to_remove, refused_remove} = authorize_role_changes(roles_to_remove, actor)
 
            # Guard the last Owner before any removal runs
            guard_last_owner_removal(repo, user, roles_to_remove)
@@ -1184,7 +1246,12 @@ defmodule PhoenixKit.Users.Roles do
            # The role set AFTER, still inside the transaction.
            roles_after = get_user_roles(user)
 
-           %{assignments: assignments, roles_before: roles_before, roles_after: roles_after}
+           %{
+             assignments: assignments,
+             roles_before: roles_before,
+             roles_after: roles_after,
+             refused: Enum.uniq(refused_add ++ refused_remove)
+           }
          end) do
       {:ok, %{roles_after: roles_after} = result} ->
         Events.broadcast_user_roles_synced(user, roles_after)
@@ -1197,18 +1264,140 @@ defmodule PhoenixKit.Users.Roles do
     end
   end
 
-  # A system caller (:system) may change any role. A real actor may only
-  # change the system roles (Owner/Admin) if they are themselves an Owner.
-  defp authorize_role_changes(role_names, :system), do: role_names
+  @doc """
+  Whether `actor` may give `role` to someone, take it away from someone, delete
+  it, or make it the new-user default.
 
-  defp authorize_role_changes(role_names, %User{} = actor) do
-    if owner?(actor) do
-      role_names
-    else
-      system = Role.system_roles()
-      privileged = [system.owner, system.admin]
-      Enum.reject(role_names, &(&1 in privileged))
+  `actor` is a `%User{}`, a `%Scope{}` or `:system` (always true). An Owner (by
+  their real, held roles) may manage any role. Anyone else may manage a role
+  only when it is neither Owner nor Admin and they hold every permission key
+  the role holds — checked against their effective permissions (the active
+  role, when they act as one), so a role holding `"*"` needs `"*"`. `role` is a
+  `%Role{}` or a role name; an unknown name answers false.
+  """
+  @spec can_manage_role?(User.t() | Scope.t() | :system, Role.t() | String.t()) :: boolean()
+  def can_manage_role?(:system, _role), do: true
+
+  def can_manage_role?(actor, role_name) when is_binary(role_name) do
+    case get_role_by_name(role_name) do
+      nil -> false
+      role -> can_manage_role?(actor, role)
     end
+  end
+
+  def can_manage_role?(actor, %Role{} = role) do
+    case actor_context(actor) do
+      :system -> true
+      ctx -> role_manageable?(ctx, role)
+    end
+  end
+
+  @doc """
+  The names of the roles `actor` may manage (`can_manage_role?/2`), in role
+  order. One permissions query for all roles — for a UI that disables the rest.
+  """
+  @spec manageable_role_names(User.t() | Scope.t() | :system) :: [String.t()]
+  def manageable_role_names(actor) do
+    roles = list_roles()
+
+    case actor_context(actor) do
+      :system ->
+        Enum.map(roles, & &1.name)
+
+      %{owner?: true} ->
+        Enum.map(roles, & &1.name)
+
+      ctx ->
+        case Permissions.fetch_permissions_matrix() do
+          {:ok, matrix} ->
+            for role <- roles,
+                role_manageable?(
+                  ctx,
+                  role,
+                  matrix |> Map.get(to_string(role.uuid)) |> keys_list()
+                ),
+                do: role.name
+
+          # Unknown keys: offer nothing rather than everything.
+          {:error, _} ->
+            []
+        end
+    end
+  end
+
+  defp keys_list(nil), do: []
+  defp keys_list(%MapSet{} = set), do: MapSet.to_list(set)
+  defp keys_list(list) when is_list(list), do: list
+
+  # The actor as the rules need it: who they are, whether they really hold
+  # Owner, and the scope their effective permissions are read from.
+  defp actor_context(:system), do: :system
+
+  defp actor_context(%Scope{user: %User{} = user} = scope) do
+    %{user: user, owner?: Role.system_roles().owner in Scope.held_roles(scope), scope: scope}
+  end
+
+  defp actor_context(%User{} = user) do
+    %{user: user, owner?: owner?(user), scope: Scope.for_user(user)}
+  end
+
+  # `nil`, or a scope with no user, is no actor at all: it may manage nothing.
+  # (Only an omitted `:actor` or an explicit `:system` is unrestricted.)
+  defp actor_context(_other), do: %{user: nil, owner?: false, scope: nil}
+
+  # The role's keys are read without the `[]`-on-error fallback: a failed read
+  # refuses, it never passes the subset check as an empty role.
+  defp role_manageable?(%{owner?: true}, _role), do: true
+
+  defp role_manageable?(ctx, role) do
+    case Permissions.fetch_permissions_for_role(to_string(role.uuid)) do
+      {:ok, keys} -> role_manageable?(ctx, role, keys)
+      {:error, _} -> false
+    end
+  end
+
+  defp role_manageable?(%{scope: scope}, %Role{name: name}, keys) do
+    system = Role.system_roles()
+
+    name not in [system.owner, system.admin] and scope != nil and
+      Scope.has_all_module_access?(scope, keys)
+  end
+
+  defp own_roles_refused?(:system, _user), do: false
+  defp own_roles_refused?(%{owner?: true}, _user), do: false
+  defp own_roles_refused?(%{user: %User{uuid: uuid}}, %User{uuid: uuid}), do: true
+  defp own_roles_refused?(_ctx, _user), do: false
+
+  # The single-role check `assign_role/4` / `remove_role/3` apply for `:actor`.
+  defp actor_refusal(actor, user, role_name) do
+    case actor_context(actor) do
+      :system ->
+        :ok
+
+      ctx ->
+        cond do
+          own_roles_refused?(ctx, user) -> {:error, :cannot_modify_own_roles}
+          role_name_manageable?(ctx, role_name) -> :ok
+          true -> {:error, :not_permitted}
+        end
+    end
+  end
+
+  defp role_name_manageable?(ctx, role_name) do
+    case get_role_by_name(role_name) do
+      # Unknown roles fall through to the caller's own `:role_not_found`.
+      nil -> true
+      role -> role_manageable?(ctx, role)
+    end
+  end
+
+  # Splits the changes into `{allowed, refused}`. A system caller may change
+  # any role; an unknown role name is passed on so the assignment reports
+  # `:role_not_found` as before.
+  defp authorize_role_changes(role_names, :system), do: {role_names, []}
+
+  defp authorize_role_changes(role_names, ctx) do
+    Enum.split_with(role_names, &role_name_manageable?(ctx, &1))
   end
 
   defp owner?(%User{} = user), do: Role.system_roles().owner in get_user_roles(user)
@@ -1349,10 +1538,15 @@ defmodule PhoenixKit.Users.Roles do
     repo.one(query)
   end
 
-  # Gets the safe default role for new users from settings
-  # Always falls back to "User" role if setting is invalid or missing
-  # Allows any valid role except Owner (which is reserved for first user)
-  defp get_safe_default_role do
+  @doc """
+  The role a new self-registered account gets: the `new_user_default_role`
+  setting when it names an existing role other than Owner and Admin, else
+  "User". Owner is reserved for the first user, and Admin would hand every
+  self-registered account the admin panel, so a stored value naming either is
+  never used.
+  """
+  @spec default_role_for_new_users() :: String.t()
+  def default_role_for_new_users do
     roles = Role.system_roles()
 
     # Get configured role with fallback to "User"
@@ -1363,13 +1557,13 @@ defmodule PhoenixKit.Users.Roles do
 
     allowed_roles =
       all_roles
-      |> Enum.reject(fn role -> role.name == roles.owner end)
+      |> Enum.reject(fn role -> role.name in [roles.owner, roles.admin] end)
       |> Enum.map(fn role -> role.name end)
 
     if configured_role in allowed_roles do
       configured_role
     else
-      # Safe fallback if setting is corrupted, invalid, or somehow set to Owner
+      # Safe fallback if setting is corrupted, invalid, or set to Owner/Admin
       roles.user
     end
   end

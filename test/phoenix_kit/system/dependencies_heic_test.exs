@@ -17,6 +17,27 @@ defmodule PhoenixKit.System.DependenciesHeicTest do
       assert Dependencies.parse_heic(out) == {:ok, "1.19.8"}
     end
 
+    test "reads ImageMagick 7.1.2's listing, which has no Module column" do
+      out = """
+         Format  Mode  Description
+      -------------------------------------------------------------
+          AVIF  r--   AV1 Image File Format (1.23.6)
+          HEIC  r--   High Efficiency Image Format (1.23.6)
+          HEIF  r--   High Efficiency Image Format (1.23.6)
+          JPEG  rw-   Joint Photographic Experts Group JFIF format
+      """
+
+      assert Dependencies.parse_heic(out) == {:ok, "1.23.6"}
+
+      assert Dependencies.parse_heic("   HEIC  rw+   High Efficiency Image Format\n") ==
+               {:ok, "libheif"}
+    end
+
+    test "a HEIC with no Module column that can only be written cannot be used" do
+      assert Dependencies.parse_heic("   HEIC  -w-   High Efficiency Image Format (1.2.0)\n") ==
+               {:error, :not_installed}
+    end
+
     test "accepts a HEIC that is also written, or whose description has no version" do
       assert Dependencies.parse_heic("      HEIC* HEIC       rw+  High Efficiency Image Format\n") ==
                {:ok, "libheif"}

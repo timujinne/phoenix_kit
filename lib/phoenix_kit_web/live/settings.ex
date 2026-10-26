@@ -153,7 +153,9 @@ defmodule PhoenixKitWeb.Live.Settings do
         # Sync site_url to Endpoint after reset
         EndpointUrlSync.sync()
 
-        # Update socket with default settings
+        # Update socket with default settings. Keys the save left alone
+        # (`settings.security` ones, for a holder without it) keep their values.
+        updated_settings = Map.merge(socket.assigns.saved_settings, updated_settings)
         changeset = Settings.change_settings(updated_settings)
 
         socket =
@@ -199,10 +201,14 @@ defmodule PhoenixKitWeb.Live.Settings do
   end
 
   # Who is saving, for the settings history (`PhoenixKit.Settings.History`).
+  # `scope:` makes the save one on this person's behalf: without
+  # `settings.security` the registration / default-role keys the form carries
+  # as hidden fields are left alone, whatever the client sends.
   defp history_opts(socket) do
     [
       actor_uuid: Actor.uuid(socket),
-      source: "settings"
+      source: "settings",
+      scope: socket.assigns[:phoenix_kit_current_scope]
     ]
   end
 
@@ -248,7 +254,9 @@ defmodule PhoenixKitWeb.Live.Settings do
     EndpointUrlSync.sync()
     OAuthConfig.configure_providers()
 
-    # Update socket with new settings
+    # Update socket with new settings. Keys the save left alone
+    # (`settings.security` ones, for a holder without it) keep their values.
+    updated_settings = Map.merge(socket.assigns.saved_settings, updated_settings)
     changeset = Settings.change_settings(updated_settings)
 
     socket =

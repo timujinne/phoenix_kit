@@ -74,14 +74,11 @@
                 }
               />
               <p class="text-xs text-base-content/60 mt-1">
-                <%= if @gate.password == "" do %>
+                <%= if not @gate.password_set? do %>
                   {gettext("none set — the gate cannot close without one")}
                 <% else %>
                   {gettext("current:")}
-                  <code class="font-mono">{if @show_password, do: @gate.password, else: "••••••••"}</code>
-                  <button type="button" class="link ml-1" phx-click="reveal_password">
-                    {if @show_password, do: gettext("hide"), else: gettext("show")}
-                  </button>
+                  <code class="font-mono">••••••••</code>
                   · {gettext("Changing it asks everyone for the password again.")}
                 <% end %>
               </p>

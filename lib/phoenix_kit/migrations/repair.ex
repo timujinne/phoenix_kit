@@ -69,6 +69,7 @@ defmodule PhoenixKit.Migrations.Repair do
   alias PhoenixKit.Migrations.Repair.Probe
   alias PhoenixKit.Migrations.Repair.Report
   alias PhoenixKit.Migrations.Repair.Scope
+  alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.RepoHelper
 
   # Spec §6.3's preflight: "asserts server_version within a declared
@@ -163,7 +164,9 @@ defmodule PhoenixKit.Migrations.Repair do
       dry_run: Keyword.get(opts, :dry_run, true),
       adopt?: Keyword.get(opts, :adopt, false),
       heal_comment?: Keyword.get(opts, :heal_comment, false),
-      unsafe_pooled?: Keyword.get(opts, :unsafe_pooled, false)
+      unsafe_pooled?: Keyword.get(opts, :unsafe_pooled, false),
+      module_manifests:
+        Keyword.get_lazy(opts, :module_manifests, &ModuleRegistry.all_expected_schemas/0)
     }
 
     if ctx.dry_run do
@@ -305,9 +308,105 @@ defmodule PhoenixKit.Migrations.Repair do
         report
         |> add_pending_findings(objects, comment)
         |> add_cross_check_finding_and_action(ctx, objects, snapshot, comment)
+        |> add_module_passes(ctx, skip_validate?)
 
       {:ok, report}
     end
+  end
+
+  # ── Module manifests ────────────────────────────────────────────────
+  #
+  # Each module that supplies a manifest of its own tables
+  # (`PhoenixKit.Module.expected_schema/0`) gets one more pass over the same
+  # pipeline, after core's. A module manifest has one revision per object, the
+  # chain's end state, so it is checked only while the database sits at the
+  # module's chain head: a module that is behind is reported, never healed
+  # against a shape it is not meant to have yet, and one that was never
+  # migrated is not mentioned. Findings are tagged with the owning app.
+
+  # Every object of a module manifest has `since: 1`.
+  @module_bound 1
+
+  defp add_module_passes(report, ctx, skip_validate?) do
+    ctx.module_manifests
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.reduce(report, fn {app, entry}, report ->
+      module_pass(report, ctx, app, entry, skip_validate?)
+    end)
+  end
+
+  defp module_pass(
+         report,
+         ctx,
+         app,
+         %{manifest: manifest, migrations: migrations},
+         skip_validate?
+       ) do
+    case module_version_state(ctx, migrations) do
+      :not_installed ->
+        report
+
+      :unknown ->
+        report
+
+      {:behind, at, head} ->
+        message =
+          "#{app}: migrated to version #{at}, its chain is at #{head}; its tables are not " <>
+            "checked until mix phoenix_kit.update brings it to #{head}"
+
+        Report.add_finding(
+          report,
+          app |> module_finding(:module_behind, :info, nil, nil, message)
+        )
+
+      {:current, _head} ->
+        sub = run_module_manifest(ctx, manifest, skip_validate?)
+
+        sub
+        |> Report.findings()
+        |> Enum.reduce(report, fn finding, report ->
+          tagged = tag_module_finding(finding, app)
+          Report.add_finding(report, tagged)
+        end)
+    end
+  end
+
+  defp run_module_manifest(ctx, manifest, skip_validate?) do
+    module_ctx = %{ctx | manifest: manifest}
+    objects = manifest.objects(ctx.prefix)
+    invariants = manifest.data_invariants(ctx.prefix)
+    snapshot = Probe.snapshot(ctx.repo, ctx.prefix)
+
+    sub = Report.new(ctx.prefix, ctx.dry_run, %{comment: nil, floor: 1, current: 1})
+    apply_scope(module_ctx, objects, invariants, snapshot, @module_bound, sub, skip_validate?)
+  end
+
+  defp module_version_state(ctx, migrations) do
+    if function_exported?(migrations, :migrated_version_runtime, 1) and
+         function_exported?(migrations, :current_version, 0) do
+      head = migrations.current_version()
+
+      case migrations.migrated_version_runtime(prefix: ctx.prefix) do
+        0 -> :not_installed
+        ^head -> {:current, head}
+        at when is_integer(at) and at < head -> {:behind, at, head}
+        _ahead_or_unreadable -> :unknown
+      end
+    else
+      :unknown
+    end
+  rescue
+    _ -> :unknown
+  end
+
+  defp module_finding(app, kind, severity, object_id, since, message) do
+    kind |> finding(severity, object_id, since, message) |> Map.put(:module, app)
+  end
+
+  defp tag_module_finding(finding, app) do
+    finding
+    |> Map.put(:module, app)
+    |> Map.update!(:message, &"#{app}: #{&1}")
   end
 
   # Spec §6.1's pipeline step: after applying the object slice, before the

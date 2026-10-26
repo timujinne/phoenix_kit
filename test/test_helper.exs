@@ -57,11 +57,12 @@ repo_available =
 
       # What the boot sweep gives the Admin role (`Permissions.auto_grant_new_keys_to_admin/0`
       # runs at application start, not here): the two sub-permissions of `media`, so an Admin
-      # in a test sees everything in Media and opens the storage screens, as in production.
+      # in a test sees everything in Media and opens the storage screens, as in production,
+      # and `settings.security`, so it opens the Authorization and Website access pages.
       # Committed once; idempotent.
       case PhoenixKit.Users.Roles.get_role_by_name("Admin") do
         %{uuid: admin_uuid} ->
-          for key <- ~w(media.view_all media.manage),
+          for key <- ~w(media.view_all media.manage settings.security),
               do: PhoenixKit.Users.Permissions.grant_permission(admin_uuid, key)
 
         _ ->

@@ -18,7 +18,9 @@ defmodule PhoenixKit.Modules.Storage.HdrXmp do
   }
 
   def rewrite(xml, gain_len, strip?) do
-    case Saxy.SimpleForm.parse_string(xml) do
+    # Some writers (an iPhone's JPEG) end the packet with a NUL byte, as C strings
+    # do. It is not part of the XMP and an XML parser refuses it.
+    case Saxy.SimpleForm.parse_string(String.trim_trailing(xml, <<0>>)) do
       {:ok, tree} ->
         case rewrite_node(tree, %{}, gain_len, strip?, false) do
           nil -> raise ArgumentError, "unsupported HDR XMP"

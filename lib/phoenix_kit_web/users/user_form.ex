@@ -47,7 +47,7 @@ defmodule PhoenixKitWeb.Users.UserForm do
     all_roles = Roles.list_roles()
 
     # Load default role for new user creation
-    default_role = Settings.get_setting("new_user_default_role", "User")
+    default_role = Settings.effective_new_user_default_role()
 
     # Load timezone options — timezone_options/0 directly, not
     # get_setting_options/0: this form already loads all_roles above for
@@ -287,6 +287,12 @@ defmodule PhoenixKitWeb.Users.UserForm do
       role_names = socket.assigns.pending_roles
 
       case Roles.sync_user_roles(user, role_names, actor: current_user) do
+        {:ok, %{refused: [_ | _] = refused}} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, roles_refused_message(refused))
+           |> assign(:user_roles, Roles.get_user_roles(user))}
+
         {:ok, _assignments} ->
           socket =
             socket
@@ -329,6 +335,12 @@ defmodule PhoenixKitWeb.Users.UserForm do
         |> Enum.map(fn {key, _value} -> key end)
 
       case Roles.sync_user_roles(user, role_names, actor: current_user) do
+        {:ok, %{refused: [_ | _] = refused}} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, roles_refused_message(refused))
+           |> assign(:user_roles, Roles.get_user_roles(user))}
+
         {:ok, _assignments} ->
           socket =
             socket
@@ -943,6 +955,17 @@ defmodule PhoenixKitWeb.Users.UserForm do
      )}
   end
 
+  defp handle_update_result(socket, {:ok, %{refused: [_ | _] = refused}}, _refused) do
+    fresh_user = Auth.get_user!(socket.assigns.user.uuid)
+
+    {:noreply,
+     socket
+     |> assign(:user, fresh_user)
+     |> reload_changeset_with_updated_user(fresh_user)
+     |> put_flash(:warning, roles_refused_message(refused))
+     |> push_navigate(to: socket.assigns.return_to)}
+  end
+
   defp handle_update_result(socket, {:ok, _result}, _refused) do
     # _result could be either the updated user or role assignments (from sync_user_roles)
     # In both cases, we need to reload the user from the database to get the fresh data
@@ -987,8 +1010,19 @@ defmodule PhoenixKitWeb.Users.UserForm do
     "User profile updated but cannot remove Owner role from the last Owner."
   end
 
+  defp format_role_update_error(:cannot_modify_own_roles) do
+    gettext("Cannot modify your own roles")
+  end
+
   defp format_role_update_error(_) do
     "User profile updated but roles failed to update."
+  end
+
+  defp roles_refused_message(refused) do
+    gettext(
+      "Not changed — you can only give or take away roles whose permissions you hold: %{roles}",
+      roles: Enum.join(refused, ", ")
+    )
   end
 
   defp handle_profile_update_error(socket, changeset, user_params) do

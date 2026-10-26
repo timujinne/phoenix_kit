@@ -25,6 +25,20 @@ defmodule PhoenixKit.Users.Permissions do
     revoking the base cascades its subs, and `set_permissions/3` normalizes
     the desired set — no path can persist an orphan sub-key row.
   - A sub-key is enabled iff its parent module is enabled.
+  - Core sections declare theirs in `@core_sub_permissions`: `media.view_all`,
+    `media.manage`, `jobs.manage` and `settings.security` (the Authorization and
+    Website access pages and the registration / new-user-default settings).
+    A sub-key that narrows what its base used to allow is granted once to every
+    role holding the base (`backfill_media_sub_permissions/0`,
+    `backfill_settings_sub_permissions/0`).
+
+  ## Who may hand out a role
+
+  `PhoenixKit.Users.Roles.can_manage_role?/2` is the one rule for giving a role
+  to someone, taking it away, deleting it, or making it the new-user default:
+  an Owner may; anyone else only for a role that is neither Owner nor Admin and
+  whose every key they hold themselves (a role holding `"*"` only by a holder of
+  `"*"`). Nobody but an Owner changes their own roles.
 
       Permissions.sub_permission_keys()          # ["calendar.edit_others", ...]
       Permissions.sub_permissions_for("calendar") # [%{key:, label:, description:}]
@@ -146,9 +160,25 @@ defmodule PhoenixKit.Users.Permissions do
         label: "Manage jobs",
         description: "Start, pause, resume, cancel and retry background jobs"
       }
+    ],
+    # `settings.security` — the settings that decide who gets in: Settings →
+    # Authorization (login methods, OAuth providers and their secrets), Settings
+    # → Website access (the password gate, site close, the allow list) and the
+    # registration / new-user-default keys of Settings → Users
+    # (`PhoenixKit.Settings.security_setting_keys/0`). Granted once to every role
+    # that held `settings` before it existed
+    # (`backfill_settings_sub_permissions/0`), so an upgrade changes nothing.
+    "settings" => [
+      %{
+        key: "settings.security",
+        label: "Security settings",
+        description:
+          "Sign-in methods and OAuth secrets, website access (password gate, site close, allowed addresses), registration and the new-user default role"
+      }
     ]
   }
   @media_subs_flag "media_sub_permissions_backfilled"
+  @settings_subs_flag "settings_security_backfilled"
 
   # Core-managed integration permission keys. TWO INDEPENDENT flat keys (not
   # dotted ⇒ no cascade / no sub-implies-base): `integrations` gates the
@@ -1011,6 +1041,61 @@ defmodule PhoenixKit.Users.Permissions do
   end
 
   @doc """
+  `get_permissions_for_role/1` for an authorization decision: a failed read is
+  `{:error, reason}`, never `[]` — an empty list would read as "this role holds
+  nothing" and pass every subset check. Callers must fail closed on an error.
+  """
+  @spec fetch_permissions_for_role(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_permissions_for_role(role_uuid) when is_binary(role_uuid) do
+    fetch(fn ->
+      from(rp in RolePermission,
+        where: rp.role_uuid == ^role_uuid,
+        select: rp.module_key,
+        order_by: [asc: rp.module_key]
+      )
+    end)
+  end
+
+  @doc """
+  `get_permissions_matrix/0` for an authorization decision: `{:error, reason}`
+  on a failed read instead of `%{}` (which would make every role look empty).
+  """
+  @spec fetch_permissions_matrix() :: {:ok, %{String.t() => MapSet.t()}} | {:error, term()}
+  def fetch_permissions_matrix do
+    with {:ok, rows} <-
+           fetch(fn -> from(rp in RolePermission, select: {rp.role_uuid, rp.module_key}) end) do
+      {:ok,
+       rows
+       |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
+       |> Map.new(fn {role_uuid, keys} -> {role_uuid, MapSet.new(keys)} end)}
+    end
+  end
+
+  @doc """
+  `roles_with_permission/1` for a grant pass (a backfill): `{:error, reason}` on
+  a failed read instead of `[]`, which would let the pass record itself as done
+  having granted nothing.
+  """
+  @spec fetch_roles_with_permission(String.t()) :: {:ok, [String.t()]} | {:error, term()}
+  def fetch_roles_with_permission(module_key) when is_binary(module_key) do
+    fetch(fn ->
+      from(rp in RolePermission,
+        where: rp.module_key == ^module_key,
+        select: rp.role_uuid,
+        order_by: [asc: rp.role_uuid]
+      )
+    end)
+  end
+
+  defp fetch(query_fun) do
+    {:ok, RepoHelper.repo().all(query_fun.())}
+  rescue
+    e -> {:error, e}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
+  end
+
+  @doc """
   Returns a matrix of role_uuid → MapSet of granted keys for all roles.
   """
   @spec get_permissions_matrix() :: %{String.t() => MapSet.t()}
@@ -1784,11 +1869,43 @@ defmodule PhoenixKit.Users.Permissions do
   @doc false
   @spec backfill_media_subs(keyword()) :: :ok | {:error, term()}
   def backfill_media_subs(opts) do
-    result = run_media_backfill(opts)
+    run_sub_backfill(
+      :media_subs,
+      "media",
+      @media_subs_flag,
+      "media sub-permission backfill",
+      opts
+    )
+  end
+
+  @doc """
+  Grants `settings.security` ONCE to every role that holds `settings`: before it
+  existed, holding `settings` opened the Authorization and Website access pages
+  and the registration settings, and an upgrade must not take that away. Same
+  once-only flag and retry as `backfill_media_sub_permissions/0` — a role
+  created, or given `settings`, afterwards gets the narrow meaning.
+  """
+  @spec backfill_settings_sub_permissions() :: :ok | {:error, term()}
+  def backfill_settings_sub_permissions, do: backfill_settings_subs([])
+
+  @doc false
+  @spec backfill_settings_subs(keyword()) :: :ok | {:error, term()}
+  def backfill_settings_subs(opts) do
+    run_sub_backfill(
+      :settings_subs,
+      "settings",
+      @settings_subs_flag,
+      "settings sub-permission backfill",
+      opts
+    )
+  end
+
+  defp run_sub_backfill(tag, base, flag, what, opts) do
+    result = run_backfill(base, flag, what, opts)
 
     case result do
       {:error, reason} ->
-        if report_failure?(opts, reason), do: AdminGrants.report_failure(:media_subs)
+        if report_failure?(opts, reason), do: AdminGrants.report_failure(tag)
 
       :ok ->
         :ok
@@ -1797,36 +1914,42 @@ defmodule PhoenixKit.Users.Permissions do
     result
   end
 
-  defp run_media_backfill(opts) do
+  defp run_backfill(base, flag, what, opts) do
     # Read from the row, like `auto_grant_to_admin_roles/1`'s flag: through
     # `Settings.get_setting/1` it reads nil with `update_mode` on.
-    if match?(%{value: "true"}, SettingsQueries.get_setting_by_key(@media_subs_flag)) do
+    if match?(%{value: "true"}, SettingsQueries.get_setting_by_key(flag)) do
       :ok
     else
-      subs = Enum.map(@core_sub_permissions["media"], & &1.key)
-      roles = roles_with_permission("media")
+      subs = Enum.map(@core_sub_permissions[base], & &1.key)
 
+      # A failed read of who holds the base is a failure, not "nobody": the
+      # flag must not be set on a pass that granted nothing for that reason.
       results =
-        for role <- roles, key <- subs do
-          grant_permission(role, key)
+        case fetch_roles_with_permission(base) do
+          {:ok, roles} ->
+            for role <- roles, key <- subs, do: grant_permission(role, key)
+
+          # Before the permissions table exists: nothing to do, and not done.
+          {:error, error} ->
+            if table_missing_error?(error), do: raise(error), else: [{:error, error}]
         end
 
       # Flagged only when every grant went through; a failure is retried by
       # `AdminGrants` (and on the next boot).
       with nil <- Enum.find(results, &match?({:error, _}, &1)),
-           :ok <- save_flag(@media_subs_flag) do
+           :ok <- save_flag(flag) do
         :ok
       else
-        {:error, reason} -> grant_failure(reason, "media sub-permission backfill", opts)
+        {:error, reason} -> grant_failure(reason, what, opts)
       end
     end
   rescue
     error ->
       if table_missing_error?(error),
         do: :ok,
-        else: grant_failure(error, "media sub-permission backfill", opts)
+        else: grant_failure(error, what, opts)
   catch
-    :exit, reason -> grant_failure({:exit, reason}, "media sub-permission backfill", opts)
+    :exit, reason -> grant_failure({:exit, reason}, what, opts)
   end
 
   @doc """

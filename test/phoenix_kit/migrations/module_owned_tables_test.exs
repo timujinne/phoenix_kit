@@ -60,6 +60,46 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTablesTest do
     end
   end
 
+  describe "the manifest" do
+    test "lists core's tables only: no object of a module's table remains" do
+      module_tables = MapSet.new(ModuleOwnedTables.module_tables())
+      objects = ExpectedSchema.objects("public")
+
+      table_of = fn
+        %{class: :table, check: {:catalog, %{name: name}}} -> name
+        %{class: :seed, id: id} -> id |> String.split(":") |> Enum.at(1)
+        %{check: {:catalog, %{table: table}}} -> table
+        _ -> nil
+      end
+
+      offenders = for o <- objects, MapSet.member?(module_tables, table_of.(o)), do: o.id
+      assert offenders == []
+
+      sequences = for %{class: :sequence, check: {:catalog, %{name: n}}} <- objects, do: n
+
+      assert Enum.filter(sequences, fn n ->
+               Enum.any?(module_tables, &String.starts_with?(n, &1 <> "_"))
+             end) == []
+
+      for %{assert: sql} <- ExpectedSchema.data_invariants("public"),
+          [name] <- Regex.scan(~r/phoenix_kit_[a-z0-9_]+/, sql) do
+        refute MapSet.member?(module_tables, name), "an invariant still names #{name}"
+      end
+    end
+
+    test "still lists every table of core's own" do
+      listed =
+        "public"
+        |> ExpectedSchema.objects()
+        |> Enum.flat_map(fn
+          %{class: :table, check: {:catalog, %{name: name}}} -> [name]
+          _ -> []
+        end)
+
+      assert Enum.sort(listed) == Enum.sort(ModuleOwnedTables.core_tables())
+    end
+  end
+
   describe "core versions after the last one allowed to touch a module's table" do
     test "name no module-owned table" do
       cutoff = ModuleOwnedTables.last_core_version_touching_module_tables()
@@ -103,11 +143,7 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTablesTest do
     end
   end
 
-  defp manifest_tables do
-    for %{class: :table, check: {:catalog, %{name: name}}} <- ExpectedSchema.objects("public"),
-        into: MapSet.new(),
-        do: name
-  end
+  defp manifest_tables, do: ExpectedSchema.created_table_names()
 
   defp version_files do
     @versions_dir

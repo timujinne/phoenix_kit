@@ -407,7 +407,7 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
         "authorization",
         912,
         :admin_settings,
-        "settings"
+        "settings.security"
       ),
       admin_subtab(
         :admin_settings_organization,
@@ -434,7 +434,7 @@ defmodule PhoenixKit.Dashboard.AdminTabs do
         "website-access",
         915,
         :admin_settings,
-        "settings"
+        "settings.security"
       ),
       admin_subtab(
         :admin_settings_email_sending,

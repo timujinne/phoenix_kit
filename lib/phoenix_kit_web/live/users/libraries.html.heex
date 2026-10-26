@@ -17,12 +17,29 @@
 >
   <%= if @library do %>
     <div class="flex flex-col w-full h-[calc(100dvh-4rem)]">
+      <div
+        :if={@role == :admin}
+        id="library-admin-banner"
+        role="status"
+        class="alert alert-warning shrink-0 rounded-none py-2 text-sm"
+      >
+        <.icon name="hero-eye" class="w-5 h-5 shrink-0" />
+        <span>
+          {gettext("You are viewing %{owner}'s library “%{name}” as an administrator.",
+            owner: @owner_email || gettext("another user"),
+            name: @library.name
+          )}
+          {gettext("Opening it is recorded in the audit log.")}
+        </span>
+      </div>
       <.live_component
         module={PhoenixKitWeb.Components.MediaBrowser}
         id="library-browser"
         library_uuid={@library.uuid}
         phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
         readonly={readonly?(@role)}
+        admin={true}
+        can_manage_storage={@can_manage_storage}
         own_files_only={own_files_only(@role, @phoenix_kit_current_user)}
         fill_height={true}
         on_navigate={:navigate}

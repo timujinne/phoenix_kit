@@ -739,10 +739,28 @@ at the top level of their params.
 - `keep_hdr` defaults to false; the standard `medium` and `large` have it on.
   A JPEG rendition that keeps proportions and fixes its width, or one cropped
   to a box (center or focus crop; the gain map is cut to the same part of the
-  picture, and a turned photo is cut where it is shown), carries the original
-  JPEG's HDR gain map when it can. Unsupported containers or maps
+  picture, and a turned photo is cut where it is shown), carries the original's
+  HDR gain map when it can. Unsupported containers or maps
   fall back to an ordinary rendition. `config :phoenix_kit, hdr_renditions: false`
   disables preservation site-wide.
+- **A HEIC or AVIF is carried over too** (`HeifHdr`, `HeifBoxes`): an iPhone photo
+  or an Android AVIF with a `tmap` item. The SDR picture and the gain map are read
+  and cut apart (the map is usually a grid of HEVC tiles at half the size, decoded
+  by `ffmpeg`), and the rendition is the same Ultra HDR JPEG a JPEG source gives
+  (`Hdr.read/1` says `ultrahdr`). The ISO 21496-1 numbers (gain-map limits, gamma,
+  offsets, headroom) are log2 quantities with the meaning of Ultra HDR's `hdrgm`
+  properties and go across unchanged. **Needs `ffmpeg` and `ffprobe` 7.1 or later**
+  (earlier releases cannot compose a tile grid); without them the size is made the
+  ordinary way, with a warning. A map with a value per colour channel, one that runs
+  from the HDR picture to the SDR one, or one whose proportions are not the
+  picture's, is not carried over either. `Hdr.read/1` of such a file reports the
+  headroom and the parameters under `"parameters"`.
+- **Remaking only the HDR sizes.** `keep_hdr` is not part of a size's spec hash, so
+  renditions made before a source could keep its map are not seen as out of date.
+  `Storage.VariantSets.remake_hdr_renditions/1` marks just the sizes of the files
+  that have a gain map (`"heic"` and `"avif"` by default; `containers: ["jpeg"]`
+  adds JPEGs) that can be HDR renditions, and the reconciler makes those again in
+  the background. `remake_all/1` redoes everything.
 - `strip_metadata` defaults to true. Renditions drop camera, time and GPS
   metadata while keeping the colour profile and orientation. HDR renditions
   retain only the gain-map properties in XMP and the orientation in EXIF,

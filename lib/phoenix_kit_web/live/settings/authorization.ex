@@ -14,6 +14,7 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   alias PhoenixKit.Utils.CssValue
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Actor
+  alias PhoenixKitWeb.Live.Settings.SecurityGate
   alias PhoenixKitWeb.Live.Settings.UrlTabs
 
   require Logger
@@ -33,7 +34,14 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
   # for the same copy-paste-padding reason as `@oauth_secret_keys`.
   @oauth_id_keys ~w(oauth_google_client_id oauth_github_client_id oauth_facebook_app_id)
 
-  def mount(_params, _session, socket) do
+  # `settings.security` on top of the admin gate's own check (`SecurityGate`).
+  def mount(params, session, socket) do
+    if SecurityGate.allowed?(socket),
+      do: do_mount(params, session, SecurityGate.attach(socket)),
+      else: {:ok, SecurityGate.refuse(socket)}
+  end
+
+  defp do_mount(_params, _session, socket) do
     current_settings = Settings.list_all_settings()
     defaults = Settings.get_defaults()
 
@@ -263,7 +271,8 @@ defmodule PhoenixKitWeb.Live.Settings.Authorization do
 
     case Settings.update_settings(settings_params,
            actor_uuid: Actor.uuid(socket),
-           source: "settings"
+           source: "settings",
+           scope: socket.assigns[:phoenix_kit_current_scope]
          ) do
       {:ok, updated_settings} ->
         OAuthConfig.configure_providers()

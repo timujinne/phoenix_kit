@@ -96,6 +96,8 @@ defmodule PhoenixKit.Modules.Storage do
   require Logger
 
   alias PhoenixKit.Integrations.Probe
+  alias PhoenixKit.Migrations.ModuleOwnedTables
+  alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Utils.Date, as: UtilsDate
 
   alias PhoenixKit.Modules.Storage.Audit
@@ -2673,13 +2675,23 @@ defmodule PhoenixKit.Modules.Storage do
   defp maybe_filter_file_type(query, type) when type in [nil, "all", ""], do: query
   defp maybe_filter_file_type(query, type), do: where(query, [f], f.file_type == ^type)
 
-  # Sort whitelist for the media browser toolbar — defaults to newest first.
+  # Sort whitelist for the media browser toolbar — defaults to newest first
+  # (by upload time, `inserted_at`).
   # Every order carries `f.uuid` as a stable tiebreaker so equal values
   # (same size, same name, same insert time) can't shuffle across pages.
   # Name sorts compare case-insensitively (lower/?) so "apple" and "Zebra"
   # order naturally instead of uppercase-before-lowercase.
   defp apply_file_sort(query, "oldest"),
     do: order_by(query, [f], asc: f.inserted_at, asc: f.uuid)
+
+  # By capture date (the order the photo timeline shows), not upload time.
+  # A file with no capture date has nothing to place it by, so it goes last
+  # either way round.
+  defp apply_file_sort(query, "taken_oldest"),
+    do: order_by(query, [f], asc_nulls_last: f.taken_at, asc: f.uuid)
+
+  defp apply_file_sort(query, "taken_newest"),
+    do: order_by(query, [f], desc_nulls_last: f.taken_at, asc: f.uuid)
 
   defp apply_file_sort(query, "name_asc"),
     do: order_by(query, [f], asc: fragment("lower(?)", f.original_file_name), asc: f.uuid)
@@ -4144,7 +4156,13 @@ defmodule PhoenixKit.Modules.Storage do
     end)
   end
 
-  defp orphaned_files_query do
+  defp orphaned_files_query,
+    do: orphaned_files_query(ModuleRegistry.all_file_references())
+
+  # `supplied` is `ModuleRegistry.all_file_references/0`; a parameter so a test
+  # can name an owner without a real module package behind it.
+  @doc false
+  def orphaned_files_query(supplied) do
     existing = existing_optional_tables()
     protected_uuids = protected_file_uuids()
 
@@ -4175,7 +4193,59 @@ defmodule PhoenixKit.Modules.Storage do
       end
 
     # Optional module tables — only included if the table exists
-    optional_checks = [
+    optional_checks = builtin_file_references()
+
+    # A module that supplies its own references (`file_references/0`) takes
+    # over the tables it owns; core's built-in check for those is left out.
+    # Every other module keeps core's, so a module version that predates the
+    # callback is still protected. A duplicate would only repeat a NOT EXISTS,
+    # a gap would hand a used file to the delete job, so a core entry is
+    # dropped for exactly two reasons: its table's owner per
+    # `ModuleOwnedTables` supplies a list, or a supplier names that very table
+    # (a table core never created, like the projects portal submissions, has
+    # no owner there).
+    supplied_tables =
+      for {_app, {:ok, pairs}} <- supplied,
+          {table, _condition} <- pairs,
+          into: MapSet.new(),
+          do: table
+
+    optional_checks =
+      Enum.reject(optional_checks, fn {table, _condition} ->
+        Map.has_key?(supplied, ModuleOwnedTables.owner(table)) or
+          MapSet.member?(supplied_tables, table)
+      end)
+
+    query =
+      Enum.reduce(optional_checks, base, fn {table, condition}, query ->
+        if table in existing do
+          where(query, ^condition)
+        else
+          query
+        end
+      end)
+
+    query = Enum.reduce(supplied, query, &apply_module_references(&2, &1, existing))
+
+    Enum.reduce(file_reference_sources(), query, &apply_reference_source(&2, &1))
+  end
+
+  defp apply_module_references(query, {_app, {:ok, pairs}}, existing) do
+    Enum.reduce(pairs, query, fn {table, condition}, acc ->
+      if table in existing, do: where(acc, ^condition), else: acc
+    end)
+  end
+
+  defp apply_module_references(query, {app, {:error, reason}}, _existing),
+    do: reference_source_failed(query, "of module #{app}: #{reason}")
+
+  # Core's own copy of what each module's tables reference, kept until 3.0 for
+  # modules whose version predates `file_references/0` (a module that supplies
+  # its own list takes its tables over, see `orphaned_files_query/1`). Public
+  # so a module's test can prove its list renders the same SQL as this one.
+  @doc false
+  def builtin_file_references do
+    [
       # Portal submissions hold their attachments in a JSONB array rather
       # than an FK column, so the reference is invisible to a plain join —
       # which would make every PUBLISHED issue image look like an orphan
@@ -4325,17 +4395,6 @@ defmodule PhoenixKit.Modules.Storage do
          )
        )}
     ]
-
-    query =
-      Enum.reduce(optional_checks, base, fn {table, condition}, query ->
-        if table in existing do
-          where(query, ^condition)
-        else
-          query
-        end
-      end)
-
-    Enum.reduce(file_reference_sources(), query, &apply_reference_source(&2, &1))
   end
 
   defp existing_optional_tables do

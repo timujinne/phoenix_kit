@@ -136,6 +136,41 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
     end)
   end
 
+  @doc """
+  Builds core's chain, then the module's chain alone, in `schema`, and leaves
+  it there. Returns `{:ok, tables}` with the module's table names, or
+  `{:error, message}` when a chain fails.
+
+  This is the build `check/3` compares, without the comparison: the input for
+  generating the module's `ExpectedSchema` manifest
+  (`dev_docs/squash/generate_module_manifest.exs`) and for checking a committed
+  one with `PhoenixKit.Migrations.Repair`. The caller drops the schema.
+
+  Takes the `:tables` option like `check/3`.
+  """
+  @spec build_alone(Ecto.Repo.t(), module(), String.t(), keyword()) ::
+          {:ok, [String.t()]} | {:error, String.t()}
+  def build_alone(repo, migrations, schema, opts \\ []) do
+    Code.ensure_loaded!(migrations)
+    tables = Keyword.get_lazy(opts, :tables, fn -> owned_tables(migrations) end)
+
+    with_auto_sandbox(repo, fn ->
+      query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
+      query!(repo, ~s(CREATE SCHEMA "#{schema}"))
+      quietly(fn -> PhoenixKit.Migration.ensure_current(repo, prefix: schema, log: false) end)
+      core_built = table_names(repo, schema)
+
+      with :ok <- run_chain(repo, migrations, schema, "on top of core's tables") do
+        created_by_chain = table_names(repo, schema) -- core_built
+        tables = Enum.uniq(tables ++ created_by_chain ++ version_table(migrations))
+        drop = Enum.map_join(tables, ", ", &~s("#{schema}"."#{&1}"))
+        query!(repo, "DROP TABLE IF EXISTS #{drop} CASCADE")
+
+        with :ok <- run_chain(repo, migrations, schema, "alone"), do: {:ok, tables}
+      end
+    end)
+  end
+
   defp compare(repo, migrations, schema, tables) do
     query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
     query!(repo, ~s(CREATE SCHEMA "#{schema}"))

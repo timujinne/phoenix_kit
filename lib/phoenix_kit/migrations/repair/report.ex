@@ -54,14 +54,16 @@ defmodule PhoenixKit.Migrations.Repair.Report do
   @typedoc """
   One reportable event. `since`/`object_id` are `nil` for findings that are not
   about a single manifest object (comment-policy findings, data invariants use
-  `object_id: nil` + a `since` from the invariant).
+  `object_id: nil` + a `since` from the invariant). A finding from a module's manifest
+  (`PhoenixKit.Module.expected_schema/0`) also carries `:module`, the owning OTP app.
   """
   @type finding :: %{
-          kind: atom(),
-          severity: severity(),
-          object_id: String.t() | nil,
-          since: pos_integer() | nil,
-          message: String.t()
+          required(:kind) => atom(),
+          required(:severity) => severity(),
+          required(:object_id) => String.t() | nil,
+          required(:since) => pos_integer() | nil,
+          required(:message) => String.t(),
+          optional(:module) => atom()
         }
 
   @type comment_action ::

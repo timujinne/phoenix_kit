@@ -210,8 +210,11 @@ defmodule PhoenixKitWeb.Live.Notifications.Settings do
     do: ChannelConfig.type_enabled?(Map.get(configs, channel_key, %{}), type_key)
 
   # Leaf routable keys for a type: its sub-types, or the base itself if none.
-  defp leaves(%{sub_types: []} = type), do: [%{key: type.key, label: type.label}]
-  defp leaves(%{sub_types: subs}), do: Enum.map(subs, &%{key: &1.key, label: &1.label})
+  defp leaves(%{sub_types: []} = type),
+    do: [%{key: type.key, label: Types.translate(type, :label)}]
+
+  defp leaves(%{sub_types: subs}),
+    do: Enum.map(subs, &%{key: &1.key, label: Types.translate(&1, :label)})
 
   defp cadence_of(configs, channel_key, type_key),
     do: ChannelConfig.cadence(Map.get(configs, channel_key, %{}), type_key)
@@ -255,12 +258,12 @@ defmodule PhoenixKitWeb.Live.Notifications.Settings do
               <div class="card bg-base-100 shadow-sm border border-base-200 overflow-hidden">
                 <div class="flex items-start gap-3 px-4 py-4">
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium text-sm">{type.label}</p>
+                    <p class="font-medium text-sm">{Types.translate(type, :label)}</p>
                     <p
                       :if={type.description not in [nil, ""]}
                       class="text-xs text-base-content/60 mt-0.5"
                     >
-                      {type.description}
+                      {Types.translate(type, :description)}
                     </p>
                   </div>
                   <%!-- Aggregate popup trigger — opens the kept-in-DOM dialog
@@ -291,7 +294,7 @@ defmodule PhoenixKitWeb.Live.Notifications.Settings do
                   </div>
                   <div :for={channel <- @active_channels} class="w-16 flex justify-center">
                     <.channel_cell
-                      :if={leaves(type) == [%{key: type.key, label: type.label}]}
+                      :if={type.sub_types == []}
                       channel={channel}
                       type_key={type.key}
                       on?={channel_type_on?(@channel_configs, channel.key(), type.key)}
@@ -309,12 +312,12 @@ defmodule PhoenixKitWeb.Live.Notifications.Settings do
                       not master_on && "opacity-50 pointer-events-none"
                     ]}>
                       <div class="flex-1 min-w-0">
-                        <p class="text-sm">{sub.label}</p>
+                        <p class="text-sm">{Types.translate(sub, :label)}</p>
                         <p
                           :if={sub.description not in [nil, ""]}
                           class="text-xs text-base-content/50 mt-0.5"
                         >
-                          {sub.description}
+                          {Types.translate(sub, :description)}
                         </p>
                       </div>
                       <div class="w-14"></div>
@@ -361,7 +364,7 @@ defmodule PhoenixKitWeb.Live.Notifications.Settings do
         keep_in_dom
         max_width="lg"
       >
-        <:title>{gettext("Aggregation")} — {type.label}</:title>
+        <:title>{gettext("Aggregation")} — {Types.translate(type, :label)}</:title>
         <.aggregate_body type={type} channels={@active_channels} configs={@channel_configs} />
       </.modal>
     </PhoenixKitWeb.Components.LayoutWrapper.app_layout>

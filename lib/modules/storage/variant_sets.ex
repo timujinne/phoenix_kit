@@ -414,6 +414,103 @@ defmodule PhoenixKit.Modules.Storage.VariantSets do
     :ok
   end
 
+  # What a size's `spec_hash` is set to when its rendition is to be made again for a
+  # reason the spec does not show: it matches no size's spec, so the reconciler
+  # remakes the rendition, which then records the real hash.
+  @remake_marker "remake:hdr"
+
+  @doc """
+  Makes the HDR renditions of the photos that have a gain map again, and nothing else.
+
+  `keep_hdr` is not part of a size's spec hash, so when the pipeline learns to keep a
+  gain map for a source it did not before (a HEIC or AVIF, with `HeifHdr`), the
+  renditions already made are not seen as out of date. `remake_all/1` would redo every
+  size of every file; this marks only
+
+    * the files whose `metadata["hdr"]` says they have a gain map in one of
+      `:containers` (`"heic"` and `"avif"` by default; add `"jpeg"` for the photos
+      whose renditions were made before a size kept HDR), and, of those,
+    * the sizes their variant set has with HDR on that can be HDR renditions
+      (`VariantGenerator.hdr_size?/1`), under the size's own name.
+
+  The reconciler then makes those sizes again, a batch at a time in the background,
+  and leaves every other size of the file alone. `:library_uuid` limits it to one
+  library. Takes the audit options of the other functions here.
+
+  Returns `{:ok, %{files: n, sizes: m}}`: how many files and renditions were marked.
+  """
+  @spec remake_hdr_renditions(keyword()) :: {:ok, %{files: integer(), sizes: integer()}}
+  def remake_hdr_renditions(opts \\ []) do
+    Audit.transaction(fn -> do_remake_hdr(opts) end)
+    |> case do
+      {:error, reason} -> {:error, reason}
+      counts -> {:ok, counts}
+    end
+  end
+
+  defp do_remake_hdr(opts) do
+    containers = Keyword.get(opts, :containers, ["heic", "avif"])
+    default = default_uuid()
+
+    names_by_set =
+      from(d in Dimension, where: d.enabled == true)
+      |> repo().all()
+      |> Enum.filter(&(&1.applies_to in ["image", "both"] and VariantGenerator.hdr_size?(&1)))
+      |> Enum.group_by(&to_string(&1.variant_set_uuid), & &1.name)
+
+    sizes =
+      Enum.reduce(names_by_set, 0, fn {set_uuid, names}, sizes ->
+        files =
+          from(f in StorageFile,
+            left_join: l in Library,
+            on: l.uuid == f.library_uuid,
+            where:
+              coalesce(l.variant_set_uuid, type(^default, UUIDv7)) == type(^set_uuid, UUIDv7),
+            where: f.file_type == "image" and f.status == "active",
+            where:
+              fragment("?->'hdr'->>'gain_map' = 'true'", f.metadata) and
+                fragment("?->'hdr'->>'container' = ANY(?)", f.metadata, ^containers),
+            select: f.uuid
+          )
+          |> in_library(opts[:library_uuid])
+
+        {marked, _} =
+          from(i in PhoenixKit.Modules.Storage.FileInstance,
+            where: i.file_uuid in subquery(files),
+            where: i.variant_name in ^names and not is_nil(i.spec_hash)
+          )
+          |> repo().update_all(set: [spec_hash: @remake_marker])
+
+        sizes + marked
+      end)
+
+    # The files that now hold a marked size are the ones to look at.
+    marked_files =
+      from(i in PhoenixKit.Modules.Storage.FileInstance,
+        where: i.spec_hash == ^@remake_marker,
+        select: i.file_uuid
+      )
+
+    {files, _} =
+      from(f in StorageFile, where: f.uuid in subquery(marked_files))
+      |> repo().update_all(set: [placed_variant_revision: 0])
+
+    ReconcileJob.enqueue()
+
+    Audit.log("storage.variant_set.remade", "storage_variant_set", nil, opts, %{
+      "scope" => "hdr renditions",
+      "files" => files,
+      "sizes" => sizes
+    })
+
+    %{files: files, sizes: sizes}
+  end
+
+  defp in_library(query, nil), do: query
+
+  defp in_library(query, library_uuid),
+    do: where(query, [f], f.library_uuid == type(^library_uuid, UUIDv7))
+
   @doc "Requests a check of one set's files and records the person who requested it."
   @spec check_files(VariantSet.t(), keyword()) :: :ok | {:error, term()}
   def check_files(%VariantSet{} = set, opts \\ []) do

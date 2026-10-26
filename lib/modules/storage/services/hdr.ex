@@ -13,7 +13,8 @@ defmodule PhoenixKit.Modules.Storage.Hdr do
         "container" => "jpeg",              # "jpeg", "heic" or "avif"
         "kinds" => ["apple", "iso21496"],   # which descriptions of it the file has
         "headroom" => 4.974161,             # HDR peak as a multiple of SDR white, or nil
-        "gain_map_bytes" => 205482}         # the size of the map's picture, or nil
+        "gain_map_bytes" => 205482,          # the size of the map's picture, or nil
+        "parameters" => %{...}}              # a HEIC or AVIF: the file's own, see below
 
   The kinds:
 
@@ -25,7 +26,16 @@ defmodule PhoenixKit.Modules.Storage.Hdr do
   A JPEG keeps the map as a second picture listed in its Multi-Picture directory;
   a HEIC or AVIF as a `tmap` item (ISO) or Apple's auxiliary picture. Nothing is
   decoded.
+
+  For a HEIC or AVIF with a `tmap` item the box structure is read (`HeifBoxes`) and
+  its ISO 21496-1 payload gives `"headroom"` (the alternate headroom, a power of two)
+  and `"parameters"`, the gain map's own numbers under the names of Ultra HDR's `hdrgm`
+  properties (`"gain_map_min"`, `"gain_map_max"`, `"gamma"`, `"offset_sdr"`,
+  `"offset_hdr"`, `"hdr_capacity_min"`, `"hdr_capacity_max"`, all log2 but the gamma
+  and the offsets; `"multichannel"` says the map has a value per colour channel).
   """
+
+  alias PhoenixKit.Modules.Storage.HeifBoxes
 
   # Everything needed lives in the first segments of a JPEG (before the picture's
   # data starts) and in the `meta` box of a HEIF file.
@@ -67,7 +77,7 @@ defmodule PhoenixKit.Modules.Storage.Hdr do
   end
 
   defp detect(<<0xFF, 0xD8, _::binary>> = head, io), do: jpeg(head, io)
-  defp detect(<<_size::32, "ftyp", _::binary>> = head, _io), do: heif(head)
+  defp detect(<<_size::32, "ftyp", _::binary>>, io), do: heif(io)
   defp detect(_head, _io), do: %{}
 
   # ── JPEG ──────────────────────────────────────────────────────
@@ -259,68 +269,80 @@ defmodule PhoenixKit.Modules.Storage.Hdr do
 
   # ── HEIF / AVIF ───────────────────────────────────────────────
 
-  # An ISO gain map is an item of type `tmap`; Apple's is an auxiliary picture
-  # named by a URN. Both are in the `meta` box.
-  defp heif(head) do
-    meta = meta_box(head, 0)
-    container = container(head)
-    iso? = Regex.match?(~r/infe[\x02\x03]\0\0\0.{2,4}\0\0tmap/s, meta)
-    apple? = String.contains?(meta, @apple_aux)
-
-    kinds = [apple? && "apple", iso? && "iso21496"] |> Enum.filter(& &1)
-
-    if kinds == [],
-      do: %{},
-      else: %{
-        "gain_map" => true,
-        "container" => container,
-        "kinds" => kinds,
-        "headroom" => nil,
-        "gain_map_bytes" => nil
-      }
-  end
-
-  # HEIF is the box structure; the file's major brand says whether it is an AVIF.
-  defp container(<<_size::32, "ftyp", brand::binary-size(4), _::binary>>)
-       when brand in ["avif", "avis"],
-       do: "avif"
-
-  defp container(_head), do: "heic"
-
-  defp meta_box(data, at) when at + 8 <= byte_size(data) do
-    <<size::32, type::binary-size(4)>> = binary_part(data, at, 8)
-
-    {header, size} =
-      cond do
-        size == 1 and at + 16 <= byte_size(data) ->
-          <<_::binary-size(8), big::64>> = binary_part(data, at, 16)
-          {16, big}
-
-        size == 0 ->
-          {8, byte_size(data) - at}
-
-        true ->
-          {8, size}
-      end
-
-    cond do
-      type == "meta" ->
-        # A full box: four bytes of version and flags before its children.
-        start = at + header + 4
-
-        binary_part(
-          data,
-          min(start, byte_size(data)),
-          max(min(at + size, byte_size(data)) - start, 0)
-        )
-
-      size < 8 ->
-        <<>>
-
-      true ->
-        meta_box(data, at + size)
+  # An ISO gain map is an item of type `tmap`, whose payload holds the parameters
+  # (ISO 21496-1); Apple's is an auxiliary picture named by a URN. Both are in the
+  # `meta` box, which `HeifBoxes` reads whole whatever its size.
+  defp heif(io) do
+    case HeifBoxes.read(io) do
+      {:ok, heif} -> heif_summary(io, heif)
+      {:error, _} -> %{}
     end
   end
 
-  defp meta_box(_data, _at), do: <<>>
+  defp heif_summary(io, heif) do
+    iso? = HeifBoxes.item_of_type?(heif, "tmap")
+    apple? = String.contains?(heif.meta, @apple_aux)
+    kinds = [apple? && "apple", iso? && "iso21496"] |> Enum.filter(& &1)
+
+    if kinds == [] do
+      %{}
+    else
+      tone_map = if iso?, do: tone_map(io, heif)
+
+      %{
+        "gain_map" => true,
+        "container" => container(heif.brand),
+        "kinds" => kinds,
+        "headroom" => tone_map && :math.pow(2, tone_map.params.alternate_headroom),
+        "gain_map_bytes" => gain_map_bytes(heif, tone_map)
+      }
+      |> put_parameters(tone_map)
+    end
+  end
+
+  defp tone_map(io, heif) do
+    case HeifBoxes.gain_map(io, heif) do
+      {:ok, tone_map} -> tone_map
+      _ -> nil
+    end
+  end
+
+  # The size of the map's picture: the one the `tmap` item combines with the photo, or
+  # Apple's auxiliary picture.
+  defp gain_map_bytes(heif, %{gain_map: id}), do: HeifBoxes.item_size(heif, id)
+
+  defp gain_map_bytes(heif, nil) do
+    heif.items
+    |> Map.keys()
+    |> Enum.find(fn id ->
+      Enum.any?(HeifBoxes.properties_of(heif, id), fn {type, payload} ->
+        type == "auxC" and String.contains?(payload, @apple_aux)
+      end)
+    end)
+    |> case do
+      nil -> nil
+      id -> HeifBoxes.item_size(heif, id)
+    end
+  end
+
+  # The parameters the file states, in the names of Ultra HDR's `hdrgm` properties
+  # (all log2 but the gamma and the offsets).
+  defp put_parameters(summary, %{params: params}) do
+    Map.put(summary, "parameters", %{
+      "gain_map_min" => params.gain_map_min,
+      "gain_map_max" => params.gain_map_max,
+      "gamma" => params.gamma,
+      "offset_sdr" => params.base_offset,
+      "offset_hdr" => params.alternate_offset,
+      "hdr_capacity_min" => params.base_headroom,
+      "hdr_capacity_max" => params.alternate_headroom,
+      "multichannel" => params.multichannel?
+    })
+  end
+
+  defp put_parameters(summary, nil), do: summary
+
+  # HEIF is the box structure; the file's major brand says whether it is an AVIF.
+  defp container(brand) when brand in ["avif", "avis"], do: "avif"
+  defp container(_brand), do: "heic"
 end

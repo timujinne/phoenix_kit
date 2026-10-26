@@ -22,7 +22,7 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
   is the camera's own.
 
   Only JPEGs whose map is a second picture are handled (`{:error, :no_gain_map}`
-  otherwise; a HEIC gain map is a different container). Anything that does not
+  otherwise; a HEIC or AVIF gain map is a different container, see `HeifHdr`). Anything that does not
   parse as expected is an `{:error, _}`, and the caller keeps its ordinary SDR
   rendition: an HDR rendition is a bonus, never a reason for a size to be missing.
   """
@@ -182,7 +182,8 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
 
   # The same part of the picture in another picture of the same scene (the gain map
   # is a fraction of the picture's size), kept inside it and at least a pixel.
-  defp scale_window({w, h, left, top}, {pw, ph}, {gw, gh}) do
+  @doc false
+  def scale_window({w, h, left, top}, {pw, ph}, {gw, gh}) do
     x0 = min(round(left * gw / pw), gw - 1)
     x1 = min(max(round((left + w) * gw / pw), x0 + 1), gw)
     y0 = min(round(top * gh / ph), gh - 1)
@@ -243,7 +244,8 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
 
   # `[%{marker, at, raw, payload}]` for the marker segments that open a JPEG (up to
   # the first that is not an APPn or comment), and where its image data starts.
-  defp segments(bin), do: segments(bin, 2, [])
+  @doc false
+  def segments(bin), do: segments(bin, 2, [])
 
   defp segments(bin, at, acc) when at + 4 <= byte_size(bin) do
     case binary_part(bin, at, 4) do
@@ -396,7 +398,8 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
   @xmp_extension "http://ns.adobe.com/xmp/extension/\0"
 
   # The gain map: its own segments (parameters, ISO marker) and the resized image.
-  defp assemble_gain(segments, core, strip?) do
+  @doc false
+  def assemble_gain(segments, core, strip?) do
     kept =
       segments
       |> Enum.reject(&mpf?/1)
@@ -413,7 +416,8 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
 
   # The picture: what describes it (kept), the XMP's map length (rewritten), and the
   # directory (rewritten for the new sizes), then the resized image.
-  defp assemble_primary(parts, core, gain_len, strip?) do
+  @doc false
+  def assemble_primary(parts, core, gain_len, strip?) do
     # The directory is a fixed size, so everything before it can be laid out first,
     # then its offsets are known.
     layout =
@@ -478,7 +482,8 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
     end
   end
 
-  defp exif_orientation(<<order::binary-size(2), _::binary>> = tiff) when order in ["II", "MM"] do
+  @doc false
+  def exif_orientation(<<order::binary-size(2), _::binary>> = tiff) when order in ["II", "MM"] do
     big? = order == "MM"
     <<_::binary-size(4), ifd_at::binary-size(4), _::binary>> = tiff
 
@@ -496,7 +501,7 @@ defmodule PhoenixKit.Modules.Storage.HdrResize do
     end
   end
 
-  defp exif_orientation(_), do: nil
+  def exif_orientation(_), do: nil
 
   defp find_orientation(_, 0, _), do: nil
 

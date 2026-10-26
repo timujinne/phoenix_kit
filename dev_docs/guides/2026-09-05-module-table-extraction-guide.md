@@ -26,7 +26,8 @@ keeps creating the same tables; nothing changes for hosts.
 one of these tables: add the changed objects' ids to `@module_owned_ids`
 (`PhoenixKit.Squash.Generate.Emitter` in
 `dev_docs/squash/generate_baseline.exs`), take them out of `ExpectedSchema`
-(regenerate, or remove them by hand with a dated note where each was), and
+(since 2026-10-25 `ExpectedSchema` filters every module-owned object by
+`ModuleOwnedTables`, so this step is automatic), and
 raise the module's core version floor — otherwise `mix phoenix_kit.doctor`
 reports the change as drift and `mix phoenix_kit.repair` may offer to put
 the old shape back. Not `@excluded_exact`: that list is a refuse-to-emit

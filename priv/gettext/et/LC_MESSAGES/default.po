@@ -21525,3 +21525,123 @@ msgstr "Heakskiidud ja piirangud"
 #, elixir-autogen, elixir-format
 msgid "The connection check gave an unexpected answer"
 msgstr "Ühenduse kontroll andis ootamatu vastuse"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "New sign-ins to your account from an unrecognized device, and sessions opened on your account by someone else"
+msgstr "Uued sisselogimised sinu kontole tundmatust seadmest ja seansid, mille keegi teine sinu kontol avas"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Password, email, role, timezone and profile changes made to your account"
+msgstr "Sinu konto parooli, e-posti, rolli, ajavööndi ja profiili muudatused"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Likes, comments, mentions, and shares on your posts"
+msgstr "Meeldimised, kommentaarid, mainimised ja jagamised sinu postitustel"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Likes"
+msgstr "Meeldimised"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Likes on your posts"
+msgstr "Meeldimised sinu postitustel"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Comments on your posts"
+msgstr "Kommentaarid sinu postitustel"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Mentions"
+msgstr "Mainimised"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Mentions of you in posts"
+msgstr "Sinu mainimised postitustes"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Shares"
+msgstr "Jagamised"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Shares of your posts"
+msgstr "Sinu postituste jagamised"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Replies and reactions to your comments"
+msgstr "Vastused ja reaktsioonid sinu kommentaaridele"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Replies"
+msgstr "Vastused"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Replies to your comments"
+msgstr "Vastused sinu kommentaaridele"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Reactions"
+msgstr "Reaktsioonid"
+
+#: lib/phoenix_kit/notifications/types.ex
+#, elixir-autogen, elixir-format
+msgid "Likes and reactions to your comments"
+msgstr "Meeldimised ja reaktsioonid sinu kommentaaridele"
+
+#: lib/phoenix_kit/users/permissions.ex
+#, elixir-autogen, elixir-format
+msgid "Security settings"
+msgstr "Turvaseaded"
+
+#: lib/phoenix_kit/users/permissions.ex
+#, elixir-autogen, elixir-format
+msgid "Sign-in methods and OAuth secrets, website access (password gate, site close, allowed addresses), registration and the new-user default role"
+msgstr "Sisselogimisviisid ja OAuthi saladused, veebisaidi ligipääs (paroolivärav, saidi sulgemine, lubatud aadressid), registreerimine ja uue kasutaja vaikimisi roll"
+
+#: lib/phoenix_kit_web/live/settings/security_gate.ex
+#, elixir-autogen, elixir-format
+msgid "You do not have permission to change security settings"
+msgstr "Sul pole õigust turvaseadeid muuta"
+
+#: lib/phoenix_kit_web/live/settings/users.html.heex
+#, elixir-autogen, elixir-format
+msgid "Changing who can register needs the Security settings permission."
+msgstr "Registreerimisõiguse muutmiseks on vaja turvaseadete õigust."
+
+#: lib/phoenix_kit_web/live/settings/users.html.heex
+#, elixir-autogen, elixir-format
+msgid "Changing the new-user defaults needs the Security settings permission."
+msgstr "Uue kasutaja vaikeväärtuste muutmiseks on vaja turvaseadete õigust."
+
+#: lib/phoenix_kit_web/live/users/users.html.heex
+#, elixir-autogen, elixir-format
+msgid "You can only give roles whose permissions you hold"
+msgstr "Saad anda ainult rolle, mille õigused sul endal on"
+
+#: lib/phoenix_kit_web/live/users/users.ex
+#, elixir-autogen, elixir-format
+msgid "Not changed — you can only give or take away roles whose permissions you hold: %{roles}"
+msgstr "Ei muudetud — saad anda või ära võtta ainult rolle, mille õigused sul endal on: %{roles}"
+
+#: lib/phoenix_kit_web/live/users/roles.ex
+#, elixir-autogen, elixir-format
+msgid "You can only delete a role whose permissions you hold yourself"
+msgstr "Saad kustutada ainult rolli, mille õigused sul endal on"
+
+#: lib/phoenix_kit_web/live/users/sessions.ex
+#, elixir-autogen, elixir-format
+msgid "You are not allowed to end this person's sessions"
+msgstr "Sul pole lubatud selle inimese seansse lõpetada"

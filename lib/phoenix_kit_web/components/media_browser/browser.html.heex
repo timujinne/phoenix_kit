@@ -144,7 +144,7 @@
         />
 
         <%!-- Main content area --%>
-        <div class="flex-1 min-w-0 min-h-0 lg:pl-4 flex flex-col">
+        <div class="flex-1 min-w-0 min-h-0 flex flex-col">
           <%!-- Hidden upload input for folder drag-drop (always in DOM when in a folder) --%>
           <%= if not @readonly && @has_buckets && !@show_upload && assigns[:parent_uploads] do %>
             <form
@@ -166,7 +166,7 @@
                  [scrollbar-gutter:stable]: this column is its own scroll
                  region, so its scrollbar is its own — and its height crosses
                  the scroll threshold on almost every folder click (a folder's
-                 hero header is ~50px taller than the flat "All Media" one).
+                 hero header is ~50px taller than the flat "Top level" one).
                  Without a reserved gutter the bar appears or disappears on
                  each navigation and everything inside it — breadcrumb, hero
                  header, toolbar, grid — jumps 15px sideways. Same narrow case
@@ -315,56 +315,53 @@
                 so we iterate `Enum.drop(@breadcrumbs, -1)` for the clickable
                 middle and render the current folder once at the end. When
                 scoped, the leading "root" button shows the scope folder's
-                name (e.g. "banana") instead of "All Media".
+                name (e.g. "banana") instead of "Top level".
               --%>
               <%!--
-                Breadcrumb — ALWAYS rendered so it stays in the same place
-                across root and folder views (no disappearing row / layout
-                jump). At root the leading crumb is the current, non-link item
-                ("All Media", or the scope folder's name when scoped); inside a
-                folder it becomes a clickable button followed by the ancestor
-                path and the current folder.
+                Breadcrumb — rendered only inside a folder. It is a path, so
+                where there is none (the top level, All Files, Trash and the
+                like) the `<h2>` below already names the place, a crumb would
+                only repeat it (or, in All Files, point at a place it is not
+                in), and the row's height and margin go back to the content.
+                Inside a folder it is a clickable "Top level" (or the scope
+                folder's name when scoped), the ancestor path and the current
+                folder.
               --%>
               <%!-- `!py-0` strips daisyUI's default breadcrumb padding and the
                    removed top padding above lets this row sit flush with the
                    sidebar's "Folders" header; `mb-3` matches that header's
                    bottom gap so the rows below line up too. --%>
-              <nav class="breadcrumbs text-sm mb-3 !py-0 min-h-[1.5rem] flex items-center">
+              <nav
+                :if={@current_folder}
+                class="breadcrumbs text-sm mb-3 !py-0 min-h-[1.5rem] flex items-center"
+              >
                 <ul>
-                  <%= if @current_folder do %>
-                    <li>
-                      <button
-                        phx-click="navigate_root"
-                        phx-target={@myself}
-                        class="hover:underline text-primary"
-                      >
-                        {if @scope_folder_id,
-                          do: @scope_folder_name,
-                          else: gettext("All Media")}
-                      </button>
-                    </li>
-                    <%= for folder <- Enum.drop(@breadcrumbs, -1) do %>
-                      <li>
-                        <button
-                          phx-click="navigate_folder"
-                          phx-target={@myself}
-                          phx-value-folder-uuid={folder.uuid}
-                          class="hover:underline text-primary"
-                        >
-                          {folder.name}
-                        </button>
-                      </li>
-                    <% end %>
-                    <li>
-                      {@current_folder.name}
-                    </li>
-                  <% else %>
-                    <li>
+                  <li>
+                    <button
+                      phx-click="navigate_root"
+                      phx-target={@myself}
+                      class="hover:underline text-primary"
+                    >
                       {if @scope_folder_id,
                         do: @scope_folder_name,
-                        else: gettext("All Media")}
+                        else: gettext("Top level")}
+                    </button>
+                  </li>
+                  <%= for folder <- Enum.drop(@breadcrumbs, -1) do %>
+                    <li>
+                      <button
+                        phx-click="navigate_folder"
+                        phx-target={@myself}
+                        phx-value-folder-uuid={folder.uuid}
+                        class="hover:underline text-primary"
+                      >
+                        {folder.name}
+                      </button>
                     </li>
                   <% end %>
+                  <li>
+                    {@current_folder.name}
+                  </li>
                 </ul>
               </nav>
 
@@ -746,6 +743,7 @@
           else: gettext("Select Cover Image")
       }
       scope_folder_id={@editing_folder_header}
+      user_uuid={@viewer_uuid}
       selected_uuids={[]}
       phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       notify={{PhoenixKitWeb.Components.MediaBrowser, @id}}

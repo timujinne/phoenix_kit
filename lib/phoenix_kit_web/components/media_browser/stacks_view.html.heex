@@ -65,7 +65,7 @@
       <%= if files == [] do %>
         <p class="text-sm text-base-content/50">{gettext("No images")}</p>
       <% else %>
-        <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
+        <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [transform:translateZ(0)]">
           <%= for {file, i} <- Enum.with_index(files) do %>
             <.file_card
               file={file}
@@ -126,7 +126,7 @@
           {gettext("Drop media here to remove it from a folder")}
         </div>
       <% else %>
-        <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3">
+        <div class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [transform:translateZ(0)]">
           <%= for file <- @uploaded_files do %>
             <.file_card
               file={file}

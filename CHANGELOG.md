@@ -1,3 +1,54 @@
+## Unreleased
+
+**Migration V224** (PR #983: an index on `phoenix_kit_activities (resource_uuid, inserted_at)`). Nothing else here migrates.
+
+### Added
+
+- **HDR renditions of HEIC and AVIF photos.** `HdrResize` kept a gain map for a JPEG source only, so an iPhone
+  photo (a HEIC) got ordinary thumbnails and previews. `HeifHdr` now makes the same Ultra HDR JPEG from a HEIC or
+  AVIF that has a `tmap` item (iPhone, Android): `HeifBoxes` reads the file's boxes and its ISO 21496-1
+  parameters, ImageMagick cuts the picture, `ffmpeg` decodes the gain map (a tile grid, or a single picture), and
+  `HdrResize`'s writer assembles the picture, the map and the Multi-Picture directory. `VariantGenerator` picks the
+  writer by container; a size that cannot be made this way (no `ffmpeg` 7.1+, a map with a value per colour
+  channel or running backwards, a map of other proportions, anything unexpected) is made the ordinary way, as
+  before. A photo's rotation (`irot`) is applied to both pictures, `strip_metadata` and the focus crop work as for
+  JPEG sources. Tested against a real iPhone HEIC (pixel-identical to the prototype that was checked in Safari on an
+  iPad) and a synthetic AVIF.
+- **`Hdr.read/1` of a HEIC or AVIF reads the file's boxes** instead of matching bytes: `"headroom"` and
+  `"gain_map_bytes"` are filled, and a new `"parameters"` map holds the gain map's numbers under the names of
+  Ultra HDR's `hdrgm` properties. A HEIC whose `meta` box is larger than 512 KB is now recognised too.
+- **`Storage.VariantSets.remake_hdr_renditions/1`** remakes only the HDR-eligible sizes (`keep_hdr`, JPEG, a shape
+  the map can follow) of files that have a gain map (HEIC and AVIF by default, `containers:` to choose), without
+  the cost of `remake_all/1`. Existing HEIC renditions are not seen as out of date otherwise, since `keep_hdr` is
+  not in the spec hash.
+
+- **`PhoenixKit.Module.file_references/0`: a module names the places in its own tables that point at a stored file.**
+  It returns `{table, condition}` pairs, the same `NOT EXISTS` shape core's orphan-file check has always used
+  for module tables; `PhoenixKit.ModuleRegistry.all_file_references/0` collects them from every module, enabled or
+  not. A module that implements it takes over its own tables: core's built-in check for them steps aside, decided
+  by `PhoenixKit.Migrations.ModuleOwnedTables`. A module that does not implement it keeps core's built-in check, so
+  nothing changes for a module version that predates the callback. A callback that raises or returns a malformed
+  entry fails closed: no file is treated as orphaned until it is fixed. No default implementation exists on purpose,
+  since an empty default would switch core's protection off for every module.
+- **`PhoenixKit.Module.expected_schema/0`: a module supplies the manifest of its own tables.** It returns a module
+  implementing `PhoenixKit.Migrations.ExpectedSchema.Behaviour`, generated from the module's own chain by
+  `dev_docs/squash/generate_module_manifest.exs` (catalog queries only). `PhoenixKit.ModuleRegistry.all_expected_schemas/0`
+  collects them from every module, enabled or not, and `mix phoenix_kit.repair` / `doctor` run one more pass per
+  manifest after core's, through the same differ and the same additive-only executor. A module is checked only while
+  its recorded version equals its chain head: one that is behind gets an info finding (`:module_behind`), one that
+  was never migrated none. Findings carry `module:` (the OTP app) and their message starts with the app. No default
+  implementation: a module without a manifest is simply not checked, as since the manifest was narrowed to core's
+  tables. `PhoenixKit.TestSupport.ModuleChainCheck.build_alone/4` builds core's chain and then the module's alone in
+  a scratch schema, for generating and testing a manifest.
+
+### Changed
+
+- **`mix phoenix_kit.doctor` and `mix phoenix_kit.repair` check core's tables only.** The manifest no longer lists
+  the 141 tables that belong to modules (`PhoenixKit.Migrations.ModuleOwnedTables`), their columns, constraints,
+  indexes, seed rows and the two email-table data invariants. A damaged module table is no longer reported or
+  repaired by core; the module's own chain puts it back on `mix phoenix_kit.update`. Nothing is created, changed or
+  dropped in any database, and core's migrations still create the module tables on a fresh install.
+
 ## 2.64.1 - 2026-10-24
 
 **No migration** (still V223). Ships PR #982's avatar crop editor fix.

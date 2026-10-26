@@ -37,6 +37,13 @@ defmodule PhoenixKit.Notifications.DigestWorkerTest do
       assert envelope.text =~ "You have"
     end
 
+    test "the type's label is in the recipient's locale too" do
+      envelope = DigestWorker.digest_envelope(user("et"), "security", 2, "daily")
+
+      assert envelope.text =~ "turvalisus"
+      refute envelope.text =~ "security"
+    end
+
     test "the locale switch does not leak into the calling process" do
       before = Gettext.get_locale(PhoenixKitWeb.Gettext)
       DigestWorker.digest_envelope(user("ru"), "comments", 1, "daily")

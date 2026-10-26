@@ -404,6 +404,7 @@ defmodule PhoenixKit.Modules.Storage.ImageProcessor do
   # stored (no orientation applied, no metadata kept) and scales the window to
   # `{width, height}`. The caller owns the window's coordinates: `HdrResize` crops a
   # photo and its gain map with windows that name the same part of the picture.
+  # `gray: true` writes a single-channel JPEG (a gain map).
   @spec crop_window(
           String.t(),
           String.t(),
@@ -419,6 +420,7 @@ defmodule PhoenixKit.Modules.Storage.ImageProcessor do
         opts \\ []
       ) do
     quality = Keyword.get(opts, :quality, 85)
+    gray = if Keyword.get(opts, :gray, false), do: ["-colorspace", "Gray"], else: []
 
     with {:ok, input} <- pinned_input(input_path, "[0]"),
          {:ok, {cur_w, cur_h}} <- extract_dimensions(input_path),
@@ -431,11 +433,8 @@ defmodule PhoenixKit.Modules.Storage.ImageProcessor do
             "#{crop_w}x#{crop_h}+#{left}+#{top}",
             "+repage",
             "-resize",
-            "#{width}x#{height}!",
-            "-quality",
-            to_string(quality),
-            "jpg:#{output_path}"
-          ]
+            "#{width}x#{height}!"
+          ] ++ gray ++ ["-quality", to_string(quality), "jpg:#{output_path}"]
 
       case System.cmd("convert", args, stderr_to_stdout: true) do
         {_output, 0} -> {:ok, output_path}

@@ -144,13 +144,12 @@ defmodule PhoenixKitWeb.Live.Settings.WebsiteAccessTest do
       assert Gate.password() == "Secret42"
     end
 
-    test "the password is hidden until revealed", %{conn: conn} do
+    test "the password is never shown, only that one is set", %{conn: conn} do
       {:ok, _} = Gate.set_password("Secret42")
       {:ok, view, html} = live(conn, @page)
       refute html =~ "Secret42"
-
-      assert view |> element(~s(button[phx-click="reveal_password"])) |> render_click() =~
-               "Secret42"
+      assert html =~ "••••••••"
+      refute has_element?(view, ~s(button[phx-click="reveal_password"]))
     end
 
     test "the tries at the door are listed with what was typed", %{conn: conn} do

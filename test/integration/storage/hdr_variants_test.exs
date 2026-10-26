@@ -8,9 +8,12 @@ defmodule PhoenixKit.Modules.Storage.HdrVariantsTest do
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.Bucket
   alias PhoenixKit.Modules.Storage.Hdr
+  alias PhoenixKit.Modules.Storage.HeifHdr
   alias PhoenixKit.Modules.Storage.ProcessFileJob
   alias PhoenixKit.Modules.Storage.Providers.Local
+  alias PhoenixKit.Modules.Storage.VariantSets
   alias PhoenixKit.TestSupport.GainMapJpeg
+  alias PhoenixKit.TestSupport.HeifGainMap
   alias PhoenixKit.Users.Auth
 
   @moduletag :tmp_dir
@@ -40,18 +43,25 @@ defmodule PhoenixKit.Modules.Storage.HdrVariantsTest do
     %{tmp: tmp, user: user, bucket: bucket}
   end
 
-  defp upload!(ctx, path) do
+  defp upload!(ctx, path, ext \\ "jpg") do
     sha = :sha256 |> :crypto.hash(File.read!(path)) |> Base.encode16(case: :lower)
 
     file =
-      case Storage.store_file_in_buckets(path, "image", ctx.user.uuid, sha, "jpg", "photo.jpg") do
+      case Storage.store_file_in_buckets(
+             path,
+             "image",
+             ctx.user.uuid,
+             sha,
+             ext,
+             "photo." <> ext
+           ) do
         {:ok, file} -> file
         {:ok, file, _} -> file
       end
 
     :ok =
       ProcessFileJob.perform(%Oban.Job{
-        args: %{"file_uuid" => file.uuid, "filename" => "photo.jpg"}
+        args: %{"file_uuid" => file.uuid, "filename" => "photo." <> ext}
       })
 
     Storage.get_file(file.uuid)
@@ -235,5 +245,69 @@ defmodule PhoenixKit.Modules.Storage.HdrVariantsTest do
 
     assert %{"gain_map" => true} = file.metadata["hdr"]
     assert Hdr.read(stored(ctx, file, "large")) == %{}
+  end
+
+  # A HEIC or AVIF with a gain map goes through ffmpeg and ImageMagick like a real one.
+  defp heif_tools?, do: HeifGainMap.available?() and HeifHdr.available?()
+
+  test "a HEIF gain-map photo's medium and large keep the map as an Ultra HDR JPEG", ctx do
+    if heif_tools?() do
+      path = Path.join(ctx.tmp, "hdr.avif")
+      HeifGainMap.build(path, width: 2400, height: 1800)
+      file = upload!(ctx, path, "avif")
+
+      assert %{"gain_map" => true, "container" => "avif"} = file.metadata["hdr"]
+
+      for name <- ~w(medium large) do
+        assert %{"gain_map" => true, "container" => "jpeg", "kinds" => ["ultrahdr"]} =
+                 Hdr.read(stored(ctx, file, name)),
+               "#{name} keeps the map"
+      end
+
+      for name <- ~w(small thumbnail) do
+        assert Hdr.read(stored(ctx, file, name)) == %{}, "#{name} is an ordinary JPEG"
+      end
+
+      assert %{width: 800} = Storage.get_file_instance_by_name(file.uuid, "medium")
+    end
+  end
+
+  test "remake_hdr_renditions marks only the HDR sizes of files with a gain map", ctx do
+    if heif_tools?() do
+      avif = Path.join(ctx.tmp, "hdr.avif")
+      HeifGainMap.build(avif, width: 2400, height: 1800)
+      heif_file = upload!(ctx, avif, "avif")
+
+      jpeg = Path.join(ctx.tmp, "hdr.jpg")
+      GainMapJpeg.build(jpeg, width: 2400, height: 1800)
+      jpeg_file = upload!(ctx, jpeg)
+
+      plain = Path.join(ctx.tmp, "plain.jpg")
+      {_, 0} = System.cmd("convert", ["-size", "2400x1800", "gradient:white-black", plain])
+      plain_file = upload!(ctx, plain)
+
+      marker = fn file, name ->
+        Storage.get_file_instance_by_name(file.uuid, name).spec_hash == "remake:hdr"
+      end
+
+      assert {:ok, %{files: 1, sizes: sizes}} = VariantSets.remake_hdr_renditions()
+      assert sizes >= 2
+
+      # the HEIF's HDR sizes, and only those
+      assert marker.(heif_file, "medium")
+      assert marker.(heif_file, "large")
+      refute marker.(heif_file, "small")
+      refute marker.(heif_file, "thumbnail")
+      assert Storage.get_file(heif_file.uuid).placed_variant_revision == 0
+
+      # a JPEG already keeps its map, and a plain photo has none to keep
+      refute marker.(jpeg_file, "medium")
+      refute marker.(plain_file, "medium")
+      refute Storage.get_file(plain_file.uuid).placed_variant_revision == 0
+
+      # JPEGs on request
+      assert {:ok, %{files: 2}} = VariantSets.remake_hdr_renditions(containers: ["jpeg", "avif"])
+      assert marker.(jpeg_file, "medium")
+    end
   end
 end

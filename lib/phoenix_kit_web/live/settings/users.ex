@@ -11,6 +11,7 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
 
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.ActiveRole
+  alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Users.CustomFields
   alias PhoenixKit.Users.CustomFields.Events, as: CustomFieldsEvents
   alias PhoenixKit.Users.Role
@@ -21,7 +22,7 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
   alias PhoenixKitWeb.Live.Settings.UrlTabs
 
   def mount(_params, _session, socket) do
-    # Set locale for LiveView process
+    scope = socket.assigns[:phoenix_kit_current_scope]
 
     # Load current settings. S007: this page never renders the OAuth login
     # secrets or AWS keys, so it has no reason to hold their real values in
@@ -56,6 +57,11 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
       |> assign(:settings, merged_settings)
       |> assign(:saved_settings, merged_settings)
       |> assign(:setting_options, setting_options)
+      |> assign(:can_security?, Scope.can?(scope, "settings.security"))
+      |> assign(
+        :default_role_options,
+        default_role_options(scope, setting_options, merged_settings)
+      )
       |> assign(:registration_account_type_options, registration_account_type_options())
       |> assign(:role_switcher_custom_roles, role_switcher_custom_roles())
       |> assign(:role_switcher_location_options, role_switcher_options(:location))
@@ -151,9 +157,13 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
 
     case Settings.update_settings(settings_params,
            actor_uuid: Actor.uuid(socket),
-           source: "settings"
+           source: "settings",
+           scope: socket.assigns[:phoenix_kit_current_scope]
          ) do
       {:ok, updated_settings} ->
+        # Keys the save left alone (`settings.security` ones, for a holder
+        # without it) keep their values on screen.
+        updated_settings = Map.merge(socket.assigns.saved_settings, updated_settings)
         changeset = Settings.change_settings(updated_settings)
 
         socket =
@@ -452,4 +462,16 @@ defmodule PhoenixKitWeb.Live.Settings.Users do
   defp profile_section_label(:oauth), do: gettext("Connected sign-in accounts")
   defp profile_section_label(:sessions), do: gettext("Sessions")
   defp profile_section_label(:notifications), do: gettext("Notifications")
+
+  # The default-role picker offers the roles this person may hand out
+  # (`Roles.can_manage_role?/2`; the save checks it again), plus the saved one
+  # so the select shows what is set.
+  defp default_role_options(scope, setting_options, settings) do
+    manageable = MapSet.new(Roles.manageable_role_names(scope))
+    saved = settings["new_user_default_role"]
+
+    Enum.filter(setting_options["new_user_default_role"] || [], fn {_label, name} ->
+      name == saved or MapSet.member?(manageable, name)
+    end)
+  end
 end

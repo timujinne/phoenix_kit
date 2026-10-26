@@ -1868,12 +1868,12 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
                   <.checkbox
                     name={"notification_prefs[#{type.key}]"}
                     checked={notification_enabled?(@notification_prefs, type)}
-                    label={type.label}
+                    label={NotificationTypes.translate(type, :label)}
                     class="checkbox-sm"
                     wrapper_class="p-3 rounded-lg border border-base-300 hover:bg-base-200/40 transition-colors"
                   >
                     <:description :if={type.description not in [nil, ""]}>
-                      {type.description}
+                      {NotificationTypes.translate(type, :description)}
                     </:description>
                   </.checkbox>
                 <% end %>

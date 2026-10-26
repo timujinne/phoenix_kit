@@ -44,9 +44,14 @@ defmodule PhoenixKit.Notifications.Types do
   them to `"<type>.<sub>"`. Declared keys must not contain `.` and nesting is one
   level only — offending entries are dropped with a warning. Unknown top-level
   map fields are preserved (a seam for future per-channel / digest metadata).
-  Sub-type labels/descriptions are runtime data — `mix gettext.extract` won't see
-  them (same caveat as permission labels).
+  Labels and descriptions are shown through `translate/2`, at render, in the
+  reader's locale: core's own through `PhoenixKitWeb.Gettext` (registered
+  here with `gettext_noop/1`), a module's through the backend it names as
+  `gettext_backend:` on its type — its sub-types inherit it. A module that
+  names none is shown as declared.
   """
+
+  use Gettext, backend: PhoenixKitWeb.Gettext
 
   require Logger
 
@@ -166,16 +171,35 @@ defmodule PhoenixKit.Notifications.Types do
 
   def default_for(_), do: true
 
+  @doc """
+  A type's or sub-type's `:label` or `:description` in the current Gettext
+  locale — through the backend the type names (`gettext_backend:`), else
+  core's. Text the backend has no translation for comes back as declared.
+  """
+  @spec translate(map(), :label | :description) :: String.t()
+  def translate(type, field) when field in [:label, :description] do
+    case Map.get(type, field) do
+      text when is_binary(text) and text != "" ->
+        Gettext.gettext(Map.get(type, :gettext_backend) || PhoenixKitWeb.Gettext, text)
+
+      _ ->
+        ""
+    end
+  rescue
+    _ -> Map.get(type, field) || ""
+  end
+
   # ── Core types ───────────────────────────────────────────────────────
 
   defp core_types do
     [
       %{
         key: "security",
-        label: "Security",
+        label: gettext_noop("Security"),
         description:
-          "New sign-ins to your account from an unrecognized device, " <>
-            "and sessions opened on your account by someone else",
+          gettext_noop(
+            "New sign-ins to your account from an unrecognized device, and sessions opened on your account by someone else"
+          ),
         actions: [
           "user.new_login_detected",
           "session.account_added",
@@ -185,8 +209,9 @@ defmodule PhoenixKit.Notifications.Types do
       },
       %{
         key: "account",
-        label: "Account",
-        description: "Password, email, role, timezone and profile changes made to your account",
+        label: gettext_noop("Account"),
+        description:
+          gettext_noop("Password, email, role, timezone and profile changes made to your account"),
         actions: [
           "user.password_changed",
           "user.password_reset",
@@ -205,8 +230,8 @@ defmodule PhoenixKit.Notifications.Types do
       },
       %{
         key: "posts",
-        label: "Posts",
-        description: "Likes, comments, mentions, and shares on your posts",
+        label: gettext_noop("Posts"),
+        description: gettext_noop("Likes, comments, mentions, and shares on your posts"),
         # Fully split — every post.* action is owned by a sub-type below; the
         # base acts purely as the master switch.
         actions: [],
@@ -214,29 +239,29 @@ defmodule PhoenixKit.Notifications.Types do
         sub_types: [
           %{
             key: "likes",
-            label: "Likes",
-            description: "Likes on your posts",
+            label: gettext_noop("Likes"),
+            description: gettext_noop("Likes on your posts"),
             actions: ["post.liked", "post.disliked"],
             default: true
           },
           %{
             key: "comments",
-            label: "Comments",
-            description: "Comments on your posts",
+            label: gettext_noop("Comments"),
+            description: gettext_noop("Comments on your posts"),
             actions: ["post.commented"],
             default: true
           },
           %{
             key: "mentions",
-            label: "Mentions",
-            description: "Mentions of you in posts",
+            label: gettext_noop("Mentions"),
+            description: gettext_noop("Mentions of you in posts"),
             actions: ["post.mentioned"],
             default: true
           },
           %{
             key: "shares",
-            label: "Shares",
-            description: "Shares of your posts",
+            label: gettext_noop("Shares"),
+            description: gettext_noop("Shares of your posts"),
             actions: ["post.shared"],
             default: true
           }
@@ -244,22 +269,22 @@ defmodule PhoenixKit.Notifications.Types do
       },
       %{
         key: "comments",
-        label: "Comments",
-        description: "Replies and reactions to your comments",
+        label: gettext_noop("Comments"),
+        description: gettext_noop("Replies and reactions to your comments"),
         actions: [],
         default: true,
         sub_types: [
           %{
             key: "replies",
-            label: "Replies",
-            description: "Replies to your comments",
+            label: gettext_noop("Replies"),
+            description: gettext_noop("Replies to your comments"),
             actions: ["comment.replied"],
             default: true
           },
           %{
             key: "reactions",
-            label: "Reactions",
-            description: "Likes and reactions to your comments",
+            label: gettext_noop("Reactions"),
+            description: gettext_noop("Likes and reactions to your comments"),
             actions: ["comment.liked", "comment.disliked"],
             default: true
           }
@@ -314,7 +339,11 @@ defmodule PhoenixKit.Notifications.Types do
         description: Map.get(type, :description, ""),
         actions: type |> Map.get(:actions, []) |> Enum.filter(&is_binary/1),
         default: Map.get(type, :default, true) == true,
-        sub_types: type |> Map.get(:sub_types, []) |> normalize_subs(k)
+        sub_types:
+          type
+          |> Map.get(:sub_types, [])
+          |> inherit_backend(Map.get(type, :gettext_backend))
+          |> normalize_subs(k)
       })
     end
   end
@@ -323,6 +352,13 @@ defmodule PhoenixKit.Notifications.Types do
     Logger.warning("[Notifications.Types] dropping malformed type: #{inspect(other)}")
     nil
   end
+
+  defp inherit_backend(subs, backend)
+       when is_list(subs) and is_atom(backend) and not is_nil(backend),
+       do:
+         Enum.map(subs, &if(is_map(&1), do: Map.put_new(&1, :gettext_backend, backend), else: &1))
+
+  defp inherit_backend(subs, _backend), do: subs
 
   defp normalize_subs(subs, base_key) when is_list(subs) do
     subs

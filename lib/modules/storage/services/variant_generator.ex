@@ -34,6 +34,7 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
   alias PhoenixKit.Modules.Storage.FocalPoint
   alias PhoenixKit.Modules.Storage.Hdr
   alias PhoenixKit.Modules.Storage.HdrResize
+  alias PhoenixKit.Modules.Storage.HeifHdr
   alias PhoenixKit.Modules.Storage.ImageProcessor
   alias PhoenixKit.Modules.Storage.Manager
   alias PhoenixKit.Modules.Storage.PdfProcessor
@@ -275,13 +276,13 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
     end
   end
 
-  # A rendition of a photo with an HDR gain map keeps the map (`HdrResize`) when its
-  # size says so (`Dimension.keep_hdr`, set in the rendition's editor) and it can: a
-  # JPEG that keeps the photo's proportions and fits its width, or one cropped to a
-  # box (the map is cropped to the same part of the picture, around the subject for a
-  # focus crop). Every other size, and
-  # any photo the map cannot be carried over for, is made the ordinary way. An HDR
-  # rendition is a bonus: if it cannot be made, the size still is.
+  # A rendition of a photo with an HDR gain map keeps the map (`HdrResize` for a JPEG,
+  # `HeifHdr` for a HEIC or AVIF) when its size says so (`Dimension.keep_hdr`, set in
+  # the rendition's editor) and it can: a JPEG that keeps the photo's proportions and
+  # fits its width, or one cropped to a box (the map is cropped to the same part of the
+  # picture, around the subject for a focus crop). Every other size, and any photo the
+  # map cannot be carried over for, is made the ordinary way. An HDR rendition is a
+  # bonus: if it cannot be made, the size still is.
   # `config :phoenix_kit, hdr_renditions: false` turns it off for the whole site.
   defp make_variant(_file, original_path, variant_path, dimension, _focal, true) do
     # The size keeps the animation: every frame, in the original's own format.
@@ -308,7 +309,11 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
   end
 
   defp hdr_variant(file, original_path, variant_path, dimension, focal) do
-    if hdr_rendition?(file, dimension) and Hdr.gain_map?(Hdr.read(original_path)) do
+    with true <- hdr_rendition?(file, dimension),
+         summary = Hdr.read(original_path),
+         true <- Hdr.gain_map?(summary) do
+      writer = hdr_writer(summary)
+
       opts = [
         quality: dimension.quality || 85,
         strip_metadata: Dimension.strip_metadata?(dimension)
@@ -316,9 +321,9 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
 
       result =
         if dimension.maintain_aspect_ratio == true,
-          do: HdrResize.resize(original_path, variant_path, dimension.width, opts),
+          do: writer.resize(original_path, variant_path, dimension.width, opts),
           else:
-            HdrResize.crop(
+            writer.crop(
               original_path,
               variant_path,
               {dimension.width, dimension.height},
@@ -337,9 +342,14 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
           :skip
       end
     else
-      :skip
+      _ -> :skip
     end
   end
+
+  # A JPEG keeps its map as a second picture; a HEIC or AVIF as a tone-map item
+  # whose picture ffmpeg decodes.
+  defp hdr_writer(%{"container" => "jpeg"}), do: HdrResize
+  defp hdr_writer(_summary), do: HeifHdr
 
   # Whether this rendition is the animated original made smaller, as a GIF or WebP:
   # its size says so (`Dimension.keep_animation`), it is an animated GIF or WebP, and
@@ -381,7 +391,15 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
   defp hdr_rendition?(file, dimension) do
     Application.get_env(:phoenix_kit, :hdr_renditions, true) and
       file.file_type == "image" and
-      Dimension.keep_hdr?(dimension) and
+      hdr_size?(dimension)
+  end
+
+  @doc false
+  # Whether a size can be an HDR rendition at all: it keeps HDR, is a JPEG, and has a
+  # shape the gain map can follow. (`VariantSets.remake_hdr_renditions/1` asks.)
+  @spec hdr_size?(Dimension.t()) :: boolean()
+  def hdr_size?(dimension) do
+    Dimension.keep_hdr?(dimension) and
       String.downcase(to_string(dimension.format)) in ["jpg", "jpeg"] and
       hdr_shape?(dimension)
   end

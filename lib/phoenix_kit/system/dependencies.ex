@@ -288,10 +288,12 @@ defmodule PhoenixKit.System.Dependencies do
   @doc false
   # `{:ok, version}` (libheif's, when the description names it, else "libheif") for
   # a list of formats with a readable HEIC, else `{:error, :not_installed}`. Lines
-  # look like `    HEIC* HEIC      r--   High Efficiency Image Format (1.19.8)`.
+  # look like `    HEIC* HEIC      r--   High Efficiency Image Format (1.19.8)`; the
+  # Module column is absent from ImageMagick 7.1.2's listing (`    HEIC  r--   High …`),
+  # so it is optional here.
   @spec parse_heic(String.t()) :: {:ok, String.t()} | {:error, :not_installed}
   def parse_heic(output) do
-    case Regex.run(~r/^\s*HEIC\*?\s+\S+\s+(r\S\S)(.*)$/m, output) do
+    case Regex.run(~r/^\s*HEIC\*?\s+(?:\S+\s+)?(r[w-][+-])(.*)$/m, output) do
       [_, _mode, description] ->
         case Regex.run(~r/\((\d+\.\d+(?:\.\d+)?)\)/, description) do
           [_, version] -> {:ok, version}

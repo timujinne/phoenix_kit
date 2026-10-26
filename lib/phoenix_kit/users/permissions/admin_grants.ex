@@ -4,8 +4,9 @@ defmodule PhoenixKit.Users.Permissions.AdminGrants do
   wait for it.
 
   Started by `PhoenixKit.Supervisor`. On start it runs
-  `PhoenixKit.Users.Permissions.auto_grant_new_keys_to_admin/0` and
-  `backfill_media_sub_permissions/0`, then waits for `PhoenixKit.Dashboard.Registry`
+  `PhoenixKit.Users.Permissions.auto_grant_new_keys_to_admin/0`,
+  `backfill_media_sub_permissions/0` and `backfill_settings_sub_permissions/0`,
+  then waits for `PhoenixKit.Dashboard.Registry`
   to finish loading its tabs (which register and grant their own keys).
 
   A key that hits a database error is not dropped until the next restart: it
@@ -61,10 +62,10 @@ defmodule PhoenixKit.Users.Permissions.AdminGrants do
   end
 
   @doc """
-  Queues a key (or `:media_subs`) whose grant just failed for a retry. A no-op
-  when the server is not running.
+  Queues a key (or `:media_subs` / `:settings_subs`) whose grant just failed for
+  a retry. A no-op when the server is not running.
   """
-  @spec report_failure(String.t() | :media_subs, GenServer.server()) :: :ok
+  @spec report_failure(String.t() | :media_subs | :settings_subs, GenServer.server()) :: :ok
   def report_failure(key, server \\ __MODULE__) do
     if running?(server), do: GenServer.cast(server, {:failed, key}), else: :ok
   end
@@ -172,13 +173,15 @@ defmodule PhoenixKit.Users.Permissions.AdminGrants do
   defp sweep(level, state) do
     failures = state.sweep_fun.(report: false, level: level)
 
-    media =
-      case Permissions.backfill_media_subs(report: false, level: level) do
-        :ok -> []
-        {:error, reason} -> [{:media_subs, reason}]
-      end
+    backfills =
+      for {tag, fun} <- [
+            media_subs: &Permissions.backfill_media_subs/1,
+            settings_subs: &Permissions.backfill_settings_subs/1
+          ],
+          {:error, reason} <- [fun.(report: false, level: level)],
+          do: {tag, reason}
 
-    split(failures ++ media)
+    split(failures ++ backfills)
   rescue
     error ->
       Logger.error("[Permissions] Admin grant sweep crashed: #{Exception.message(error)}")
@@ -207,6 +210,10 @@ defmodule PhoenixKit.Users.Permissions.AdminGrants do
 
   defp retry(:media_subs, _state) do
     classify(:media_subs, Permissions.backfill_media_subs(report: false, level: :warning))
+  end
+
+  defp retry(:settings_subs, _state) do
+    classify(:settings_subs, Permissions.backfill_settings_subs(report: false, level: :warning))
   end
 
   defp retry(key, _state) do

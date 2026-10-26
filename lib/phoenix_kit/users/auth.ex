@@ -1986,7 +1986,7 @@ defmodule PhoenixKit.Users.Auth do
       iex> promote_to_admin(user, assigned_by_user)
       {:ok, %RoleAssignment{}}
   """
-  defdelegate promote_to_admin(user, assigned_by \\ nil), to: PhoenixKit.Users.Roles
+  defdelegate promote_to_admin(user, assigned_by \\ nil, opts \\ []), to: PhoenixKit.Users.Roles
 
   @doc """
   Demotes an admin user to regular user role.
@@ -1996,7 +1996,7 @@ defmodule PhoenixKit.Users.Auth do
       iex> demote_to_user(user)
       {:ok, %RoleAssignment{}}
   """
-  defdelegate demote_to_user(user), to: PhoenixKit.Users.Roles
+  defdelegate demote_to_user(user, opts \\ []), to: PhoenixKit.Users.Roles
 
   @doc """
   Gets role statistics for dashboard display.

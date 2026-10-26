@@ -321,6 +321,95 @@ defmodule PhoenixKit.ModuleRegistry do
   end
 
   @doc """
+  The orphan-check file references every module supplies, by owning OTP app.
+
+  Returns `%{app => {:ok, [{table, dynamic}]} | {:error, reason}}` for each
+  registered module that implements `c:PhoenixKit.Module.file_references/0`.
+  Iterates `all_modules/0`, **not** `enabled_modules/0`: a disabled module's
+  data still holds its files, and dropping its references would make them
+  look orphaned. A module whose callback raises, or returns something that is
+  not a list of `{table, dynamic}` pairs, is reported as `{:error, reason}`
+  rather than skipped; the caller fails closed.
+  """
+  @spec all_file_references() :: %{
+          atom() => {:ok, [{String.t(), Ecto.Query.dynamic_expr()}]} | {:error, String.t()}
+        }
+  def all_file_references do
+    for mod <- all_modules(),
+        Code.ensure_loaded?(mod),
+        function_exported?(mod, :file_references, 0),
+        app = Application.get_application(mod),
+        into: %{} do
+      {app, file_reference_pairs(mod)}
+    end
+  end
+
+  @doc false
+  def file_reference_pairs(mod) do
+    case mod.file_references() do
+      pairs when is_list(pairs) ->
+        if Enum.all?(pairs, &match?({table, _} when is_binary(table), &1)),
+          do: {:ok, pairs},
+          else: {:error, "#{inspect(mod)}.file_references/0 returned a malformed entry"}
+
+      other ->
+        {:error, "#{inspect(mod)}.file_references/0 returned #{inspect(other)}"}
+    end
+  rescue
+    error ->
+      {:error, "#{inspect(mod)}.file_references/0 raised: #{Exception.message(error)}"}
+  catch
+    kind, reason ->
+      {:error, "#{inspect(mod)}.file_references/0 #{kind}: #{inspect(reason)}"}
+  end
+
+  @doc """
+  The table manifests modules supply, by owning OTP app.
+
+  Returns `%{app => %{manifest: module, migrations: module}}` for each
+  registered module that implements `c:PhoenixKit.Module.expected_schema/0`
+  with a manifest module and has a `migration_module/0`. Iterates
+  `all_modules/0`: a disabled module's tables are still there to verify. A
+  callback that raises, or a module that is not loaded or does not export the
+  manifest functions, is left out; repair then says nothing about that module.
+  """
+  @spec all_expected_schemas() :: %{atom() => %{manifest: module(), migrations: module()}}
+  def all_expected_schemas do
+    for mod <- all_modules(),
+        Code.ensure_loaded?(mod),
+        function_exported?(mod, :expected_schema, 0),
+        app = Application.get_application(mod),
+        {:ok, entry} <- [expected_schema_entry(mod)],
+        into: %{} do
+      {app, entry}
+    end
+  end
+
+  @doc false
+  def expected_schema_entry(mod) do
+    manifest = mod.expected_schema()
+    migrations = mod.migration_module()
+
+    if usable_manifest?(manifest) and is_atom(migrations) and not is_nil(migrations) and
+         Code.ensure_loaded?(migrations),
+       do: {:ok, %{manifest: manifest, migrations: migrations}},
+       else: :error
+  rescue
+    _ -> :error
+  catch
+    _, _ -> :error
+  end
+
+  defp usable_manifest?(manifest) when is_atom(manifest) and not is_nil(manifest) do
+    Code.ensure_loaded?(manifest) and
+      Enum.all?([objects: 1, data_invariants: 1, chain_hash: 0], fn {fun, arity} ->
+        function_exported?(manifest, fun, arity)
+      end)
+  end
+
+  defp usable_manifest?(_), do: false
+
+  @doc """
   Collect top-level route path segments reserved by all installed modules.
 
   Each entry is a literal path segment (no slashes, e.g. `"legal"`) a module

@@ -7,7 +7,14 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V223 - An AI request's cost in dollars; the AI tables' leftovers ⚡ LATEST
+  ### V224 - An index for one resource's activity ⚡ LATEST
+
+  `(resource_uuid, inserted_at)` on `phoenix_kit_activities`, so a page reading one
+  record's feed (`WHERE resource_uuid IN (…) ORDER BY inserted_at DESC LIMIT n`, the
+  projects module's Activity and History) reads it from the index instead of scanning a
+  module's whole history. Additive only; the build takes a SHARE lock on the feed.
+
+  ### V223 - An AI request's cost in dollars; the AI tables' leftovers
 
   `phoenix_kit_ai_requests.cost_cents` (`integer`, which held millionths of a dollar)
   becomes `cost` (`numeric(28,18)`, US dollars), every stored cost converted. The AI
@@ -1025,7 +1032,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 223
+  @current_version 224
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries

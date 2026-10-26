@@ -29,6 +29,7 @@ defmodule PhoenixKit.Users.Sessions do
   alias PhoenixKit.RepoHelper, as: Repo
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.ActiveRole
+  alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.{KnownDevice, User, UserToken}
   alias PhoenixKit.Utils.Date, as: UtilsDate
   alias PhoenixKit.Utils.IpAddress
@@ -364,9 +365,29 @@ defmodule PhoenixKit.Users.Sessions do
   end
 
   @doc """
+  Whether `actor` may sign `target` out of their sessions.
+
+  Your own sessions are yours to end. Anyone else's take the rank rule that
+  changing their status takes (`PhoenixKit.Users.Auth.can_manage_user_status?/2`):
+  the actor must hold Owner or Admin, an Admin's sessions need an Owner, and
+  nobody but an Owner ends an Owner's sessions.
+  """
+  @spec can_revoke_sessions_of?(User.t(), User.t()) :: boolean()
+  def can_revoke_sessions_of?(%User{uuid: uuid}, %User{uuid: uuid}), do: true
+
+  def can_revoke_sessions_of?(%User{} = target, %User{} = actor),
+    do: Auth.can_manage_user_status?(target, actor)
+
+  def can_revoke_sessions_of?(_target, _actor), do: false
+
+  @doc """
   Revokes a specific session by token ID.
 
   Returns :ok if successful, {:error, :not_found} if session doesn't exist.
+
+  With `actor: %User{}` it is a revocation on that person's behalf:
+  `{:error, :not_permitted}` unless `can_revoke_sessions_of?/2` allows it for
+  the session's user. Without it (system callers) nothing is checked.
 
   ## Examples
 
@@ -377,7 +398,33 @@ defmodule PhoenixKit.Users.Sessions do
       {:error, :not_found}
 
   """
-  def revoke_session(token_uuid) when is_binary(token_uuid) do
+  def revoke_session(token_uuid, opts \\ []) when is_binary(token_uuid) do
+    with :ok <- authorize_session_revoke(token_uuid, Keyword.get(opts, :actor)) do
+      do_revoke_session(token_uuid)
+    end
+  end
+
+  defp authorize_session_revoke(_token_uuid, nil), do: :ok
+
+  defp authorize_session_revoke(token_uuid, %User{} = actor) do
+    owner =
+      Repo.one(
+        from(token in UserToken,
+          join: user in User,
+          on: token.user_uuid == user.uuid,
+          where: token.uuid == ^token_uuid and token.context == "session",
+          select: user
+        )
+      )
+
+    cond do
+      owner == nil -> {:error, :not_found}
+      can_revoke_sessions_of?(owner, actor) -> :ok
+      true -> {:error, :not_permitted}
+    end
+  end
+
+  defp do_revoke_session(token_uuid) do
     case Repo.delete_all(
            from(token in UserToken,
              where: token.uuid == ^token_uuid and token.context == "session",
@@ -429,7 +476,9 @@ defmodule PhoenixKit.Users.Sessions do
   @doc """
   Revokes all sessions for a specific user.
 
-  Returns the number of sessions revoked.
+  Returns the number of sessions revoked. With `actor: %User{}` it is a
+  revocation on that person's behalf: `{:error, :not_permitted}` (nothing
+  revoked) unless `can_revoke_sessions_of?/2` allows it.
 
   ## Examples
 
@@ -437,7 +486,21 @@ defmodule PhoenixKit.Users.Sessions do
       3
 
   """
-  def revoke_user_sessions(%User{uuid: user_uuid}) do
+  def revoke_user_sessions(user, opts \\ [])
+
+  def revoke_user_sessions(%User{} = user, opts) do
+    case Keyword.get(opts, :actor) do
+      nil ->
+        do_revoke_user_sessions(user)
+
+      actor ->
+        if can_revoke_sessions_of?(user, actor),
+          do: do_revoke_user_sessions(user),
+          else: {:error, :not_permitted}
+    end
+  end
+
+  defp do_revoke_user_sessions(%User{uuid: user_uuid}) do
     {count, revoked} =
       Repo.delete_all(
         from(token in UserToken,

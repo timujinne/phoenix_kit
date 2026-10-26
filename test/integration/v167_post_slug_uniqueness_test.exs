@@ -246,22 +246,13 @@ defmodule PhoenixKit.Integration.V167PostSlugUniquenessTest do
   end
 
   describe "the manifest" do
-    test "the shape flips to unique at 167, and is unchanged before it" do
+    test "no longer lists the posts slug index: posts is a module and owns its tables" do
       alias PhoenixKit.Migrations.ExpectedSchema
-      alias PhoenixKit.Migrations.ExpectedSchema.Object
 
-      object =
-        "public"
-        |> ExpectedSchema.objects()
-        |> Enum.find(&(&1.id == "index:phoenix_kit_posts_slug_index"))
-
-      assert object, "the posts slug index is missing from the manifest"
-
-      # The revision is appended rather than edited: a V166 database must keep
-      # reading its plain index as correct, or doctor reports drift with a
-      # repair that cannot run.
-      refute Object.shape_at(object, 166).unique
-      assert Object.shape_at(object, 167).unique
+      refute Enum.any?(
+               ExpectedSchema.objects("public"),
+               &(&1.id == "index:phoenix_kit_posts_slug_index")
+             )
     end
   end
 end

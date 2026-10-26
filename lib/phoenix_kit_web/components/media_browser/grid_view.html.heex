@@ -1,7 +1,13 @@
 <%!-- Grid View --%>
+<%!-- `[transform:translateZ(0)]` puts the grid on its own compositing layer. The
+     grid sits in the content column's own scroll area, and WebKit (iPadOS 26,
+     checked 2026-10-26) paints an HDR photo in a nested scroller as SDR, losing
+     the gain map's headroom — unless the picture, or a box around it, has a
+     layer of its own. One layer for the whole grid, not one per tile: the
+     backing store of an HDR layer is 16-bit, and a grid can hold thousands. --%>
 <div
   data-media-grid
-  class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3"
+  class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [transform:translateZ(0)]"
 >
   <%!-- Folders --%>
   <%= for folder <- if(@file_view == "all", do: [], else: @folders) do %>

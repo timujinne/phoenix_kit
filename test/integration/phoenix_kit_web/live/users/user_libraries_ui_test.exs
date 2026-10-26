@@ -196,6 +196,80 @@ defmodule PhoenixKitWeb.Live.Users.UserLibrariesUITest do
       assert entry.target_user_uuid == owner.uuid
       assert entry.metadata["library_uuid"] == library.uuid
     end
+
+    test "an Admin opening a user's library is told whose it is", %{conn: conn, role: role} do
+      owner = user!(role)
+      library = library!(owner, "Private")
+      {admin, _token} = create_admin_user()
+
+      {:ok, view, _html} =
+        live(log_in_user(conn, admin), Routes.path("/admin/libraries/#{library.uuid}"))
+
+      banner = view |> element("#library-admin-banner") |> render()
+      assert banner =~ owner.email
+      assert banner =~ "Private"
+      assert page_title(view) =~ owner.email
+    end
+
+    test "the top of a library has one name in the tree and in the content", %{
+      conn: conn,
+      role: role
+    } do
+      owner = user!(role)
+      library = library!(owner, "Names")
+
+      {:ok, _view, html} =
+        live(log_in_user(conn, owner), Routes.path("/admin/libraries/#{library.uuid}"))
+
+      # Named once (the sidebar button and the heading), not a third time as a crumb.
+      assert length(String.split(html, "Top level")) - 1 == 2
+      refute html =~ "All Media"
+      refute html =~ ~r/>\s*Root\s*</
+    end
+
+    test "the viewer links to the file's storage page for an admin, not for a viewer",
+         %{conn: conn, role: role} do
+      owner = user!(role)
+      library = library!(owner, "Stored")
+
+      {:ok, file} =
+        Storage.create_file(%{
+          original_file_name: "a.png",
+          file_name: "a.png",
+          file_path: "x/a.png",
+          mime_type: "image/png",
+          file_type: "image",
+          ext: "png",
+          file_checksum: Ecto.UUID.generate(),
+          user_file_checksum: Ecto.UUID.generate(),
+          size: 1,
+          status: "active",
+          user_uuid: owner.uuid,
+          library_uuid: library.uuid
+        })
+
+      storage = "/admin/media/#{file.uuid}/storage"
+      page = Routes.path("/admin/libraries/#{library.uuid}") <> "?file=#{file.uuid}"
+      {admin, _token} = create_admin_user()
+
+      {:ok, _view, html} = live(log_in_user(conn, admin), page)
+      assert html =~ storage
+
+      # The owner holds `storage` but not `media.manage`: no link.
+      {:ok, _view, html} = live(log_in_user(build_conn(), owner), page)
+      refute html =~ storage
+    end
+
+    test "an owner opening their own library gets no admin banner", %{conn: conn, role: role} do
+      owner = user!(role)
+      library = library!(owner, "Mine")
+
+      {:ok, view, html} =
+        live(log_in_user(conn, owner), Routes.path("/admin/libraries/#{library.uuid}"))
+
+      refute html =~ "library-admin-banner"
+      refute has_element?(view, "#library-admin-banner")
+    end
   end
 
   describe "the media browser inside a library" do

@@ -202,6 +202,16 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # access to; the real-database integration suite re-ran clean against a DB
   # migrated through V196, which is the property s7/s8 exist to prove.
   #
+  # V224 (2026-10-25, an index for one resource's activity) DECLARES one object here by
+  # hand, a new index and the V175/V193 class:
+  # `index:phoenix_kit_activities_resource_uuid_inserted_at_index`,
+  # `(resource_uuid, inserted_at)` on `phoenix_kit_activities`, built by `v224_objects/0`.
+  # No column, constraint or reshape. The shape is CATALOG-EXACT: read with the repair
+  # probe and `pg_get_indexdef`/`pg_opclass` from a test database migrated through V224
+  # (`inserted_at` is `timestamp(0) without time zone`, hence `timestamp_ops`), and kept
+  # honest by `PhoenixKit.Migrations.Postgres.V224Test`, which runs the repair differ over
+  # every `since: 224` object. `chain_hash` restamped over the shipped files.
+  #
   # V223 (2026-10-23, an AI request's cost in dollars; the AI tables' leftovers)
   # RENAMES one object, RESHAPES three and REMOVES twenty. `column:phoenix_kit_ai_requests.cost_cents`
   # (integer, since 32) is gone; `column:phoenix_kit_ai_requests.cost` (numeric(28,18),
@@ -643,22 +653,72 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "361393bd4e707c7d75fb2dc66769adb5eb789d76c7a0cf3d71eda7672f5cb2d2"
+  @chain_hash "6c990a5588ac1a4a9e695d549f84f0041c043f6029f63e9a7a09949f44c5632d"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)
-    Enum.map(raw_objects(), &materialize_object(&1, prefix))
+
+    raw_objects()
+    |> Enum.reject(&module_owned_object?/1)
+    |> Enum.map(&materialize_object(&1, prefix))
   end
 
   def data_invariants(prefix \\ "public") do
     prefix = normalize_prefix!(prefix)
 
-    Enum.map(raw_data_invariants(), fn invariant ->
+    raw_data_invariants()
+    |> Enum.reject(&module_owned_invariant?/1)
+    |> Enum.map(fn invariant ->
       %{invariant | assert: String.replace(invariant.assert, @schema_token, prefix)}
     end)
   end
 
+  # Module-owned tables are no longer core's to check: `doctor` and `repair`
+  # see core's tables only (plan step 6, dev_docs/plans/2026-10-25-module-table-ownership.md).
+  # The entries stay in `raw_objects/0` until step 7 rewrites the file; this
+  # filter keeps them out of every consumer in the meantime. `ModuleOwnedTables`
+  # is the authority on whose a table is, not the best-effort `owner:` tag.
+  @module_tables MapSet.new(PhoenixKit.Migrations.ModuleOwnedTables.module_tables())
+
+  defp module_owned_object?(%{class: :table, check: {:catalog, %{name: name}}}),
+    do: MapSet.member?(@module_tables, name)
+
+  defp module_owned_object?(%{class: class, check: {:catalog, %{table: table}}})
+       when class in [:column, :constraint, :index],
+       do: MapSet.member?(@module_tables, table)
+
+  # "seed:<table>:<key>"
+  defp module_owned_object?(%{class: :seed, id: id}) do
+    case String.split(id, ":", parts: 3) do
+      ["seed", table, _key] -> MapSet.member?(@module_tables, table)
+      _ -> false
+    end
+  end
+
+  # A sequence is named "<table>_<column>_seq".
+  defp module_owned_object?(%{class: :sequence, check: {:catalog, %{name: name}}}),
+    do: Enum.any?(@module_tables, &String.starts_with?(name, &1 <> "_"))
+
+  defp module_owned_object?(_object), do: false
+
+  defp module_owned_invariant?(%{assert: assert}) do
+    ~r/phoenix_kit_[a-z0-9_]+/
+    |> Regex.scan(assert)
+    |> Enum.any?(fn [name] -> MapSet.member?(@module_tables, name) end)
+  end
+
   def chain_hash, do: @chain_hash
+
+  @doc false
+  # Every table the baseline and the chain create, module-owned ones included:
+  # `objects/1` no longer lists the module-owned ones, but
+  # `ModuleOwnedTablesTest` still has to prove the ownership lists cover all
+  # of core's chain. Goes when step 7 rewrites this file.
+  def created_table_names do
+    for %{class: :table, check: {:catalog, %{name: name}}} <- raw_objects(),
+        into: MapSet.new(),
+        do: name
+  end
 
   defp normalize_prefix!(nil), do: "public"
 
@@ -76429,7 +76489,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
         presence: :required,
         backfill: nil
       }
-    ] ++ v220_objects() ++ v223_objects()
+    ] ++ v220_objects() ++ v223_objects() ++ v224_objects()
   end
 
   # --- V220: the dangerous-operation flow (built, not typed; see the header) ---
@@ -76572,6 +76632,40 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
           "timestamp_ops"
         ])
       ] ++ v222_objects(conf)
+  end
+
+  # --- V224: an index for one resource's activity (see the header) ---
+
+  defp v224_objects do
+    name = "phoenix_kit_activities_resource_uuid_inserted_at_index"
+
+    [
+      %{
+        id: "index:#{name}",
+        owner: :core,
+        check: {:catalog, %{name: name, table: "phoenix_kit_activities", kind: :index}},
+        create:
+          "CREATE INDEX IF NOT EXISTS #{name} ON __SCHEMA__.phoenix_kit_activities USING btree (resource_uuid, inserted_at)",
+        since: 224,
+        class: :index,
+        revisions: [
+          {224,
+           %{
+             table: "phoenix_kit_activities",
+             keys: ["resource_uuid", "inserted_at"],
+             unique: false,
+             method: "btree",
+             definition:
+               "CREATE INDEX #{name} ON __SCHEMA__.phoenix_kit_activities USING btree (resource_uuid, inserted_at)",
+             predicate: nil,
+             opclasses: ["uuid_ops", "timestamp_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      }
+    ]
   end
 
   # --- V223: an AI request's cost in dollars (see the header) ---

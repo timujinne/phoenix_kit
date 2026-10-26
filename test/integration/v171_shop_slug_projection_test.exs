@@ -212,32 +212,15 @@ defmodule PhoenixKit.Integration.V171ShopSlugProjectionTest do
   end
 
   describe "the manifest" do
-    test "old indexes are legacy_optional; projection objects are required at 171" do
+    test "lists none of the shop slug objects: ecommerce owns those tables" do
       alias PhoenixKit.Migrations.ExpectedSchema
 
-      objects = ExpectedSchema.objects("public")
-      by_id = Map.new(objects, &{&1.id, &1})
+      ids = "public" |> ExpectedSchema.objects() |> MapSet.new(& &1.id)
 
-      assert by_id["index:idx_shop_products_slug_primary"].presence == :legacy_optional
-      assert by_id["index:idx_shop_categories_slug_primary"].presence == :legacy_optional
-      assert by_id["table:phoenix_kit_shop_product_slugs"].since == 171
-
-      # Both PK objects are declared `kind: :constraint`, not `kind: :index`:
-      # `Probe`'s index snapshot deliberately excludes an index backing a
-      # `p`/`u` constraint on its own table (`probe.ex`'s `@indexes_sql`
-      # comment), so a `kind: :index` check here can never find its own
-      # PRIMARY KEY's backing index and permanently reports it missing — the
-      # exact failure this test would catch on a revert.
-      category_pkey =
-        by_id["constraint:phoenix_kit_shop_category_slugs.phoenix_kit_shop_category_slugs_pkey"]
-
-      product_pkey =
-        by_id["constraint:phoenix_kit_shop_product_slugs.phoenix_kit_shop_product_slugs_pkey"]
-
-      assert category_pkey.since == 171
-      assert product_pkey.since == 171
-      assert {:catalog, %{kind: :constraint}} = category_pkey.check
-      assert {:catalog, %{kind: :constraint}} = product_pkey.check
+      refute MapSet.member?(ids, "index:idx_shop_products_slug_primary")
+      refute MapSet.member?(ids, "index:idx_shop_categories_slug_primary")
+      refute MapSet.member?(ids, "table:phoenix_kit_shop_product_slugs")
+      refute MapSet.member?(ids, "table:phoenix_kit_shop_category_slugs")
     end
   end
 end

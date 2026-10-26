@@ -408,7 +408,7 @@
               <% true -> %>
                 {if @scope_folder_id,
                   do: @scope_folder_name,
-                  else: gettext("All Media")}
+                  else: gettext("Top level")}
             <% end %>
           </h2>
         <% end %>
@@ -600,6 +600,8 @@
       <% sort_options = [
         {"newest", gettext("Newest first")},
         {"oldest", gettext("Oldest first")},
+        {"taken_oldest", gettext("Date taken, oldest first")},
+        {"taken_newest", gettext("Date taken, newest first")},
         {"name_asc", gettext("Name A–Z")},
         {"name_desc", gettext("Name Z–A")},
         {"largest", gettext("Largest first")},

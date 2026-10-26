@@ -124,30 +124,47 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
     end
   end
 
+  # Ending someone's sessions takes the rank rule of changing their status
+  # (`Sessions.can_revoke_sessions_of?/2`): checked when the dialog opens, and
+  # again by the context when it is confirmed.
   def handle_event("show_revoke_session", %{"token_uuid" => token_uuid}, socket) do
     session_info = Sessions.get_session_info(token_uuid)
 
-    socket =
-      socket
-      |> assign(:selected_session, session_info)
-      |> assign(:revoke_type, :single)
-      |> assign(:show_revoke_modal, true)
+    cond do
+      session_info == nil ->
+        {:noreply, put_flash(socket, :error, gettext("Session not found or already expired"))}
 
-    {:noreply, socket}
+      not may_revoke?(socket, Auth.get_user(session_info.user_uuid)) ->
+        {:noreply, put_flash(socket, :error, revoke_refused_message())}
+
+      true ->
+        socket =
+          socket
+          |> assign(:selected_session, session_info)
+          |> assign(:revoke_type, :single)
+          |> assign(:show_revoke_modal, true)
+
+        {:noreply, socket}
+    end
   end
 
   def handle_event("show_revoke_user_sessions", %{"user_uuid" => user_uuid}, socket) do
     user = Auth.get_user!(user_uuid)
-    user_sessions = Sessions.list_user_sessions(user)
 
-    socket =
-      socket
-      |> assign(:selected_user, user)
-      |> assign(:user_sessions_count, length(user_sessions))
-      |> assign(:revoke_type, :user_all)
-      |> assign(:show_revoke_modal, true)
+    if may_revoke?(socket, user) do
+      user_sessions = Sessions.list_user_sessions(user)
 
-    {:noreply, socket}
+      socket =
+        socket
+        |> assign(:selected_user, user)
+        |> assign(:user_sessions_count, length(user_sessions))
+        |> assign(:revoke_type, :user_all)
+        |> assign(:show_revoke_modal, true)
+
+      {:noreply, socket}
+    else
+      {:noreply, put_flash(socket, :error, revoke_refused_message())}
+    end
   end
 
   def handle_event("hide_revoke_modal", _params, socket) do
@@ -187,7 +204,15 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
   defp handle_single_session_revoke(socket) do
     session = socket.assigns.selected_session
 
-    case Sessions.revoke_session(session.token_uuid) do
+    case Sessions.revoke_session(session.token_uuid, actor: actor(socket)) do
+      {:error, :not_permitted} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, revoke_refused_message())
+         |> assign(:show_revoke_modal, false)
+         |> assign(:selected_session, nil)
+         |> assign(:revoke_type, nil)}
+
       :ok ->
         socket =
           socket
@@ -214,8 +239,21 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
   defp handle_user_sessions_revoke(socket) do
     user = socket.assigns.selected_user
 
-    revoked_count = Sessions.revoke_user_sessions(user)
+    case Sessions.revoke_user_sessions(user, actor: actor(socket)) do
+      {:error, :not_permitted} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, revoke_refused_message())
+         |> assign(:show_revoke_modal, false)
+         |> assign(:selected_user, nil)
+         |> assign(:revoke_type, nil)}
 
+      revoked_count ->
+        user_sessions_revoked(socket, user, revoked_count)
+    end
+  end
+
+  defp user_sessions_revoked(socket, user, revoked_count) do
     socket =
       socket
       |> put_flash(
@@ -235,6 +273,13 @@ defmodule PhoenixKitWeb.Live.Users.Sessions do
 
     {:noreply, socket}
   end
+
+  defp actor(socket), do: socket.assigns.phoenix_kit_current_user
+
+  defp may_revoke?(socket, target), do: Sessions.can_revoke_sessions_of?(target, actor(socket))
+
+  defp revoke_refused_message,
+    do: gettext("You are not allowed to end this person's sessions")
 
   # Filtering and paging happen in SQL: with the page size now user-chosen,
   # loading every session and slicing in memory would scale with the table

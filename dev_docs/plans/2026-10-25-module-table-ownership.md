@@ -1,6 +1,6 @@
 # Module tables: every module owns its own
 
-**Status:** in progress — steps 1–3 done, step 4 done, step 5 started (billing and ecommerce done; emails and the 15 passing modules left), all unreleased. See the
+**Status:** in progress — steps 1–3 done, step 4 done, step 5 done, step 6 done, all unreleased. See the
 [progress log](#progress-log).
 **Started:** 2026-10-25. **Tracks:** this file is the shared record of where
 the work stands; update it in the same commit as each step.
@@ -33,7 +33,7 @@ builds it), `dev_docs/squash/adoption/` (`gen_chain.py` + templates + README:
 chain and tests from that DDL; `check_module_chains.exs`: `ModuleChainCheck`
 over every module chain from core's VM — 27 of 31 pass today).
 
-**Next: step 5** (step 4 is done; billing and ecommerce are done). The failing chains shared one shape:
+**Next: step 7** (steps 4, 5 and 6 are done). The failing chains shared one shape:
 *an earlier version of the chain touches a table only core creates*, so on a
 database without core's copy that version fails before anything adopts the
 table. ai and billing build `up_statements/2` by replaying every version up to
@@ -126,7 +126,7 @@ new protocol.
 | 2 | "Builds from scratch" test helper + a true fresh-install test | core | **Done** 2026-10-25 (unreleased) |
 | 3 | First migration chain for comments, staff, user_connections, sync, calendar, referrals | 6 modules | **Done** 2026-10-25 (unreleased) |
 | 4 | Complete the chains of ai (3 tables) and document_creator (7 tables) | 2 modules **Done** 2026-10-25 — document_creator `f67f163`, ai `c118542` (unreleased) |
-| 5 | The step-2 test in every adopted module; fix what it finds | 17 modules | In progress — billing (`3fa1164`) and ecommerce (`54061bd`) done 2026-10-25; emails seeds/index, then the test in the 15 that pass |
+| 5 | The step-2 test in every adopted module; fix what it finds | 17 modules | In progress — billing (`3fa1164`) and ecommerce (`54061bd`) done 2026-10-25; **Done 2026-10-25**: billing, ecommerce, emails, and the builds-alone test in the other 14 |
 | 6 | Core's manifest hands every module-owned entry over | core | Not started |
 | 7 | Manifest generator (frozen pre-squash part + generated rest, compact, in `priv/`); move core's hard-coded module-table lists to module callbacks | core | Not started |
 | 8 | Core stops creating module tables on fresh installs | core | Not started — approach to decide |
@@ -270,13 +270,26 @@ alone gets fixed. The preview (step 2) found two:
 - **ecommerce** — core's V186 added `base_currency`, `exchange_rate` (carts)
   and `base_unit_price` (cart items); ecommerce's chain never declares them.
 
-### Step 6 — core's manifest lets go
+### Step 6 — core's manifest lets go (done)
 
 Remove every module-owned object from `ExpectedSchema` (the guide's Phase 1 for
 all of them at once), using `ModuleOwnedTables`; `doctor`/`repair` then check
 core's tables only. Requires steps 3–5, so each module can vouch for its own
 tables. Later, step 7's generator can produce a manifest per module so repair
 checks module tables again, owned by the module this time.
+
+*Done as a filter, not a deletion* (decided 2026-10-25): `ExpectedSchema.objects/1`
+and `data_invariants/1` drop everything on a table `ModuleOwnedTables` lists as a
+module's: its table, columns, constraints and indexes, the seeds on it, the
+sequences named after it, and the two V137 email invariants. What is left is 40
+tables, 489 columns, 124 constraints, 165 indexes, 108 seeds and 4 invariants,
+all core's. The dead text stays in `expected_schema.ex` (about 60% of it) until
+step 7 rewrites the file, so no `v*.ex` changes and `chain_hash` is untouched.
+The newsletters FK exception in `@module_owned_ids` is now covered by the rule.
+Consequence: until step 7, `doctor` and `repair` say nothing about a module's
+tables. Repair is additive-only (its executor never issues a `DROP`), and no
+database changes: re-running `mix phoenix_kit.update` re-runs each module chain,
+which is idempotent, and puts back what is missing.
 
 ### Step 7 — generated manifest
 
@@ -287,6 +300,90 @@ snapshots. One line per object, stored in `priv/` and read only when repair or
 doctor runs, with a test that fails when it is stale. Also move core's
 hard-coded module-table lists (storage's orphaned-file check, doctor's
 NULL-uuid check) to module callbacks.
+
+*Step 7 so far (2026-10-25).* Two decisions and one built part.
+
+- **Doctor's NULL-uuid list stays in core.** It guards the V56 backfill, which core's own chain still runs against
+  those tables, so it is core history, not a module concern. It only reads, and skips a table that is missing,
+  so it is harmless once core stops creating module tables. Not moved.
+- **Storage's orphan-file list moves by callback.** `PhoenixKit.Module.file_references/0` (optional, no default;
+  a default `[]` would switch off core's protection for every module) returns `{table, dynamic}` pairs, collected
+  from all modules by `ModuleRegistry.all_file_references/0`. In `Storage.orphaned_files_query/1`, core's built-in
+  entry for a table is dropped only when the module that `ModuleOwnedTables` says owns the table supplies a list;
+  every other module keeps core's, so an older module version stays protected. A broken callback fails closed.
+  Tests: `test/integration/storage_module_file_references_test.exs`. **Core half done and additive; nothing changes
+  until a module implements it.** Two details: core's built-in list is public as `Storage.builtin_file_references/0`
+  (`@doc false`), so a module's test can prove its pairs render the same SQL as core's; and a core entry also steps
+  aside when a supplier names its table, because `phoenix_kit_project_portal_submissions` has no owner in
+  `ModuleOwnedTables` (projects creates it itself, core never did). A module defines the callback **without
+  `@impl`**, so it compiles against today's Hex core and does nothing there; no core floor is needed, because core
+  falls back whenever the callback is absent. Each module's test is gated like the chain check
+  (`:requires_core_file_references`, excluded while `Storage.builtin_file_references/0` is not exported).
+- **Done, per module** (2026-10-26, all pushed, unreleased): each has a `FileReferences` module holding its pairs
+  (moved verbatim from `storage.ex`), a one-line `file_references/0` in its main module (no `@impl`), a
+  `file_references_test.exs` and a CHANGELOG entry. No core floor was raised: core falls back whenever the callback
+  is absent, and the test is excluded until core exposes `Storage.builtin_file_references/0`. projects `e5bb40f`
+  (`project_portal_submissions`), posts `665847a` (`post_media`, `post_groups`, `posts`), customer_support `a667657`
+  (`ticket_attachments`), ecommerce `e1fb780` (`shop_products`, `shop_categories`), catalogue `0fd0aad` (`cat_items`,
+  `cat_categories`, `cat_catalogues`, `cat_pdfs`), publishing `c78f56a` (`publishing_contents`,
+  `publishing_versions`), entities `a1e611c` (`entity_data`). Each passes against local core, where the test proves
+  its SQL equals core's own copy. Gate: format and `quality.ci` clean in all seven; suites green on Hex core except
+  projects, whose `ProjectCalendarLiveTest` "reloads on a projects PubSub broadcast" fails at `HEAD` with or without
+  this change (not part of this plan). Whether core deletes its copy at 3.0 is undecided: keeping it as a permanent
+  safety net costs nothing.
+- **7b, per-module manifests: decided (a) on 2026-10-26; core half and the customer_support pilot built, other modules not started.** Core's `ExpectedSchema` keeps
+  core's own objects (step 6 already filters the rest); each module ships a manifest of its own tables, and
+  repair checks them again.
+  - *Shape.* A generated module `<App>.ExpectedSchema` implementing the existing
+    `PhoenixKit.Migrations.ExpectedSchema.Behaviour` (`objects/1`, `data_invariants/1`, `chain_hash/0`), so
+    `Repair.Differ`, `Executor` and the additive-only rules work unchanged. Core learns of it through a new
+    optional `PhoenixKit.Module` callback (`expected_schema/0`, no default, like `file_references/0`), so an older
+    module simply has none and is skipped.
+  - *Version scope, kept simple.* One revision per object, the module chain's end state. Repair checks a module's
+    tables only when the module's recorded version equals its current chain head; a module that is behind is
+    reported as "run update", not healed against a guessed older shape. No per-version history for modules.
+  - *Generator.* Reuses `ModuleChainCheck`'s "module alone" build in a scratch schema plus the generator's
+    `Catalog` snapshot (catalog queries only, no `pg_dump`, so it runs here, unlike the core generator). Lives in
+    core `lib/` so a module runs it from its own repo, like `ModuleChainCheck`. A module test rebuilds and fails
+    when its committed manifest is stale (the module's `chain_hash`).
+  - *Repair.* After the core pass, one pass per module that supplies a manifest; findings are labelled with the
+    module. `doctor` and `repair` print module findings separately.
+  - *Order.* Core half (callback, repair pass, generator, fixture tests) first and additive; then one pilot
+    module end to end; then the rest. Nothing changes for a host until a module ships a manifest.
+  - **Rolled out to the other 24 owner modules (2026-10-26, gate green, committed and pushed).** One generated `<Module>.ExpectedSchema`, an `expected_schema/0` callback (no `@impl`), a `:requires_core_expected_schema` test and a CHANGELOG bullet each. Not touched: `phoenix_kit_bookings` (Max's rework). Findings along the way:
+    * The generator runs best against an empty database (`PGDATABASE=pk_modgen_empty`): several chains look a constraint up by name alone, not by schema, so a `public` copy hides it in the scratch schema.
+    * Core's generator excludes `fk_newsletters_broadcasts_template` from *core's* manifest (newsletters repoints it). Module mode now keeps it (`build_objects` skips `module_owned?` when `owner:` is given).
+    * `phoenix_kit_projects` has two such name-only lookups in its own chain (`phoenix_kit_project_assignments_dates_check`, `phoenix_kit_project_portals_access_mode_check`, `migrations/schema.ex`). Harmless in `public`; its test lists them as known gaps.
+    * A fresh non-public schema names some indexes with the schema in them; the test compares the unprefixed name.
+    * `phoenix_kit_og` is OTP app `:phoenix_kit_og`; the ownership map keys on it. `phoenix_kit_legal`'s test repo has no sandbox and needs `:phoenix_kit, :repo` set while core's chain builds.
+    * `phoenix_kit_billing` declares `Helpers.validate_prefix!/1` in its `CoreCompat` (the generated file calls it).
+    * Generator output is not byte-stable between runs for some modules (property order in a few objects); regenerate rarely and review the diff.
+  - **Pilot built (2026-10-26, gate green, committed and pushed): core half plus customer_support.**
+    - *Core.* `PhoenixKit.Module.expected_schema/0` (optional, no default, not in `defoverridable`);
+      `ModuleRegistry.all_expected_schemas/0` (`%{app => %{manifest:, migrations:}}`; a raise, a nil manifest, a
+      manifest without the three exports or a module without a loaded migrations module is left out);
+      `Repair` runs one more pass per manifest after core's (`add_module_passes/3`, opt `:module_manifests` for
+      tests), gated on the module's `migrated_version_runtime/1` against `current_version/0`: equal = checked,
+      lower = an info `:module_behind` finding, 0 = silent, higher or unreadable = silent. Findings carry
+      `module:` and their message starts with the app. Reuses `apply_scope/7` unchanged with `since: 1` on every
+      object. The core-adopt branch is untouched. `ModuleChainCheck.build_alone/4` is the "core, then the module's
+      chain alone" build, public. Tests: `test/integration/repair_module_manifest_test.exs` (9).
+    - *Generator.* `dev_docs/squash/generate_module_manifest.exs`. It loads `generate_baseline.exs` as a library
+      (`PK_GEN_LIBRARY=1` stops its `Main.main` from running), takes `Catalog.snapshot/2` of the scratch schema,
+      keeps the module's tables, and renders through the core emitter (`render_manifest/3` gained `:header`,
+      `:invariants`, `:owner`; `build_objects/2` gained `:owner`). Catalog queries only: it ran here against the
+      PG18 server, which the core generator cannot. `generate_baseline.exs --check` still passes. The migrations
+      module must be compiled from `--source` files (schemas it reads included), since core does not depend on the
+      module. `chain_hash` of a module manifest is a fingerprint of its objects, not of the chain files.
+    - *customer_support.* `PhoenixKitCustomerSupport.ExpectedSchema` (77 objects, 4 tables), `expected_schema/0`
+      in the main module (no `@impl`), `test/integration/expected_schema_test.exs` (4: table set, a fresh chain has
+      no findings, every index and constraint is in the manifest, a dropped column is found and repaired),
+      excluded by `:requires_core_expected_schema` against a core without `build_alone/4`. Passes against local
+      core.
+    - *Staleness.* There is no file hash to compare. A stale manifest shows up in the module's test as a missing
+      or extra object; a chain change still needs the generator re-run.
+    - *When core releases:* each module's `file_references/0` and `expected_schema/0` get `@impl` once the core
+      floor is raised, otherwise core's compiler warns "@impl not set" on the module.
 
 ### Step 8 — core stops creating module tables (fresh installs only)
 
@@ -340,6 +437,24 @@ owning module's chain, never core's.
   for the DDL. user_connections' floor raised to 2.22.3.
 - **2026-10-25** — Step 5 started: billing V6 (`3fa1164`); the checker passes it. Unreleased.
 - **2026-10-25** — Step 5: ecommerce V6 (`54061bd`) adds core V186's three columns (`ADD COLUMN IF NOT EXISTS`, no backfill) plus the builds-alone test; checker OK, 4771 tests (3 position-pinned migration tests adjusted), quality.ci clean. Unreleased.
+- **2026-10-25** — Step 5: emails (`a081f13`) checked. Core's chain seeds nothing into `phoenix_kit_email_templates` (the package seeds system templates at runtime) and its one `__PK_NAME_EXEMPT__` index is already carried, so no chain change; builds-alone test added. 2028 tests green against a local core (emails pins core on Hex with no `PHOENIX_KIT_PATH` switch, so a temporary uncommitted path dep). Unreleased.
+- **2026-10-25** — Step 5 finished: the builds-alone test added to catalogue `131c998`, crm `a16a608`, customer_support `80be167`, dashboards `e755a88`, entities `b24d02b`, legal `465f889`, locations `c6ef9ce`, manufacturing `b0c8ec5`, newsletters `740a0c3`, open_graph `1342c66`, posts `922793a`, projects `d587883`, publishing `ce4952c`, warehouse `4bede57`. Every one passes against local core; full suites and credo green against Hex core. legal's test points core's `:repo` env at its test repo for its own duration (its config never set it). Two failures are already there without the change and are not part of this plan: legal `DataCollectionTest` (registry) and open_graph `EditorLiveTest` (3, locale-prefixed URLs). Unreleased.
+- **2026-10-26** — Step 7a done in the seven modules (see step 7): projects `e5bb40f`, posts `665847a`,
+  customer_support `a667657`, ecommerce `e1fb780`, catalogue `0fd0aad`, publishing `c78f56a`, entities `a1e611c`.
+  Core `dcd2416d6` exposes `Storage.builtin_file_references/0` and hands over a table a supplier names. Unreleased;
+  the modules ship after the core release that reads the callback.
+- **2026-10-26** — Step 7b started, option (a) chosen: `Module.expected_schema/0`, `ModuleRegistry.all_expected_schemas/0`,
+  a repair pass per module manifest, `ModuleChainCheck.build_alone/4` and `generate_module_manifest.exs` in core;
+  customer_support is the pilot (`ExpectedSchema`, 77 objects, plus its test). See step 7. Unreleased; the other 24
+  modules are not started.
+- **2026-10-25** — Step 7 started: `file_references/0` callback, registry aggregator and storage hand-over (core half);
+  doctor's NULL-uuid list left in core. Unreleased.
+- **2026-10-25** — Step 6 done: `ExpectedSchema` filters by `ModuleOwnedTables` (see step 6). Tests:
+  `ModuleOwnedTablesTest` gains "lists core's tables only" and "lists every table of core's own", and
+  reads the created tables through `ExpectedSchema.created_table_names/0` (unfiltered, goes in step 7);
+  `ModuleOwnedManifestTest`'s "rest of the broadcasts table" now asserts the opposite (the whole table is
+  the module's); the V167 posts-slug and V171 shop-slug manifest tests assert the objects are gone;
+  `PhoenixKitRepairTest` accepts a subset of the classes. Unreleased.
 - **2026-10-25** — Step 4 done: document_creator V3 (`f67f163`) and ai V5 (`c118542`); the checker passes both. Unreleased; both ship after the core release.
 - **2026-10-25** — Step 3 done: sync, calendar and referrals too. sync's floor
   raised to 2.63.0; user_connections and referrals gained a test database.

@@ -589,20 +589,21 @@ defmodule PhoenixKit.Settings.Setting do
       )
     end
 
-    # Validates new_user_default_role is a valid non-Owner role
+    # Validates new_user_default_role is a valid role other than Owner and
+    # Admin: Owner is reserved for the first user, and Admin would give every
+    # self-registered account the admin panel. `Roles` applies the same rule
+    # when it reads the setting, so a row written around this changeset is
+    # still never used.
     defp validate_new_user_default_role(changeset) do
-      owner_role = Role.system_roles().owner
-
-      # Get all valid role names except Owner
-      all_roles = Roles.list_roles()
+      system = Role.system_roles()
 
       valid_roles =
-        all_roles
-        |> Enum.reject(fn role -> role.name == owner_role end)
+        Roles.list_roles()
+        |> Enum.reject(fn role -> role.name in [system.owner, system.admin] end)
         |> Enum.map(fn role -> role.name end)
 
       validate_inclusion(changeset, :new_user_default_role, valid_roles,
-        message: "must be a valid role (Owner is reserved for first user)"
+        message: "must be a valid role other than Owner or Admin"
       )
     end
 

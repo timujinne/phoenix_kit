@@ -126,6 +126,12 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
           |> assign(:organization_members, organization_members)
           |> assign(:show_role_modal, false)
           |> assign(:all_roles, Roles.list_roles())
+          # The roles this admin may give or take away (`Roles.can_manage_role?/2`);
+          # the rest render locked. The context checks again on save.
+          |> assign(
+            :manageable_roles,
+            Roles.manageable_role_names(socket.assigns.phoenix_kit_current_user)
+          )
           |> assign(:confirmation_modal, %{show: false})
 
         {:ok, socket}
@@ -184,7 +190,7 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
     actor = socket.assigns.phoenix_kit_current_user
 
     case Roles.sync_user_roles(user, role_names, actor: actor) do
-      {:ok, %{roles_before: roles_before, roles_after: roles_after}} ->
+      {:ok, %{roles_before: roles_before, roles_after: roles_after} = result} ->
         added = roles_after -- roles_before
         removed = roles_before -- roles_after
 
@@ -192,11 +198,18 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
           log_roles_updated(actor, user, roles_before, roles_after, added, removed)
         end
 
-        {:noreply,
-         socket
-         |> put_flash(:info, gettext("User roles updated successfully"))
-         |> assign(:show_role_modal, false)
-         |> assign(:user, Auth.get_user_with_roles(user.uuid))}
+        socket = assign(socket, :user, Auth.get_user_with_roles(user.uuid))
+
+        case Map.get(result, :refused, []) do
+          [] ->
+            {:noreply,
+             socket
+             |> put_flash(:info, gettext("User roles updated successfully"))
+             |> assign(:show_role_modal, false)}
+
+          refused ->
+            {:noreply, put_flash(socket, :error, refused_roles_message(refused))}
+        end
 
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, format_role_error_message(reason))}
@@ -626,8 +639,16 @@ defmodule PhoenixKitWeb.Live.Users.UserDetails do
       :cannot_remove_last_owner -> gettext("Cannot remove the last system owner")
       :owner_role_protected -> gettext("Owner role cannot be assigned manually")
       :role_not_found -> gettext("Role not found")
+      :cannot_modify_own_roles -> gettext("Cannot modify your own roles")
       _ -> gettext("Failed to update user role")
     end
+  end
+
+  defp refused_roles_message(refused) do
+    gettext(
+      "Not changed — you can only give or take away roles whose permissions you hold: %{roles}",
+      roles: Enum.join(refused, ", ")
+    )
   end
 
   defp target_is_owner?(user), do: Enum.any?(user.roles || [], &(&1.name == "Owner"))

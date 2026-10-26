@@ -101,7 +101,9 @@ defmodule Mix.Tasks.PhoenixKit.RepairTest do
             |> manifest.objects()
             |> MapSet.new(fn %{id: id} -> hd(String.split(id, ":", parts: 2)) end)
 
-          assert MapSet.equal?(
+          # `sequence` is absent since the module-owned objects left the manifest
+          # (warehouse's were its only ones); keep it classified for a return.
+          assert MapSet.subset?(
                    classes,
                    MapSet.new(~w(table column constraint seed index sequence function extension))
                  ),

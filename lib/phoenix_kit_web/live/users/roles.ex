@@ -397,7 +397,8 @@ defmodule PhoenixKitWeb.Live.Users.Roles do
     role = find_role_by_uuid(socket.assigns.roles, role_uuid)
 
     if role && !role.is_system_role do
-      case Roles.delete_role(role) do
+      # Only someone holding every key of the role may delete it (Owner always).
+      case Roles.delete_role(role, actor: socket.assigns.phoenix_kit_current_user) do
         {:ok, _role} ->
           socket =
             socket
@@ -405,6 +406,14 @@ defmodule PhoenixKitWeb.Live.Users.Roles do
             |> load_roles()
 
           {:noreply, socket}
+
+        {:error, :not_permitted} ->
+          {:noreply,
+           put_flash(
+             socket,
+             :error,
+             gettext("You can only delete a role whose permissions you hold yourself")
+           )}
 
         {:error, :role_in_use} ->
           socket =

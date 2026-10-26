@@ -273,6 +273,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
           <%= if @show_all_files and is_nil(@scope_folder_id) do %>
             <button
               phx-click="navigate_view_all"
+              title={gettext("Every file, whichever folder it is in")}
               phx-target={@myself}
               class={[
                 "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm transition-colors mb-1 text-left",
@@ -286,9 +287,14 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
             </button>
           <% end %>
 
-          <%!-- Root (navigate to real root folder) --%>
+          <%!-- Top level (navigate to the real root folder): the files that are in no
+               folder, and the folders. Not every file; "All Files" is that. --%>
           <button
             phx-click="navigate_root"
+            title={
+              if is_nil(@scope_folder_id),
+                do: gettext("Files that are in no folder, and the top folders")
+            }
             phx-target={@myself}
             data-drop-folder={@enable_drag && "root"}
             class={[
@@ -299,7 +305,8 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
               )
             ]}
           >
-            <.icon name="hero-inbox" class="w-4 h-4 shrink-0" /> {@scope_folder_name}
+            <.icon name="hero-inbox" class="w-4 h-4 shrink-0" />
+            {if @scope_folder_id, do: @scope_folder_name, else: gettext("Top level")}
           </button>
 
           <div class="divider my-1 h-0"></div>

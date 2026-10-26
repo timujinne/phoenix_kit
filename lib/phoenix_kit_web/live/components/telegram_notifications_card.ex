@@ -341,7 +341,7 @@ defmodule PhoenixKitWeb.Live.Components.TelegramNotificationsCard do
                 <.checkbox
                   name={"telegram_types[#{type.key}]"}
                   checked={type_on?(@config, type.key)}
-                  label={type.label}
+                  label={Types.translate(type, :label)}
                   class="checkbox-sm"
                 />
                 <div :if={type.sub_types != []} class="ml-8 space-y-1">
@@ -349,7 +349,7 @@ defmodule PhoenixKitWeb.Live.Components.TelegramNotificationsCard do
                     :for={sub <- type.sub_types}
                     name={"telegram_types[#{sub.key}]"}
                     checked={type_on?(@config, sub.key)}
-                    label={sub.label}
+                    label={Types.translate(sub, :label)}
                     class="checkbox-xs"
                   />
                 </div>

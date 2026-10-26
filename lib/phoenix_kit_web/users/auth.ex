@@ -2479,12 +2479,14 @@ defmodule PhoenixKitWeb.Users.Auth do
     PhoenixKitWeb.Live.Settings => "settings",
     PhoenixKitWeb.Live.Settings.Users => "settings",
     PhoenixKitWeb.Live.Settings.Organization => "settings",
-    # Login / OAuth / authorization settings — maps to the `settings` key. Like
-    # the other Settings.* pages it resolves through no inference layer, so an
-    # explicit entry is required or it falls through to the unmapped fallback.
-    PhoenixKitWeb.Live.Settings.Authorization => "settings",
-    # Website access (password gate, redirect, closed page, noindex, allow list).
-    PhoenixKitWeb.Live.Settings.WebsiteAccess => "settings",
+    # Login / OAuth / authorization settings — the `settings.security`
+    # sub-permission (sign-in methods and the OAuth secrets). Like the other
+    # Settings.* pages it resolves through no inference layer, so an explicit
+    # entry is required or it falls through to the unmapped fallback.
+    PhoenixKitWeb.Live.Settings.Authorization => "settings.security",
+    # Website access (password gate, redirect, closed page, noindex, allow
+    # list) — `settings.security` too: it decides who sees the site at all.
+    PhoenixKitWeb.Live.Settings.WebsiteAccess => "settings.security",
     # Integrations + Emails Transactional/Bulk settings pages: none of these resolve
     # through the later inference layers (their PhoenixKitWeb namespace has no
     # ModuleRegistry entry), so an explicit mapping is required — unmapped

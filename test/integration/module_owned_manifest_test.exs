@@ -65,21 +65,17 @@ defmodule PhoenixKit.Integration.ModuleOwnedManifestTest do
     assert fk_target() == nil
   end
 
-  test "the rest of the broadcasts table is still core's: a dropped FK is repaired" do
+  test "the whole broadcasts table is the module's: no other dropped FK is reported or repaired" do
     other = "fk_newsletters_broadcasts_created_by"
-    other_id = "constraint:#{@table}.#{other}"
     Repo.query!("ALTER TABLE public.#{@table} DROP CONSTRAINT #{@fk}")
     Repo.query!("ALTER TABLE public.#{@table} DROP CONSTRAINT #{other}")
 
-    assert [%{kind: :missing, object_id: ^other_id}] =
-             table_findings(verify())
+    assert table_findings(verify()) == []
 
     assert {:ok, report} = Repair.repair(repo: Repo, prefix: "public")
+    assert table_findings(report) == []
 
-    assert [%{kind: :repaired, object_id: ^other_id}] =
-             table_findings(report)
-
-    assert constraint_exists?(other)
+    refute constraint_exists?(other)
     assert fk_target() == nil
   end
 

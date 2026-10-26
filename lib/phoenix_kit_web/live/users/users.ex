@@ -108,6 +108,7 @@ defmodule PhoenixKitWeb.Live.Users.Users do
       |> assign(:managing_user, nil)
       |> assign(:user_roles, [])
       |> assign(:all_roles, [])
+      |> assign(:manageable_roles, [])
       |> assign(:confirmation_modal, %{show: false})
       |> assign(:show_column_modal, false)
       |> assign(:page_title, gettext("Users"))
@@ -249,6 +250,9 @@ defmodule PhoenixKitWeb.Live.Users.Users do
         |> assign(:managing_user, user_with_roles)
         |> assign(:user_roles, user_roles)
         |> assign(:all_roles, all_roles)
+        # The roles this admin may give or take away (`Roles.can_manage_role?/2`);
+        # the rest render locked. The context checks again on save.
+        |> assign(:manageable_roles, Roles.manageable_role_names(current_user))
         |> assign(:show_role_modal, true)
 
       {:noreply, socket}
@@ -273,7 +277,7 @@ defmodule PhoenixKitWeb.Live.Users.Users do
     actor = socket.assigns.phoenix_kit_current_user
 
     case Roles.sync_user_roles(user, role_names, actor: actor) do
-      {:ok, %{roles_before: roles_before, roles_after: roles_after}} ->
+      {:ok, %{roles_before: roles_before, roles_after: roles_after} = result} ->
         admin = socket.assigns.phoenix_kit_current_user
 
         # Audit the exact delta this transaction applied — the context captures
@@ -287,23 +291,37 @@ defmodule PhoenixKitWeb.Live.Users.Users do
           log_roles_updated(admin, user, roles_before, roles_after, added, removed)
         end
 
-        socket =
-          socket
-          |> put_flash(:info, gettext("User roles updated successfully"))
-          |> assign(:show_role_modal, false)
-          |> assign(:managing_user, nil)
-          |> assign(:user_roles, [])
-          |> assign(:all_roles, [])
-          |> load_users()
-          |> load_stats()
+        case Map.get(result, :refused, []) do
+          [] ->
+            socket =
+              socket
+              |> put_flash(:info, gettext("User roles updated successfully"))
+              |> assign(:show_role_modal, false)
+              |> assign(:managing_user, nil)
+              |> assign(:user_roles, [])
+              |> assign(:all_roles, [])
+              |> load_users()
+              |> load_stats()
 
-        {:noreply, socket}
+            {:noreply, socket}
+
+          refused ->
+            # Part of the request was not allowed: say which, and keep the
+            # modal open on the real state.
+            {:noreply,
+             socket
+             |> put_flash(:error, refused_roles_message(refused))
+             |> assign(:managing_user, Auth.get_user_with_roles(user.uuid))
+             |> assign(:user_roles, roles_after)
+             |> load_users()}
+        end
 
       {:error, reason} ->
         error_msg =
           case reason do
             :cannot_remove_last_owner -> gettext("Cannot remove the last system owner")
             :owner_role_protected -> gettext("Owner role cannot be assigned manually")
+            :cannot_modify_own_roles -> gettext("Cannot modify your own roles")
             _ -> gettext("Failed to update user roles")
           end
 
@@ -742,8 +760,16 @@ defmodule PhoenixKitWeb.Live.Users.Users do
       :cannot_remove_last_owner -> gettext("Cannot remove the last system owner")
       :owner_role_protected -> gettext("Owner role cannot be assigned manually")
       :role_not_found -> gettext("Role not found")
+      :cannot_modify_own_roles -> gettext("Cannot modify your own roles")
       _ -> gettext("Failed to update user role")
     end
+  end
+
+  defp refused_roles_message(refused) do
+    gettext(
+      "Not changed — you can only give or take away roles whose permissions you hold: %{roles}",
+      roles: Enum.join(refused, ", ")
+    )
   end
 
   # Optimized function using preloaded roles - used in template conditionals

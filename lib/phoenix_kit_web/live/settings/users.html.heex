@@ -68,17 +68,29 @@
             <div class={if @active_tab != "registration", do: "hidden"}>
               <%!-- Registration Control Setting --%>
               <div class="fieldset w-full">
+                <%!-- Without `settings.security` these two are shown, not
+                     editable; the save leaves them alone whatever is sent
+                     (`Settings.update_settings/2` with `scope:`). --%>
+                <p
+                  :if={!@can_security?}
+                  id="registration-security-locked"
+                  class="text-sm text-base-content/60 mb-3"
+                >
+                  {gettext("Changing who can register needs the Security settings permission.")}
+                </p>
                 <.checkbox
                   name="settings[allow_registration]"
                   checked={@settings["allow_registration"] == "true"}
                   label={gettext("Anyone can register")}
                   wrapper_class="mb-3"
+                  disabled={!@can_security?}
                 />
                 <.checkbox
                   name="settings[require_email_confirmation]"
                   checked={@settings["require_email_confirmation"] == "true"}
                   label={gettext("Require email confirmation before using the app")}
                   wrapper_class="mb-3"
+                  disabled={!@can_security?}
                 />
                 <.checkbox
                   name="settings[track_registration_geolocation]"
@@ -300,6 +312,27 @@
 
             <div class={if @active_tab != "defaults", do: "hidden"}>
               <%!-- New User Default Role + Status --%>
+              <p
+                :if={!@can_security?}
+                id="defaults-security-locked"
+                class="text-sm text-base-content/60 mb-3"
+              >
+                {gettext("Changing the new-user defaults needs the Security settings permission.")}
+              </p>
+              <%!-- A disabled select submits nothing, and both are required by
+                   the form: carry the saved value (the save ignores it). --%>
+              <input
+                :if={!@can_security?}
+                type="hidden"
+                name="settings[new_user_default_role]"
+                value={@saved_settings["new_user_default_role"]}
+              />
+              <input
+                :if={!@can_security?}
+                type="hidden"
+                name="settings[new_user_default_status]"
+                value={@saved_settings["new_user_default_status"]}
+              />
               <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div class="fieldset w-full">
                   <label class="label">
@@ -313,8 +346,9 @@
                   <.select
                     name="settings[new_user_default_role]"
                     value={@settings["new_user_default_role"]}
-                    options={@setting_options["new_user_default_role"]}
+                    options={@default_role_options}
                     class="focus-within:select-primary"
+                    disabled={!@can_security?}
                   />
                   <.unsaved_hint
                     dirty={
@@ -328,26 +362,6 @@
                       )
                     }
                   />
-
-                  <%!-- Security Warning for Admin Role --%>
-                  <%= if @settings["new_user_default_role"] == "Admin" do %>
-                    <div class="alert alert-warning text-sm mt-2 max-w-prose">
-                      <.icon name="hero-exclamation-triangle" class="w-5 h-5" />
-                      <div>
-                        <div class="font-semibold">
-                          {gettext("Security Notice: Medium Risk")}
-                        </div>
-                        <div class="text-xs">
-                          {gettext(
-                            "All new users will receive administrative privileges and access to the admin panel."
-                          )}
-                          {gettext(
-                            "Consider \"User\" for most installations to maintain security."
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  <% end %>
                 </div>
 
                 <%!-- New User Default Status --%>
@@ -365,6 +379,7 @@
                     value={@settings["new_user_default_status"]}
                     options={@setting_options["new_user_default_status"]}
                     class="focus-within:select-primary"
+                    disabled={!@can_security?}
                   />
                   <.unsaved_hint
                     dirty={

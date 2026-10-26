@@ -154,7 +154,9 @@ defmodule PhoenixKit.Modules.Storage.HdrResizeTest do
           stderr_to_stdout: true
         )
 
-      String.to_float(out)
+      # ImageMagick 7 prints "WARNING: The convert command is deprecated" on
+      # stderr, which is folded into `out`; the number is the last word.
+      out |> String.split() |> List.last() |> String.to_float()
     end
 
     # The gain map of `path`, written next to it.

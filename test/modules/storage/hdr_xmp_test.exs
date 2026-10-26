@@ -81,4 +81,27 @@ defmodule PhoenixKit.Modules.Storage.HdrXmpTest do
     refute result =~ "GPS"
     refute result =~ "59,26N"
   end
+
+  # An iPhone's JPEG ends its XMP packet with a NUL byte, as a C string does.
+  describe "a packet written like an iPhone's" do
+    @packet ~s(<?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>) <>
+              ~s(<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">) <>
+              ~s(<rdf:Description rdf:about=""/></rdf:RDF></x:xmpmeta>) <>
+              String.duplicate(" ", 20) <> ~s(<?xpacket end="w"?>)
+
+    test "ending in a NUL byte is read like one without" do
+      assert HdrXmp.rewrite(@packet <> <<0>>, nil, false) == HdrXmp.rewrite(@packet, nil, false)
+    end
+
+    test "ending in several NUL bytes is read too" do
+      assert HdrXmp.rewrite(@packet <> <<0, 0, 0>>, nil, false) ==
+               HdrXmp.rewrite(@packet, nil, false)
+    end
+
+    test "that is not XML is still refused" do
+      assert_raise ArgumentError, "invalid HDR XMP", fn ->
+        HdrXmp.rewrite("not xml" <> <<0>>, nil, false)
+      end
+    end
+  end
 end

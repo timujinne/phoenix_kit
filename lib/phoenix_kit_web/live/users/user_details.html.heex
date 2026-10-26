@@ -840,6 +840,7 @@
             <% user_role_names = Enum.map(@user.roles || [], & &1.name) %>
             <%= for role <- @all_roles do %>
               <% owner_role? = role.name == PhoenixKit.Users.Role.system_roles().owner %>
+              <% locked? = owner_role? or role.name not in @manageable_roles %>
               <div class="fieldset">
                 <%!-- DO NOT convert to <.checkbox>: the submitted VALUE is the payload.
                      `sync_user_roles` reads Map.values(params["roles"]) and diffs that
@@ -849,17 +850,32 @@
                 <label
                   class={[
                     "label justify-start gap-3",
-                    owner_role? && "cursor-not-allowed opacity-70"
+                    locked? && "cursor-not-allowed opacity-70"
                   ]}
-                  title={if owner_role?, do: gettext("Owner role cannot be modified"), else: nil}
+                  title={
+                    cond do
+                      owner_role? -> gettext("Owner role cannot be modified")
+                      locked? -> gettext("You can only give roles whose permissions you hold")
+                      true -> nil
+                    end
+                  }
                 >
+                  <%!-- A disabled checkbox submits nothing, which the context
+                       would read as a removal it then refuses: carry a held
+                       locked role as it is. --%>
+                  <input
+                    :if={locked? and role.name in user_role_names}
+                    type="hidden"
+                    name={"roles[#{role.name}]"}
+                    value={role.name}
+                  />
                   <input
                     type="checkbox"
                     name={"roles[#{role.name}]"}
                     value={role.name}
                     class="checkbox"
                     checked={role.name in user_role_names}
-                    disabled={owner_role?}
+                    disabled={locked?}
                   />
                   <div class="flex flex-wrap items-center gap-2">
                     <.role_badge role={role} size={:sm} />

@@ -550,12 +550,14 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   def private_among(library_uuids), do: among(library_uuids, private_condition())
 
   @doc """
-  Which of `library_uuids` are user libraries or hidden system libraries
-  (`hidden?/1`), in one query — the ones a site's folder tree leaves out.
+  Which of `library_uuids` a site listing leaves out, in one query: user
+  libraries and private ones (hidden system libraries, trashed, suspended) —
+  the rule of `exclude_user_libraries/1`. The site's folder tree and the media
+  browser's event checks use it.
   """
   @spec user_or_hidden_among([term()]) :: [String.t()]
   def user_or_hidden_among(library_uuids),
-    do: among(library_uuids, dynamic([l], l.kind == "user" or l.visibility == "private"))
+    do: among(library_uuids, dynamic([l], l.kind == "user" or ^private_condition()))
 
   defp among(library_uuids, condition) do
     uuids =

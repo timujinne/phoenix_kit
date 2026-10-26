@@ -216,8 +216,8 @@ defmodule PhoenixKit.Notifications.DigestWorker do
   # translations for them (ru, et) that nobody would ever see. Both digest
   # surfaces (the channel envelope and the in-app inbox row) freeze their text
   # at write time, so both build it here, inside the recipient's locale.
-  # (`%{label}` stays English: type labels are runtime registry data, not
-  # extracted strings — see `Types`.)
+  # (`%{label}` goes through `Types.translate/2`, so it is in the recipient's
+  # locale too.)
   defp digest_body(user, type_key, count, cadence) do
     RecipientLocale.in_locale(RecipientLocale.base(user), fn ->
       digest_text(count, type_label(type_key), cadence)
@@ -249,7 +249,10 @@ defmodule PhoenixKit.Notifications.DigestWorker do
   defp type_label(type_key) do
     Types.list()
     |> Enum.flat_map(fn type ->
-      [{type.key, type.label} | Enum.map(type.sub_types, &{&1.key, &1.label})]
+      [
+        {type.key, Types.translate(type, :label)}
+        | Enum.map(type.sub_types, &{&1.key, Types.translate(&1, :label)})
+      ]
     end)
     |> Enum.find_value(type_key, fn {key, label} ->
       if key == type_key, do: String.downcase(label)

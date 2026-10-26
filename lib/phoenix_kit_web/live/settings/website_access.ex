@@ -24,6 +24,7 @@ defmodule PhoenixKitWeb.Live.Settings.WebsiteAccess do
   alias PhoenixKit.WebsiteAccess
   alias PhoenixKit.WebsiteAccess.{AllowedAddresses, Gate, Redirect}
   alias PhoenixKitWeb.Actor
+  alias PhoenixKitWeb.Live.Settings.SecurityGate
   alias PhoenixKitWeb.Live.Settings.UrlTabs
   alias PhoenixKitWeb.Plugs.WebsiteAccess, as: AccessPlug
   alias PhoenixKitWeb.TableColumns, as: ColumnPrefs
@@ -37,7 +38,14 @@ defmodule PhoenixKitWeb.Live.Settings.WebsiteAccess do
   # default for an admin who has not chosen.
   @attempt_columns_key "website_access_attempt_columns"
 
-  def mount(_params, _session, socket) do
+  # `settings.security` on top of the admin gate's own check (`SecurityGate`).
+  def mount(params, session, socket) do
+    if SecurityGate.allowed?(socket),
+      do: do_mount(params, session, SecurityGate.attach(socket)),
+      else: {:ok, SecurityGate.refuse(socket)}
+  end
+
+  defp do_mount(_params, _session, socket) do
     if connected?(socket) do
       Maintenance.subscribe()
       Gate.subscribe()
@@ -61,7 +69,6 @@ defmodule PhoenixKitWeb.Live.Settings.WebsiteAccess do
           locale: socket.assigns.current_locale_base
         )
       )
-      |> assign(:show_password, false)
       |> assign(:show_column_modal, false)
       |> assign(:attempt_columns, ColumnPrefs.load(Actor.uuid(socket), attempt_columns_spec()))
       |> assign(:site_zone, Settings.get_setting_cached("time_zone", "0"))
@@ -129,10 +136,6 @@ defmodule PhoenixKitWeb.Live.Settings.WebsiteAccess do
     else
       {:error, reason} -> {:noreply, put_flash(socket, :error, error_text(reason))}
     end
-  end
-
-  def handle_event("reveal_password", _params, socket) do
-    {:noreply, assign(socket, :show_password, not socket.assigns.show_password)}
   end
 
   def handle_event("generate_link", _params, socket) do
@@ -266,7 +269,9 @@ defmodule PhoenixKitWeb.Live.Settings.WebsiteAccess do
     |> assign(:features, WebsiteAccess.features())
     |> assign(:crawlers_module_on?, Crawlers.module_enabled?())
     |> assign(:gate, %{
-      password: Gate.password() || "",
+      # Whether one is set, never the password itself: the page shows a mask
+      # and the socket holds no copy of it to render back.
+      password_set?: Gate.password() not in [nil, ""],
       lockout_attempts: Gate.lockout_attempts(),
       lockout_minutes: Gate.lockout_minutes(),
       users_pass: Gate.users_pass?(),

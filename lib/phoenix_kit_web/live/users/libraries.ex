@@ -28,6 +28,7 @@ defmodule PhoenixKitWeb.Live.Users.Libraries do
   alias PhoenixKit.AuditLog
   alias PhoenixKit.Modules.Storage.{Libraries, Library}
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.Scope
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
@@ -43,6 +44,12 @@ defmodule PhoenixKitWeb.Live.Users.Libraries do
      |> assign(:others, [])
      |> assign(:library, nil)
      |> assign(:role, nil)
+     |> assign(:owner_email, nil)
+     # The viewer's "Storage" link: where a file and its renditions are kept.
+     |> assign(
+       :can_manage_storage,
+       Scope.can?(socket.assigns[:phoenix_kit_current_scope], "media.manage")
+     )
      |> assign(:header_section, nil)
      |> assign(:header_switcher, nil)
      # Read here: connect info is only available while mounting.
@@ -105,6 +112,7 @@ defmodule PhoenixKitWeb.Live.Users.Libraries do
     |> assign(:others, others(scope, mine))
     |> assign(:library, nil)
     |> assign(:role, nil)
+    |> assign(:owner_email, nil)
     |> assign(:header_section, nil)
     |> assign(:header_switcher, nil)
     |> assign(:page_title, gettext("Libraries"))
@@ -144,14 +152,31 @@ defmodule PhoenixKitWeb.Live.Users.Libraries do
   end
 
   defp shown(socket, library, role) do
+    owner_email = if role == :admin, do: owner_email(library)
+
     socket
     |> assign(:library, library)
     |> assign(:role, role)
-    |> assign(:page_title, library.name)
+    |> assign(:owner_email, owner_email)
+    |> assign(:page_title, page_title(library, owner_email))
     |> assign(:url_path, library_path(library, socket))
     |> assign(:header_section, gettext("Libraries"))
     |> assign(:header_switcher, library_switcher(socket, library, role))
   end
+
+  # Someone else's library is named with its owner: the subtitle that says
+  # "Opened as admin" is only drawn when an operator turns page descriptions on.
+  defp page_title(library, nil), do: library.name
+  defp page_title(library, owner_email), do: "#{library.name} · #{owner_email}"
+
+  defp owner_email(%Library{owner_uuid: uuid}) when is_binary(uuid) do
+    case Auth.get_user(uuid) do
+      %{email: email} -> email
+      _ -> nil
+    end
+  end
+
+  defp owner_email(_library), do: nil
 
   # The ▾ beside the library's name lists the viewer's own and shared libraries.
   # Every row is a `patch` to a path built here from that list. An Owner/Admin
