@@ -7,9 +7,11 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnail do
   -draw`). The media browser grid uses it instead of the plain thumbnail, so the
   markup is visible without rendering shapes live for every viewer.
 
-  It's a single deterministic variant slot: each regeneration overwrites it (no
-  history piles up). When the last annotation is removed, the variant is dropped
-  and the grid falls back to the plain thumbnail.
+  It's a single variant slot: each regeneration is stored under a key of its own
+  (never over bytes another file's row names) and replaces the previous object
+  once nothing else names it, so no history piles up. When the last annotation
+  is removed, the variant and its object are dropped and the grid falls back to
+  the plain thumbnail.
 
   Shapes are stored in image-pixel coordinates, so they're drawn at original
   scale on the original image (the geometry → draw mapping lives in
@@ -151,10 +153,8 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnail do
       # leave the downloaded original behind on every refresh.
       try do
         with :ok <- run_convert(original_path, output, draw_args) do
-          # Drop any existing instance first so a fresh one is created with the new
-          # checksum (create_variant_instance returns the existing row otherwise).
-          remove_variant(file)
-
+          # The new object has a key of its own; publishing it replaces the slot's
+          # row, and the previous object goes once nothing names it.
           VariantGenerator.store_prepared_variant(file, @variant_name, output, "png", "image/png",
             source_key: source.file_name
           )
@@ -285,7 +285,7 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnail do
 
   defp remove_variant(file) do
     case Storage.get_file_instance_by_name(file.uuid, @variant_name) do
-      %Storage.FileInstance{} = instance -> Storage.delete_file_instance(instance)
+      %Storage.FileInstance{} = instance -> Storage.remove_instances(file, [instance])
       _ -> :ok
     end
   end

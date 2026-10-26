@@ -6523,6 +6523,515 @@ defmodule PhoenixKit.Modules.Storage do
     end)
   end
 
+  # ===== LINK COPY (explicit, by donor) =====
+
+  @doc """
+  A copy of `donor_file` in another library that names the donor's stored
+  objects instead of writing the bytes again: a record of its own (its own
+  status, folder, trash, edits) on the donor's original and on the sizes the
+  donor's library's set made. Returns `{:ok, file}`, never `:duplicate`.
+
+  ## Options
+
+    * `:library_uuid` - the library of the copy (required)
+    * `:folder_uuid` - its folder
+    * `:original_filename` - its display name (the donor's by default)
+    * `:checksum`, `:size` - what the caller expects of the donor's
+      `original` instance; a donor whose original differs is
+      `:donor_unavailable`. The checksum is the one recorded for the original
+      (as its uploader gave it), not a check of the object's bytes.
+
+  ## What is shared
+
+  The `original` object and each variant instance whose `spec_hash` is set and
+  equals the `spec_hash` of that variant in the set of the copy's library.
+  Decided per instance, under the donor's directory lock, so a burn racing
+  with the copy cannot be taken. A burned thumbnail (it is written into the
+  `thumbnail` slot, or `thumbnail_annotated`, without a `spec_hash`) is never
+  shared. A variant is not shared either when its object is not in the bucket,
+  or when another row names the same key with other bytes or without a
+  `spec_hash` (a key that was once overwritten in place by a burn). When a size
+  of the set is not shared, the copy is stale (`placed_variant_revision` 0) and
+  the reconciler makes just the missing sizes, under keys of their own
+  (`VariantGenerator` never writes over a key another row names). Nothing
+  regenerates the shared ones.
+
+  A refusal found before anything is written is returned as a value, never a
+  rollback, so a call inside the caller's own transaction leaves it usable.
+
+  The capture date (`taken_at` and the rest) is copied when the donor belongs
+  to `user_uuid`, or when it comes from the bytes (`taken_at_source` `"exif"`
+  or `"container"`). A date set by hand, or taken from a filename or the
+  insert time, is not given to another user's copy.
+
+  `:folder_uuid` must be a live folder of `:library_uuid`, else
+  `{:error, :other_library}` (nothing written).
+
+  An incomplete copy leaves a reconcile run of the library queued (it shows
+  in Admin → Jobs; with that paused the missing sizes wait). A refusal inside
+  a transaction of the caller's keeps the row and directory locks it took
+  until that transaction ends.
+
+  `mime_type`, `file_type` and `ext` are the donor's: a caller that keeps its
+  own content type (a mail attachment row) stores it itself. `metadata`
+  (EXIF, GPS, HDR, animation marks, a burn stamp) is not copied.
+
+  The copy is an ordinary active file of its library, so an ordinary upload of
+  the same bytes into that library may clone it (`:duplicate`) onto the same
+  keys; references are counted per key, so that is as safe as any clone.
+
+  ## Errors
+
+    * `{:error, :incompatible}` - the libraries are placed differently
+      (storage profile, variant set), or the library does not exist
+    * `{:error, :donor_unavailable}` - the donor is not active, is
+      system-managed, is being edited, has no original instance, its original
+      is not in the bucket, or differs from `:checksum`/`:size`
+    * `{:error, :donor_changed}` - the donor was deleted, or its bytes
+      changed, since the caller read it
+
+  The caller then makes a full copy.
+
+  ## Permissions
+
+  The caller checks that the user may read the donor
+  (`Libraries.can?/3`). This takes a file, not a checksum, so it is not a way
+  to read a file by its checksum. It differs from the cross-library clone that
+  uploads once made (and that was removed): it is called explicitly, the donor
+  is named by uuid, the answer is not `:duplicate`, and only generator-made
+  sizes are shared.
+  """
+  @spec link_copy(PhoenixKit.Modules.Storage.File.t(), term(), keyword()) ::
+          {:ok, PhoenixKit.Modules.Storage.File.t()}
+          | {:error,
+             :incompatible
+             | :donor_unavailable
+             | :donor_changed
+             | :other_library
+             | Ecto.Changeset.t()}
+  def link_copy(%PhoenixKit.Modules.Storage.File{} = donor_file, user_uuid, opts) do
+    library_uuid = Keyword.fetch!(opts, :library_uuid)
+
+    # A refusal found before anything is written is the value of the function,
+    # not a rollback: inside a caller's own transaction a rollback would doom
+    # it too.
+    repo().transaction(fn ->
+      # The donor's row before its directory, the order a deletion takes them
+      # in; the donor is read again once both are held.
+      with {:ok, donor} <- lock_donor(donor_file),
+           instances = list_file_instances(donor.uuid),
+           :ok <- check_folder(opts[:folder_uuid], library_uuid),
+           :ok <- check_donor(donor, instances, library_uuid, opts) do
+        write_link_copy(donor, instances, user_uuid, library_uuid, opts)
+      end
+    end)
+    |> case do
+      {:ok, {:ok, new_file, complete?}} ->
+        Logger.info("Link copy created: #{new_file.uuid} from donor #{donor_file.uuid}")
+        unless complete?, do: make_missing_variants(new_file)
+        {:ok, new_file}
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp write_link_copy(donor, instances, user_uuid, library_uuid, opts) do
+    {shared, complete?} = shareable_instances(donor, instances, library_uuid)
+    uuid = UUIDv7.generate()
+
+    attrs =
+      %{
+        file_name: donor.file_name,
+        original_file_name: opts[:original_filename] || donor.original_file_name,
+        file_path: donor.file_path,
+        mime_type: donor.mime_type,
+        file_type: donor.file_type,
+        ext: donor.ext,
+        file_checksum: donor.file_checksum,
+        user_file_checksum: "nodedup:#{uuid}",
+        size: donor.size,
+        width: donor.width,
+        height: donor.height,
+        status: "active",
+        user_uuid: user_uuid,
+        library_uuid: library_uuid,
+        folder_uuid: opts[:folder_uuid]
+      }
+      |> Map.merge(own_capture_date(donor, user_uuid))
+
+    # In a savepoint: a refused insert writes nothing and leaves the
+    # transaction usable.
+    case %PhoenixKit.Modules.Storage.File{uuid: uuid}
+         |> PhoenixKit.Modules.Storage.File.changeset(attrs)
+         |> repo().insert(mode: :savepoint) do
+      {:ok, new_file} ->
+        insert_instance_copies!(shared, new_file.uuid)
+        clone_file_locations(donor.uuid, new_file.uuid)
+        place_like_donor(donor, new_file.uuid, complete?)
+        {:ok, repo().get!(PhoenixKit.Modules.Storage.File, new_file.uuid), complete?}
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
+
+  # The folder asked for is a live folder of the copy's library.
+  defp check_folder(nil, _library_uuid), do: :ok
+
+  defp check_folder(folder_uuid, library_uuid) do
+    case get_folder(folder_uuid) do
+      %Folder{trashed_at: nil} = folder ->
+        if to_string(folder.library_uuid) == to_string(library_uuid),
+          do: :ok,
+          else: {:error, :other_library}
+
+      _ ->
+        {:error, :other_library}
+    end
+  end
+
+  # What the bytes say (EXIF, the container) is the copy's too. A date a person
+  # set by hand is the donor's owner's to give, and a filename or insert date
+  # is about the donor's record: another user's copy gets neither.
+  defp own_capture_date(donor, user_uuid) do
+    if to_string(donor.user_uuid) == to_string(user_uuid) or
+         donor.taken_at_source in ["exif", "container"],
+       do: capture_date_copy(donor),
+       else: %{}
+  end
+
+  @doc """
+  Moves an existing record onto the stored objects of `donor` by the rules of
+  `link_copy/3` (what is shared, the donor's conditions, the errors), for a
+  record that holds a full copy of the same bytes.
+
+  `file` and `donor` must have the same `file_checksum` and `size`, else
+  `{:error, :incompatible}`, and the donor must fit the record's library.
+  The record's instances (and their locations) are replaced by the donor's
+  shared ones; its `file_path` and `file_name` become the donor's; any size
+  the donor does not share is made again. The record's uuid, library, folder,
+  name and owner stay.
+
+  Returns `{:ok, file, old_keys}`: the keys the record no longer names.
+  They are left in the bucket unless `delete_old: true`, which deletes those
+  nobody names once the change is committed; otherwise
+  `delete_unreferenced_keys/1` does it later. `{:error, :not_found}` when
+  `file` is gone.
+
+  The caller checks that the user may read the donor, as for `link_copy/3`.
+  Refusals are values, never rollbacks, as there.
+
+  `delete_old: true` deletes objects once the change is committed, so inside a
+  transaction of the caller's own it is refused (`{:error, :in_transaction}`,
+  nothing done): the caller deletes with `delete_unreferenced_keys/1` after
+  its own commit.
+
+  Two records relinked onto each other at the same moment may deadlock on
+  their row locks; Postgres aborts one and its call raises `Postgrex.Error`
+  (code `40P01`). A caller that relinks one record at a time is not affected.
+  """
+  @spec relink_file(
+          PhoenixKit.Modules.Storage.File.t(),
+          PhoenixKit.Modules.Storage.File.t(),
+          keyword()
+        ) ::
+          {:ok, PhoenixKit.Modules.Storage.File.t(), [String.t()]}
+          | {:error,
+             :incompatible
+             | :donor_unavailable
+             | :donor_changed
+             | :not_found
+             | :in_transaction
+             | Ecto.Changeset.t()}
+  def relink_file(
+        %PhoenixKit.Modules.Storage.File{} = file,
+        %PhoenixKit.Modules.Storage.File{} = donor_file,
+        opts \\ []
+      ) do
+    if Keyword.get(opts, :delete_old, false) and repo().in_transaction?() do
+      {:error, :in_transaction}
+    else
+      do_relink_file(file, donor_file, opts)
+    end
+  end
+
+  defp do_relink_file(file, donor_file, opts) do
+    repo().transaction(fn ->
+      # The record for update, the donor for share, then both directories
+      # (sorted by `lock_storage_paths/1`). Refusals are values, not rollbacks
+      # (see `link_copy/3`).
+      with :ok <- distinct_files(file, donor_file),
+           {:ok, locked} <- lock_record(file),
+           :ok <- lock_donor_row(donor_file) do
+        lock_storage_paths([locked.file_path, donor_file.file_path])
+
+        with {:ok, record} <- reread_record(file),
+             {:ok, donor} <- reread_donor(donor_file),
+             instances = list_file_instances(donor.uuid),
+             :ok <- check_donor(donor, instances, record.library_uuid, opts),
+             :ok <- same_bytes(record, donor) do
+          write_relink(record, donor, instances)
+        end
+      end
+    end)
+    |> case do
+      {:ok, {:ok, updated, left, complete?}} ->
+        unless complete?, do: make_missing_variants(updated)
+        if Keyword.get(opts, :delete_old, false), do: delete_stored_objects(left)
+        {:ok, updated, left}
+
+      {:ok, {:error, reason}} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp write_relink(record, donor, instances) do
+    {shared, complete?} = shareable_instances(donor, instances, record.library_uuid)
+    old_keys = list_file_instances(record.uuid) |> Enum.map(& &1.file_name)
+
+    from(fi in FileInstance, where: fi.file_uuid == ^record.uuid) |> repo().delete_all()
+    insert_instance_copies!(shared, record.uuid)
+    clone_file_locations(donor.uuid, record.uuid)
+
+    record
+    |> Ecto.Changeset.change(file_path: donor.file_path, file_name: donor.file_name)
+    |> repo().update!()
+
+    place_like_donor(donor, record.uuid, complete?)
+
+    kept = MapSet.new(shared, & &1.file_name)
+    left = old_keys |> Enum.uniq() |> Enum.reject(&MapSet.member?(kept, &1))
+
+    {:ok, repo().get!(PhoenixKit.Modules.Storage.File, record.uuid), left, complete?}
+  end
+
+  defp distinct_files(file, donor_file),
+    do: if(file.uuid == donor_file.uuid, do: {:error, :incompatible}, else: :ok)
+
+  defp lock_record(file) do
+    case lock_row(file.uuid, :update) do
+      nil -> {:error, :not_found}
+      locked -> {:ok, locked}
+    end
+  end
+
+  defp reread_record(file) do
+    case repo().get(PhoenixKit.Modules.Storage.File, file.uuid) do
+      nil -> {:error, :not_found}
+      record -> {:ok, record}
+    end
+  end
+
+  defp same_bytes(record, donor) do
+    if relinkable?(record) and record.file_checksum == donor.file_checksum and
+         record.size == donor.size,
+       do: :ok,
+       else: {:error, :incompatible}
+  end
+
+  @doc """
+  Deletes the objects at `keys` that no instance row references, in every
+  bucket. The references are checked again under the directory's lock, so a
+  key a row started to name since the caller collected it stays. `:ok` when
+  every unreferenced key went (or there were none).
+
+  For the keys `relink_file/3` hands back.
+  """
+  @spec delete_unreferenced_keys([String.t()]) :: :ok | {:error, String.t()}
+  def delete_unreferenced_keys(keys) when is_list(keys), do: delete_stored_objects(keys)
+
+  defp lock_row(uuid, mode) do
+    query = from(f in PhoenixKit.Modules.Storage.File, where: f.uuid == ^uuid)
+
+    case mode do
+      :update -> query |> lock("FOR UPDATE") |> repo().one()
+      :share -> query |> lock("FOR SHARE") |> repo().one()
+    end
+  end
+
+  defp lock_donor_row(donor_file) do
+    if lock_row(donor_file.uuid, :share), do: :ok, else: {:error, :donor_changed}
+  end
+
+  # The donor locked and read: its row for share, then its directory, then
+  # the row again by uuid. Gone, moved or holding other bytes than the caller
+  # read is `:donor_changed`.
+  defp lock_donor(donor_file) do
+    with :ok <- lock_donor_row(donor_file) do
+      lock_storage_paths([donor_file.file_path])
+      reread_donor(donor_file)
+    end
+  end
+
+  defp reread_donor(donor_file) do
+    case repo().get(PhoenixKit.Modules.Storage.File, donor_file.uuid) do
+      %PhoenixKit.Modules.Storage.File{} = donor
+      when donor.file_checksum == donor_file.file_checksum and
+             donor.file_path == donor_file.file_path ->
+        {:ok, donor}
+
+      _ ->
+        {:error, :donor_changed}
+    end
+  end
+
+  defp relinkable?(record) do
+    record.status == "active" and not record.system_managed and is_nil(record.edit_state)
+  end
+
+  # The donor's conditions, on the locked and re-read row: `:ok` or the
+  # reason, writing nothing.
+  defp check_donor(donor, instances, library_uuid, opts) do
+    original = Enum.find(instances, &(&1.variant_name == "original"))
+
+    with %Library{} = target <- Libraries.get_library(library_uuid) || {:error, :incompatible},
+         :ok <- donor_usable(donor, original),
+         :ok <- placed_alike(donor, target) do
+      if original_as_expected?(original, opts) and Manager.file_exists?(original.file_name),
+        do: :ok,
+        else: {:error, :donor_unavailable}
+    end
+  end
+
+  defp donor_usable(donor, original) do
+    if relinkable?(donor) and not is_nil(donor.file_path) and not is_nil(original),
+      do: :ok,
+      else: {:error, :donor_unavailable}
+  end
+
+  defp placed_alike(donor, target) do
+    if Profiles.profile_uuid_for(donor.library_uuid) == Profiles.profile_uuid_for(target) and
+         VariantSets.set_uuid_for(donor.library_uuid) == VariantSets.set_uuid_for(target),
+       do: :ok,
+       else: {:error, :incompatible}
+  end
+
+  defp original_as_expected?(original, opts) do
+    Enum.all?([checksum: original.checksum, size: original.size], fn {key, actual} ->
+      not Keyword.has_key?(opts, key) or opts[key] == actual
+    end)
+  end
+
+  # What of the donor a record in `library_uuid` can name: the original, and
+  # each completed variant made from a size (`spec_hash`) that is the same
+  # spec as that size in the library's set now, whose object is in the bucket
+  # and whose key no other row holds with other content (`key_usable?/2`).
+  # `complete?` when every size of that set is among them.
+  defp shareable_instances(donor, instances, library_uuid) do
+    expected =
+      %{donor | library_uuid: library_uuid}
+      |> VariantGenerator.expected_variants()
+      |> Map.new(fn {dimension, name, format} ->
+        {name, VariantSets.spec_hash(dimension, format)}
+      end)
+
+    shared =
+      Enum.filter(instances, fn
+        %{variant_name: "original"} ->
+          true
+
+        %{spec_hash: nil} ->
+          false
+
+        instance ->
+          instance.processing_status == "completed" and
+            Map.get(expected, instance.variant_name) == instance.spec_hash and
+            key_usable?(instance, donor.uuid)
+      end)
+
+    names = MapSet.new(shared, & &1.variant_name)
+    {shared, expected |> Map.keys() |> Enum.all?(&MapSet.member?(names, &1))}
+  end
+
+  # A key that another row (a cross-user clone) names with no spec hash, or
+  # with other bytes, is not the size's object any more: before burns got keys
+  # of their own, one wrote its markup over the shared key in place and only
+  # its own row said so. Such a key is not shared.
+  #
+  # The row that said so can leave the key (its owner burns again, or is
+  # deleted) while the markup stays in the object, and a burn only ever wrote
+  # into the `thumbnail` slot. So that slot's object is also read (a few KB)
+  # and must hold the bytes its row says.
+  #
+  # Reading the thumbnail's object also shows it is there; the other sizes are
+  # only asked for.
+  defp key_usable?(%{checksum: nil}, _donor_uuid), do: false
+
+  defp key_usable?(%{variant_name: "thumbnail"} = instance, donor_uuid) do
+    rows_agree?(instance, donor_uuid) and object_holds?(instance)
+  end
+
+  defp key_usable?(instance, donor_uuid) do
+    rows_agree?(instance, donor_uuid) and Manager.file_exists?(instance.file_name)
+  end
+
+  defp object_holds?(instance) do
+    tmp = Path.join(System.tmp_dir!(), "pk_link_copy_#{System.unique_integer([:positive])}")
+
+    try do
+      match?({:ok, _}, Manager.retrieve_file(instance.file_name, destination_path: tmp)) and
+        FileHash.sha256!(tmp) == instance.checksum
+    after
+      File.rm(tmp)
+    end
+  end
+
+  defp rows_agree?(instance, donor_uuid) do
+    not repo().exists?(
+      from(i in FileInstance,
+        where:
+          i.file_name == ^instance.file_name and i.file_uuid != ^donor_uuid and
+            (is_nil(i.spec_hash) or is_nil(i.checksum) or i.checksum != ^instance.checksum)
+      )
+    )
+  end
+
+  defp insert_instance_copies!(instances, new_file_uuid) do
+    Enum.each(instances, fn instance ->
+      attrs = %{
+        variant_name: instance.variant_name,
+        file_name: instance.file_name,
+        mime_type: instance.mime_type,
+        ext: instance.ext,
+        checksum: instance.checksum,
+        size: instance.size,
+        width: instance.width,
+        height: instance.height,
+        processing_status: instance.processing_status,
+        spec_hash: instance.spec_hash,
+        file_uuid: new_file_uuid
+      }
+
+      case %FileInstance{} |> FileInstance.changeset(attrs) |> repo().insert() do
+        {:ok, _} -> :ok
+        {:error, changeset} -> repo().rollback(changeset)
+      end
+    end)
+  end
+
+  # Placed as the donor is; stale for the variants when a size was not shared,
+  # so the reconciler makes them even if the queued job fails.
+  defp place_like_donor(donor, file_uuid, complete?) do
+    copy_placement(donor, file_uuid)
+
+    unless complete? do
+      from(f in PhoenixKit.Modules.Storage.File, where: f.uuid == ^file_uuid)
+      |> repo().update_all(set: [placed_variant_revision: 0])
+    end
+  end
+
+  # The reconciler makes just the sizes the file lacks (`placed_variant_revision`
+  # is 0); a `ProcessFileJob` would make every size again and take the shared
+  # ones off the donor's keys.
+  defp make_missing_variants(_file), do: ReconcileJob.enqueue()
+
   @doc false
   # The system-managed files hanging off `file_uuid`: an edited image's
   # unedited backup and its tile chunks.

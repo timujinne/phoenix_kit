@@ -921,6 +921,22 @@ when it is renamed (`Libraries.get_system_library_by_slug/1`).
   records that merely hold the same bytes. The stored objects are still
   content-addressed, so the rows name the same keys and the last delete removes
   them.
+- **The one explicit exception:** `Storage.link_copy(donor, user_uuid,
+  library_uuid: …)` makes a record in another library that names the donor's
+  stored objects (its original and the sizes its variant set made, never a
+  burned or annotated thumbnail) instead of writing the bytes again. It is
+  called by name, takes the donor by its file (the caller checks the user may
+  read it, `Libraries.can?/3`), never answers `:duplicate`, and refuses
+  (`:incompatible`, `:donor_unavailable`, `:donor_changed`) when the two
+  libraries are not placed alike or the donor is not in a state to copy; the
+  caller then stores a full copy. `Storage.relink_file/3` moves an existing
+  record onto a donor's objects the same way, and
+  `Storage.delete_unreferenced_keys/1` deletes the keys it leaves behind once
+  nothing names them. Uploads never do this on their own.
+- **Burned and annotated thumbnails** (`VariantGenerator.store_prepared_variant/6`)
+  are stored under a key of their own, never over an object another file's row
+  names, so files that share objects (a cross-user clone, a linked copy) cannot
+  change each other's thumbnails.
 
 ### Hidden system libraries
 
@@ -948,7 +964,7 @@ A module that keeps files of its own (a chat's attachments, say) creates a
   `"media"` + `"media.view_all"` opens none of them. Bytes reach anyone else
   only through the module.
 - **Dedup:** inside it, as in any library. Outside it, the same bytes are a new
-  file: the dedup key folds the library in, so an upload to Media never comes
+  file (unless the module asks for `Storage.link_copy/3` explicitly): the dedup key folds the library in, so an upload to Media never comes
   back as the hidden copy (and an upload to it never as a Media file).
   `Storage.get_file_by_checksum/1` and `retrieve_file_by_hash/1` still look in
   every library.

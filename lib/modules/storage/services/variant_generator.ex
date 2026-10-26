@@ -436,6 +436,8 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
   Use this when the variant bytes are produced outside the normal resize
   pipeline (e.g. the baked annotated thumbnail). Handles stats, bucket storage,
   the `FileInstance` row, and file-location records — then removes `prepared_path`.
+  The object is stored under a key of its own, so it never overwrites bytes another
+  file's row names; the slot's previous object is deleted once nothing names it.
 
   Pass `source_key:` — the `file_name` of the original instance the bytes
   were made from (`Storage.retrieve_original/1`) — and the variant is only
@@ -452,31 +454,68 @@ defmodule PhoenixKit.Modules.Storage.VariantGenerator do
         opts \\ []
       ) do
     base_name = file.file_checksum || Path.basename(file.file_name, Path.extname(file.file_name))
-    variant_filename = "#{base_name}_#{variant_name}.#{variant_ext}"
+    # A key of its own every time. A content-addressed name would make two
+    # files that share their objects (a cross-user clone, a `Storage.link_copy/3`)
+    # write the same key with their own markup; a fresh one is never named by
+    # another row. The slot's previous object goes when nothing else names it
+    # (`publish_variant/5`).
+    variant_filename = "#{base_name}_#{variant_name}_#{UUIDv7.generate()}.#{variant_ext}"
     variant_storage_path = "#{file.file_path}/#{variant_filename}"
 
     try do
-      with {:ok, file_stats} <- get_variant_file_stats(prepared_path),
-           {:ok, storage_info} <-
-             store_variant_file(prepared_path, variant_name, variant_storage_path, file) do
-        publish_variant(
-          file,
-          variant_attrs(
-            variant_name,
-            variant_storage_path,
-            variant_mime_type,
-            variant_ext,
-            file_stats,
-            nil
-          ),
-          storage_info.bucket_ids,
-          Keyword.get(opts, :source_key)
-        )
+      with {:ok, file_stats} <- get_variant_file_stats(prepared_path) do
+        case store_variant_file(prepared_path, variant_name, variant_storage_path, file) do
+          {:ok, storage_info} ->
+            publish_prepared(
+              file,
+              variant_attrs(
+                variant_name,
+                variant_storage_path,
+                variant_mime_type,
+                variant_ext,
+                file_stats,
+                nil
+              ),
+              storage_info.bucket_ids,
+              Keyword.get(opts, :source_key)
+            )
+
+          error ->
+            discard_prepared(file, variant_storage_path)
+            error
+        end
       end
     after
       cleanup_temp_files([prepared_path])
     end
   end
+
+  # Publishes; when that fails (but for a changed original, which
+  # `publish_variant/5` cleans up itself) or raises, the object stored under
+  # the fresh key is deleted: nothing else names it and no later burn would
+  # write over it.
+  defp publish_prepared(file, attrs, bucket_uuids, source_key) do
+    case publish_variant(file, attrs, bucket_uuids, source_key) do
+      {:error, reason} = error when reason != :stale_source ->
+        discard_prepared(file, attrs.file_name)
+        error
+
+      other ->
+        other
+    end
+  rescue
+    error ->
+      discard_prepared(file, attrs.file_name)
+      reraise error, __STACKTRACE__
+  catch
+    kind, reason ->
+      discard_prepared(file, attrs.file_name)
+      :erlang.raise(kind, reason, __STACKTRACE__)
+  end
+
+  # Only unreferenced keys go (`delete_stored_objects/2` checks under the lock).
+  defp discard_prepared(file, key),
+    do: Storage.delete_stored_objects([key], ignore_uploads_of: [file.uuid])
 
   # Private functions
 
