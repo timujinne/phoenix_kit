@@ -746,6 +746,7 @@
           else: gettext("Select Cover Image")
       }
       scope_folder_id={@editing_folder_header}
+      user_uuid={@viewer_uuid}
       selected_uuids={[]}
       phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       notify={{PhoenixKitWeb.Components.MediaBrowser, @id}}

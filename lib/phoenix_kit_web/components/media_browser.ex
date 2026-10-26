@@ -991,20 +991,53 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     socket = assign(socket, :selecting_cover, false)
     folder = is_binary(folder_uuid) && loaded_folder(socket, folder_uuid)
 
-    if is_binary(file_uuid) and folder do
-      scope = scope_folder_id(socket)
+    cond do
+      not is_binary(file_uuid) or !folder ->
+        socket
 
-      case Storage.update_folder(folder, %{attr => file_uuid}, scope) do
-        {:ok, updated} ->
-          socket
-          |> maybe_refresh_current_folder(updated, folder_uuid)
-          |> reload_current_page()
+      # `media_selected` arrives by `update/2`, past the `handle_event` gates:
+      # the file gets the viewer's here. Not `fetch_viewable_file/2` — the
+      # picker also lists files linked into the folder from elsewhere, and a
+      # cover is an image whatever type the browser is locked to. "Inside the
+      # folder" is held by the modal (`selectable?`/`scope_files_by_folder`).
+      not pickable_file?(socket, file_uuid) ->
+        Logger.warning(
+          "MediaBrowser id=#{socket.assigns.id}: cover/logo pick refused — " <>
+            "#{file_uuid} is not a file this viewer may see in this library"
+        )
 
-        _ ->
-          put_flash(socket, :error, gettext("Failed to set the image"))
-      end
+        parent_flash(socket, :error, gettext("Failed to set the image"))
+
+      true ->
+        apply_image(socket, folder, attr, file_uuid)
+    end
+  end
+
+  defp pickable_file?(socket, file_uuid) do
+    with true <- UUIDUtils.valid?(file_uuid),
+         %Storage.File{system_managed: false} = file <- Storage.get_file(file_uuid),
+         true <- file.status != "trashed",
+         true <- in_browser_library?(socket, file) do
+      Storage.viewer_can_see_file?(socket.assigns[:viewer_uuid], file)
     else
-      socket
+      _ -> false
+    end
+  end
+
+  defp apply_image(socket, folder, attr, file_uuid) do
+    case Storage.update_folder(folder, %{attr => file_uuid}, scope_folder_id(socket)) do
+      {:ok, updated} ->
+        socket
+        |> maybe_refresh_current_folder(updated, folder.uuid)
+        |> reload_current_page()
+
+      error ->
+        Logger.warning(
+          "MediaBrowser id=#{socket.assigns.id}: cover/logo not set for " <>
+            "#{file_uuid}: #{inspect(error)}"
+        )
+
+        parent_flash(socket, :error, gettext("Failed to set the image"))
     end
   end
 
