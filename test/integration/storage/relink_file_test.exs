@@ -106,6 +106,61 @@ defmodule PhoenixKit.Modules.Storage.RelinkFileTest do
       assert {:ok, _path, _} = Storage.retrieve_file(file.uuid)
     end
 
+    test "delete_unreferenced_keys/1 refuses non-canonical keys and leaves the object they point at",
+         ctx do
+      victim = keys(ctx.donor)["original"]
+      assert exists?(victim)
+      prefix = hd(String.split(hd(Map.values(keys(ctx.snap))), "/"))
+
+      bad = [
+        "#{prefix}/../" <> victim,
+        "#{prefix}/./../" <> victim,
+        "/" <> victim,
+        "\\" <> victim,
+        String.replace(victim, "/", "\\"),
+        "#{prefix}\\..\\" <> victim,
+        String.replace(victim, "/", "//", global: false),
+        victim <> "/",
+        victim <> "\0",
+        "x/\n" <> victim,
+        "",
+        "justname.jpg",
+        ".."
+      ]
+
+      assert {:error, {:invalid_keys, rejected}} = Storage.delete_unreferenced_keys(bad)
+      assert Enum.sort(rejected) == Enum.sort(bad)
+      assert exists?(victim)
+      assert all_keys_exist?(Map.values(keys(ctx.donor)))
+    end
+
+    test "a refused key does not stop the canonical ones in the same call", ctx do
+      assert {:ok, _file, left} = Storage.relink_file(ctx.snap, ctx.donor, [])
+      victim = keys(ctx.donor)["original"]
+      prefix = hd(String.split(hd(left), "/"))
+
+      assert {:error, {:invalid_keys, ["#{prefix}/../" <> victim]}} ==
+               Storage.delete_unreferenced_keys(["#{prefix}/../" <> victim | left])
+
+      refute Enum.any?(left, &exists?/1)
+      assert exists?(victim)
+    end
+
+    test "the keys of every kind the storage writes are canonical", ctx do
+      real = Map.values(keys(ctx.donor)) ++ Map.values(keys(ctx.snap))
+
+      shapes = [
+        "lib-ab12/22/22e8b90781bab72967f9d5410b4299f9/original.jpg",
+        "lib-ab12/22/e8/22e8b90781bab72967f9d5410b4299f9/thumbnail_3a1f.webp",
+        "lib-ab12/22e8b90781bab72967f9d5410b4299f9/medium-prepared.jpg",
+        "01/df/22e8b90781bab72967f9d5410b4299f9/22e8b90781bab72967f9d5410b4299f9.jpg"
+      ]
+
+      # Referenced keys stay, unreferenced absent ones are a no-op: neither is "invalid".
+      assert :ok = Storage.delete_unreferenced_keys(real ++ shapes)
+      assert all_keys_exist?(real)
+    end
+
     test "delete_old: true deletes the unnamed keys after the commit", ctx do
       old_keys = key_set(ctx.snap)
 
@@ -114,6 +169,20 @@ defmodule PhoenixKit.Modules.Storage.RelinkFileTest do
       assert MapSet.new(left) == old_keys
       refute Enum.any?(left, &exists?/1)
       assert all_keys_exist?(Map.values(keys(file)))
+    end
+
+    test "delete_old: true deletes nothing for a non-canonical old key", ctx do
+      victim = keys(ctx.donor)["original"]
+      prefix = hd(String.split(hd(Map.values(keys(ctx.snap))), "/"))
+      inst = instance(ctx.snap, "original")
+
+      Storage.update_file_instance(inst, %{file_name: "#{prefix}/../" <> victim})
+
+      assert {:ok, _file, left} =
+               Storage.relink_file(reload(ctx.snap), ctx.donor, delete_old: true)
+
+      assert ("#{prefix}/../" <> victim) in left
+      assert exists?(victim)
     end
 
     test "a burned thumbnail of the record is dropped with its other variants", ctx do

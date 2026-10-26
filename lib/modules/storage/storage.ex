@@ -1929,22 +1929,30 @@ defmodule PhoenixKit.Modules.Storage do
   When scope_folder_id is set:
   - If attrs.parent_uuid is outside scope, returns `{:error, :out_of_scope}`.
   - If attrs.parent_uuid is nil, rewrites to scope_folder_id (new folder at scope root).
-  """
-  def create_folder(attrs, scope_folder_id \\ nil)
 
-  def create_folder(attrs, nil) do
-    insert_folder(attrs)
+  A name already taken under the parent is `{:error, changeset}`. Inside a
+  caller's transaction the insert runs in a savepoint, so the transaction
+  survives it and can look the folder up again; outside one it is a plain
+  insert.
+
+  In a managed library (`Libraries.managed?/1`), a root folder or a subfolder
+  is `{:error, :managed}` unless `opts` has `managed: :owner`.
+  """
+  def create_folder(attrs, scope_folder_id \\ nil, opts \\ [])
+
+  def create_folder(attrs, nil, opts) do
+    insert_folder(attrs, opts)
   end
 
-  def create_folder(attrs, scope_folder_id) do
+  def create_folder(attrs, scope_folder_id, opts) do
     parent_uuid = attrs[:parent_uuid] || attrs["parent_uuid"]
 
     cond do
       is_nil(parent_uuid) ->
-        attrs |> put_attr(:parent_uuid, scope_folder_id) |> insert_folder()
+        attrs |> put_attr(:parent_uuid, scope_folder_id) |> insert_folder(opts)
 
       within_scope?(parent_uuid, scope_folder_id) ->
-        insert_folder(attrs)
+        insert_folder(attrs, opts)
 
       true ->
         {:error, :out_of_scope}
@@ -1953,7 +1961,7 @@ defmodule PhoenixKit.Modules.Storage do
 
   # A subfolder is in its parent's library, whatever `attrs` says; a root
   # folder is in the library `attrs` names, or Media.
-  defp insert_folder(attrs) do
+  defp insert_folder(attrs, opts) do
     attrs =
       case attrs[:parent_uuid] || attrs["parent_uuid"] do
         nil ->
@@ -1968,7 +1976,17 @@ defmodule PhoenixKit.Modules.Storage do
           end
       end
 
-    %Folder{} |> Folder.changeset(attrs) |> repo().insert()
+    with :ok <- Libraries.check_managed(attrs[:library_uuid] || attrs["library_uuid"], opts) do
+      %Folder{} |> Folder.changeset(attrs) |> insert_in_savepoint()
+    end
+  end
+
+  # Inside a caller's transaction a refused insert would abort it, so it gets
+  # a savepoint of its own there. Outside one `mode: :savepoint` is an error
+  # (no transaction to hold it), and a single insert is atomic anyway.
+  defp insert_in_savepoint(changeset) do
+    opts = if repo().in_transaction?(), do: [mode: :savepoint], else: []
+    repo().insert(changeset, opts)
   end
 
   # Sets `key` in an attrs map whichever key style it uses (Ecto refuses a
@@ -1992,6 +2010,8 @@ defmodule PhoenixKit.Modules.Storage do
 
   Returns `{:error, :cycle}` if the move would create a circular reference.
   Returns `{:error, :out_of_scope}` if the folder or new parent is outside scope.
+  `{:error, :managed}` for a folder of a managed library, unless `opts` has
+  `managed: :owner`.
 
   **`parent_uuid` semantics under scope:** omit `:parent_uuid` from `attrs`
   for rename/recolor (no move is attempted). Pass an explicit value to
@@ -1999,9 +2019,15 @@ defmodule PhoenixKit.Modules.Storage do
   Under a non-nil scope, an explicit `parent_uuid: nil` fails with
   `:out_of_scope` because the system root is outside the scope subtree.
   """
-  def update_folder(folder, attrs, scope_folder_id \\ nil)
+  def update_folder(folder, attrs, scope_folder_id \\ nil, opts \\ [])
 
-  def update_folder(%Folder{} = folder, attrs, nil) do
+  def update_folder(%Folder{} = folder, attrs, scope_folder_id, opts) do
+    with :ok <- Libraries.check_managed(folder, opts) do
+      do_update_folder(folder, attrs, scope_folder_id)
+    end
+  end
+
+  defp do_update_folder(%Folder{} = folder, attrs, nil) do
     new_parent = attrs[:parent_uuid] || attrs["parent_uuid"]
 
     in_folder_tree(moving?(folder, new_parent), fn ->
@@ -2012,7 +2038,7 @@ defmodule PhoenixKit.Modules.Storage do
     end)
   end
 
-  def update_folder(%Folder{} = folder, attrs, scope_folder_id) do
+  defp do_update_folder(%Folder{} = folder, attrs, scope_folder_id) do
     # Distinguish "attrs omits parent_uuid entirely" (rename/recolor —
     # no move attempted) from "attrs has parent_uuid: nil" (an explicit
     # move to the system root). The previous `new_parent &&` short-circuit
@@ -2074,20 +2100,20 @@ defmodule PhoenixKit.Modules.Storage do
 
   Moves child folders and home files to the deleted folder's parent.
   Folder links are cascade-deleted by the database FK.
-  Returns `{:error, :out_of_scope}` if the folder is outside scope.
+  Returns `{:error, :out_of_scope}` if the folder is outside scope, and
+  `{:error, :managed}` for a folder of a managed library unless `opts` has
+  `managed: :owner`.
   """
-  def delete_folder(folder, scope_folder_id \\ nil)
+  def delete_folder(folder, scope_folder_id \\ nil, opts \\ [])
 
-  def delete_folder(%Folder{} = folder, scope_folder_id) when not is_nil(scope_folder_id) do
-    if within_scope?(folder.uuid, scope_folder_id) do
-      do_delete_folder(folder)
-    else
-      {:error, :out_of_scope}
+  def delete_folder(%Folder{} = folder, scope_folder_id, opts) do
+    with :ok <- Libraries.check_managed(folder, opts) do
+      if is_nil(scope_folder_id) or within_scope?(folder.uuid, scope_folder_id) do
+        do_delete_folder(folder)
+      else
+        {:error, :out_of_scope}
+      end
     end
-  end
-
-  def delete_folder(%Folder{} = folder, nil) do
-    do_delete_folder(folder)
   end
 
   defp do_delete_folder(%Folder{} = folder) do
@@ -2134,19 +2160,20 @@ defmodule PhoenixKit.Modules.Storage do
   `delete_folder_completely/2`.
 
   Scope-guarded: returns `{:error, :out_of_scope}` if the folder is outside
-  the provided scope.
+  the provided scope. `{:error, :managed}` for a folder of a managed library,
+  whoever asks: a managed library has no trash.
   """
   def trash_folder(folder, scope_folder_id \\ nil)
 
-  def trash_folder(%Folder{} = folder, scope_folder_id) when not is_nil(scope_folder_id) do
-    if within_scope?(folder.uuid, scope_folder_id) do
-      do_trash_folder(folder)
-    else
-      {:error, :out_of_scope}
+  def trash_folder(%Folder{} = folder, scope_folder_id) do
+    with :ok <- Libraries.check_managed(folder) do
+      if is_nil(scope_folder_id) or within_scope?(folder.uuid, scope_folder_id) do
+        do_trash_folder(folder)
+      else
+        {:error, :out_of_scope}
+      end
     end
   end
-
-  def trash_folder(%Folder{} = folder, nil), do: do_trash_folder(folder)
 
   defp do_trash_folder(%Folder{} = folder) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -2205,19 +2232,20 @@ defmodule PhoenixKit.Modules.Storage do
   Restores a previously trashed folder and everything underneath it.
   Reverses `trash_folder/2` — clears `trashed_at` on all subtree folders
   and resets `status: "active", trashed_at: nil` on all files in the
-  subtree.
+  subtree. `{:error, :managed}` for a folder of a managed library, whoever asks:
+  a managed library has no trash.
   """
   def restore_folder(folder, scope_folder_id \\ nil)
 
-  def restore_folder(%Folder{} = folder, scope_folder_id) when not is_nil(scope_folder_id) do
-    if within_scope?(folder.uuid, scope_folder_id) do
-      do_restore_folder(folder)
-    else
-      {:error, :out_of_scope}
+  def restore_folder(%Folder{} = folder, scope_folder_id) do
+    with :ok <- Libraries.check_managed(folder) do
+      if is_nil(scope_folder_id) or within_scope?(folder.uuid, scope_folder_id) do
+        do_restore_folder(folder)
+      else
+        {:error, :out_of_scope}
+      end
     end
   end
-
-  def restore_folder(%Folder{} = folder, nil), do: do_restore_folder(folder)
 
   defp do_restore_folder(%Folder{} = folder) do
     now = DateTime.utc_now() |> DateTime.truncate(:second)
@@ -2274,19 +2302,20 @@ defmodule PhoenixKit.Modules.Storage do
   underneath it. Files are removed via `delete_file_completely/1` so
   backend storage cleanup runs; folders are deleted from the DB in
   bottom-up order so foreign-key constraints stay happy.
+  `{:error, :managed}` for a folder of a managed library unless `opts` has
+  `managed: :owner`.
   """
-  def delete_folder_completely(folder, scope_folder_id \\ nil)
+  def delete_folder_completely(folder, scope_folder_id \\ nil, opts \\ [])
 
-  def delete_folder_completely(%Folder{} = folder, scope_folder_id)
-      when not is_nil(scope_folder_id) do
-    if within_scope?(folder.uuid, scope_folder_id) do
-      do_delete_folder_completely(folder)
-    else
-      {:error, :out_of_scope}
+  def delete_folder_completely(%Folder{} = folder, scope_folder_id, opts) do
+    with :ok <- Libraries.check_managed(folder, opts) do
+      if is_nil(scope_folder_id) or within_scope?(folder.uuid, scope_folder_id) do
+        do_delete_folder_completely(folder)
+      else
+        {:error, :out_of_scope}
+      end
     end
   end
-
-  def delete_folder_completely(%Folder{} = folder, nil), do: do_delete_folder_completely(folder)
 
   defp do_delete_folder_completely(%Folder{} = folder) do
     subtree_uuids = folder_subtree_uuids(folder.uuid)
@@ -2784,22 +2813,31 @@ defmodule PhoenixKit.Modules.Storage do
     )
   end
 
-  @doc "Moves a file's home folder."
-  def move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id \\ nil)
+  @doc """
+  Moves a file's home folder. `{:error, :managed}` for a file of a managed
+  library unless `opts` has `managed: :owner`.
+  """
+  def move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id \\ nil, opts \\ [])
 
-  def move_file_to_folder(file_uuid, target_folder_uuid, nil) do
+  def move_file_to_folder(file_uuid, target_folder_uuid, nil, opts) do
     case repo().get(PhoenixKit.Modules.Storage.File, file_uuid) do
-      nil -> {:error, :not_found}
-      file -> set_home(file, target_folder_uuid)
+      nil ->
+        {:error, :not_found}
+
+      file ->
+        with :ok <- Libraries.check_managed(file, opts), do: set_home(file, target_folder_uuid)
     end
   end
 
-  def move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id) do
+  def move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id, opts) do
     file = repo().get(PhoenixKit.Modules.Storage.File, file_uuid)
 
     cond do
       is_nil(file) ->
         {:error, :not_found}
+
+      match?({:error, :managed}, Libraries.check_managed(file, opts)) ->
+        {:error, :managed}
 
       not within_scope?(file.folder_uuid, scope_folder_id) ->
         {:error, :out_of_scope}
@@ -2871,13 +2909,25 @@ defmodule PhoenixKit.Modules.Storage do
   table first moved the link while leaving the home behind — one file in
   two folders. Folder listings show linked files (2026-09-12), so a move
   from a folder must act on what that folder holds, not only on the home.
+
+  `{:error, :managed}` for a file of a managed library unless `opts` has
+  `managed: :owner`.
   """
-  def move_file_between_folders(file_uuid, from_folder_uuid, target_folder_uuid, scope_folder_id) do
+  def move_file_between_folders(
+        file_uuid,
+        from_folder_uuid,
+        target_folder_uuid,
+        scope_folder_id,
+        opts \\ []
+      ) do
     file = repo().get(PhoenixKit.Modules.Storage.File, file_uuid)
 
     cond do
       is_nil(file) ->
         {:error, :not_found}
+
+      match?({:error, :managed}, Libraries.check_managed(file, opts)) ->
+        {:error, :managed}
 
       # Moving a trashed file INTO a folder is how a listing takes it back
       # out of the trash, so restore it there. Re-homing a trashed row
@@ -2896,7 +2946,7 @@ defmodule PhoenixKit.Modules.Storage do
       # dropped on while remaining in the one it came from.
       to_string(file.folder_uuid) == to_string(from_folder_uuid) ->
         with {:ok, _} = moved <-
-               move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id) do
+               move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id, opts) do
           # …and the folder it left keeps nothing: a link to the source is
           # the other half of the pair `set_home/2` now refuses to make.
           drop_folder_link(from_folder_uuid, file_uuid)
@@ -2904,7 +2954,7 @@ defmodule PhoenixKit.Modules.Storage do
         end
 
       true ->
-        move_linked_file(file_uuid, from_folder_uuid, target_folder_uuid, scope_folder_id)
+        move_linked_file(file_uuid, from_folder_uuid, target_folder_uuid, scope_folder_id, opts)
     end
   end
 
@@ -2926,7 +2976,7 @@ defmodule PhoenixKit.Modules.Storage do
     end
   end
 
-  defp move_linked_file(file_uuid, from_folder_uuid, target_folder_uuid, scope_folder_id) do
+  defp move_linked_file(file_uuid, from_folder_uuid, target_folder_uuid, scope_folder_id, opts) do
     case folder_link(from_folder_uuid, file_uuid) do
       %FolderLink{} = link ->
         cond do
@@ -2937,11 +2987,11 @@ defmodule PhoenixKit.Modules.Storage do
             {:ok, link}
 
           true ->
-            relink(link, file_uuid, target_folder_uuid)
+            relink(link, file_uuid, target_folder_uuid, opts)
         end
 
       nil ->
-        move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id)
+        move_file_to_folder(file_uuid, target_folder_uuid, scope_folder_id, opts)
     end
   end
 
@@ -2963,6 +3013,10 @@ defmodule PhoenixKit.Modules.Storage do
   destroy it for its owner — the same rule the catalogue's own attachment
   removal has always applied.
 
+  `{:error, :managed}` for a file of a managed library, whoever asks (it may
+  end in the trash, which a managed library does not have; take a link away
+  with `delete_folder_link/2`).
+
   The decision is made from the file's row read fresh under a lock, not
   from `file`: a listing's struct can be stale (the file re-homed since),
   and a second removal deciding from the old home would trash a file
@@ -2970,8 +3024,20 @@ defmodule PhoenixKit.Modules.Storage do
   `ResourceFolders.point_at/6` holds while it checks a folder still has a
   file.
   """
+  def remove_file_from_folder(file, folder_uuid)
+
   def remove_file_from_folder(%PhoenixKit.Modules.Storage.File{} = file, folder_uuid)
       when is_binary(folder_uuid) do
+    with :ok <- Libraries.check_managed(file) do
+      do_remove_file_from_folder(file, folder_uuid)
+    end
+  end
+
+  def remove_file_from_folder(%PhoenixKit.Modules.Storage.File{} = file, _no_folder) do
+    with {:ok, trashed} <- trash_file(file), do: {:ok, :trashed, trashed}
+  end
+
+  defp do_remove_file_from_folder(file, folder_uuid) do
     repo().transaction(fn ->
       case repo().one(
              from(f in PhoenixKit.Modules.Storage.File,
@@ -2996,10 +3062,6 @@ defmodule PhoenixKit.Modules.Storage do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  def remove_file_from_folder(%PhoenixKit.Modules.Storage.File{} = file, _no_folder) do
-    with {:ok, trashed} <- trash_file(file), do: {:ok, :trashed, trashed}
   end
 
   defp remove_locked(file, folder_uuid) do
@@ -3068,10 +3130,16 @@ defmodule PhoenixKit.Modules.Storage do
   attachments and the media selector already followed; the media
   browser's own upload path used to MOVE a content-duplicate's home
   instead, silently emptying the folder that owned it.
+
+  `{:error, :managed}` for a file of a managed library unless `opts` has
+  `managed: :owner`.
   """
-  def attach_file_to_folder(%PhoenixKit.Modules.Storage.File{} = file, folder_uuid)
+  def attach_file_to_folder(%PhoenixKit.Modules.Storage.File{} = file, folder_uuid, opts \\ [])
       when is_binary(folder_uuid) do
     cond do
+      match?({:error, :managed}, Libraries.check_managed(file, opts)) ->
+        {:error, :managed}
+
       # Not into a trashed folder, whichever surface asks: the file would
       # be active and listed nowhere.
       not live_folder?(folder_uuid) ->
@@ -3085,7 +3153,7 @@ defmodule PhoenixKit.Modules.Storage do
         {:ok, file}
 
       is_nil(file.folder_uuid) ->
-        adopt_or_link(file, folder_uuid)
+        adopt_or_link(file, folder_uuid, opts)
 
       true ->
         %FolderLink{}
@@ -3125,7 +3193,7 @@ defmodule PhoenixKit.Modules.Storage do
   # Adopts a file with no home — only if it still has none: the caller's
   # struct can be stale, and a file another upload adopted in the meantime
   # is linked here instead of having its home taken.
-  defp adopt_or_link(file, folder_uuid) do
+  defp adopt_or_link(file, folder_uuid, opts) do
     from(f in PhoenixKit.Modules.Storage.File,
       where: f.uuid == ^file.uuid and is_nil(f.folder_uuid)
     )
@@ -3138,7 +3206,7 @@ defmodule PhoenixKit.Modules.Storage do
         case get_file(file.uuid) do
           nil -> {:error, :not_found}
           %{folder_uuid: nil} -> {:error, :not_found}
-          fresh -> attach_file_to_folder(fresh, folder_uuid)
+          fresh -> attach_file_to_folder(fresh, folder_uuid, opts)
         end
     end
   end
@@ -3156,12 +3224,12 @@ defmodule PhoenixKit.Modules.Storage do
   # own home, or on a folder that already links it, adds nothing
   # (`attach_file_to_folder/2` is idempotent) — never a self-link
   # counted twice.
-  defp relink(link, file_uuid, target_folder_uuid) do
+  defp relink(link, file_uuid, target_folder_uuid, opts) do
     repo().transaction(fn ->
       with {:ok, _} <- repo().delete(link),
            %PhoenixKit.Modules.Storage.File{} = file <-
              repo().get(PhoenixKit.Modules.Storage.File, file_uuid),
-           {:ok, result} <- attach_to_target(file, target_folder_uuid) do
+           {:ok, result} <- attach_to_target(file, target_folder_uuid, opts) do
         result
       else
         nil -> repo().rollback(:not_found)
@@ -3170,10 +3238,10 @@ defmodule PhoenixKit.Modules.Storage do
     end)
   end
 
-  defp attach_to_target(file, nil), do: {:ok, file}
+  defp attach_to_target(file, nil, _opts), do: {:ok, file}
 
-  defp attach_to_target(file, target_folder_uuid),
-    do: attach_file_to_folder(file, target_folder_uuid)
+  defp attach_to_target(file, target_folder_uuid, opts),
+    do: attach_file_to_folder(file, target_folder_uuid, opts)
 
   # The folder itself if it is live, else the closest ancestor that is, else
   # the root. Bounded: a tree deeper than this is a cycle, and the walk is
@@ -3203,20 +3271,31 @@ defmodule PhoenixKit.Modules.Storage do
     |> repo().all()
   end
 
-  @doc "Creates a link (shortcut) of a file in a folder."
-  def create_folder_link(folder_uuid, file_uuid, scope_folder_id \\ nil)
+  @doc """
+  Creates a link (shortcut) of a file in a folder. A link that is already
+  there is `{:error, changeset}` (inside a caller's transaction the insert
+  runs in a savepoint, so the transaction survives it). `{:error, :managed}` for a file of a
+  managed library unless `opts` has `managed: :owner`.
+  """
+  def create_folder_link(folder_uuid, file_uuid, scope_folder_id \\ nil, opts \\ [])
 
-  def create_folder_link(folder_uuid, file_uuid, nil) do
+  def create_folder_link(folder_uuid, file_uuid, nil, opts) do
     case repo().get(PhoenixKit.Modules.Storage.File, file_uuid) do
-      nil -> {:error, :not_found}
-      file -> insert_folder_link(folder_uuid, file)
+      nil ->
+        {:error, :not_found}
+
+      file ->
+        with :ok <- Libraries.check_managed(file, opts), do: insert_folder_link(folder_uuid, file)
     end
   end
 
-  def create_folder_link(folder_uuid, file_uuid, scope_folder_id) do
+  def create_folder_link(folder_uuid, file_uuid, scope_folder_id, opts) do
     file = repo().get(PhoenixKit.Modules.Storage.File, file_uuid)
 
     cond do
+      file && match?({:error, :managed}, Libraries.check_managed(file, opts)) ->
+        {:error, :managed}
+
       not within_scope?(folder_uuid, scope_folder_id) ->
         {:error, :out_of_scope}
 
@@ -3235,17 +3314,20 @@ defmodule PhoenixKit.Modules.Storage do
     if same_library?(file, folder_uuid) do
       %FolderLink{}
       |> FolderLink.changeset(link_attrs(folder_uuid, file))
-      |> repo().insert()
+      |> insert_in_savepoint()
     else
       {:error, :other_library}
     end
   end
 
-  @doc "Removes a folder link."
-  def delete_folder_link(link_uuid) do
+  @doc """
+  Removes a folder link. `{:error, :managed}` for a link of a managed library
+  unless `opts` has `managed: :owner`.
+  """
+  def delete_folder_link(link_uuid, opts \\ []) do
     case repo().get(FolderLink, link_uuid) do
       nil -> {:error, :not_found}
-      link -> repo().delete(link)
+      link -> with :ok <- Libraries.check_managed(link, opts), do: repo().delete(link)
     end
   end
 
@@ -3746,12 +3828,17 @@ defmodule PhoenixKit.Modules.Storage do
   of `metadata` belongs here; `update_file/2` with a `metadata:` built from a
   struct in hand is the lost update.
 
-  Returns `{:ok, file}`, `{:error, changeset}` or `{:error, :not_found}`.
+  Returns `{:ok, file}`, `{:error, changeset}` or `{:error, :not_found}`; for a
+  file of a managed library `{:error, :managed}` unless `opts` has
+  `managed: :owner` (a rotation, a burn's fingerprint, a tag).
   """
-  def update_file_metadata(%PhoenixKit.Modules.Storage.File{uuid: uuid}, fun),
-    do: update_file_metadata(uuid, fun)
+  def update_file_metadata(file, fun, opts \\ [])
 
-  def update_file_metadata(file_uuid, fun) when is_binary(file_uuid) and is_function(fun, 1) do
+  def update_file_metadata(%PhoenixKit.Modules.Storage.File{uuid: uuid}, fun, opts),
+    do: update_file_metadata(uuid, fun, opts)
+
+  def update_file_metadata(file_uuid, fun, opts)
+      when is_binary(file_uuid) and is_function(fun, 1) do
     repo().transaction(fn ->
       row =
         from(f in PhoenixKit.Modules.Storage.File,
@@ -3761,6 +3848,7 @@ defmodule PhoenixKit.Modules.Storage do
         |> repo().one()
 
       with %PhoenixKit.Modules.Storage.File{} <- row,
+           :ok <- Libraries.check_managed(row, opts),
            %{} = metadata <- fun.(row.metadata || %{}),
            {:ok, updated} <-
              row
@@ -3770,7 +3858,7 @@ defmodule PhoenixKit.Modules.Storage do
       else
         nil -> repo().rollback(:not_found)
         :unchanged -> row
-        {:error, changeset} -> repo().rollback(changeset)
+        {:error, reason} -> repo().rollback(reason)
       end
     end)
   end
@@ -3802,7 +3890,9 @@ defmodule PhoenixKit.Modules.Storage do
   Takes the options of `change_file_details/3`, and `:metadata` — other
   `metadata` keys to set in the same held write (the detail page's tags), so
   a form that saves both does not need a second, unlocked one. The three
-  text keys cannot be set through it.
+  text keys cannot be set through it. `managed: :owner` lets the module that
+  owns a managed library write (a file of one is `{:error, :managed}` for
+  anyone else).
 
   Returns `{:ok, file}`,
   `{:error, changeset}` (a `FileDetails` changeset, for the form) or
@@ -3814,6 +3904,7 @@ defmodule PhoenixKit.Modules.Storage do
 
     repo().transaction(fn ->
       with %PhoenixKit.Modules.Storage.File{} = row <- lock_file_row(uuid),
+           :ok <- Libraries.check_managed(row, opts),
            {:ok, updated} <- put_file_details(row, attrs, opts[:lang], opts) do
         updated
       else
@@ -3838,6 +3929,8 @@ defmodule PhoenixKit.Modules.Storage do
 
   `:original_values` may supply the form's initial `%{language => %{title:, alt:,
   description:}}` values when the supplied file was reloaded after rendering.
+  A file of a managed library is `{:error, :managed}` unless `opts` has
+  `managed: :owner`.
   """
   def update_file_details_languages(
         %PhoenixKit.Modules.Storage.File{uuid: uuid} = file,
@@ -3849,6 +3942,7 @@ defmodule PhoenixKit.Modules.Storage do
 
     repo().transaction(fn ->
       with %PhoenixKit.Modules.Storage.File{} = row <- lock_file_row(uuid),
+           :ok <- Libraries.check_managed(row, opts),
            {:ok, row} <- put_languages(row, file, by_lang, opts),
            {:ok, row} <- put_extra_metadata(row, opts) do
         row
@@ -5309,15 +5403,21 @@ defmodule PhoenixKit.Modules.Storage do
 
   # ===== TRASH =====
 
-  @doc "Moves a file to trash (soft-delete). Sets status to 'trashed' and records timestamp."
+  @doc """
+  Moves a file to trash (soft-delete). Sets status to 'trashed' and records timestamp.
+  `{:error, :managed}` for a file of a managed library, whoever asks: a managed
+  library has no trash.
+  """
   def trash_file(%PhoenixKit.Modules.Storage.File{} = file) do
-    case mark_trashed(file) do
-      {:ok, updated} = result ->
-        broadcast_file_trashed(updated.uuid)
-        result
+    with :ok <- Libraries.check_managed(file) do
+      case mark_trashed(file) do
+        {:ok, updated} = result ->
+          broadcast_file_trashed(updated.uuid)
+          result
 
-      error ->
-        error
+        error ->
+          error
+      end
     end
   end
 
@@ -5359,24 +5459,27 @@ defmodule PhoenixKit.Modules.Storage do
   same rule `attach_file_to_folder/2` already applies to links.
 
   Sizes are checked against the library's variant set again: they are not
-  made while the file is in the trash.
+  made while the file is in the trash. `{:error, :managed}` for a file of a
+  managed library, whoever asks: a managed library has no trash.
   """
   def restore_file(%PhoenixKit.Modules.Storage.File{} = file) do
-    file
-    |> Ecto.Changeset.change(%{
-      status: "active",
-      trashed_at: nil,
-      folder_uuid: nearest_live_folder(file.folder_uuid)
-    })
-    |> repo().update()
-    |> case do
-      {:ok, updated} = result ->
-        variants_stale_after_restore([updated.uuid])
-        broadcast_file_restored(updated.uuid)
-        result
+    with :ok <- Libraries.check_managed(file) do
+      file
+      |> Ecto.Changeset.change(%{
+        status: "active",
+        trashed_at: nil,
+        folder_uuid: nearest_live_folder(file.folder_uuid)
+      })
+      |> repo().update()
+      |> case do
+        {:ok, updated} = result ->
+          variants_stale_after_restore([updated.uuid])
+          broadcast_file_restored(updated.uuid)
+          result
 
-      error ->
-        error
+        error ->
+          error
+      end
     end
   end
 
@@ -5393,34 +5496,37 @@ defmodule PhoenixKit.Modules.Storage do
   where they are being uploaded, not back in the folder they were removed
   from. `{:error, :not_trashed}` when the row is not trashed any more:
   someone else restored it, and it keeps the home they gave it.
+  `{:error, :managed}` for a file of a managed library, whoever asks.
   """
   @spec restore_file_into(PhoenixKit.Modules.Storage.File.t(), String.t() | nil) ::
-          {:ok, PhoenixKit.Modules.Storage.File.t()} | {:error, :not_trashed}
+          {:ok, PhoenixKit.Modules.Storage.File.t()} | {:error, :not_trashed | :managed}
   def restore_file_into(%PhoenixKit.Modules.Storage.File{} = file, folder_uuid) do
-    # Only while the row is still trashed: two uploads of the same trashed
-    # bytes both hold the trashed struct, and the second must not take the
-    # home the first just gave it.
-    from(f in PhoenixKit.Modules.Storage.File,
-      where: f.uuid == ^file.uuid and f.status == "trashed"
-    )
-    |> repo().update_all(
-      set: [
-        status: "active",
-        trashed_at: nil,
-        folder_uuid: folder_uuid,
-        updated_at: UtilsDate.utc_now()
-      ]
-    )
-    |> case do
-      {1, _} ->
-        variants_stale_after_restore([file.uuid])
-        # The same announcement `restore_file/1` makes: a trash badge, an
-        # open listing and another browser all have a row to bring back.
-        broadcast_file_restored(file.uuid)
-        {:ok, %{file | status: "active", trashed_at: nil, folder_uuid: folder_uuid}}
+    with :ok <- Libraries.check_managed(file) do
+      # Only while the row is still trashed: two uploads of the same trashed
+      # bytes both hold the trashed struct, and the second must not take the
+      # home the first just gave it.
+      from(f in PhoenixKit.Modules.Storage.File,
+        where: f.uuid == ^file.uuid and f.status == "trashed"
+      )
+      |> repo().update_all(
+        set: [
+          status: "active",
+          trashed_at: nil,
+          folder_uuid: folder_uuid,
+          updated_at: UtilsDate.utc_now()
+        ]
+      )
+      |> case do
+        {1, _} ->
+          variants_stale_after_restore([file.uuid])
+          # The same announcement `restore_file/1` makes: a trash badge, an
+          # open listing and another browser all have a row to bring back.
+          broadcast_file_restored(file.uuid)
+          {:ok, %{file | status: "active", trashed_at: nil, folder_uuid: folder_uuid}}
 
-      {0, _} ->
-        {:error, :not_trashed}
+        {0, _} ->
+          {:error, :not_trashed}
+      end
     end
   end
 
@@ -5482,8 +5588,7 @@ defmodule PhoenixKit.Modules.Storage do
   """
   def empty_trash(scope \\ nil, opts \\ []) do
     trashed = list_trashed_files(scope, Keyword.take(opts, [:library_uuid, :viewer_uuid]))
-    Enum.each(trashed, &delete_file_completely/1)
-    {:ok, length(trashed)}
+    {:ok, delete_counting(trashed)}
   end
 
   @doc "Permanently deletes trashed files older than the given number of days."
@@ -5495,8 +5600,23 @@ defmodule PhoenixKit.Modules.Storage do
       |> where([f], f.status == "trashed" and f.trashed_at < ^cutoff)
       |> repo().all()
 
-    Enum.each(expired, &delete_file_completely/1)
-    {:ok, length(expired)}
+    {:ok, delete_counting(expired)}
+  end
+
+  # Deletes each file and counts those that are gone. One that
+  # `delete_file_completely/1` refuses (a file of a managed library) is logged
+  # and left, not counted.
+  defp delete_counting(files) do
+    Enum.count(files, fn file ->
+      case delete_file_completely(file) do
+        {:ok, _} ->
+          true
+
+        {:error, reason} ->
+          Logger.warning("Storage: trash: #{file.uuid} was not deleted: #{inspect(reason)}")
+          false
+      end
+    end)
   end
 
   @doc "Returns the configured trash retention period in days (default 30)."
@@ -5520,22 +5640,29 @@ defmodule PhoenixKit.Modules.Storage do
       iex> delete_file_completely(file)
       {:ok, %File{}}
 
+  A file of a managed library (`Libraries.managed?/1`) is
+  `{:error, :managed}` unless `opts` has `managed: :owner` — the way the module
+  that owns the library removes what it stored.
   """
-  def delete_file_completely(%PhoenixKit.Modules.Storage.File{} = file) do
-    case delete_file_and_objects(file) do
-      {:ok, deleted} = ok ->
-        broadcast_file_deleted(deleted.uuid)
-        ok
+  def delete_file_completely(file, opts \\ [])
 
-      error ->
-        error
+  def delete_file_completely(%PhoenixKit.Modules.Storage.File{} = file, opts) do
+    with :ok <- Libraries.check_managed(file, opts) do
+      case delete_file_and_objects(file) do
+        {:ok, deleted} = ok ->
+          broadcast_file_deleted(deleted.uuid)
+          ok
+
+        error ->
+          error
+      end
     end
   end
 
-  def delete_file_completely(file_uuid) when is_binary(file_uuid) do
+  def delete_file_completely(file_uuid, opts) when is_binary(file_uuid) do
     case get_file(file_uuid) do
       nil -> {:error, :not_found}
-      file -> delete_file_completely(file)
+      file -> delete_file_completely(file, opts)
     end
   end
 
@@ -6589,6 +6716,9 @@ defmodule PhoenixKit.Modules.Storage do
       is not in the bucket, or differs from `:checksum`/`:size`
     * `{:error, :donor_changed}` - the donor was deleted, or its bytes
       changed, since the caller read it
+    * `{:error, :managed}` - the donor is in a managed library and the copy
+      goes to another library, without `managed: :owner` in `opts` (into the
+      donor's own managed library it is allowed as it is)
 
   The caller then makes a full copy.
 
@@ -6608,6 +6738,7 @@ defmodule PhoenixKit.Modules.Storage do
              | :donor_unavailable
              | :donor_changed
              | :other_library
+             | :managed
              | Ecto.Changeset.t()}
   def link_copy(%PhoenixKit.Modules.Storage.File{} = donor_file, user_uuid, opts) do
     library_uuid = Keyword.fetch!(opts, :library_uuid)
@@ -6719,11 +6850,14 @@ defmodule PhoenixKit.Modules.Storage do
   Returns `{:ok, file, old_keys}`: the keys the record no longer names.
   They are left in the bucket unless `delete_old: true`, which deletes those
   nobody names once the change is committed; otherwise
-  `delete_unreferenced_keys/1` does it later. `{:error, :not_found}` when
-  `file` is gone.
+  `delete_unreferenced_keys/1` does it later. A key that is not a canonical
+  object key is never deleted (a warning is logged) and the answer is still
+  `{:ok, file, old_keys}`. `{:error, :not_found}` when `file` is gone.
 
   The caller checks that the user may read the donor, as for `link_copy/3`.
-  Refusals are values, never rollbacks, as there.
+  Refusals are values, never rollbacks, as there. A record of a managed
+  library is `{:error, :managed}` unless `opts` has `managed: :owner`, and so
+  is a managed donor that is not in the record's library; nothing is done.
 
   `delete_old: true` deletes objects once the change is committed, so inside a
   transaction of the caller's own it is refused (`{:error, :in_transaction}`,
@@ -6746,16 +6880,22 @@ defmodule PhoenixKit.Modules.Storage do
              | :donor_changed
              | :not_found
              | :in_transaction
+             | :managed
              | Ecto.Changeset.t()}
   def relink_file(
         %PhoenixKit.Modules.Storage.File{} = file,
         %PhoenixKit.Modules.Storage.File{} = donor_file,
         opts \\ []
       ) do
-    if Keyword.get(opts, :delete_old, false) and repo().in_transaction?() do
-      {:error, :in_transaction}
-    else
-      do_relink_file(file, donor_file, opts)
+    cond do
+      Libraries.check_managed(file, opts) != :ok ->
+        {:error, :managed}
+
+      Keyword.get(opts, :delete_old, false) and repo().in_transaction?() ->
+        {:error, :in_transaction}
+
+      true ->
+        do_relink_file(file, donor_file, opts)
     end
   end
 
@@ -6781,7 +6921,12 @@ defmodule PhoenixKit.Modules.Storage do
     |> case do
       {:ok, {:ok, updated, left, complete?}} ->
         unless complete?, do: make_missing_variants(updated)
-        if Keyword.get(opts, :delete_old, false), do: delete_stored_objects(left)
+
+        if Keyword.get(opts, :delete_old, false) do
+          {valid, _rejected} = split_canonical_keys(left)
+          delete_stored_objects(valid)
+        end
+
         {:ok, updated, left}
 
       {:ok, {:error, reason}} ->
@@ -6839,13 +6984,59 @@ defmodule PhoenixKit.Modules.Storage do
   @doc """
   Deletes the objects at `keys` that no instance row references, in every
   bucket. The references are checked again under the directory's lock, so a
-  key a row started to name since the caller collected it stays. `:ok` when
-  every unreferenced key went (or there were none).
+  key a row started to name since the caller collected it stays.
+
+  Only canonical keys are accepted, those the storage builds: at least two
+  `/`-separated segments, none empty, `.` or `..`, no leading `/`, no `\\`
+  and no control characters anywhere. Any other key is never deleted (a
+  literal comparison with the references would let `lib-x/../01/ab/…` through
+  to a provider that resolves the path) and is logged as a warning.
+
+  Returns `:ok` when every unreferenced key went (or there were none);
+  `{:error, {:invalid_keys, rejected}}` with the rejected keys when there were
+  any (the canonical ones were still processed; a deletion failure among them
+  is logged); otherwise `{:error, message}` when a deletion failed.
 
   For the keys `relink_file/3` hands back.
   """
-  @spec delete_unreferenced_keys([String.t()]) :: :ok | {:error, String.t()}
-  def delete_unreferenced_keys(keys) when is_list(keys), do: delete_stored_objects(keys)
+  @spec delete_unreferenced_keys([String.t()]) ::
+          :ok | {:error, String.t() | {:invalid_keys, [term()]}}
+  def delete_unreferenced_keys(keys) when is_list(keys) do
+    {valid, rejected} = split_canonical_keys(keys)
+    result = delete_stored_objects(valid)
+
+    case {rejected, result} do
+      {[], result} ->
+        result
+
+      {rejected, result} ->
+        if result != :ok,
+          do: Logger.warning("Storage: some canonical keys could not be deleted")
+
+        {:error, {:invalid_keys, rejected}}
+    end
+  end
+
+  # Splits `keys` into those `canonical_key?/1` accepts and the rest (nil
+  # entries are dropped as in `delete_stored_objects/2`), warning about the rest.
+  defp split_canonical_keys(keys) do
+    {valid, rejected} =
+      keys |> Enum.reject(&is_nil/1) |> Enum.split_with(&canonical_key?/1)
+
+    if rejected != [],
+      do: Logger.warning("Storage: refusing to delete non-canonical keys: #{inspect(rejected)}")
+
+    {valid, rejected}
+  end
+
+  defp canonical_key?(key) when is_binary(key) do
+    segments = String.split(key, "/")
+
+    String.valid?(key) and not String.match?(key, ~r/[\x00-\x1f\x7f\\]/u) and
+      length(segments) >= 2 and Enum.all?(segments, &(&1 not in ["", ".", ".."]))
+  end
+
+  defp canonical_key?(_key), do: false
 
   defp lock_row(uuid, mode) do
     query = from(f in PhoenixKit.Modules.Storage.File, where: f.uuid == ^uuid)
@@ -6892,12 +7083,21 @@ defmodule PhoenixKit.Modules.Storage do
     original = Enum.find(instances, &(&1.variant_name == "original"))
 
     with %Library{} = target <- Libraries.get_library(library_uuid) || {:error, :incompatible},
+         :ok <- donor_managed_fit(donor, library_uuid, opts),
          :ok <- donor_usable(donor, original),
          :ok <- placed_alike(donor, target) do
       if original_as_expected?(original, opts) and Manager.file_exists?(original.file_name),
         do: :ok,
         else: {:error, :donor_unavailable}
     end
+  end
+
+  # A snapshot of a managed library goes to its own library freely; to any
+  # other one only for the managed owner.
+  defp donor_managed_fit(donor, library_uuid, opts) do
+    if to_string(donor.library_uuid) == to_string(library_uuid),
+      do: :ok,
+      else: Libraries.check_managed(donor, opts)
   end
 
   defp donor_usable(donor, original) do

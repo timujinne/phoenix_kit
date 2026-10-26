@@ -29,6 +29,7 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnailJob do
 
   alias PhoenixKit.Modules.Storage
   alias PhoenixKit.Modules.Storage.AnnotationThumbnail
+  alias PhoenixKit.Modules.Storage.Libraries
 
   # Seconds to wait before rendering, letting a flurry of edits settle.
   @debounce_seconds 8
@@ -40,7 +41,8 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnailJob do
   Oban isn't running). Returns `:ok` regardless.
   """
   def enqueue(file_uuid) when is_binary(file_uuid) do
-    if AnnotationThumbnail.enabled_for_file_uuid?(file_uuid) do
+    if AnnotationThumbnail.enabled_for_file_uuid?(file_uuid) and
+         not Libraries.managed?(Storage.get_file(file_uuid)) do
       %{file_uuid: file_uuid}
       |> new(schedule_in: @debounce_seconds)
       |> Oban.insert()
@@ -59,6 +61,10 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnailJob do
         # should show — let open UIs swap the thumbnail without a reload.
         Storage.broadcast_file_thumbnail_updated(file_uuid)
         :ok
+
+      # A managed library's file is never baked on.
+      {:error, :managed} ->
+        {:cancel, :managed}
 
       {:error, reason} ->
         {:error, reason}

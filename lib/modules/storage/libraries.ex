@@ -39,6 +39,44 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       (`Scope.system_role?/1`) only: `media.view_all` opens none of them. An
       Owner/Admin reads any file of Storage by design, a hidden one included.
 
+  ## A hidden library shown in Media, and a managed one
+
+  A module whose files the site's people should find in Media (a mail
+  client's attachments, say) can make its hidden library **visible there**
+  without making it public, and **read-only**:
+
+      create_system_library(attrs, hidden: true, media_listing: :uploaders, managed: true)
+      update_system_library_listing(library, media_listing: :uploaders, managed: true)
+
+  Both live in `Library.settings` (no migration). The library stays
+  `visibility: "private"`: its files keep their expiring URLs, are never
+  orphans, and stay out of every listing that names no library.
+
+    * `media_listing` says who finds it in Media's switcher and opens it at
+      `/admin/media/library/<slug>` (`list_system_libraries_for/1`):
+
+      | `media_listing` | Owner/Admin       | other holder of `media` |
+      |-----------------|-------------------|-------------------------|
+      | `:none`         | no one            | no one                  |
+      | `:admins`       | every file        | no one                  |
+      | `:uploaders`    | every file        | only the files they uploaded |
+      | `:own_only`     | only their own    | only their own          |
+
+      "Only their own" is the page's `viewer_uuid` for this library, `media.view_all`
+      or not. It limits what Media's browser lists; `can?/3` is unchanged.
+    * `managed: true` makes every **user operation** on its files and folders
+      `{:error, :managed}` (`check_managed/2`), and `can?(scope, file, :edit)`
+      false for all, Owner included: trash, delete, move, rename, folder
+      links, annotations, burn, image editing, a file's details. A managed
+      library has no trash and no image editing at all. The module that owns
+      the library passes `managed: :owner` to the other functions
+      (`Storage.delete_file_completely/2`, `Storage.create_folder/3`,
+      `Storage.move_file_to_folder/4`, `Storage.create_folder_link/4`, …) and
+      they work. `Storage.update_file/2` and `update_file_instance/2` are not
+      user operations and stay open: the processing job, the capture date and
+      the reconciler write through them. Media's browser is read-only for the
+      library whoever opens it.
+
   Its name and slug are not secret: the Storage history records its creation by
   name (unless the module passes `audit: false`), and they are taken in the one
   namespace all system libraries share (see `create_system_library/2`).
@@ -164,6 +202,194 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   end
 
   def get_hidden_library_by_slug(_slug), do: nil
+
+  @listings [:none, :admins, :uploaders, :own_only]
+
+  @doc """
+  How a hidden system library is shown in Media (`:none`, `:admins`,
+  `:uploaders` or `:own_only`, see the moduledoc). Takes a library or a uuid;
+  `:none` for anything that is not a hidden library or has not chosen.
+  """
+  @spec media_listing(Library.t() | term()) :: :none | :admins | :uploaders | :own_only
+  def media_listing(%Library{kind: "system", visibility: "private", settings: settings}) do
+    case Map.get(settings || %{}, "media_listing") do
+      "admins" -> :admins
+      "uploaders" -> :uploaders
+      "own_only" -> :own_only
+      _ -> :none
+    end
+  end
+
+  def media_listing(%Library{}), do: :none
+  def media_listing(uuid) when is_binary(uuid), do: media_listing(get_library(uuid))
+  def media_listing(_), do: :none
+
+  @doc """
+  Whether a library is managed (`managed: true` among its settings: nobody
+  changes or deletes its files from Media, see the moduledoc). Takes a
+  library, a uuid, or a file or folder (anything with a `library_uuid`; none
+  is Media's). Media and anything unknown are not.
+  """
+  @spec managed?(term()) :: boolean()
+  def managed?(%Library{kind: "system", settings: %{"managed" => true}}), do: true
+  def managed?(%Library{}), do: false
+  def managed?(nil), do: false
+  def managed?(%{library_uuid: library_uuid}), do: managed?(library_uuid)
+
+  def managed?(uuid) when is_binary(uuid) do
+    with false <- media?(uuid),
+         {:ok, uuid} <- Ecto.UUID.cast(uuid) do
+      repo().exists?(
+        from(l in Library,
+          where:
+            l.uuid == ^uuid and l.kind == "system" and
+              fragment("(?->'managed') = 'true'::jsonb", l.settings)
+        )
+      )
+    else
+      _ -> false
+    end
+  end
+
+  def managed?(_), do: false
+
+  @doc """
+  `:ok` unless `target` (a library, uuid, file or folder, see `managed?/1`) is
+  in a managed library and the caller did not pass `managed: :owner` among
+  `opts` — then `{:error, :managed}`. What every user operation of
+  `Storage` asks first.
+  """
+  @spec check_managed(term(), keyword()) :: :ok | {:error, :managed}
+  def check_managed(target, opts \\ []) do
+    if Keyword.get(opts, :managed) == :owner or not managed?(target),
+      do: :ok,
+      else: {:error, :managed}
+  end
+
+  @doc """
+  The system libraries Media offers `scope`: the site's libraries, and the
+  hidden ones whose `media_listing` shows them to this viewer. The default
+  (Media) first, then by name. `list_system_libraries/0` is the same without
+  the hidden ones and without a viewer.
+  """
+  @spec list_system_libraries_for(Scope.t() | nil) :: [Library.t()]
+  def list_system_libraries_for(scope) do
+    from(l in Library,
+      where:
+        l.kind == "system" and is_nil(l.trashed_at) and
+          (l.visibility == "site" or
+             (l.visibility == "private" and
+                fragment(
+                  "(?->>'media_listing') = ANY(?)",
+                  l.settings,
+                  ^~w(admins uploaders own_only)
+                ))),
+      order_by: [desc: l.is_default, asc: fragment("lower(?)", l.name)]
+    )
+    |> repo().all()
+    |> Enum.filter(&listed_for?(scope, &1))
+  end
+
+  @doc """
+  Whether Media offers the system library to `scope` (it is one of
+  `list_system_libraries_for/1`).
+  """
+  @spec listed_for?(Scope.t() | nil, Library.t() | term()) :: boolean()
+  def listed_for?(_scope, %Library{kind: "system", visibility: "site", trashed_at: nil}),
+    do: true
+
+  def listed_for?(
+        %Scope{} = scope,
+        %Library{kind: "system", visibility: "private", trashed_at: nil, slug: slug} = library
+      )
+      when is_binary(slug) do
+    case media_listing(library) do
+      :none -> false
+      :admins -> Scope.system_role?(scope)
+      _ -> Scope.system_role?(scope) or Scope.has_module_access?(scope, "media")
+    end
+  end
+
+  def listed_for?(_scope, _library), do: false
+
+  @doc """
+  Whose files Media's browser lists for `scope` in `library`, as the
+  browser's `viewer_uuid`: `nil` for all of them, else the viewer's uuid (only
+  what they uploaded, and the folders leading to it). A site library follows
+  the viewer's rights (an Owner/Admin and a holder of `media.view_all` see
+  all); a hidden one shown in Media follows its `media_listing`, where
+  `media.view_all` does not widen "only their own".
+  """
+  @spec media_viewer_uuid(Scope.t(), Library.t()) :: String.t() | nil
+  def media_viewer_uuid(%Scope{} = scope, %Library{visibility: "private"} = library) do
+    case media_listing(library) do
+      :own_only ->
+        Scope.user_uuid(scope)
+
+      _ ->
+        if Scope.system_role?(scope), do: nil, else: Scope.user_uuid(scope)
+    end
+  end
+
+  def media_viewer_uuid(%Scope{} = scope, %Library{}) do
+    if Scope.system_role?(scope) or Scope.can?(scope, "media.view_all"),
+      do: nil,
+      else: Scope.user_uuid(scope)
+  end
+
+  @doc """
+  Sets how a hidden system library is shown in Media and whether it is
+  managed (see the moduledoc), whichever of `media_listing:` and `managed:`
+  is given. For a library made before the module asked for either, or to
+  change its mind; idempotent. Only the keys given change.
+
+  `{:error, :not_hidden}` for any other library, `{:error, :invalid_value}`
+  for a listing outside `:none | :admins | :uploaders | :own_only` or a
+  `managed` that is not a boolean.
+  """
+  @spec update_system_library_listing(Library.t(), keyword()) ::
+          {:ok, Library.t()} | {:error, :not_hidden | :invalid_value | :not_found}
+  def update_system_library_listing(library, opts)
+
+  def update_system_library_listing(
+        %Library{kind: "system", visibility: "private", uuid: uuid},
+        opts
+      ) do
+    with {:ok, change} <- listing_settings(opts) do
+      {count, _} =
+        from(l in Library,
+          where: l.uuid == ^uuid,
+          update: [
+            set: [
+              settings: fragment("? || ?", l.settings, type(^change, :map)),
+              updated_at: ^DateTime.truncate(DateTime.utc_now(), :second)
+            ]
+          ]
+        )
+        |> repo().update_all([])
+
+      if count == 1, do: {:ok, get_library(uuid)}, else: {:error, :not_found}
+    end
+  end
+
+  def update_system_library_listing(_library, _opts), do: {:error, :not_hidden}
+
+  defp listing_settings(opts) do
+    Enum.reduce_while([:media_listing, :managed], {:ok, %{}}, fn key, {:ok, acc} ->
+      case Keyword.fetch(opts, key) do
+        :error -> {:cont, {:ok, acc}}
+        {:ok, value} -> listing_setting(key, value, acc)
+      end
+    end)
+  end
+
+  defp listing_setting(:media_listing, value, acc) when value in @listings,
+    do: {:cont, {:ok, Map.put(acc, "media_listing", Atom.to_string(value))}}
+
+  defp listing_setting(:managed, value, acc) when is_boolean(value),
+    do: {:cont, {:ok, Map.put(acc, "managed", value)}}
+
+  defp listing_setting(_key, _value, _acc), do: {:halt, {:error, :invalid_value}}
 
   @doc """
   `list_system_libraries/0` with what each one holds: `files` (live,
@@ -300,6 +526,12 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   (`"phoenix-kit-ai"`, say); a site library cannot then take that name later
   without "is already the name of another library". `audit: false` among the
   options leaves the creation out of the Storage history, which names it.
+
+  A hidden library may also be born shown in Media and read-only:
+  `media_listing:` (`:none` by default, `:admins`, `:uploaders`, `:own_only`) and
+  `managed: true` (see "A hidden library shown in Media, and a managed one"
+  above). A site library ignores both. Anything else for either is an error
+  on `:settings`.
   """
   @spec create_system_library(map(), keyword()) ::
           {:ok, Library.t()} | {:error, Ecto.Changeset.t()}
@@ -313,8 +545,10 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
     hidden? = Keyword.get(opts, :hidden) == true
 
-    with {:ok, storage} <- creation_storage(attrs) do
+    with {:ok, storage} <- creation_storage(attrs),
+         {:ok, listing} <- creation_listing(attrs, opts, hidden?) do
       storage = if hidden?, do: Keyword.put(storage, :visibility, "private"), else: storage
+      storage = if listing == %{}, do: storage, else: Keyword.put(storage, :settings, listing)
 
       case attrs do
         %{"slug" => _} ->
@@ -370,6 +604,20 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
          |> Enum.map(fn {key, value} -> {key, value || nil} end)}
     end
   end
+
+  # What a hidden library is born with in Media: `media_listing:` and `managed:`
+  # among the options (ignored for a site library, which is always listed).
+  defp creation_listing(attrs, opts, true) do
+    case listing_settings(Keyword.take(opts, [:media_listing, :managed])) do
+      {:ok, listing} ->
+        {:ok, listing}
+
+      {:error, :invalid_value} ->
+        {:error, storage_error(attrs, :settings, "is not a valid listing")}
+    end
+  end
+
+  defp creation_listing(_attrs, _opts, false), do: {:ok, %{}}
 
   defp blank_to_nil(value) when value in [nil, ""], do: nil
   defp blank_to_nil(value), do: value
@@ -971,7 +1219,8 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
       unedited original): the uploader, an Owner/Admin, a holder of the
       `"media"` permission with `"media.view_all"` when the file is in a system
       library that is not hidden (`hidden?/1`), or the
-      owner or a manager of the user library it is in.
+      owner or a manager of the user library it is in. Nobody, whoever they
+      are, may edit a file of a managed library (`managed?/1`).
 
   Anything else is refused, and a scope without a user, or none at all (`nil`),
   can only read a file of a public library.
@@ -980,8 +1229,13 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
   def can?(%Scope{} = scope, %{} = file, action) when action in [:read, :edit] do
     library_uuid = Map.get(file, :library_uuid) || @media_uuid
 
-    uploader?(scope, file) or Scope.system_role?(scope) or
-      library_grants?(scope, library_uuid, action)
+    # A managed library's files are changed by no one from here, an Owner included.
+    if action == :edit and managed?(library_uuid) do
+      false
+    else
+      uploader?(scope, file) or Scope.system_role?(scope) or
+        library_grants?(scope, library_uuid, action)
+    end
   end
 
   def can?(nil, %{} = file, :read), do: public?(Map.get(file, :library_uuid))
@@ -2369,18 +2623,30 @@ defmodule PhoenixKit.Modules.Storage.Libraries do
 
   # `true` when the file is gone. With `confirm?`, its objects go first and the
   # rows stay until they have: `false` leaves the file for the retry.
-  defp purge_file(file, false) do
-    Storage.delete_file_completely(file)
-    true
-  end
+  defp purge_file(file, false), do: purge_row(file)
 
   defp purge_file(file, true) do
     case Storage.delete_file_data(file) do
       result when result == :ok or result == {:error, "No file instances found"} ->
-        Storage.delete_file_completely(file)
-        true
+        purge_row(file)
 
       {:error, _reason} ->
+        false
+    end
+  end
+
+  # A file that is gone already counts as deleted; a refusal (a managed file,
+  # a failed delete) does not, or the library would be removed under a live row.
+  defp purge_row(file) do
+    case Storage.delete_file_completely(file) do
+      {:ok, _} ->
+        true
+
+      {:error, :not_found} ->
+        true
+
+      {:error, reason} ->
+        Logger.warning("Storage: purging file #{file.uuid} refused: #{inspect(reason)}")
         false
     end
   end

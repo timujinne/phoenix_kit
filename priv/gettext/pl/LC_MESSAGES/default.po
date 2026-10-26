@@ -21146,6 +21146,7 @@ msgstr "Zapisuje"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:200
 #: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:198
+#: lib/phoenix_kit_web/live/users/media.html.heex:18
 #, elixir-autogen, elixir-format
 msgid "Read only"
 msgstr "Tylko odczyt"
@@ -21584,3 +21585,8 @@ msgstr "Zatwierdzenia i limity"
 #, elixir-autogen, elixir-format
 msgid "The connection check gave an unexpected answer"
 msgstr "Sprawdzenie połączenia zwróciło nieoczekiwaną odpowiedź"
+
+#: lib/phoenix_kit_web/live/users/media.html.heex:21
+#, elixir-autogen, elixir-format
+msgid "These files belong to the module that stored them and cannot be changed here."
+msgstr "Te pliki należą do modułu, który je zapisał, i nie można ich tutaj zmieniać."

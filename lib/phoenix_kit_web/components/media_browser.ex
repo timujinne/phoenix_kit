@@ -133,6 +133,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     `details_path={nil}` (title/alt/description save refuses only when
     BOTH are nil), and `persist_rotation={false}`.
 
+    A browser showing a managed library (`library_uuid`, see
+    `PhoenixKit.Modules.Storage.Libraries.managed?/1`) is `readonly` whatever
+    the host passed.
+
     Typical use: embedding the browser on a page where the viewer should
     only look, not touch —
 
@@ -355,6 +359,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> assign_new(:upload_problems_session, fn -> [] end)
       |> close_upload_on_start()
       |> harvest_rejected_uploads()
+      |> force_managed_readonly()
 
     socket = maybe_switch_library(socket, shown_library)
 
@@ -418,6 +423,23 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       true ->
         {:ok, socket}
     end
+  end
+
+  # A managed library (`Libraries.managed?/1`) is browsed read-only whoever
+  # opens it and whatever the host passed: every write path below refuses
+  # under `readonly`, and the context refuses again. Asked again only when the
+  # library on screen changes.
+  defp force_managed_readonly(socket) do
+    library = socket.assigns[:library_uuid]
+
+    managed? =
+      case socket.assigns[:managed_library] do
+        {^library, managed?} -> managed?
+        _ -> Libraries.managed?(library)
+      end
+
+    socket = assign(socket, :managed_library, {library, managed?})
+    if managed?, do: assign(socket, :readonly, true), else: socket
   end
 
   # The upload drawer's job ends the moment files are accepted: transfers

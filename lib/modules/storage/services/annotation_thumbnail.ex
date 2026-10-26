@@ -113,26 +113,16 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnail do
   Regenerate (or remove) the baked annotated thumbnail for `file_uuid`.
 
   Returns `{:ok, instance}` when (re)generated, `{:ok, :removed}` when there's
-  nothing to draw, or `{:error, reason}`.
+  nothing to draw, or `{:error, reason}` — `{:error, :managed}` for a file of a
+  managed library (`Libraries.managed?/1`), which this never writes to.
   """
   def refresh(file_uuid) when is_binary(file_uuid) do
     case Storage.get_file(file_uuid) do
       %Storage.File{file_type: "image"} = file ->
-        if enabled_for_file?(file) do
-          annotations = Annotations.list_for_file(file_uuid)
-
-          case draw_args(annotations, file) do
-            [] ->
-              remove_variant(file)
-              {:ok, :removed}
-
-            draw_args ->
-              generate(file, draw_args)
-          end
+        if Libraries.managed?(file) do
+          {:error, :managed}
         else
-          # Feature toggled off — drop any stale baked variant.
-          remove_variant(file)
-          {:ok, :removed}
+          do_refresh(file, file_uuid)
         end
 
       _ ->
@@ -143,6 +133,25 @@ defmodule PhoenixKit.Modules.Storage.AnnotationThumbnail do
     e ->
       Logger.warning("AnnotationThumbnail.refresh failed for #{file_uuid}: #{inspect(e)}")
       {:error, :exception}
+  end
+
+  defp do_refresh(file, file_uuid) do
+    if enabled_for_file?(file) do
+      annotations = Annotations.list_for_file(file_uuid)
+
+      case draw_args(annotations, file) do
+        [] ->
+          remove_variant(file)
+          {:ok, :removed}
+
+        draw_args ->
+          generate(file, draw_args)
+      end
+    else
+      # Feature toggled off — drop any stale baked variant.
+      remove_variant(file)
+      {:ok, :removed}
+    end
   end
 
   defp generate(file, draw_args) do

@@ -45,6 +45,7 @@ defmodule PhoenixKit.Modules.Storage.ApplyImageEditJob do
   alias PhoenixKit.Modules.Storage.ImageEdit
   alias PhoenixKit.Modules.Storage.ImageEditing
   alias PhoenixKit.Modules.Storage.ImageProcessor
+  alias PhoenixKit.Modules.Storage.Libraries
   alias PhoenixKit.Modules.Storage.Locations
   alias PhoenixKit.Modules.Storage.Manager
   alias PhoenixKit.Modules.Storage.VariantGenerator
@@ -55,13 +56,19 @@ defmodule PhoenixKit.Modules.Storage.ApplyImageEditJob do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"file_uuid" => uuid, "mode" => "copy"} = args} = job) do
     case Storage.get_file(uuid) do
-      nil -> {:cancel, :file_not_found}
-      file -> copy(file, args["edits"]) |> finish_copy(job)
+      nil ->
+        {:cancel, :file_not_found}
+
+      file ->
+        if managed?(file),
+          do: {:cancel, :managed},
+          else: copy(file, args["edits"]) |> finish_copy(job)
     end
   end
 
   def perform(%Oban.Job{args: %{"file_uuid" => uuid, "mode" => "apply"}} = job) do
-    run_apply(uuid, job)
+    # A job queued before its library became managed changes nothing.
+    if managed?(Storage.get_file(uuid)), do: {:cancel, :managed}, else: run_apply(uuid, job)
   rescue
     # A crash on the last attempt leaves no run behind: the file must not stay
     # "pending" (a placeholder) with nothing left to render it.
@@ -69,6 +76,8 @@ defmodule PhoenixKit.Modules.Storage.ApplyImageEditJob do
       if final_attempt?(job), do: mark_current_failed(uuid, job, error)
       reraise error, __STACKTRACE__
   end
+
+  defp managed?(file), do: Libraries.managed?(file)
 
   defp run_apply(uuid, job) do
     case apply_edit(uuid, 0) do
