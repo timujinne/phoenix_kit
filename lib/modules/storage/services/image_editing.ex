@@ -34,6 +34,11 @@ defmodule PhoenixKit.Modules.Storage.ImageEditing do
   the file's owner, an Owner/Admin, or a holder of the `"media"` permission
   (the admin media library's) may edit. Trusted internal callers pass `system: true` instead.
   Anything else is `{:error, :forbidden}`.
+
+  A file of a managed library (`Libraries.managed?/1`) is changed by none of
+  them: `{:error, :managed}`, `system: true` included — the check comes first,
+  and there is no `managed: :owner` for editing: a managed library's pictures
+  are not edited at all.
   """
 
   import Ecto.Query, warn: false
@@ -218,6 +223,8 @@ defmodule PhoenixKit.Modules.Storage.ImageEditing do
       repo().transaction(fn ->
         file = lock_file(file_uuid) || repo().rollback(:not_found)
 
+        if Libraries.managed?(file), do: repo().rollback(:managed)
+
         cond do
           file.edit_revision != revision -> repo().rollback(:edit_changed)
           edit_in_progress?(file) -> repo().rollback(:edit_in_progress)
@@ -380,6 +387,7 @@ defmodule PhoenixKit.Modules.Storage.ImageEditing do
 
   defp authorize(file, opts) do
     cond do
+      Libraries.managed?(file) -> {:error, :managed}
       Keyword.get(opts, :system) == true -> :ok
       allowed?(file, Keyword.get(opts, :scope)) -> :ok
       true -> {:error, :forbidden}

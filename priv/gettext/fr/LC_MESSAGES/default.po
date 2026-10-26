@@ -21082,6 +21082,7 @@ msgstr "Écrit"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:200
 #: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:198
+#: lib/phoenix_kit_web/live/users/media.html.heex:18
 #, elixir-autogen, elixir-format
 msgid "Read only"
 msgstr "Lecture seule"
@@ -21516,3 +21517,8 @@ msgstr "Approbations et limites"
 #, elixir-autogen, elixir-format
 msgid "The connection check gave an unexpected answer"
 msgstr "La vérification de la connexion a donné une réponse inattendue"
+
+#: lib/phoenix_kit_web/live/users/media.html.heex:21
+#, elixir-autogen, elixir-format
+msgid "These files belong to the module that stored them and cannot be changed here."
+msgstr "Ces fichiers appartiennent au module qui les a enregistrés et ne peuvent pas être modifiés ici."

@@ -35,6 +35,8 @@ defmodule PhoenixKit.Modules.Storage.EtcherAdapter do
 
   alias PhoenixKit.Annotations
   alias PhoenixKit.Annotations.Annotation
+  alias PhoenixKit.Modules.Storage
+  alias PhoenixKit.Modules.Storage.Libraries
 
   # Whitelist of annotation schema fields the helper accepts from event
   # payloads, sourced from `Annotation.adapter_writable_fields/0` so the
@@ -46,8 +48,9 @@ defmodule PhoenixKit.Modules.Storage.EtcherAdapter do
   # filter compares against `to_string(payload_key)`.
   @schema_keys Enum.map(Annotation.adapter_writable_fields(), &Atom.to_string/1)
 
-  def create(attrs) do
-    with {:ok, target_type, target_uuid} <- target(attrs) do
+  def create(attrs, opts \\ []) do
+    with {:ok, target_type, target_uuid} <- target(attrs),
+         :ok <- check_managed(target_type, target_uuid, opts) do
       attrs
       |> filter_to_schema()
       |> Map.put(:target_type, target_type)
@@ -62,13 +65,32 @@ defmodule PhoenixKit.Modules.Storage.EtcherAdapter do
 
   def list_for(_other, _uuid), do: []
 
-  def update(uuid, attrs) do
-    attrs
-    |> filter_to_schema()
-    |> then(&Annotations.update(uuid, &1))
+  def update(uuid, attrs, opts \\ []) do
+    with :ok <- check_annotation_managed(uuid, opts) do
+      attrs
+      |> filter_to_schema()
+      |> then(&Annotations.update(uuid, &1))
+    end
   end
 
-  def delete(uuid), do: Annotations.delete(uuid)
+  def delete(uuid, opts \\ []) do
+    with :ok <- check_annotation_managed(uuid, opts), do: Annotations.delete(uuid)
+  end
+
+  # Nobody draws on, edits or rubs out a shape of a file in a managed library
+  # (`Libraries.managed?/1`) but the module that owns it (`managed: :owner`).
+  defp check_managed("file", file_uuid, opts), do: check_file_managed(file_uuid, opts)
+  defp check_managed(_target_type, _target_uuid, _opts), do: :ok
+
+  defp check_annotation_managed(uuid, opts) do
+    case Annotations.get(uuid) do
+      %{file_uuid: file_uuid} when is_binary(file_uuid) -> check_file_managed(file_uuid, opts)
+      _ -> :ok
+    end
+  end
+
+  defp check_file_managed(file_uuid, opts),
+    do: Libraries.check_managed(Storage.get_file(file_uuid), opts)
 
   # ---------------------------------------------------------------------------
 

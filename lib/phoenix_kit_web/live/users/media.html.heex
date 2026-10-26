@@ -12,12 +12,21 @@
   current_locale={@current_locale}
 >
   <div class="flex flex-col w-full h-[calc(100dvh-4rem)]">
+    <div :if={@managed_library} class="flex items-center gap-2 px-4 py-2 shrink-0">
+      <span class="badge badge-ghost gap-1">
+        <.icon name="hero-lock-closed" class="w-3 h-3" />
+        {gettext("Read only")}
+      </span>
+      <span class="text-sm text-base-content/60">
+        {gettext("These files belong to the module that stored them and cannot be changed here.")}
+      </span>
+    </div>
     <.live_component
       module={PhoenixKitWeb.Components.MediaBrowser}
       id="media-browser"
       library_uuid={PhoenixKitWeb.Live.Users.Media.browser_library_uuid(@libraries, @library)}
       viewer_uuid={@viewer_uuid}
-      readonly={readonly?(@role)}
+      readonly={readonly?(@role) or @managed_library}
       own_files_only={@viewer_uuid || own_files_only(@role, @phoenix_kit_current_user)}
       phoenix_kit_current_user={assigns[:phoenix_kit_current_user]}
       admin={true}

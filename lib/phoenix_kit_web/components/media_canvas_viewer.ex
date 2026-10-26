@@ -435,10 +435,20 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
     case {socket.assigns.can_annotate, socket.assigns[:file], socket.assigns[:board]} do
       # Read-only viewer: the client should never send this (its shapes
       # are locked and its tools gone) — a crafted one changes nothing.
-      {false, _, _} -> {:noreply, socket}
-      {true, %{} = file, _} -> {:noreply, sync_annotations(socket, file, new_annotations)}
-      {true, nil, %{} = board} -> {:noreply, sync_annotations(socket, board, new_annotations)}
-      _ -> {:noreply, socket}
+      {false, _, _} ->
+        {:noreply, socket}
+
+      # Nor a file of a managed library, whatever the host said (`Libraries.managed?/1`).
+      {true, %{} = file, _} ->
+        if managed_file?(file),
+          do: {:noreply, socket},
+          else: {:noreply, sync_annotations(socket, file, new_annotations)}
+
+      {true, nil, %{} = board} ->
+        {:noreply, sync_annotations(socket, board, new_annotations)}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -929,7 +939,8 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
 
   # Carry the browser's boundaries into every write in its child viewer.
   defp file_writable?(%Storage.File{} = row, assigns) do
-    Storage.within_scope?(row.folder_uuid, assigns[:write_scope]) and
+    not Libraries.managed?(row) and
+      Storage.within_scope?(row.folder_uuid, assigns[:write_scope]) and
       (is_nil(assigns[:own_files_only]) or row.user_uuid == assigns[:own_files_only]) and
       (is_nil(assigns[:write_library_uuid]) or
          row.library_uuid == assigns[:write_library_uuid]) and
@@ -937,6 +948,12 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   end
 
   defp file_writable?(_row, _assigns), do: false
+
+  # A file of a managed library is changed by nobody from here.
+  defp managed_file?(%{file_uuid: uuid}) when is_binary(uuid),
+    do: Libraries.managed?(Storage.get_file(uuid))
+
+  defp managed_file?(_file), do: false
 
   # A form field, or whatever a forged event put in its place.
   defp text_param(value) when is_binary(value), do: String.trim(value)
@@ -2279,7 +2296,9 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
         _ -> nil
       end
 
-    persist_annotation_title(annotation_uuid, normalize_annotation_title(title))
+    if not managed_file?(socket.assigns[:file]) do
+      persist_annotation_title(annotation_uuid, normalize_annotation_title(title))
+    end
 
     fresh = if file_uuid, do: load_annotations_for(file_uuid), else: []
 

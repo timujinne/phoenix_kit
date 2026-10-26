@@ -27,6 +27,14 @@ defmodule PhoenixKitWeb.Live.Users.Media do
       are on and the viewer holds `storage`), at `/admin/media/my/<slug or uuid>`,
       with the rights their role gives them there.
 
+  A **hidden library a module chose to show here** (`media_listing`, see
+  `Libraries`) is offered in the switcher and opened at
+  `/admin/media/library/<slug>` only to those its listing names
+  (`Libraries.list_system_libraries_for/1`), and lists what the listing says
+  (`Libraries.media_viewer_uuid/2`: "only their own" holds for a holder of
+  `media.view_all` too). A **managed** one is read-only for everyone and wears
+  a "Read only" badge.
+
   They share one switcher in the admin header (the ▾ beside the page title, the
   title being the library on screen), each row hinted "Site" or "Mine". While
   there is only one library, nothing about libraries is shown. Another user's library is opened, by
@@ -66,6 +74,7 @@ defmodule PhoenixKitWeb.Live.Users.Media do
       |> assign(:library, nil)
       |> assign(:role, nil)
       |> assign(:viewer_uuid, nil)
+      |> assign(:managed_library, false)
       |> assign(:can_manage_storage, Scope.can?(scope(socket), "media.manage"))
       |> assign(:selected_annotation, nil)
 
@@ -121,7 +130,7 @@ defmodule PhoenixKitWeb.Live.Users.Media do
         else: []
 
     socket
-    |> assign(:libraries, Libraries.list_system_libraries())
+    |> assign(:libraries, Libraries.list_system_libraries_for(scope))
     |> assign(:my_libraries, mine)
   end
 
@@ -136,6 +145,7 @@ defmodule PhoenixKitWeb.Live.Users.Media do
          socket
          |> assign(:library, library)
          |> assign(:role, role)
+         |> assign(:managed_library, false)
          |> assign(:viewer_uuid, nil)}
     end
   end
@@ -158,8 +168,16 @@ defmodule PhoenixKitWeb.Live.Users.Media do
     socket
     |> assign(:library, library)
     |> assign(:role, nil)
-    |> assign(:viewer_uuid, restricted_viewer(scope(socket)))
+    |> assign(:managed_library, Libraries.managed?(library))
+    |> assign(:viewer_uuid, site_viewer_uuid(scope(socket), library))
   end
+
+  # A hidden library shown in Media (`media_listing`) is browsed by its own
+  # rule; a site library by the viewer's rights.
+  defp site_viewer_uuid(scope, %{visibility: "private"} = library),
+    do: Libraries.media_viewer_uuid(scope, library)
+
+  defp site_viewer_uuid(scope, _library), do: restricted_viewer(scope)
 
   @doc false
   # Who a site library is restricted to: nobody for an Owner/Admin or a holder of
@@ -229,7 +247,7 @@ defmodule PhoenixKitWeb.Live.Users.Media do
         %{
           label: l.name,
           patch: library_path(l.slug),
-          hint: site_hint,
+          hint: if(Libraries.hidden?(l), do: gettext("Module"), else: site_hint),
           current: is_nil(role) and l.uuid == library.uuid
         }
       end

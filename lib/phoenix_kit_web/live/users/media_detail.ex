@@ -46,7 +46,8 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
   @doc """
   The (canonical, unprefixed) path of the page that browses the library `file`
   is in: Media for the default library (and for a hidden one, which has no
-  page), `/admin/media/library/<slug>` for another site library, and for a
+  page — unless it is shown in Media to `scope`, then its page),
+  `/admin/media/library/<slug>` for another site library, and for a
   user's library the page `scope` browses it in (`Libraries.browse_path/2`).
   """
   @spec browse_path(StorageFile.t(), term()) :: String.t()
@@ -58,9 +59,10 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
           do: Libraries.browse_path(scope, library),
           else: "/admin/media"
 
-      # A hidden one has no page of its own (`Libraries.hidden?/1`): its slug stays out of the URL.
-      %{kind: "system", visibility: "private"} ->
-        "/admin/media"
+      # A hidden one has no page of its own (`Libraries.hidden?/1`): its slug stays out of the URL
+      # — unless it is shown in Media to this viewer (`media_listing`).
+      %{kind: "system", visibility: "private"} = library ->
+        listed_path(library, scope)
 
       %{kind: "system", is_default: false, slug: slug} when is_binary(slug) ->
         "/admin/media/library/#{slug}"
@@ -89,8 +91,10 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
         section = if index == "/admin/media", do: gettext("Media"), else: gettext("Libraries")
         {section, index, [crumb(library.name, Libraries.browse_path(scope, library))]}
 
-      %{kind: "system", visibility: "private"} ->
-        {gettext("Media"), "/admin/media", []}
+      %{kind: "system", visibility: "private", name: name, slug: slug} = library ->
+        if Libraries.listed_for?(scope, library),
+          do: {gettext("Media"), "/admin/media", [crumb(name, "/admin/media/library/#{slug}")]},
+          else: {gettext("Media"), "/admin/media", []}
 
       %{kind: "system", is_default: false, slug: slug, name: name} when is_binary(slug) ->
         {gettext("Media"), "/admin/media", [crumb(name, "/admin/media/library/#{slug}")]}
@@ -99,6 +103,15 @@ defmodule PhoenixKitWeb.Live.Users.MediaDetail do
         {gettext("Media"), "/admin/media", []}
     end
   end
+
+  # A hidden library that Media offers `scope` is browsed on its own page.
+  defp listed_path(%{slug: slug} = library, scope) when is_binary(slug) do
+    if Libraries.listed_for?(scope, library),
+      do: "/admin/media/library/#{slug}",
+      else: "/admin/media"
+  end
+
+  defp listed_path(_library, _scope), do: "/admin/media"
 
   defp crumb(label, path), do: %{label: label, path: Routes.path(path)}
 end
