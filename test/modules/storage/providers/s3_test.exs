@@ -106,6 +106,22 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3ResolveCredentialsTest do
     end
   end
 
+  describe "upload_content_type/2 (#951)" do
+    test "the caller's type wins" do
+      assert S3.upload_content_type([content_type: "image/avif"], "a/b/photo.jpg") == "image/avif"
+    end
+
+    test "without one, the key's extension decides, so a copy between buckets is not octet-stream" do
+      assert S3.upload_content_type([], "ab/cd/abcd_original.jpg") == "image/jpeg"
+      assert S3.upload_content_type([], "ab/cd/abcd_large.webp") == "image/webp"
+      assert S3.upload_content_type([acl: "public-read"], "x/y.png") == "image/png"
+    end
+
+    test "an unknown extension is application/octet-stream, as S3 would have served it" do
+      assert S3.upload_content_type([], "x/y.unknownext") == "application/octet-stream"
+    end
+  end
+
   describe "signed_download_url/3" do
     @opts [disposition: ~s(attachment; filename="a b.html"), content_type: "text/html"]
 

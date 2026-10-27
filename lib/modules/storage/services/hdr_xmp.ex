@@ -11,10 +11,12 @@ defmodule PhoenixKit.Modules.Storage.HdrXmp do
     @rdf => ~w(RDF Description Seq Bag Alt li parseType),
     "http://ns.google.com/photos/1.0/container/" => ~w(Directory Item),
     @item => ~w(Semantic Mime Length Padding),
+    # BaseHeadroom and AlternateHeadroom are how an iPhone on iOS 26 says how bright the
+    # map makes the picture; its JPEGs carry no ISO 21496-1 segment to say it again.
     "http://ns.adobe.com/hdr-gain-map/1.0/" =>
-      ~w(Version BaseRenditionIsHDR GainMapMin GainMapMax Gamma OffsetSDR OffsetHDR HDRCapacityMin HDRCapacityMax),
+      ~w(Version BaseRenditionIsHDR GainMapMin GainMapMax Gamma OffsetSDR OffsetHDR HDRCapacityMin HDRCapacityMax BaseHeadroom AlternateHeadroom),
     "http://ns.apple.com/HDRGainMap/1.0/" => ~w(HDRGainMapVersion HDRGainMapHeadroom),
-    "http://ns.apple.com/pixeldatainfo/1.0/" => ~w(AuxiliaryImageType)
+    "http://ns.apple.com/pixeldatainfo/1.0/" => ~w(AuxiliaryImageType NativeFormat StoredFormat)
   }
 
   def rewrite(xml, gain_len, strip?) do

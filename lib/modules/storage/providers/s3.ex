@@ -268,16 +268,24 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3 do
     end
   end
 
+  @doc false
+  # The caller's `:content_type` when it passes one, otherwise the type of the
+  # key's extension. Callers such as `Manager.copy_object/3` (the reconcile after
+  # a profile change) pass no options, and an object stored without a
+  # `Content-Type` is served as binary/octet-stream, which a browser downloads
+  # instead of showing. (#951)
+  @spec upload_content_type(keyword(), String.t()) :: String.t()
+  def upload_content_type(opts, destination_path),
+    do: Keyword.get(opts, :content_type) || MIME.from_path(destination_path)
+
   # Single-request upload for small files (<5 MB).
   # Reads entire file into memory and sends in one PUT request.
   defp simple_upload(bucket, source_path, destination_path, opts) do
-    content_type = Keyword.get(opts, :content_type)
+    content_type = upload_content_type(opts, destination_path)
 
     case File.read(source_path) do
       {:ok, file_content} ->
-        put_opts =
-          [{:acl, Keyword.get(opts, :acl, "private")}] ++
-            if(content_type, do: [{:content_type, content_type}], else: [])
+        put_opts = [acl: Keyword.get(opts, :acl, "private"), content_type: content_type]
 
         case ExAws.S3.put_object(bucket.bucket_name, destination_path, file_content, put_opts)
              |> ExAws.request(aws_config(bucket)) do
@@ -298,11 +306,14 @@ defmodule PhoenixKit.Modules.Storage.Providers.S3 do
   # Multipart streaming upload for large files (>=5 MB).
   # Streams file in chunks with concurrent part uploads.
   defp multipart_upload(bucket, source_path, destination_path, opts) do
-    content_type = Keyword.get(opts, :content_type)
+    content_type = upload_content_type(opts, destination_path)
 
-    upload_opts =
-      [acl: Keyword.get(opts, :acl, "private"), max_concurrency: 4, timeout: 60_000] ++
-        if(content_type, do: [content_type: content_type], else: [])
+    upload_opts = [
+      acl: Keyword.get(opts, :acl, "private"),
+      max_concurrency: 4,
+      timeout: 60_000,
+      content_type: content_type
+    ]
 
     case source_path
          |> Upload.stream_file()

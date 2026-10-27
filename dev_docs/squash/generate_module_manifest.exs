@@ -31,6 +31,9 @@
 #     --app phoenix_kit_customer_support \
 #     --output ../phoenix_kit_customer_support/lib/phoenix_kit_customer_support/expected_schema.ex
 #
+# `--exclude constraint:TABLE.NAME` (repeatable) leaves out an object the chain only
+# adds where another package's table exists (a guarded foreign key).
+#
 # `--source` is repeatable (a file, or a directory searched for *.ex): everything
 # the migrations module needs to compile on its own. Offline gate:
 #
@@ -64,7 +67,8 @@ defmodule PhoenixKit.Squash.GenerateModule do
           module: :string,
           app: :string,
           output: :string,
-          schema: :string
+          schema: :string,
+          exclude: [:string, :keep]
         ]
       )
 
@@ -89,7 +93,9 @@ defmodule PhoenixKit.Squash.GenerateModule do
       app: String.to_atom(opts[:app]),
       output: opts[:output],
       sources: sources,
-      schema: opts[:schema] || "pk_modgen_" <> Integer.to_string(System.unique_integer([:positive]))
+      exclude: Keyword.get_values(opts, :exclude),
+      schema:
+        opts[:schema] || "pk_modgen_" <> Integer.to_string(System.unique_integer([:positive]))
     }
   end
 
@@ -99,7 +105,7 @@ defmodule PhoenixKit.Squash.GenerateModule do
 
     try do
       {:ok, tables} = build!(repo, config)
-      snapshot = repo |> Catalog.snapshot(config.schema) |> keep_tables(tables)
+      snapshot = repo |> Catalog.snapshot(config.schema) |> keep_tables(tables, config.exclude)
       source = render(snapshot, config)
 
       File.write!(config.output, source)
@@ -134,7 +140,7 @@ defmodule PhoenixKit.Squash.GenerateModule do
   end
 
   # The snapshot covers the whole scratch schema, core's tables included.
-  def keep_tables(snapshot, tables) do
+  def keep_tables(snapshot, tables, exclude \\ []) do
     tables = MapSet.new(tables)
     present = snapshot.tables |> Map.keys() |> Enum.filter(&MapSet.member?(tables, &1))
     own? = &(&1 in present)
@@ -143,7 +149,10 @@ defmodule PhoenixKit.Squash.GenerateModule do
       tables: Map.take(snapshot.tables, present),
       columns: Map.filter(snapshot.columns, fn {{table, _}, _} -> own?.(table) end),
       indexes: Map.filter(snapshot.indexes, fn {_, shape} -> own?.(shape.table) end),
-      constraints: Map.filter(snapshot.constraints, fn {{table, _}, _} -> own?.(table) end),
+      constraints:
+        Map.filter(snapshot.constraints, fn {{table, name}, _} ->
+          own?.(table) and "constraint:#{table}.#{name}" not in exclude
+        end),
       sequences:
         Map.filter(snapshot.sequences, fn {name, _} ->
           Enum.any?(present, &String.starts_with?(name, &1 <> "_"))
@@ -209,6 +218,15 @@ defmodule PhoenixKit.Squash.GenerateModule do
 
     kept = keep_tables(snapshot, ["t_a"])
     true = Map.keys(kept.tables) == ["t_a"] and map_size(kept.columns) == 1
+
+    with_fk =
+      put_in(snapshot.constraints, %{{"t_a", "t_a_fkey"} => %{}, {"t_a", "t_a_pkey"} => %{}})
+
+    true = Map.keys(keep_tables(with_fk, ["t_a"]).constraints) |> length() == 2
+
+    true =
+      Map.keys(keep_tables(with_fk, ["t_a"], ["constraint:t_a.t_a_fkey"]).constraints) ==
+        [{"t_a", "t_a_pkey"}]
 
     config = %{migrations: Some.Migrations, module: "Some.ExpectedSchema", app: :some_app}
     source = render(kept, config)

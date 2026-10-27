@@ -136,6 +136,66 @@ defmodule PhoenixKit.Migrations.ModulesTest do
     end
   end
 
+  describe "order_by_dependencies/1,2" do
+    defp named(name, module), do: %{entry(name, 0, 1, :not_installed) | module: module}
+
+    test "a module comes after the modules it depends on, whatever the name order" do
+      projects = named("Projects", Projects)
+      staff = named("Staff", Staff)
+      entities = named("Entities", Entities)
+      deps = %{Projects => [Staff, Entities]}
+
+      assert [projects, staff, entities]
+             |> Modules.order_by_dependencies(deps)
+             |> Enum.map(& &1.name) == ["Staff", "Entities", "Projects"]
+    end
+
+    test "modules with no relation keep their input order" do
+      entries = [named("B", B), named("A", A), named("C", C)]
+
+      assert entries |> Modules.order_by_dependencies(%{}) |> Enum.map(& &1.name) == [
+               "B",
+               "A",
+               "C"
+             ]
+    end
+
+    test "dependencies are followed through a chain" do
+      entries = [named("A", A), named("B", B), named("C", C)]
+      deps = %{A => [B], B => [C]}
+
+      assert entries |> Modules.order_by_dependencies(deps) |> Enum.map(& &1.name) == [
+               "C",
+               "B",
+               "A"
+             ]
+    end
+
+    test "a cycle does not raise and keeps every entry" do
+      entries = [named("A", A), named("B", B)]
+      deps = %{A => [B], B => [A]}
+
+      assert entries |> Modules.order_by_dependencies(deps) |> Enum.map(& &1.name) |> Enum.sort() ==
+               ["A", "B"]
+    end
+
+    test "reads the OTP application graph: a dependency's module comes first" do
+      # phoenix_kit depends (transitively) on ecto, so a module of :ecto is placed first.
+      kit = named("Kit", PhoenixKit)
+      ecto = named("Ecto", Ecto)
+
+      assert [kit, ecto] |> Modules.order_by_dependencies() |> Enum.map(& &1.name) ==
+               ["Ecto", "Kit"]
+    end
+
+    test "pending/1 returns dependency order" do
+      kit = named("Kit", PhoenixKit)
+      ecto = named("Ecto", Ecto)
+
+      assert Modules.pending([kit, ecto]) |> Enum.map(& &1.name) == ["Ecto", "Kit"]
+    end
+  end
+
   defp entry(name, installed, target, status) do
     %{
       name: name,

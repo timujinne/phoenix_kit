@@ -879,8 +879,31 @@ defmodule PhoenixKit.Users.Auth.User do
     |> validate_format(:username, ~r/^[a-zA-Z][a-zA-Z0-9_]*$/,
       message: "must start with a letter and contain only letters, numbers, and underscores"
     )
+    |> validate_change(:username, fn :username, username ->
+      if reserved_username?(username), do: [username: "is reserved"], else: []
+    end)
     |> maybe_validate_unique_username(opts)
   end
+
+  @doc """
+  Whether `username` is one the host keeps for its own pages: `config :phoenix_kit,
+  :reserved_usernames, ["admin", "profile"]`. A host that gives each person an address of
+  their own (`/<username>/…`) shares the first segment of every URL with its routes, so a
+  person who took `admin` would be given a page no one can reach. A registration or an edit
+  that asks for one is refused, and a name generated from an email address that is one gets
+  a number (`admin_1`). Case does not matter. Names already taken are not changed.
+  """
+  @spec reserved_username?(term()) :: boolean()
+  def reserved_username?(username) when is_binary(username) do
+    username = String.downcase(username)
+
+    Enum.any?(
+      Application.get_env(:phoenix_kit, :reserved_usernames, []),
+      &(String.downcase(to_string(&1)) == username)
+    )
+  end
+
+  def reserved_username?(_username), do: false
 
   defp maybe_validate_unique_username(changeset, opts) do
     if Keyword.get(opts, :validate_email, true) do
@@ -958,7 +981,9 @@ defmodule PhoenixKit.Users.Auth.User do
   defp ensure_unique_username(base_username, attempt, own_uuid) do
     username = if attempt == 0, do: base_username, else: "#{base_username}_#{attempt}"
 
-    case PhoenixKit.RepoHelper.repo().get_by(__MODULE__, username: username) do
+    case reserved_username?(username) ||
+           PhoenixKit.RepoHelper.repo().get_by(__MODULE__, username: username) do
+      true -> ensure_unique_username(base_username, attempt + 1, own_uuid)
       nil -> username
       %__MODULE__{uuid: ^own_uuid} when not is_nil(own_uuid) -> username
       %__MODULE__{} -> ensure_unique_username(base_username, attempt + 1, own_uuid)

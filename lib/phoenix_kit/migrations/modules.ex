@@ -140,7 +140,91 @@ defmodule PhoenixKit.Migrations.Modules do
   """
   @spec pending([entry()]) :: [entry()]
   def pending(entries) when is_list(entries) do
-    Enum.filter(entries, &(&1.status in [:not_installed, :needs_update]))
+    entries
+    |> Enum.filter(&(&1.status in [:not_installed, :needs_update]))
+    |> order_by_dependencies()
+  end
+
+  @doc """
+  Orders entries so a module comes after every module it depends on.
+
+  Module chains reference each other's tables — `phoenix_kit_projects` carries
+  foreign keys into `phoenix_kit_staff`'s and `phoenix_kit_entities`'s,
+  `phoenix_kit_ecommerce` into `phoenix_kit_billing`'s — and `mix phoenix_kit.update`
+  runs the chains in the order of this list. While core still created every
+  module's tables that never mattered; once core stops, a chain whose referenced
+  table does not exist yet fails.
+
+  The dependency is the OTP application graph: a module depends on every other
+  listed module whose application it (transitively) lists in `applications` or
+  `optional_applications`, which is what its `mix.exs` deps say. No callback and
+  no module change. Entries with no relation keep their input order (the name
+  order of `list/1`), so the result is stable. A cycle cannot be ordered; its
+  members keep their input order rather than raising.
+  """
+  @spec order_by_dependencies([entry()]) :: [entry()]
+  def order_by_dependencies(entries) when is_list(entries) do
+    order_by_dependencies(entries, application_dependencies(entries))
+  end
+
+  @doc false
+  # `deps` maps a module to the modules it must come after. Split from
+  # `order_by_dependencies/1` so the sort is testable without real applications.
+  @spec order_by_dependencies([entry()], %{module() => [module()]}) :: [entry()]
+  def order_by_dependencies(entries, deps) when is_list(entries) and is_map(deps) do
+    sort_entries(entries, deps, [], [])
+  end
+
+  defp sort_entries([], _deps, _done, acc), do: Enum.reverse(acc)
+
+  defp sort_entries(remaining, deps, done, acc) do
+    ready? = fn entry ->
+      deps |> Map.get(entry.module, []) |> Enum.all?(&(&1 in done))
+    end
+
+    # The first entry whose dependencies are all placed; on a cycle, the first one.
+    next = Enum.find(remaining, ready?) || hd(remaining)
+
+    sort_entries(
+      List.delete(remaining, next),
+      deps,
+      [next.module | done],
+      [next | acc]
+    )
+  end
+
+  # Only edges between the listed modules matter, so a dependency that is up to
+  # date (not listed) or that has no migrations imposes nothing.
+  defp application_dependencies(entries) do
+    app_to_module =
+      for entry <- entries,
+          app = Application.get_application(entry.module),
+          into: %{},
+          do: {app, entry.module}
+
+    for entry <- entries, into: %{} do
+      case Application.get_application(entry.module) do
+        nil ->
+          {entry.module, []}
+
+        app ->
+          reachable = app |> reachable_apps(MapSet.new()) |> MapSet.delete(app)
+
+          {entry.module, for(a <- reachable, mod = app_to_module[a], mod != nil, do: mod)}
+      end
+    end
+  end
+
+  defp reachable_apps(app, seen) do
+    if MapSet.member?(seen, app) do
+      seen
+    else
+      Application.load(app)
+
+      [:applications, :optional_applications]
+      |> Enum.flat_map(&(Application.spec(app, &1) || []))
+      |> Enum.reduce(MapSet.put(seen, app), &reachable_apps/2)
+    end
   end
 
   @doc """

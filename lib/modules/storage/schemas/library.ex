@@ -23,6 +23,8 @@ defmodule PhoenixKit.Modules.Storage.Library do
   use PhoenixKit.SchemaPrefix
   import Ecto.Changeset
 
+  alias PhoenixKit.Modules.Storage.Libraries
+
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
 
@@ -144,6 +146,25 @@ defmodule PhoenixKit.Modules.Storage.Library do
     library
     |> cast(attrs, [:name])
     |> validate_name()
+  end
+
+  @doc """
+  Changes a user library's URL slug. Its name, owner and kind never change here. The slug
+  keeps the shape `create_user_changeset/2` demands, is unique among the owner's libraries,
+  and is not one the host has reserved (`PhoenixKit.Modules.Storage.Libraries.reserved_slug?/1`).
+  """
+  def slug_changeset(library, attrs) do
+    library
+    |> cast(attrs, [:slug])
+    |> validate_required([:slug])
+    |> validate_format(:slug, ~r/\A[a-z0-9]+(?:-[a-z0-9]+)*\z/)
+    |> validate_length(:slug, max: 64)
+    |> validate_change(:slug, fn :slug, slug ->
+      if Libraries.reserved_slug?(slug),
+        do: [slug: "is reserved"],
+        else: []
+    end)
+    |> unique_constraint(:slug, name: :phoenix_kit_storage_libraries_owner_slug_index)
   end
 
   defp validate_name(changeset) do

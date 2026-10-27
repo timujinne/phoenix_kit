@@ -921,6 +921,22 @@ when it is renamed (`Libraries.get_system_library_by_slug/1`).
   records that merely hold the same bytes. The stored objects are still
   content-addressed, so the rows name the same keys and the last delete removes
   them.
+- **The one explicit exception:** `Storage.link_copy(donor, user_uuid,
+  library_uuid: …)` makes a record in another library that names the donor's
+  stored objects (its original and the sizes its variant set made, never a
+  burned or annotated thumbnail) instead of writing the bytes again. It is
+  called by name, takes the donor by its file (the caller checks the user may
+  read it, `Libraries.can?/3`), never answers `:duplicate`, and refuses
+  (`:incompatible`, `:donor_unavailable`, `:donor_changed`) when the two
+  libraries are not placed alike or the donor is not in a state to copy; the
+  caller then stores a full copy. `Storage.relink_file/3` moves an existing
+  record onto a donor's objects the same way, and
+  `Storage.delete_unreferenced_keys/1` deletes the keys it leaves behind once
+  nothing names them. Uploads never do this on their own.
+- **Burned and annotated thumbnails** (`VariantGenerator.store_prepared_variant/6`)
+  are stored under a key of their own, never over an object another file's row
+  names, so files that share objects (a cross-user clone, a linked copy) cannot
+  change each other's thumbnails.
 
 ### Hidden system libraries
 
@@ -948,10 +964,83 @@ A module that keeps files of its own (a chat's attachments, say) creates a
   `"media"` + `"media.view_all"` opens none of them. Bytes reach anyone else
   only through the module.
 - **Dedup:** inside it, as in any library. Outside it, the same bytes are a new
-  file: the dedup key folds the library in, so an upload to Media never comes
+  file (unless the module asks for `Storage.link_copy/3` explicitly): the dedup key folds the library in, so an upload to Media never comes
   back as the hidden copy (and an upload to it never as a Media file).
   `Storage.get_file_by_checksum/1` and `retrieve_file_by_hash/1` still look in
   every library.
+
+#### Shown in Media and read-only (`media_listing`, `managed`)
+
+A module whose files its users should find in Media can make the hidden library
+**visible there** and **read-only**, still without making it public:
+
+```elixir
+Libraries.create_system_library(attrs, hidden: true, media_listing: :uploaders, managed: true)
+Libraries.update_system_library_listing(library, media_listing: :uploaders, managed: true)  # an existing one
+```
+
+Both are kept in `Library.settings` (no migration). The library stays
+`visibility: "private"`: expiring URLs, never an orphan, out of every nameless
+listing — so the sections above still hold.
+
+- **Who finds it** — `Libraries.list_system_libraries_for(scope)` (Media's
+  switcher and `/admin/media/library/<slug>`; `list_system_libraries/0` still
+  leaves it out):
+
+  | `media_listing` | Owner/Admin | other holder of `media` |
+  |-----------------|-------------|-------------------------|
+  | `:none` (default) | no one    | no one                  |
+  | `:admins`       | every file  | no one                  |
+  | `:uploaders`    | every file  | only the files they uploaded, and the folders leading to them |
+  | `:own_only`     | only their own | only their own       |
+
+  "Only their own" is the browser's `viewer_uuid` for this library
+  (`Libraries.media_viewer_uuid/2`), `media.view_all` or not. It limits what
+  Media lists; `can?/3` is unchanged (an Owner/Admin still reads any file). The
+  host's own access rules (a module's attachment policy, say) are **not** asked
+  for what Media lists: an Owner/Admin sees every file under `:admins` and
+  `:uploaders`.
+- **Managed** (`managed: true`) — nobody changes or deletes a file or folder
+  of it from Media, an Owner included, and that is enforced in the Storage
+  context, not by hiding buttons. `{:error, :managed}` from `trash_file`,
+  `remove_file_from_folder`, `restore_file`, `restore_file_into`,
+  `delete_file_completely`, `move_file_to_folder`,
+  `move_file_between_folders`, `attach_file_to_folder`, `update_file_metadata`,
+  `update_file_details`, `update_file_details_languages`, `create_folder` (a root
+  folder or a subfolder there), `update_folder`, `delete_folder`, `trash_folder`,
+  `restore_folder`, `delete_folder_completely`, `create_folder_link`,
+  `delete_folder_link`; annotations (`EtcherAdapter`), annotation burn
+  (`AnnotationBurnController`), the annotated thumbnail
+  (`AnnotationThumbnail`/`AnnotationThumbnailJob`) and the image editor
+  (`ImageEditing`, `system: true` included, and `bake/2`) refuse the file
+  *before* any owner or `system: true` branch. `Libraries.can?(scope, file, :edit)`
+  is false for everyone, which closes a file's storage page (repair,
+  regenerate). Media's browser is `readonly` for the library whoever embeds it.
+- **No trash, no image editing:** `trash_file`, `remove_file_from_folder`,
+  `trash_folder`, `restore_*` and every `ImageEditing` call refuse the library's
+  files even with `managed: :owner` (the module only deletes, lays out folders
+  and links). `empty_trash` and `prune_trash` log and do not count a file
+  `delete_file_completely/1` refuses.
+- **The owner module** passes `managed: :owner` as the last option of the other
+  functions (`Storage.delete_file_completely(file, managed: :owner)`,
+  `Storage.create_folder(attrs, nil, managed: :owner)`,
+  `Storage.move_file_to_folder(uuid, folder, nil, managed: :owner)`,
+  `Storage.create_folder_link(folder, file, nil, managed: :owner)`, …) and they
+  work as in any library. `Libraries.check_managed(target, opts)` is the check
+  itself, for a module's own wrapper.
+- **Not user operations**, so open: `Storage.update_file/2` and
+  `update_file_instance/2` (the processing job, the capture date and the
+  reconciler write through them), and `store_file_in_buckets/7` into the
+  library. A full copy written there becomes `active` as in any library.
+  `link_copy/3` into the library is open the same way (the module writes its
+  snapshots there). `relink_file/3` rewrites a record, so on a managed
+  library's record it needs `managed: :owner`; `link_copy/3` from a managed
+  donor into another library does too. Their byte-sharing rules do not change.
+- `create_folder` and the folder-link insert run in a savepoint when the
+  caller has a transaction (outside one, a plain insert): a name or a link
+  that is already there is `{:error, changeset}` and the caller's own
+  transaction goes on, so a module can lay out folders in one transaction and
+  look the winner up again.
 
 ### User libraries (V203)
 

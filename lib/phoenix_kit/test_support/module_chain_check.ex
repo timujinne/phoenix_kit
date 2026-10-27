@@ -171,6 +171,81 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
     end)
   end
 
+  @doc """
+  The whole of step 8, rehearsed: builds core's chain, then every chain in
+  `chains` on top of it (**today**), drops every module-owned table, and runs
+  the chains again, in the order given, with nothing under them (**alone**). The
+  two states are compared as `check/3` compares one module's.
+
+  This is what a fresh install looks like once core stops creating module
+  tables: all the module chains, in `mix phoenix_kit.update`'s order, on a
+  database that has only core's. A chain that needs another module's table
+  fails here if it comes before that module.
+
+  `chains` is a list of migration modules, in the order to run them. Options:
+  `:tables` (the module-owned tables; default every table `ModuleOwnedTables`
+  lists), `:schema`, `:keep_schema`, `:allow` (substrings of difference lines to accept:
+  an object a chain deliberately adds only where another package's table exists). Returns `:ok` or `{:error, report}`.
+  """
+  @spec check_all(Ecto.Repo.t(), [module()], keyword()) :: :ok | {:error, String.t()}
+  def check_all(repo, chains, opts \\ []) when is_list(chains) do
+    Enum.each(chains, &Code.ensure_loaded!/1)
+    schema = Keyword.get_lazy(opts, :schema, &scratch_schema/0)
+    tables = Keyword.get_lazy(opts, :tables, &ModuleOwnedTables.module_tables/0)
+
+    with_auto_sandbox(repo, fn ->
+      try do
+        compare_all(repo, chains, schema, tables, opts)
+      after
+        unless opts[:keep_schema], do: query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
+      end
+    end)
+  end
+
+  defp compare_all(repo, chains, schema, tables, opts) do
+    query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
+    query!(repo, ~s(CREATE SCHEMA "#{schema}"))
+    quietly(fn -> PhoenixKit.Migration.ensure_current(repo, prefix: schema, log: false) end)
+    core_built = table_names(repo, schema)
+
+    with :ok <- run_chains(repo, chains, schema, "on top of core's tables") do
+      created_by_chains = table_names(repo, schema) -- core_built
+      tables = Enum.uniq(tables ++ created_by_chains ++ Enum.flat_map(chains, &version_table/1))
+      today = snapshot(repo, schema, tables)
+      drop = Enum.map_join(tables, ", ", &~s("#{schema}"."#{&1}"))
+      query!(repo, "DROP TABLE IF EXISTS #{drop} CASCADE")
+
+      with :ok <- run_chains(repo, chains, schema, "alone, in order") do
+        alone = snapshot(repo, schema, tables)
+
+        allowed = Keyword.get(opts, :allow, [])
+
+        tables
+        |> Enum.flat_map(&table_diff(&1, today[&1], alone[&1]))
+        |> Enum.reject(fn line -> Enum.any?(allowed, &String.contains?(line, &1)) end)
+        |> report_all()
+      end
+    end
+  end
+
+  defp run_chains(repo, chains, schema, run) do
+    Enum.reduce_while(chains, :ok, fn migrations, :ok ->
+      case run_chain(repo, migrations, schema, run) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp report_all([]), do: :ok
+
+  defp report_all(lines) do
+    {:error,
+     "the module chains do not build the same tables without core " <>
+       "(today = core's chain, then the modules'; alone = the modules' chains only):\n" <>
+       Enum.map_join(lines, "\n", &("  " <> &1))}
+  end
+
   defp compare(repo, migrations, schema, tables) do
     query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
     query!(repo, ~s(CREATE SCHEMA "#{schema}"))

@@ -21159,6 +21159,7 @@ msgstr "Изменяет данные"
 
 #: lib/phoenix_kit_web/live/settings/api.html.heex:200
 #: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:198
+#: lib/phoenix_kit_web/live/users/media.html.heex:18
 #, elixir-autogen, elixir-format
 msgid "Read only"
 msgstr "Только чтение"
@@ -21717,3 +21718,8 @@ msgstr "Вы можете удалить только роль, все прав�
 #, elixir-autogen, elixir-format
 msgid "You are not allowed to end this person's sessions"
 msgstr "Вам не разрешено завершать сеансы этого человека"
+
+#: lib/phoenix_kit_web/live/users/media.html.heex:21
+#, elixir-autogen, elixir-format
+msgid "These files belong to the module that stored them and cannot be changed here."
+msgstr "Эти файлы принадлежат модулю, который их сохранил, и здесь их изменить нельзя."

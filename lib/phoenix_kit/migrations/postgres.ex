@@ -7,7 +7,14 @@ defmodule PhoenixKit.Migrations.Postgres do
 
   ## Migration Versions
 
-  ### V224 - An index for one resource's activity ⚡ LATEST
+  ### V225 - A short code on every file ⚡ LATEST
+
+  `phoenix_kit_files.short_code` (`varchar(12)`), a random 8-character base58 code that names a file in a
+  URL instead of its UUID, and a unique partial index on it. Every existing file is given a code in the
+  migration, duplicates redrawn until none repeat. Additive; the backfill is one `UPDATE` of the table and
+  the index build takes a SHARE lock on it.
+
+  ### V224 - An index for one resource's activity
 
   `(resource_uuid, inserted_at)` on `phoenix_kit_activities`, so a page reading one
   record's feed (`WHERE resource_uuid IN (…) ORDER BY inserted_at DESC LIMIT n`, the
@@ -1032,7 +1039,7 @@ defmodule PhoenixKit.Migrations.Postgres do
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
-  @current_version 224
+  @current_version 225
   @default_prefix "public"
 
   # The frozen pre-squash bridge: the last 1.7.x release, which still carries

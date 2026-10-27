@@ -100,6 +100,7 @@ defmodule PhoenixKit.Modules.Storage.File do
   import Ecto.Changeset
 
   alias PhoenixKit.Modules.Storage.CaptureDate
+  alias PhoenixKit.Modules.Storage.ShortCode
 
   @primary_key {:uuid, UUIDv7, autogenerate: true}
   @foreign_key_type UUIDv7
@@ -168,6 +169,9 @@ defmodule PhoenixKit.Modules.Storage.File do
     # (`Storage.Geo`); the rest of the EXIF is in `metadata["exif"]`.
     field :latitude, :float
     field :longitude, :float
+    # What names the file in a URL (V225, `Storage.ShortCode`): drawn once, when the row
+    # is first built, and never changed. Not cast from attrs.
+    field :short_code, :string
     field :status, :string, default: "processing"
     field :trashed_at, :utc_datetime
     field :metadata, :map
@@ -342,6 +346,8 @@ defmodule PhoenixKit.Modules.Storage.File do
     |> validate_number(:longitude, greater_than_or_equal_to: -180, less_than_or_equal_to: 180)
     |> validate_inclusion(:taken_at_source, CaptureDate.sources())
     |> validate_system_managed_invariants()
+    |> put_short_code()
+    |> unique_constraint(:short_code, name: :phoenix_kit_files_short_code_index)
     |> foreign_key_constraint(:user_uuid, name: :fk_files_user_uuid)
     |> foreign_key_constraint(:folder_uuid)
     |> foreign_key_constraint(:parent_file_uuid)
@@ -365,6 +371,13 @@ defmodule PhoenixKit.Modules.Storage.File do
   def details_changeset(file, attrs) do
     cast(file, attrs, [:metadata, :data])
   end
+
+  # A new row is given its code; a row that has one (or that already exists without
+  # one, until the backfill is run) keeps what it has.
+  defp put_short_code(%{data: %{short_code: nil, __meta__: %{state: :built}}} = changeset),
+    do: put_change(changeset, :short_code, ShortCode.generate())
+
+  defp put_short_code(changeset), do: changeset
 
   # User-uploaded files require `user_uuid` (existing invariant). System-
   # managed files (tile chunks) don't have a user owner — they live under

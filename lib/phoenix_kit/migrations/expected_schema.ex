@@ -202,6 +202,13 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   # access to; the real-database integration suite re-ran clean against a DB
   # migrated through V196, which is the property s7/s8 exist to prove.
   #
+  # V225 (2026-10-26, a short code on every file) DECLARES two objects here by hand:
+  # `column:phoenix_kit_files.short_code` (varchar(12), nullable, no default, `pos` 42 after
+  # `longitude` at 41) and `index:phoenix_kit_files_short_code_index` (unique btree on
+  # `short_code`, partial `WHERE short_code IS NOT NULL`), built by `v225_objects/0`. Kept
+  # honest by `PhoenixKit.Migrations.Postgres.V225Test`, which runs the repair differ over
+  # every `since: 225` object of a freshly migrated database. `chain_hash` restamped.
+  #
   # V224 (2026-10-25, an index for one resource's activity) DECLARES one object here by
   # hand, a new index and the V175/V193 class:
   # `index:phoenix_kit_activities_resource_uuid_inserted_at_index`,
@@ -653,7 +660,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
   @schema_token "__SCHEMA__"
   @name_marker_exempt "__PK_NAME_EXEMPT__"
   @name_marker_always "__PK_NAME_ALWAYS__"
-  @chain_hash "6c990a5588ac1a4a9e695d549f84f0041c043f6029f63e9a7a09949f44c5632d"
+  @chain_hash "978d4083800f93dc812d73b26732c90b0ee449ff3808fd80dccf67043d80a9b4"
 
   def objects(prefix) do
     prefix = normalize_prefix!(prefix)
@@ -76489,7 +76496,7 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
         presence: :required,
         backfill: nil
       }
-    ] ++ v220_objects() ++ v223_objects() ++ v224_objects()
+    ] ++ v220_objects() ++ v223_objects() ++ v224_objects() ++ v225_objects()
   end
 
   # --- V220: the dangerous-operation flow (built, not typed; see the header) ---
@@ -76632,6 +76639,54 @@ defmodule PhoenixKit.Migrations.ExpectedSchema do
           "timestamp_ops"
         ])
       ] ++ v222_objects(conf)
+  end
+
+  # --- V225: a short code on every file (see the header) ---
+
+  defp v225_objects do
+    name = "phoenix_kit_files_short_code_index"
+
+    [
+      %{
+        id: "column:phoenix_kit_files.short_code",
+        owner: :core,
+        check: {:catalog, %{table: "phoenix_kit_files", column: "short_code", kind: :column}},
+        create:
+          "ALTER TABLE __SCHEMA__.phoenix_kit_files ADD COLUMN IF NOT EXISTS \"short_code\" character varying(12)",
+        since: 225,
+        class: :column,
+        revisions: [
+          {225, %{default: nil, type: "character varying(12)", pos: 42, not_null: false}}
+        ],
+        presence: :required,
+        backfill: nil
+      },
+      %{
+        id: "index:#{name}",
+        owner: :core,
+        check: {:catalog, %{name: name, table: "phoenix_kit_files", kind: :index}},
+        create:
+          "CREATE UNIQUE INDEX IF NOT EXISTS #{name} ON __SCHEMA__.phoenix_kit_files USING btree (short_code) WHERE (short_code IS NOT NULL)",
+        since: 225,
+        class: :index,
+        revisions: [
+          {225,
+           %{
+             table: "phoenix_kit_files",
+             keys: ["short_code"],
+             unique: true,
+             method: "btree",
+             definition:
+               "CREATE UNIQUE INDEX #{name} ON __SCHEMA__.phoenix_kit_files USING btree (short_code) WHERE (short_code IS NOT NULL)",
+             predicate: "(short_code IS NOT NULL)",
+             opclasses: ["text_ops"],
+             name_template: nil
+           }}
+        ],
+        presence: :required,
+        backfill: nil
+      }
+    ]
   end
 
   # --- V224: an index for one resource's activity (see the header) ---

@@ -149,11 +149,15 @@ defmodule PhoenixKitWeb.AnnotationBurnController do
   @doc false
   # The file's owner, an Owner/Admin (honouring the active role), or anyone
   # holding the media module — the same three `ImageEditing` allows to change
-  # the picture. `User.admin?/1` misses both the active role and a media
-  # permission holder, who can already draw on the file.
+  # the picture. Not a file of a managed library (`Libraries.managed?/1`).
+  # `User.admin?/1` misses both the active role and a media permission
+  # holder, who can already draw on the file.
   def allowed?(%{user_uuid: owner} = file, %User{uuid: uuid}, scope) do
-    (is_binary(owner) and owner == uuid) or
-      Libraries.can?(scope, file, :edit)
+    # A managed library's files are burned on by none, their owner included:
+    # first, before the owner's own right.
+    not Libraries.managed?(file) and
+      ((is_binary(owner) and owner == uuid) or
+         Libraries.can?(scope, file, :edit))
   end
 
   @doc false

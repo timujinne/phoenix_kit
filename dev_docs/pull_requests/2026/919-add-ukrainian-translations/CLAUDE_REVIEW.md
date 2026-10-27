@@ -33,7 +33,7 @@ Every check below was run against all entries, not a sample. The checker is a st
 - **Script hygiene.** No Russian-only letters (ы э ъ ё), no mixed Latin/Cyrillic words (homoglyphs), the
   apostrophe is always `'`, quotes are «…» (straight quotes appear only inside code such as
   `{:vix, "~> 0.42"}`), and `ви` is lower-case mid-sentence throughout.
-- **Tests.** `MIX_ENV=test PGDATABASE=pkcore_test_domovych_uk PGPOOL=10 mix test
+- **Tests.** `MIX_ENV=test PGDATABASE=pkcore_test_uk PGPOOL=10 mix test
   test/phoenix_kit_web/gettext_test.exs test/phoenix_kit/email/catalog_test.exs` → 48 tests, 0 failures.
 - **Runtime.** `Gettext.dngettext(PhoenixKitWeb.Gettext, …)` under `uk` returns the expected forms for 1/3/15.
   Finding 2 shows the 21/31 case.
@@ -198,7 +198,7 @@ full re-review is needed.
 - **Full checker re-run (all entries):** 3,426/3,426, 24/24 and 7/7 against the base `.pot`, with zero
   errors: no missing, extra, empty or fuzzy entries and no placeholder, tag or plural mismatch. The
   language heuristics (Russian letters, homoglyphs, russisms, quotes, apostrophes, «ви») show no new hits.
-- **Tests:** `MIX_ENV=test PGDATABASE=pkcore_test_domovych_uk PGPOOL=10 mix test
+- **Tests:** `MIX_ENV=test PGDATABASE=pkcore_test_uk PGPOOL=10 mix test
   test/phoenix_kit_web/gettext_test.exs test/phoenix_kit/email/catalog_test.exs` → 48 tests, 0 failures.
 - **Runtime under `uk`:** "Try again…" gives «через 1 хвилину», «через 3 хвилини», «через 21 хвилину»,
   «через 31 хвилину». `Utils.Date.short/1` and `short_with_year/1` give «8 жовт.», «21 лист. 2026», «2 трав.».
@@ -286,7 +286,7 @@ already renders as «%{day} %{month} %{year} о %{time}». That is an upstream f
   improvement: «Камера й розташування» for "Camera & location", consistent with "Location" → «Розташування»
   (`:9281`). «Спрацював / Не спрацював» agree with «Спалах». «в еквіваленті», «істинний / магнітний азимут»
   and «Знято / Змінено» fit their call sites in `file_exif_panel.ex`.
-- **Tests:** `MIX_ENV=test PGDATABASE=pkcore_test_domovych_uk PGPOOL=10 mix test
+- **Tests:** `MIX_ENV=test PGDATABASE=pkcore_test_uk PGPOOL=10 mix test
   test/phoenix_kit_web/gettext_test.exs test/phoenix_kit/email/catalog_test.exs` → 48 tests, 0 failures.
 
 **Merge-time note (not a finding):** if `main` gains msgids before this merges, re-run

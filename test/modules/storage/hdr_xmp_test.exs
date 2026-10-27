@@ -82,6 +82,31 @@ defmodule PhoenixKit.Modules.Storage.HdrXmpTest do
     refute result =~ "59,26N"
   end
 
+  # The gain map of an iPhone 26.6 JPEG, which has no ISO 21496-1 segment: its XMP is the
+  # only place the map's headroom is written.
+  test "the headroom of an iOS 26 gain map survives stripping" do
+    xml = """
+    <x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about="" xmlns:apdi="http://ns.apple.com/pixeldatainfo/1.0/"
+      xmlns:HDRToneMap="http://ns.adobe.com/hdr-gain-map/1.0/"
+      xmlns:HDRGainMap="http://ns.apple.com/HDRGainMap/1.0/">
+    <apdi:NativeFormat>1278226488</apdi:NativeFormat>
+    <apdi:StoredFormat>1278226488</apdi:StoredFormat>
+    <HDRToneMap:GainMapMax>2.562500</HDRToneMap:GainMapMax>
+    <HDRToneMap:BaseHeadroom>0.000000</HDRToneMap:BaseHeadroom>
+    <HDRToneMap:AlternateHeadroom>2.562500</HDRToneMap:AlternateHeadroom>
+    <HDRToneMap:GainMapMin>-1.481445</HDRToneMap:GainMapMin>
+    </rdf:Description></rdf:RDF></x:xmpmeta>
+    """
+
+    result = HdrXmp.rewrite(xml, nil, true)
+
+    for tag <-
+          ~w(apdi:NativeFormat apdi:StoredFormat HDRToneMap:GainMapMax HDRToneMap:BaseHeadroom HDRToneMap:AlternateHeadroom HDRToneMap:GainMapMin) do
+      assert result =~ "<#{tag}>", "#{tag} was dropped"
+    end
+  end
+
   # An iPhone's JPEG ends its XMP packet with a NUL byte, as a C string does.
   describe "a packet written like an iPhone's" do
     @packet ~s(<?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>) <>

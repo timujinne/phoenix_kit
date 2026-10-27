@@ -128,9 +128,10 @@ new protocol.
 | 4 | Complete the chains of ai (3 tables) and document_creator (7 tables) | 2 modules **Done** 2026-10-25 — document_creator `f67f163`, ai `c118542` (unreleased) |
 | 5 | The step-2 test in every adopted module; fix what it finds | 17 modules | In progress — billing (`3fa1164`) and ecommerce (`54061bd`) done 2026-10-25; **Done 2026-10-25**: billing, ecommerce, emails, and the builds-alone test in the other 14 |
 | 6 | Core's manifest hands every module-owned entry over | core | Not started |
-| 7 | Manifest generator (frozen pre-squash part + generated rest, compact, in `priv/`); move core's hard-coded module-table lists to module callbacks | core | Not started |
-| 8 | Core stops creating module tables on fresh installs | core | Not started — approach to decide |
+| 7 | Manifest generator (frozen pre-squash part + generated rest, compact, in `priv/`); move core's hard-coded module-table lists to module callbacks | core | **Done** 2026-10-26 (7a `file_references/0`, 7b per-module manifests; unreleased) |
+| 8 | Core stops creating module tables on fresh installs | core | **In progress** 2026-10-27 — decided: core 3.0, strip the DDL in place, installs must be at V224 first; on branch `core-3.0` |
 | 9 | Dead tables (`crm_user_role_view`, `email_metrics`, `email_orphaned_events`) | crm, emails | Not started — per-table decision |
+| 10 | Ecosystem sweep for core 3.0: widen every package's core pin, release in order | core + all modules | Not started — after step 8 |
 
 ### Step 1 — ownership map and guard (done)
 
@@ -399,12 +400,73 @@ no chain. Options, decided when we get here:
 - **(b) in 2.x** — core still creates a module's tables when that module's
   loaded version does not claim them.
 
+#### Step 8, chain ordering (done 2026-10-26)
+
+Decision: **(a) at core 3.0** (made 2026-10-26). First part, shippable on its own in 2.x:
+
+- *The graph.* Foreign keys between owners, from a full core chain: `ecommerce → billing` (1),
+  `newsletters → emails` (1, guarded by `to_regclass`, and the FK is newsletters' own), `projects → entities` (1),
+  `projects → staff` (9). Everything else points at core tables (users, files, roles). The only unguarded
+  references are projects' (to staff and entities) and ecommerce's (to billing's `payment_options`); a
+  `manufacturing → entities` link has no FK by design.
+- *The order.* `mix phoenix_kit.update` wrote module migration files in display-name order. Now
+  `Migrations.Modules.pending/1` runs `order_by_dependencies/1`: a module comes after every pending module that its
+  OTP application reaches through `applications` / `optional_applications` (its `mix.exs` deps), transitively.
+  No callback, no module change; unrelated modules keep name order; a cycle keeps name order instead of failing.
+  All four real edges are mix deps (projects lists staff and entities, ecommerce lists billing).
+- *Not covered by it:* an edge that exists in SQL but not in `mix.exs` (none today; newsletters → emails is guarded).
+  A migration file reused from an interrupted run keeps its old timestamp, so it can sort before a newer file.
+- Tests: `modules_test.exs` (sorter with a dependency map, a chain, a cycle, the real application graph,
+  `pending/1`). Gate: `mix precommit` exit 0; `test/phoenix_kit/migrations` and `test/mix` 0 failures.
+- *Rehearsal built (2026-10-26):* `ModuleChainCheck.check_all/3` + `dev_docs/squash/rehearse_module_chains.exs`
+  (empty database, `PGDATABASE=pk_modgen_empty`). It builds core, runs all 25 chains on top (today), drops every
+  module-owned table, runs the chains again alone in order, and diffs tables, columns, indexes, constraints and
+  triggers. Name order is run as a control. **Result: with one added edge, all 25 chains rebuild the identical
+  schema in dependency order; name order fails.** `--edge a:b` adds an undeclared dependency.
+- *Two findings from it, both fixed (2026-10-26):*
+  1. **`document_creator` → `projects` was undeclared.** Its V1 added `doc_documents.project_uuid REFERENCES
+     phoenix_kit_projects` unguarded, but its mix.exs has no sibling deps and projects does not depend on it
+     either (duck-typed hub). Decision: **guard the FK.** The chain adds the column plain and the constraint only
+     where `phoenix_kit_projects` exists (`to_regclass`); a host without projects keeps the plain column, and
+     re-running the chain after projects is installed adds it. Its manifest leaves the constraint out
+     (`generate_module_manifest.exs --exclude constraint:...`), and its test lists it in `@known_gaps`. The
+     rehearsal accepts that one difference (`allow:`).
+  2. **`projects` declared `staff` and `entities` as `optional: true`** yet its chain carries unguarded
+     `REFERENCES` to both (9 + 1 FKs). Decision: **make both hard deps** (mix.exs, AGENTS/README/CHANGELOG),
+     which also puts the edge in the application graph that `order_by_dependencies/1` reads. The People seam in
+     the code and its `WITHOUT_STAFF` compile gate stay as they are.
+  Result: `rehearse_module_chains.exs` with no extra edge: **name order fails (projects before staff),
+  dependency order rebuilds the identical schema.**
+- *Core to module FKs:* none. No core table references a module-owned table.
+
 ### Step 9 — dead tables
 
 `phoenix_kit_crm_user_role_view` (CRM copied it into core's view preferences,
 V7), `phoenix_kit_email_metrics` and `phoenix_kit_email_orphaned_events` (no
 reader). Dropping deletes data: an explicit decision per table, done in the
 owning module's chain, never core's.
+
+### Step 10 — ecosystem sweep for core 3.0
+
+Core is the only package that goes to 3.0. Modules keep their own version lines (most are 0.x): a module's version
+describes its own API, and nothing in a module breaks. What every package that depends on core needs is a minor
+release whose core pin admits 3.0.
+
+- **The pin.** A compound floor (`>= 2.64.0 and < 3.0.0`) becomes `< 4.0.0`; a `~> 2.0` becomes `>= 2.0 and < 4.0`
+  (a two-segment `~> 2.0` cannot resolve 3.0). The range keeps admitting 2.x wherever the module works on both, and
+  the 25 owner modules do (their chains adopt tables core already made). Never a three-segment pin.
+- **Why the ceiling is the safety net.** A host cannot resolve core 3.0 with a module release that predates its own
+  chain or `file_references/0`, because that release is pinned `< 3.0.0`. So the pin guarantees a chain exists
+  wherever 3.0 runs, which is also what lets core drop `builtin_file_references` (open decision, step 7b).
+- **Who.** All 25 owner modules, and the packages that depend on core but own no core-created table (boards,
+  inbox, stats, web_analytics, db, hello_world, agent, bookings once Max's rework lands). `@impl` is added to every
+  module's `file_references/0` and `expected_schema/0` in the same release, since the core floor now has the
+  callbacks.
+- **Order**, as in `dev_docs/2026-08-10-phoenix-kit-2.0-ecosystem-sweep.md` (workspace): core 3.0 first, then
+  `phoenix_kit_ai`, then by sibling dependency (staff and entities before projects, billing before ecommerce,
+  comments before its dependents), then the rest in any order. Raise sibling pins in the same commits as the core pin.
+- **Core 3.0's own release notes** say: be at V224 (the last 2.x) first; then upgrade core and every module together.
+- Release day is the weekly one; nothing here ships before the user asks.
 
 ## Decisions
 
@@ -414,7 +476,7 @@ owning module's chain, never core's.
 | Ownership authority is `ModuleOwnedTables`, not the manifest's `owner:` labels | Made 2026-10-25 |
 | `phoenix_kit_consent_logs` is legal's (legal's chain owns its shape; core still creates it) | Made 2026-10-25 |
 | ai's endpoints/prompts/requests move to ai (step 4) | Made 2026-10-25 — owner agreed; done in ai `c118542` |
-| Step 8: (a) at 3.0 or (b) in 2.x | Open |
+| Step 8: (a) at 3.0 or (b) in 2.x | Made 2026-10-26 — (a) at 3.0 |
 | Step 9: drop or keep each dead table | Open |
 
 ## Progress log

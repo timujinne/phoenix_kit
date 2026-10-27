@@ -1,8 +1,50 @@
-## Unreleased
+## 2.65.0 - 2026-10-27
 
-**Migration V224** (PR #983: an index on `phoenix_kit_activities (resource_uuid, inserted_at)`). Nothing else here migrates.
+**The last 2.x release.** Core 3.0 stops creating the tables of the optional modules (each module's own migration chain creates
+its tables) and strips that DDL from its migration modules, so it can only upgrade a database that is already at **V225**.
+Upgrade to 2.65.0, run `mix phoenix_kit.update` until it reports V225, and only then move to 3.0; 3.0 refuses a lower
+database with a message that names this release. This release also carries what 3.0 needs from the modules: the
+`file_references/0` and `expected_schema/0` callbacks, the per-module manifests, and dependency-ordered module migrations.
+Nothing in 2.65.0 changes behaviour for a host that does not use them.
+
+
+**Migrations V224 and V225** (V224, PR #983: an index on `phoenix_kit_activities (resource_uuid, inserted_at)`; V225: `phoenix_kit_files.short_code`, below). Nothing else here migrates.
+
+### Fixed
+
+- **Objects copied between S3 buckets, or stored without options, are served with the right `Content-Type` (#951).**
+  `Providers.S3` set the type only when the caller passed `:content_type`, and `Manager.copy_object/3` (the reconcile after a
+  profile change) and `Storage.store_new_file/8` pass none, so S3 served the object as `binary/octet-stream` and a browser
+  downloaded it instead of showing it. The provider now falls back to the type of the key's extension. Objects already
+  stored without a type keep it until their metadata is rewritten (for example `put_object_copy` with
+  `metadata_directive: :REPLACE`).
 
 ### Added
+
+- **`mix phoenix_kit.update` runs module migrations in dependency order.** `Migrations.Modules.pending/1` (and the new
+  `order_by_dependencies/1`) place a module after every pending module its OTP application depends on, so
+  `phoenix_kit_staff` and `phoenix_kit_entities` migrate before `phoenix_kit_projects`, and `phoenix_kit_billing`
+  before `phoenix_kit_ecommerce`. Until now the order was the display name, which only worked because core created
+  every module's tables first. No module change is needed; a cycle keeps name order instead of failing.
+- **A short code on every file (V225).** `phoenix_kit_files.short_code` is a random 8-character base58 code (`k3Fq9xA2`: no
+  `0`, `O`, `I` or `l`) that names a file in a URL instead of its UUID, with a unique partial index.
+  `Storage.ShortCode` makes and checks them; the `File` changeset gives one to every new file (never cast from attrs, never
+  changed), and `Storage.get_file_by_short_code/1` finds the file. The migration gives every existing file a code in SQL
+  (duplicates redrawn until none repeat, then the index is built); the backfill is one `UPDATE` of the table and the index
+  build takes a SHARE lock on it, so run it in a quiet window on a very large site. A code is not a secret and grants
+  nothing: the file's library decides who may read it.
+- **`Libraries.ensure_public_library/2` and `backfill_public_libraries/1`: a host may give its accounts a public library.** The
+  counterpart of `ensure_personal_library/2`, with the same rules (the host's decision, no permission and no room under the limit,
+  never a second one, not even after the user trashed theirs), except that it is public (`visibility: "site"`) and never the
+  user's default; make the personal one first. Named "Public" unless `:name` says otherwise. Making one is written to the history
+  as `storage.library_published` with `"by" => "system"`.
+- **`Libraries.change_library_slug/3`**, for a host that names its pages by a library's slug (the admin libraries page and any
+  `/<username>/<slug>` address): unscoped like `rename_library/3`, written to the history, refuses a badly shaped, reserved or
+  already used slug.
+- **Names a host keeps for its own pages.** `config :phoenix_kit, :reserved_library_slugs` and `:reserved_usernames` (both empty by
+  default). A name that slugs to a reserved word is given the next free slug (`photos-2`), `change_library_slug/3` and a username
+  that is reserved are refused (`"is reserved"`), and a username generated from an email address that is reserved gets a number
+  (`admin_1`). Case does not matter; names already taken are not changed. `Libraries.reserved_slug?/1`, `User.reserved_username?/1`.
 
 - **HDR renditions of HEIC and AVIF photos.** `HdrResize` kept a gain map for a JPEG source only, so an iPhone
   photo (a HEIC) got ordinary thumbnails and previews. `HeifHdr` now makes the same Ultra HDR JPEG from a HEIC or
