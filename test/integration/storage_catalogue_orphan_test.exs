@@ -21,7 +21,19 @@ defmodule PhoenixKit.Integration.StorageCatalogueOrphanTest do
 
   import PhoenixKit.Test.Fixtures
 
+  alias PhoenixKit.Test.ModuleFixtureTables
+
   alias PhoenixKit.Modules.Storage
+
+  setup do
+    ModuleFixtureTables.create!([
+      :cat_catalogues,
+      :cat_categories,
+      :cat_items,
+      :cat_pdfs,
+      :post_media
+    ])
+  end
 
   defp make_file(owner_uuid) do
     checksum = "cs_#{System.unique_integer([:positive])}"

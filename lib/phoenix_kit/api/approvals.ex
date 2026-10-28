@@ -875,8 +875,7 @@ defmodule PhoenixKit.API.Approvals do
     do: value |> jsonable() |> Idempotency.redact_credentials(keys)
 
   # The output fields the approved tool declares as credentials. A tool that is gone (its
-  # module was disabled or removed since the request) declares nothing: core's rule and
-  # `PhoenixKit.API.Legacy` still redact.
+  # module was disabled or removed since the request) declares nothing: core's rule still redacts.
   defp credential_keys(tool_name) do
     case Registry.find(tool_name, :admin) do
       {:ok, %Tool{} = tool} -> Tool.credential_keys(tool)

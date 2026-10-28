@@ -49,7 +49,7 @@ mix igniter.install phoenix_kit
 ```
 
 The installer will:
-- Add `{:phoenix_kit, "~> 1.7"}` to your `mix.exs` and fetch deps
+- Add `{:phoenix_kit, "~> 3.0"}` to your `mix.exs` and fetch deps
 - Detect your Repo automatically (or use `--repo` to specify)
 - Add configuration to `config/config.exs`
 - Generate migrations
@@ -65,7 +65,7 @@ If you can't or don't want to use the `igniter_new` archive, add the deps manual
 # mix.exs
 defp deps do
   [
-    {:phoenix_kit, "~> 1.7"},
+    {:phoenix_kit, "~> 3.0"},
     {:igniter, "~> 0.7", only: [:dev, :test]}
   ]
 end

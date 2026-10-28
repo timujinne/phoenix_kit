@@ -1,29 +1,24 @@
 defmodule PhoenixKit.API.PathsTest do
   @moduledoc """
   `PhoenixKit.API.Paths`, the one table of API paths that the router macro
-  (`PhoenixKit.Integration`) and `PhoenixKit.API.BodyGuard` both read, and
-  `PhoenixKit.API.Legacy`, whose alias paths it appends.
+  (`PhoenixKit.Integration`) and `PhoenixKit.API.BodyGuard` both read.
   """
   use ExUnit.Case, async: true
 
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.MCP
   alias PhoenixKit.API.Paths
   alias PhoenixKit.API.REST
   alias PhoenixKit.Utils.Routes
 
-  defp canonical, do: for({_, _, _, :canonical} = entry <- Paths.entries(), do: entry)
-  defp aliases, do: for({_, _, _, {:alias, _}} = entry <- Paths.entries(), do: entry)
-
-  describe "the canonical entries" do
+  describe "the entries" do
     test "are the admin and public REST and MCP paths, in that order" do
       segment = Paths.public_segment()
 
-      assert canonical() == [
-               {["api", "admin", "v1"], :admin, false, :canonical},
-               {["api", segment, "v1"], :public, true, :canonical},
-               {["mcp", "admin"], :admin, false, :canonical},
-               {["mcp", segment], :public, false, :canonical}
+      assert Paths.entries() == [
+               {["api", "admin", "v1"], :admin, false},
+               {["api", segment, "v1"], :public, true},
+               {["mcp", "admin"], :admin, false},
+               {["mcp", segment], :public, false}
              ]
     end
 
@@ -40,38 +35,10 @@ defmodule PhoenixKit.API.PathsTest do
     end
   end
 
-  describe "the alias entries" do
-    test "come from PhoenixKit.API.Legacy, are public, and point to the canonical path" do
-      assert Enum.map(aliases(), &elem(&1, 0)) == Legacy.alias_paths()
-
-      for {segments, audience, cors?, {:alias, successor}} <- aliases() do
-        assert audience == :public
-        assert hd(segments) in ["api", "mcp"]
-
-        case hd(segments) do
-          "api" ->
-            assert cors?
-            assert successor == Paths.rest_path(:public)
-
-          "mcp" ->
-            refute cors?
-            assert successor == Paths.mcp_path(:public)
-        end
-      end
-    end
-
-    test "never collide with a canonical path" do
+  describe "uniqueness" do
+    test "no path appears twice" do
       all = Enum.map(Paths.entries(), &elem(&1, 0))
       assert all == Enum.uniq(all)
-    end
-
-    test "the helpers never return an alias" do
-      alias_paths = Enum.map(Legacy.alias_paths(), &("/" <> Enum.join(&1, "/")))
-
-      for audience <- [:admin, :public] do
-        refute Paths.rest_path(audience) in alias_paths
-        refute Paths.mcp_path(audience) in alias_paths
-      end
     end
   end
 
@@ -80,16 +47,8 @@ defmodule PhoenixKit.API.PathsTest do
       assert Paths.plug(["api", "admin", "v1"]) == REST
       assert Paths.plug(["mcp", "admin"]) == MCP
 
-      for {_, audience, _, :canonical} = entry <- canonical() do
+      for {_, audience, _} = entry <- Paths.entries() do
         assert Paths.plug_opts(entry) == [audience: audience]
-      end
-
-      for {segments, :public, _cors, {:alias, successor}} = entry <- aliases() do
-        assert Paths.plug_opts(entry) ==
-                 [
-                   audience: :public,
-                   deprecated: [path: "/" <> Enum.join(segments, "/"), successor: successor]
-                 ]
       end
     end
   end
@@ -108,7 +67,7 @@ defmodule PhoenixKit.API.PathsTest do
             do: {forward, plug, opts}
 
       expected =
-        for {segments, _audience, _cors?, _kind} = entry <- Paths.entries() do
+        for {segments, _audience, _cors?} = entry <- Paths.entries() do
           {prefix ++ segments, Paths.plug(segments), Paths.plug_opts(entry)}
         end
 

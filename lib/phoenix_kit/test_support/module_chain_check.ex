@@ -120,6 +120,11 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
   @doc """
   Builds `migrations`' tables both ways in a scratch schema and compares them.
   See the moduledoc.
+
+  Options: `:tables` (the module's tables; default what `ModuleOwnedTables`
+  lists for its application), `:schema`, `:keep_schema`, and `:after`: chains of
+  other modules this one's tables need (a foreign key, a join), built right
+  after core's in both builds and left out of the comparison.
   """
   @spec check(Ecto.Repo.t(), module(), keyword()) :: :ok | {:error, String.t()}
   def check(repo, migrations, opts \\ []) do
@@ -129,7 +134,7 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
 
     with_auto_sandbox(repo, fn ->
       try do
-        compare(repo, migrations, schema, tables)
+        compare(repo, migrations, schema, tables, Keyword.get(opts, :after, []))
       after
         unless opts[:keep_schema], do: query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
       end
@@ -146,7 +151,7 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
   (`dev_docs/squash/generate_module_manifest.exs`) and for checking a committed
   one with `PhoenixKit.Migrations.Repair`. The caller drops the schema.
 
-  Takes the `:tables` option like `check/3`.
+  Takes the `:tables` and `:after` options like `check/3`.
   """
   @spec build_alone(Ecto.Repo.t(), module(), String.t(), keyword()) ::
           {:ok, [String.t()]} | {:error, String.t()}
@@ -158,9 +163,10 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
       query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
       query!(repo, ~s(CREATE SCHEMA "#{schema}"))
       quietly(fn -> PhoenixKit.Migration.ensure_current(repo, prefix: schema, log: false) end)
-      core_built = table_names(repo, schema)
 
-      with :ok <- run_chain(repo, migrations, schema, "on top of core's tables") do
+      with :ok <- run_chains(repo, Keyword.get(opts, :after, []), schema, "as a prerequisite"),
+           core_built = table_names(repo, schema),
+           :ok <- run_chain(repo, migrations, schema, "on top of core's tables") do
         created_by_chain = table_names(repo, schema) -- core_built
         tables = Enum.uniq(tables ++ created_by_chain ++ version_table(migrations))
         drop = Enum.map_join(tables, ", ", &~s("#{schema}"."#{&1}"))
@@ -199,6 +205,27 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
       after
         unless opts[:keep_schema], do: query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
       end
+    end)
+  end
+
+  @doc """
+  Builds core's chain and then every chain in `chains`, in the order given, in
+  `schema` (created fresh), and leaves it there for the caller to inspect and
+  drop. Returns `:ok` or `{:error, message}` naming the chain that failed.
+
+  This is a fresh install once core no longer creates module tables: the input
+  for comparing the whole schema with a recorded one
+  (`dev_docs/squash/rehearse_module_chains.exs --compare-full`).
+  """
+  @spec build_all(Ecto.Repo.t(), [module()], String.t()) :: :ok | {:error, String.t()}
+  def build_all(repo, chains, schema) when is_list(chains) do
+    Enum.each(chains, &Code.ensure_loaded!/1)
+
+    with_auto_sandbox(repo, fn ->
+      query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
+      query!(repo, ~s(CREATE SCHEMA "#{schema}"))
+      quietly(fn -> PhoenixKit.Migration.ensure_current(repo, prefix: schema, log: false) end)
+      run_chains(repo, chains, schema, "after core's chain")
     end)
   end
 
@@ -246,13 +273,14 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheck do
        Enum.map_join(lines, "\n", &("  " <> &1))}
   end
 
-  defp compare(repo, migrations, schema, tables) do
+  defp compare(repo, migrations, schema, tables, prerequisites) do
     query!(repo, ~s(DROP SCHEMA IF EXISTS "#{schema}" CASCADE))
     query!(repo, ~s(CREATE SCHEMA "#{schema}"))
     quietly(fn -> PhoenixKit.Migration.ensure_current(repo, prefix: schema, log: false) end)
-    core_built = table_names(repo, schema)
 
-    with :ok <- run_chain(repo, migrations, schema, "on top of core's tables") do
+    with :ok <- run_chains(repo, prerequisites, schema, "as a prerequisite"),
+         core_built = table_names(repo, schema),
+         :ok <- run_chain(repo, migrations, schema, "on top of core's tables") do
       created_by_chain = table_names(repo, schema) -- core_built
       tables = Enum.uniq(tables ++ created_by_chain ++ version_table(migrations))
       compare_alone(repo, migrations, schema, tables, snapshot(repo, schema, tables))

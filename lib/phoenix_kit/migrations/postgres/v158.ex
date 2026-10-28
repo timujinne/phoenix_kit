@@ -42,6 +42,15 @@ defmodule PhoenixKit.Migrations.Postgres.V158 do
   breaks that release outright. Roll both back together.
 
   All operations idempotent.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -50,35 +59,12 @@ defmodule PhoenixKit.Migrations.Postgres.V158 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts
-      ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb
-    """)
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts DROP CONSTRAINT IF EXISTS phoenix_kit_newsletters_broadcasts_attachments_is_array"
-    )
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts
-      ADD CONSTRAINT phoenix_kit_newsletters_broadcasts_attachments_is_array
-      CHECK (jsonb_typeof(attachments) = 'array')
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '158'")
   end
 
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts DROP CONSTRAINT IF EXISTS phoenix_kit_newsletters_broadcasts_attachments_is_array"
-    )
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts DROP COLUMN IF EXISTS attachments"
-    )
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '157'")
   end

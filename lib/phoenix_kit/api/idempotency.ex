@@ -34,8 +34,6 @@ defmodule PhoenixKit.API.Idempotency do
   `bearer`, or any name ending in `_token`, compared without regard to case), or is one of
   the output fields the tool declares (`PhoenixKit.API.Tool.credential_keys/1`: its
   `credentials` and its `client_token`), or any string value starts with `pk_`.
-  `PhoenixKit.API.Legacy` adds the keys `claim_url` and `checkout_url` and the value
-  marker `/checkout/claim/` for modules that predate `Tool.credentials`.
   Module authors: name a field that carries a secret `*_token`, or list it in the tool's
   `credentials`, or the answer is not safe to replay. The check is deliberately broad, so
   it has false positives: an echoed SKU or title that starts with `pk_`, or a field named
@@ -49,7 +47,6 @@ defmodule PhoenixKit.API.Idempotency do
   alias PhoenixKit.API.Auth
   alias PhoenixKit.API.FlowConfig
   alias PhoenixKit.API.Idempotency.Record
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.RepoHelper
 
   @max_body_bytes 1_048_576
@@ -223,10 +220,7 @@ defmodule PhoenixKit.API.Idempotency do
   defp walk(list, keys) when is_list(list), do: Enum.any?(list, &walk(&1, keys))
 
   defp walk(value, _keys) when is_binary(value) do
-    lowered = String.downcase(value)
-
-    String.starts_with?(value, "pk_") or
-      Enum.any?(Legacy.credential_markers(), &String.contains?(lowered, &1))
+    String.starts_with?(value, "pk_")
   end
 
   defp walk(_other, _keys), do: false
@@ -236,8 +230,8 @@ defmodule PhoenixKit.API.Idempotency do
 
   defp credential_key?(_key, _keys), do: false
 
-  # The names that are credentials besides core's rule: the tool's own and the legacy ones.
-  defp key_set(keys), do: Legacy.credential_keys() ++ Enum.map(keys, &String.downcase/1)
+  # The names that are credentials besides core's rule: the tool's own.
+  defp key_set(keys), do: Enum.map(keys, &String.downcase/1)
 
   @doc "Deletes the rows that have expired. Returns how many."
   @spec prune(DateTime.t()) :: non_neg_integer()

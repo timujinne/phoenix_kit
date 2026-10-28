@@ -5,7 +5,7 @@ defmodule PhoenixKit.API.CredentialRedactionTest do
 
   test "approval storage uses the replay credential rules throughout nested JSON" do
     for key <-
-          ~w(session_token confirm_token claim_token claim_url checkout_url api_key access_token token secret) do
+          ~w(session_token confirm_token claim_token api_key access_token token secret) do
       value = %{"partial" => [%{"done" => 1, String.upcase(key) => "sensitive"}]}
       assert Idempotency.credential_bearing?(JSON.encode!(value))
 
@@ -14,10 +14,10 @@ defmodule PhoenixKit.API.CredentialRedactionTest do
     end
 
     assert Idempotency.redact_credentials(%{
-             "rows" => ["pk_secret", "https://shop.test/CHECKOUT/CLAIM/private", "ordinary"],
+             "rows" => ["pk_secret", "ordinary"],
              "count" => 2,
              "ok" => true
-           }) == %{"rows" => ["[REDACTED]", "[REDACTED]", "ordinary"], "count" => 2, "ok" => true}
+           }) == %{"rows" => ["[REDACTED]", "ordinary"], "count" => 2, "ok" => true}
   end
 
   test "an output field the tool declares as a credential is redacted, and only for that tool" do

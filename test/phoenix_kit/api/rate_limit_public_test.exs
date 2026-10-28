@@ -52,16 +52,6 @@ defmodule PhoenixKit.API.RateLimitPublicTest do
       assert {:ok, _} = RateLimit.check_public(ip, token_b, 1)
     end
 
-    test "a token bucket follows the deprecated setting while the new one is unset" do
-      set_limit("api_public_cart_rate_per_min", 1)
-      set_limit("api_public_ip_rate_per_min", 100)
-      ip = unique_ip()
-      token = unique_token()
-
-      assert {:ok, _} = RateLimit.check_public(ip, token, 1)
-      assert {:error, _, _} = RateLimit.check_public(ip, token, 1)
-    end
-
     test "a request without a client address is still counted, in one shared bucket" do
       set_limit("api_public_ip_rate_per_min", 2)
 

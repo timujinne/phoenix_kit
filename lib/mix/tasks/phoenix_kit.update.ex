@@ -536,7 +536,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
            opts
          ) do
       target_version = Common.current_version()
-      floor_version = MigrationsPostgres.initial_version()
+      floor_version = MigrationsPostgres.minimum_version()
 
       cond do
         # Spec §5.2/§5.3: generating an update migration here would just
@@ -696,7 +696,7 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
       modules below the floor, so it cannot generate a migration that would
       bring this database current.
 
-      Install PhoenixKit #{MigrationsPostgres.bridge_version()} (the migration bridge) first,
+      Install #{bridge_name(MigrationsPostgres.bridge_version())} (the migration bridge) first,
       run its migrations until the reported version is at least V#{floor_padded},
       THEN move the dependency pin to this release and run
       mix phoenix_kit.update again.
@@ -704,6 +704,8 @@ if Code.ensure_loaded?(Igniter.Mix.Task) do
 
       Igniter.add_warning(igniter, notice)
     end
+
+    defp bridge_name(version), do: "PhoenixKit #{version}"
 
     defp add_already_up_to_date_notice(igniter, current_version) do
       current_version_padded = Common.pad_version(current_version)

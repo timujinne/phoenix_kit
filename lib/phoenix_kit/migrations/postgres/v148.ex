@@ -26,6 +26,15 @@ defmodule PhoenixKit.Migrations.Postgres.V148 do
   Design doc: `phoenix_kit_crm` `dev_docs/design/crm_v2_parties_suppliers_clients.md`.
 
   All operations are idempotent.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -34,67 +43,12 @@ defmodule PhoenixKit.Migrations.Postgres.V148 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_crm_party_roles (
-      uuid UUID PRIMARY KEY DEFAULT #{p}uuid_generate_v7(),
-      roleable_type VARCHAR(20) NOT NULL,
-      roleable_uuid UUID NOT NULL,
-      role VARCHAR(30) NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      valid_from DATE,
-      valid_to DATE,
-      metadata JSONB NOT NULL DEFAULT '{}',
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    """)
-
-    # Guarded CHECK: roleable_type is a closed set (the polymorphic targets
-    # are CRM-owned tables; adding a third target is a migration anyway).
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'phoenix_kit_crm_party_roles_roleable_type_check'
-        AND conrelid = '#{p}phoenix_kit_crm_party_roles'::regclass
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_crm_party_roles
-        ADD CONSTRAINT phoenix_kit_crm_party_roles_roleable_type_check
-        CHECK (roleable_type IN ('company', 'contact'));
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_crm_party_roles_uniq
-    ON #{p}phoenix_kit_crm_party_roles (roleable_type, roleable_uuid, role)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_crm_party_roles_role_active_idx
-    ON #{p}phoenix_kit_crm_party_roles (role, is_active)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_crm_party_roles_roleable_idx
-    ON #{p}phoenix_kit_crm_party_roles (roleable_type, roleable_uuid)
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '148'")
   end
 
-  @doc """
-  Rolls V148 back by dropping the party-roles table.
-
-  **Lossy rollback:** all supplier/client role assignments are lost. The
-  underlying companies/contacts (V138) are untouched.
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_crm_party_roles CASCADE")
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '147'")
   end

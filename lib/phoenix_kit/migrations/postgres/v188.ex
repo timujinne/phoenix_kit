@@ -66,6 +66,15 @@ defmodule PhoenixKit.Migrations.Postgres.V188 do
 
   Rolling back drops the three indexes. It cannot bring back removed
   duplicates, which is correct: they were never valid.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -74,28 +83,6 @@ defmodule PhoenixKit.Migrations.Postgres.V188 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    dedupe_directed(p, "phoenix_kit_user_follows", "follower_uuid", "followed_uuid")
-    dedupe_directed(p, "phoenix_kit_user_blocks", "blocker_uuid", "blocked_uuid")
-    dedupe_connection_pairs(p)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_user_follows_unique_idx
-      ON #{p}phoenix_kit_user_follows USING btree (follower_uuid, followed_uuid)
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_user_blocks_unique_idx
-      ON #{p}phoenix_kit_user_blocks USING btree (blocker_uuid, blocked_uuid)
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_user_connections_requester_recipient_uidx
-      ON #{p}phoenix_kit_user_connections
-      USING btree (LEAST(requester_uuid, recipient_uuid), GREATEST(requester_uuid, recipient_uuid))
-    """)
-
-    # Single-step runs rely on the migration stamping its own marker — the
-    # runner only writes it for multi-step ranges.
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '188'")
   end
 
@@ -103,55 +90,7 @@ defmodule PhoenixKit.Migrations.Postgres.V188 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_user_follows_unique_idx")
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_user_blocks_unique_idx")
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_user_connections_requester_recipient_uidx")
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '187'")
-  end
-
-  # Follows and blocks are DIRECTED: "A follows B" and "B follows A" are two
-  # different relationships and both must survive. Only an exact repeat of the
-  # same direction is a duplicate. Keeps the smallest uuid, which under UUIDv7's
-  # time ordering is the row written first.
-  defp dedupe_directed(p, table, left, right) do
-    execute("""
-    DELETE FROM #{p}#{table} a
-    USING #{p}#{table} b
-    WHERE a.#{left} = b.#{left}
-      AND a.#{right} = b.#{right}
-      AND a.uuid > b.uuid
-    """)
-  end
-
-  # Connections are UNDIRECTED, so the duplicate set is the unordered pair and
-  # a cross-direction pair (A->B and B->A) is just as much a duplicate as a
-  # repeat of one direction. Both must go before the index can be built.
-  #
-  # Which row survives is not arbitrary:
-  #
-  #   * an "accepted" row outranks a "pending" one. The two can coexist only
-  #     because of the race this migration closes, and the accepted row is the
-  #     live relationship — deleting it in favour of an older pending request
-  #     would disconnect two connected users.
-  #   * within one rank the smallest uuid wins, which under UUIDv7 is the row
-  #     written first, so "who asked" is preserved.
-  #
-  # Only "pending" and "accepted" ever persist ("rejected" and "cancelled"
-  # delete the row), so those two ranks cover every stored row.
-  defp dedupe_connection_pairs(p) do
-    table = "#{p}phoenix_kit_user_connections"
-
-    execute("""
-    DELETE FROM #{table} a
-    USING #{table} b
-    WHERE LEAST(a.requester_uuid, a.recipient_uuid) = LEAST(b.requester_uuid, b.recipient_uuid)
-      AND GREATEST(a.requester_uuid, a.recipient_uuid) = GREATEST(b.requester_uuid, b.recipient_uuid)
-      AND a.uuid <> b.uuid
-      AND ( (b.status = 'accepted')::int > (a.status = 'accepted')::int
-            OR ( (b.status = 'accepted')::int = (a.status = 'accepted')::int
-                 AND b.uuid < a.uuid ) )
-    """)
   end
 
   defp prefix_str("public"), do: "public."

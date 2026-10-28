@@ -6,8 +6,6 @@ defmodule PhoenixKit.Email.Layout do
   path, so an email reaches the reader as HTML even when all it has is text:
   core's auth emails and the defaults a module passes to
   `PhoenixKit.Mailer.send_from_template/4` ship no `html` part of their own.
-  Content from a database template is never wrapped — it carries its own
-  chrome.
 
   ## Three parts: layout, header, footer
 

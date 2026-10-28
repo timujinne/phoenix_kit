@@ -25,43 +25,33 @@ defmodule PhoenixKit.Migrations.Postgres.V218 do
 
   `ALTER COLUMN … SET DEFAULT` changes the catalog only (no rewrite), then one
   update of the connections still at 60. Re-runnable.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
 
-  alias PhoenixKit.Migrations.Postgres.V203
-
-  @doc false
   def up(opts) do
-    opts |> Map.get(:prefix, "public") |> up_statements() |> Enum.each(&execute/1)
+    prefix = Map.get(opts, :prefix, "public")
+    p = prefix_str(prefix)
+
+    execute("COMMENT ON TABLE #{p}phoenix_kit IS '218'")
   end
 
-  @doc "Rolls V218 back: the default returns to 60; no row is lowered."
   def down(opts) do
-    opts |> Map.get(:prefix, "public") |> down_statements() |> Enum.each(&execute/1)
+    prefix = Map.get(opts, :prefix, "public")
+    p = prefix_str(prefix)
+
+    execute("COMMENT ON TABLE #{p}phoenix_kit IS '217'")
   end
 
-  @doc false
-  def up_statements(prefix) do
-    p = V203.prefix_str(prefix)
-    t = "#{p}phoenix_kit_sync_connections"
-
-    [
-      "ALTER TABLE #{t} ALTER COLUMN rate_limit_requests_per_minute SET DEFAULT 600",
-      "UPDATE #{t} SET rate_limit_requests_per_minute = 600 " <>
-        "WHERE rate_limit_requests_per_minute = 60",
-      "COMMENT ON TABLE #{p}phoenix_kit IS '218'"
-    ]
-  end
-
-  @doc false
-  def down_statements(prefix) do
-    p = V203.prefix_str(prefix)
-
-    [
-      "ALTER TABLE #{p}phoenix_kit_sync_connections " <>
-        "ALTER COLUMN rate_limit_requests_per_minute SET DEFAULT 60",
-      "COMMENT ON TABLE #{p}phoenix_kit IS '217'"
-    ]
-  end
+  defp prefix_str("public"), do: "public."
+  defp prefix_str(prefix), do: "#{prefix}."
 end

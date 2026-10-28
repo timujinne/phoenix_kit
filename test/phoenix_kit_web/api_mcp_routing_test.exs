@@ -10,9 +10,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
   import PhoenixKit.Test.ApiHarness
 
   alias PhoenixKit.API.MCP
-  alias PhoenixKit.API.MCP.Origin
   alias PhoenixKit.API.Paths
-  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.WebsiteAccess.AllowedAddresses
   alias PhoenixKit.WebsiteAccess.Gate
@@ -61,19 +59,15 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
       assert forward == prefix_segments() ++ ["mcp", "public"]
     end
 
-    test "the deprecated alias is the same plug, with the public audience, and says so" do
-      assert %{plug: MCP, plug_opts: opts, forward: forward} = route_info("POST", "/mcp/shop")
-
-      assert forward == prefix_segments() ++ ["mcp", "shop"]
-      assert opts[:audience] == :public
-      assert opts[:deprecated][:path] == "/mcp/shop"
-      assert opts[:deprecated][:successor] == Paths.mcp_path(:public)
-      assert %{plug_opts: [audience: :public]} = route_info("POST", "/mcp/public")
+    test "the old /mcp/shop path is gone: it is not an MCP route any more" do
+      for verb <- ["GET", "POST"] do
+        refute match?(%{plug: MCP}, route_info(verb, "/mcp/shop")), "#{verb} /mcp/shop"
+      end
     end
 
     test "every method reaches the plug, which answers 405 itself" do
       for verb <- ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-          path <- ["/mcp/admin", "/mcp/public", "/mcp/shop"] do
+          path <- ["/mcp/admin", "/mcp/public"] do
         assert %{plug: MCP} = route_info(verb, path), "#{verb} #{path}"
       end
     end
@@ -88,7 +82,7 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
       mcp = for {%{plug: MCP}, index} <- routes, do: index
 
       assert length(mcp) ==
-               Enum.count(Paths.entries(), fn {[first | _], _, _, _} -> first == "mcp" end)
+               Enum.count(Paths.entries(), fn {[first | _], _, _} -> first == "mcp" end)
 
       prefix = Routes.prefix_base()
 
@@ -263,68 +257,6 @@ defmodule PhoenixKitWeb.APIMCPRoutingTest do
         |> rpc("/mcp/admin", ping(), token: token)
 
       assert own.status == 200
-    end
-  end
-
-  describe "the deprecated alias /mcp/shop" do
-    setup %{conn: conn} do
-      setup_api()
-      %{conn: conn}
-    end
-
-    defp successor_link,
-      do: "<#{PublicDiscovery.mcp_url(Origin.canonical_origin())}>; rel=\"successor-version\""
-
-    test "is the public MCP server: no key, the same tools", %{conn: conn} do
-      list = %{"jsonrpc" => "2.0", "id" => 2, "method" => "tools/list"}
-
-      tools = fn path ->
-        conn |> rpc(path, list) |> json() |> get_in(["result", "tools"]) |> Enum.map(& &1["name"])
-      end
-
-      assert tools.("/mcp/shop") == tools.("/mcp/public")
-      assert ["testkit_public_echo"] = tools.("/mcp/shop")
-    end
-
-    test "answers with Deprecation and a successor-version Link; the canonical one does not",
-         %{conn: conn} do
-      aliased = rpc(conn, "/mcp/shop", ping())
-
-      assert aliased.status == 200
-      assert ["@1792454400"] = get_resp_header(aliased, "deprecation")
-      assert [link] = get_resp_header(aliased, "link")
-      assert link =~ successor_link()
-
-      canonical = rpc(conn, "/mcp/public", ping())
-      assert [] = get_resp_header(canonical, "deprecation")
-      assert [] = get_resp_header(canonical, "link")
-    end
-
-    test "a 405 keeps its service-doc Link and gains the successor", %{conn: conn} do
-      aliased = conn |> with_client_ip() |> get(Routes.path("/mcp/shop"))
-
-      assert aliased.status == 405
-      assert ["POST"] = get_resp_header(aliased, "allow")
-      assert ["@1792454400"] = get_resp_header(aliased, "deprecation")
-      assert [link] = get_resp_header(aliased, "link")
-      assert link =~ successor_link()
-      assert link =~ ~s(rel="service-doc")
-    end
-
-    test "a parse error from the body guard is still a JSON-RPC one", %{conn: conn} do
-      aliased = rpc(conn, "/mcp/shop", "{broken")
-
-      assert aliased.status == 400
-      assert %{"error" => %{"code" => -32_700}} = json(aliased)
-    end
-
-    test "with the API switched off it is a bare 404 that names nothing", %{conn: conn} do
-      switch(:public, false)
-      aliased = rpc(conn, "/mcp/shop", ping())
-
-      assert aliased.status == 404
-      assert [] = get_resp_header(aliased, "deprecation")
-      assert [] = get_resp_header(aliased, "link")
     end
   end
 

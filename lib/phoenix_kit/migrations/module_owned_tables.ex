@@ -20,9 +20,9 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTables do
   ## The rule
 
   **Core's migrations never create, change or drop a module's table again.**
-  V223 is the last core version that did (`last_core_version_touching_module_tables/0`).
-  A change to a module's table goes into that module's own migration chain,
-  and a later core version that names one fails the test above. A new core
+  Since core 3.0 no core version does (`last_core_version_touching_module_tables/0` is 0):
+  V135..V224 had that DDL removed. A change to a module's table goes into that
+  module's own migration chain, and a core version that names one fails the test above. A new core
   table goes into `core_tables/0`, and the same test fails until it does.
 
   Moving the remaining tables fully into their modules is planned step by
@@ -30,7 +30,7 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTables do
   records where that work stands.
   """
 
-  @last_core_version_touching_module_tables 223
+  @last_core_version_touching_module_tables 0
 
   @owners [
     phoenix_kit_ai: ~w(
@@ -129,7 +129,6 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTables do
       phoenix_kit_email_logs
       phoenix_kit_email_metrics
       phoenix_kit_email_orphaned_events
-      phoenix_kit_email_templates
     ),
     phoenix_kit_entities: ~w(
       phoenix_kit_entities
@@ -301,6 +300,6 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTables do
   def tables_for(app) when is_atom(app), do: Keyword.get(@owners, app, [])
 
   @doc "The last core migration version allowed to create or change a module's table."
-  @spec last_core_version_touching_module_tables() :: pos_integer()
+  @spec last_core_version_touching_module_tables() :: non_neg_integer()
   def last_core_version_touching_module_tables, do: @last_core_version_touching_module_tables
 end

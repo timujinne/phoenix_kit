@@ -118,11 +118,6 @@ defmodule PhoenixKit.Migrations.ModuleOwnedTablesTest do
       """
     end
 
-    test "the scan finds a version that does name one: V223 changes phoenix_kit_ai_requests" do
-      {223, path} = Enum.find(version_files(), &match?({223, _}, &1))
-      assert "phoenix_kit_ai_requests" in module_tables_named_in(File.read!(path))
-    end
-
     test "the scan counts code and skips comments and docs" do
       source = ~S'''
       defmodule V999 do

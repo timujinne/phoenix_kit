@@ -232,9 +232,7 @@ email.
 
 The names in the table above belong to PhoenixKit — `welcome` and
 `notification` among them. Give your own emails other names: a file
-directory under one of these names rewrites PhoenixKit's email, and an
-active database template of the emails module with one of these names
-replaces it outright.
+directory under one of these names rewrites PhoenixKit's email.
 
 ## The layout every email is wrapped in
 
@@ -259,8 +257,6 @@ written as `pt-BR`).
 - An `html` part that is a whole document — starting with `<!doctype` or
   `<html`, after any byte-order mark, whitespace, comments or `<?xml ?>`
   prolog — is sent as it is; it already has its own chrome.
-- Emails still coming from database templates (the `phoenix_kit_emails`
-  package) are never wrapped.
 
 ### Replacing the header, the footer, or the whole layout
 
@@ -494,8 +490,6 @@ subject, the HTML (in a sandboxed frame) and the text, exactly as a send
 would build them. For every part — subject, HTML, Markdown, text, the layout
 group, the layout, the header and the footer — it says where it came from:
 
-- **Database template** — an active row of the emails module answers the
-  name; it wins over files until it is deactivated.
 - **Host file**, with the file's path.
 - **Empty file, ignored** — a file was found but is blank, so it counts as
   missing.

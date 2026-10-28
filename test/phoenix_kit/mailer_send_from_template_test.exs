@@ -25,7 +25,7 @@ defmodule PhoenixKit.MailerSendFromTemplateTest do
     File.write!(Path.join(dir, file), content)
   end
 
-  describe "with no database template" do
+  describe "with no override file" do
     test "a name that nothing answers is still template_not_found" do
       # The contract every existing caller holds. Nothing about this release
       # should make an unknown name look like a successful send.

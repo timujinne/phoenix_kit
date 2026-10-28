@@ -106,21 +106,16 @@ defmodule PhoenixKit.Mailer do
     do: PhoenixKit.Config.get_parent_app_config(mailer, [])[:adapter]
 
   @doc """
-  Sends an email using a template from the database.
+  Sends an email from a template: a host override file or the caller's defaults.
 
   This is the main function for sending emails using PhoenixKit's template system.
   Content is resolved through `PhoenixKit.Email.Content`, so a name is answered
-  by the first of: an active database template, a host override file for the
-  recipient's locale, or the caller's own `:defaults`. Usage is tracked when a
-  database template supplied the content; the send is logged either way.
-
-  Supplying `:defaults` is what lets a caller keep working once the templates
-  table is retired — until then the database still wins, so adding them changes
-  nothing for an install that has a row.
+  by the first of: a host override file for the recipient's locale, or the
+  caller's own `:defaults`. The send is logged either way.
 
   ## Parameters
 
-  - `template_name` - Name of the template in the database (e.g., "welcome_email")
+  - `template_name` - Name of the template (e.g., "welcome_email")
   - `recipient` - Email address (string) or {name, email} tuple
   - `variables` - Map of variables to substitute in the template
   - `opts` - Additional options:
@@ -133,8 +128,8 @@ defmodule PhoenixKit.Mailer do
       recipient (a bare address carries no preference, so that resolution falls
       through to the site's content language)
     - `:paths` - Host override roots to search, overriding the configured ones
-    - `:defaults` - Content to fall back to when neither a database template nor
-      a host override file answers the name: a map of
+    - `:defaults` - Content to fall back to when no host override file answers the
+      name: a map of
       `%{subject:, text:, html:, markdown:, layout:}` (every key optional), or
       a zero-arity function returning one.
       Prefer the function for anything built with `gettext/1` — it is evaluated
@@ -145,18 +140,13 @@ defmodule PhoenixKit.Mailer do
       `:defaults` is wrapped, and text-only content gets an HTML body built
       from its text. A group name (`"billing"`) wraps it in that group's
       layout, header and footer instead, over the email's own `layout.txt`.
-      A database template is never wrapped
 
   ## Returns
 
   - `{:ok, email}` - Email sent successfully
-  - `{:error, :template_not_found}` - nothing answered the name: no active
-    database template, no override file, no `:defaults`
+  - `{:error, :template_not_found}` - nothing answered the name: no override
+    file, no `:defaults`
   - `{:error, reason}` - Other error
-
-  `{:error, :template_inactive}` is no longer returned, and never was: the
-  provider's `get_active_template_by_name/1` already filters on
-  `status == "active"`, so the branch that returned it was unreachable.
 
   ## Examples
 
@@ -225,7 +215,6 @@ defmodule PhoenixKit.Mailer do
 
         email
         |> deliver_email(delivery_opts(template_name, content, opts))
-        |> track_usage_after_delivery(content.db_template)
     end
   end
 
@@ -239,26 +228,13 @@ defmodule PhoenixKit.Mailer do
   defp defaults_fun(fun) when is_function(fun, 0), do: fun
   defp defaults_fun(map) when is_map(map), do: fn -> map end
 
-  # Only a database template carries a uuid, a category and a source module.
-  # When the content came from a file or the caller's defaults there is nothing
-  # to take them from, so they are left to the caller's own opts rather than
-  # invented.
-  defp delivery_opts(template_name, content, opts) do
+  # Content from a file or the caller's defaults carries no category or source
+  # module, so those are left to the caller's own opts rather than invented.
+  defp delivery_opts(template_name, _content, opts) do
     opts
     |> Keyword.drop([:defaults, :paths, :layout])
     |> Keyword.put(:template_name, template_name)
     |> Keyword.put(:provider, detect_provider())
-    |> put_db_template_opts(content.db_template)
-  end
-
-  defp put_db_template_opts(opts, nil), do: opts
-
-  defp put_db_template_opts(opts, template) do
-    opts
-    |> Keyword.put(:template_uuid, template.uuid)
-    |> Keyword.put_new(:campaign_id, template.category)
-    |> Keyword.put(:category, template.category)
-    |> Keyword.put_new(:source_module, Provider.current().get_source_module(template))
   end
 
   @doc """
@@ -826,40 +802,7 @@ defmodule PhoenixKit.Mailer do
       source_module: "users",
       provider: detect_provider()
     )
-    |> track_usage_after_delivery(content.db_template)
   end
-
-  @doc false
-  # Counts a database template's use once its message was actually handed over:
-  # an adapter error, a blocklisted recipient or a send the dev mailbox gate
-  # suppressed (`suppressed: true`) is not a use. A message a provider took into
-  # its queue (`queued: true`) counts — it was accepted for delivery, and the
-  # worker that sends it later does not know the template. Returns `result`
-  # unchanged, and a provider whose `track_usage/1` fails must not turn a sent
-  # message into an error for the caller (who may then send it again).
-  def track_usage_after_delivery(result, nil), do: result
-  def track_usage_after_delivery({:ok, %{suppressed: true}} = result, _template), do: result
-
-  def track_usage_after_delivery({:ok, _} = result, template) do
-    Provider.current().track_usage(template)
-    result
-  rescue
-    error ->
-      Logger.warning(
-        "[PhoenixKit.Mailer] could not count a use of the email template: #{Exception.message(error)}"
-      )
-
-      result
-  catch
-    :exit, reason ->
-      Logger.warning(
-        "[PhoenixKit.Mailer] could not count a use of the email template: #{inspect(reason)}"
-      )
-
-      result
-  end
-
-  def track_usage_after_delivery(result, _template), do: result
 
   # Detect current email provider from configuration
   defp detect_provider do

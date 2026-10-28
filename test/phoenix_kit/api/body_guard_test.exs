@@ -751,98 +751,34 @@ defmodule PhoenixKit.API.BodyGuardTest do
     end
   end
 
-  describe "the deprecated aliases (PhoenixKit.API.Legacy)" do
-    defp alias_rest_path, do: Routes.path("/api/shop/v1/shop.search_products")
-    defp alias_mcp_path, do: Routes.prefix_base() <> "/mcp/shop"
-
-    test "the guard guards every path of PhoenixKit.API.Paths.entries/0, aliases included" do
+  describe "the paths of PhoenixKit.API.Paths" do
+    test "the guard guards every path of PhoenixKit.API.Paths.entries/0" do
       prefix = Routes.prefix_base()
 
-      for {segments, _audience, _cors?, _kind} <- Paths.entries() do
+      for {segments, _audience, _cors?} <- Paths.entries() do
         path = prefix <> "/" <> Enum.join(segments, "/")
         assert BodyGuard.guarded?(conn(:post, path)), path
         assert BodyGuard.guarded?(conn(:post, path <> "/x")), path
       end
     end
 
-    test "a body over 2 MB is a 413 and invalid JSON a 400 problem+json, with the public CORS header" do
-      big = run(:post, alias_rest_path(), @oversized_and_broken)
-      assert big.status == 413
-      assert %{"code" => "payload_too_large"} = problem(big)
-      assert cors(big) == ["*"]
+    test "the old shop paths are not guarded any more" do
+      prefix = Routes.prefix_base()
 
-      broken = run(:post, alias_rest_path(), "{nope")
-      assert %{"code" => "invalid_json"} = problem(broken)
-      assert cors(broken) == ["*"]
+      for path <- ["/api/shop/v1", "/api/shop/v1/shop.search_products", "/mcp/shop"] do
+        refute BodyGuard.guarded?(conn(:post, prefix <> path)), path
+      end
     end
 
-    test "the guard's own 413 and 400 on an alias carry Deprecation and the successor Link" do
-      rest_successor = Routes.path("/api/public/v1")
-      mcp_successor = Routes.path("/mcp/public")
-
-      for {path, body, successor} <- [
-            {alias_rest_path(), @oversized_and_broken, rest_successor},
-            {alias_rest_path(), "{nope", rest_successor},
-            {alias_mcp_path(), @oversized_and_broken, mcp_successor},
-            {alias_mcp_path(), "{nope", mcp_successor}
-          ] do
-        conn = run(:post, path, body)
-        assert conn.status in [400, 413], path
-        assert get_resp_header(conn, "deprecation") == ["@1792454400"], path
-        assert [link] = get_resp_header(conn, "link"), path
-        assert link =~ ~s(#{successor}>; rel="successor-version"), path
-      end
-
+    test "the guard's own 413 and 400 carry no Deprecation header" do
       for path <- [
             Routes.path("/api/public/v1/shop.search_products"),
             Routes.prefix_base() <> "/mcp/public"
-          ] do
-        conn = run(:post, path, "{nope")
-        assert conn.status == 400, path
+          ],
+          body <- [@oversized_and_broken, "{nope"] do
+        conn = run(:post, path, body)
+        assert conn.status in [400, 413], path
         assert get_resp_header(conn, "deprecation") == [], path
-      end
-    end
-
-    test "a JSON body becomes body_params, as on the canonical path" do
-      assert run(:post, alias_rest_path(), ~s({"a":1})).body_params == %{"a" => 1}
-    end
-
-    test "a bad body on the MCP alias is a JSON-RPC parse error, without CORS" do
-      conn = run(:post, alias_mcp_path(), "{nope")
-
-      assert conn.status == 400
-      assert %{"error" => %{"code" => -32_700}} = JSON.decode!(conn.resp_body)
-      assert cors(conn) == []
-    end
-
-    test "the aliases follow the public switch and the admin switch has no say" do
-      switch(:admin, true)
-      switch(:public, false)
-
-      for path <- [alias_rest_path(), alias_mcp_path()] do
-        :post |> run(path, @oversized_and_broken) |> assert_left_alone(path)
-      end
-
-      switch(:admin, false)
-      switch(:public, true)
-
-      for path <- [alias_rest_path(), alias_mcp_path()] do
-        assert run(:post, path, @oversized_and_broken).status == 413, path
-      end
-    end
-
-    test "their percent-encoded prefix is decoded for the router, as the canonical one is" do
-      base = Routes.prefix_base()
-
-      for {encoded, decoded} <- [
-            {base <> "/api/%73hop/v1/x", ["api", "shop", "v1", "x"]},
-            {base <> "/%6Dcp/%73hop", ["mcp", "shop"]}
-          ] do
-        conn = run(:post, encoded, ~s({"a":1}))
-        prefix = String.split(base, "/", trim: true)
-
-        assert conn.path_info == prefix ++ decoded, encoded
-        assert conn.body_params == %{"a" => 1}
       end
     end
   end

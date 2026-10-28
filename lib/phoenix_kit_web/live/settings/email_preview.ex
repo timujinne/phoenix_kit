@@ -6,11 +6,10 @@ defmodule PhoenixKitWeb.Live.Settings.EmailPreview do
   enabled modules declare — and renders the chosen one in a chosen language
   with sample variables, through the same resolution a real send uses
   (`PhoenixKit.Email.Catalog.preview/3`). For every part it says where the
-  content came from — the database template, a host file (with its path), or
-  the built-in default — and which file to create to override it.
+  content came from — a host file (with its path) or the built-in default — and which file to create to override it.
 
   The HTML is shown in an `<iframe srcdoc>` with an empty `sandbox`: a
-  database template's HTML is operator-authored and may carry anything, and
+  host-authored HTML may carry anything, and
   an empty sandbox runs no script and reaches nothing of the admin page.
 
   `?email=<name>&lang=<code>` selects the email and language, so a preview
@@ -294,8 +293,6 @@ defmodule PhoenixKitWeb.Live.Settings.EmailPreview do
   defp source_badge(assigns) do
     ~H"""
     <%= case @source do %>
-      <% :db -> %>
-        <span class="badge badge-warning badge-sm">{gettext("Database template")}</span>
       <% {:file, _path} -> %>
         <span class="badge badge-info badge-sm">{gettext("Host file")}</span>
       <% {:blank_file, _path} -> %>

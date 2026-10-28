@@ -59,19 +59,6 @@
         </div>
 
         <div
-          :if={@preview && @preview.content.db_template}
-          id="email-preview-db-notice"
-          class="alert alert-warning"
-        >
-          <.icon name="hero-circle-stack" class="w-5 h-5 shrink-0" />
-          <div class="text-sm">
-            {gettext(
-              "An active database template answers this email, so files and the built-in default are not used. Deactivate it in the Emails module to send from files."
-            )}
-          </div>
-        </div>
-
-        <div
           :if={@preview && @preview.missing != %{}}
           id="email-preview-missing"
           class="alert alert-info"
@@ -95,7 +82,7 @@
         <.form_section title={gettext("HTML")} icon="hero-code-bracket">
           <%= if @preview.content.html do %>
             <%!-- An empty sandbox: no script, no same-origin access, no
-                 top navigation — the HTML may be a database template's. --%>
+                 top navigation — the HTML is host-authored. --%>
             <iframe
               id="email-preview-html"
               sandbox=""

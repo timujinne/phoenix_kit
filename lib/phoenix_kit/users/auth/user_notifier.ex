@@ -38,10 +38,8 @@ defmodule PhoenixKit.Users.Auth.UserNotifier do
   alias PhoenixKit.Utils.TimeZone
 
   # Every templated auth email resolves identically and differs only in its
-  # name, its variables and its default copy — so the resolution, the usage
-  # tracking and the send live here once instead of five times. The usage of a
-  # database template is counted by `deliver_built/1`, after the mailer took
-  # the message.
+  # name, its variables and its default copy — so the resolution and the send
+  # live here once instead of five times.
   #
   # `recipient` is what the locale is resolved from (a user struct, or a bare
   # address where no account exists yet); `address` is who it is sent to. They
@@ -53,8 +51,7 @@ defmodule PhoenixKit.Users.Auth.UserNotifier do
   end
 
   # Resolves the content and builds the message; nothing is handed to the
-  # mailer yet, and nothing is counted. A database template travels in the
-  # message's private map for `deliver_built/1` to count once it is delivered.
+  # mailer yet.
   defp build_templated(recipient, address, name, variables, defaults) do
     content = Content.resolve(name, recipient, variables, defaults)
 
@@ -64,7 +61,6 @@ defmodule PhoenixKit.Users.Auth.UserNotifier do
     |> subject(content.subject)
     |> text_body(content.text)
     |> html_body(content.html)
-    |> put_private(:phoenix_kit_db_template, content.db_template)
   end
 
   @doc """
@@ -72,20 +68,16 @@ defmodule PhoenixKit.Users.Auth.UserNotifier do
   configured parent application mailer if there is one, otherwise
   PhoenixKit's built-in one.
 
-  `{:error, reason}` means the mailer refused it: it was not sent. When a
-  database template supplied the content its usage is counted here, after
-  delivery (see `PhoenixKit.Mailer.track_usage_after_delivery/2`).
+  `{:error, reason}` means the mailer refused it: it was not sent.
   """
   @spec deliver_built(Swoosh.Email.t()) :: {:ok, Swoosh.Email.t()} | {:error, term()}
   def deliver_built(%Swoosh.Email{} = email) do
     result =
-      email
-      |> Mailer.deliver_email(
+      Mailer.deliver_email(email,
         user_uuid: nil,
         template_name: "user_notification",
         campaign_id: "authentication"
       )
-      |> Mailer.track_usage_after_delivery(email.private[:phoenix_kit_db_template])
 
     with {:ok, _metadata} <- result, do: {:ok, email}
   end

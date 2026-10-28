@@ -388,7 +388,7 @@ defmodule PhoenixKitWeb.Live.Settings.ApiGuideTest do
       assert length(Enum.uniq(rows)) == length(rows)
 
       first_ten =
-        ~w(invalid_json token_in_url unauthorized forbidden ip_not_allowed module_write_disabled origin_not_allowed cart_not_found module_disabled not_found)
+        ~w(invalid_json token_in_url unauthorized forbidden ip_not_allowed module_write_disabled origin_not_allowed module_disabled not_found method_not_allowed)
 
       assert Enum.take(rows, 10) == Enum.map(first_ten, &"guide-error-#{&1}")
 

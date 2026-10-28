@@ -78,10 +78,7 @@ defmodule PhoenixKit.Notifications.Channels.Email do
       |> text_body(trim(content.text))
       |> html_body(content.html)
 
-    result =
-      email
-      |> Mailer.deliver_email(category: "notifications")
-      |> Mailer.track_usage_after_delivery(content.db_template)
+    result = Mailer.deliver_email(email, category: "notifications")
 
     case result do
       {:ok, _} -> :ok

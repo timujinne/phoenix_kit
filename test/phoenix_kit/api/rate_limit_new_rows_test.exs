@@ -45,33 +45,6 @@ defmodule PhoenixKit.API.RateLimitNewRowsTest do
       assert {:error, retry_after} = RateLimit.check_new_rows(unique_ip())
       assert_hour_window(@global_new_rows_key, retry_after)
     end
-
-    test "follows the deprecated setting names while the new ones are unset" do
-      set_limit("api_public_cart_rows_per_ip_hour", 1)
-      ip = unique_ip()
-
-      assert :ok = RateLimit.check_new_rows(ip)
-      assert {:error, _retry_after} = RateLimit.check_new_rows(ip)
-    end
-  end
-
-  describe "check_cart_rows/1 (deprecated)" do
-    # The old name is called by name by modules that predate `check_new_rows/1`.
-    test "counts against the same buckets as check_new_rows/1" do
-      set_limit("api_public_new_rows_per_ip_hour", 2)
-      ip = unique_ip()
-
-      assert :ok = check_cart_rows(ip)
-      assert :ok = RateLimit.check_new_rows(ip)
-      assert {:error, retry_after} = check_cart_rows(ip)
-      assert_hour_window("api:new_rows:ip:" <> ip, retry_after)
-    end
-  end
-
-  # `apply/3` keeps the deprecation warning out of the build of this test.
-  defp check_cart_rows(ip) do
-    # credo:disable-for-next-line Credo.Check.Refactor.Apply
-    apply(RateLimit, :check_cart_rows, [ip])
   end
 
   # Pins the window to the hour, not just to "somewhere in 1..3600": the counter

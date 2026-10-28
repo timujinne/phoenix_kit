@@ -64,6 +64,7 @@ defmodule PhoenixKit.Migrations.Postgres.V163 do
 
   require Logger
 
+  alias PhoenixKit.Migrations.ModuleOwnedTables
   alias PhoenixKit.Migrations.Postgres.Helpers
   alias PhoenixKit.Migrations.UUIDIntegrity
 
@@ -92,6 +93,7 @@ defmodule PhoenixKit.Migrations.Postgres.V163 do
 
     repo()
     |> UUIDIntegrity.broken_tables(prefix)
+    |> core_tables_only()
     |> Enum.each(&repair(&1, prefix, limit))
 
     execute("RESET lock_timeout")
@@ -103,6 +105,13 @@ defmodule PhoenixKit.Migrations.Postgres.V163 do
     # logged and still reported by `mix phoenix_kit.doctor`; they are not lost.
     execute("COMMENT ON TABLE #{prefix_str(prefix)}phoenix_kit IS '163'")
   end
+
+  @doc false
+  # Core 3.0 never changes a module's table (`ModuleOwnedTables`): a broken one is
+  # the module's to repair, or `mix phoenix_kit.repair_uuid`'s, which a person runs
+  # on purpose. A `phoenix_kit_*` table core does not own at all is left alone too.
+  def core_tables_only(tables),
+    do: Enum.filter(tables, &(ModuleOwnedTables.owner(&1.name) == :core))
 
   # Irreversible by design. Rolling back would mean re-breaking a primary key —
   # recreating the reported defect on a healthy table — and the prior state is

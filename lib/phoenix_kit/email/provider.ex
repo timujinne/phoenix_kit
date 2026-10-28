@@ -2,7 +2,7 @@ defmodule PhoenixKit.Email.Provider do
   @moduledoc """
   Unified email provider behaviour.
 
-  Covers interception (pre/post send hooks), DB templates, AWS config,
+  Covers interception (pre/post send hooks), AWS config,
   and provider detection. The emails package implements this fully.
   The DefaultProvider is a no-op that passes emails through unchanged.
   """
@@ -46,16 +46,6 @@ defmodule PhoenixKit.Email.Provider do
   @callback maybe_enqueue(Swoosh.Email.t(), keyword()) :: :continue | {:queued, term()}
 
   @optional_callbacks maybe_enqueue: 2
-
-  # Templates
-  @callback get_active_template_by_name(String.t()) :: map() | nil
-  @callback render_template(map(), map()) :: map()
-  @callback render_template(map(), map(), String.t()) :: map()
-  # Called once a message built from the template was accepted for delivery
-  # (sent, or taken into the provider's queue) — never for a failed, blocked
-  # or suppressed send.
-  @callback track_usage(map()) :: :ok
-  @callback get_source_module(map()) :: String.t() | nil
 
   # AWS config
   @callback get_aws_region() :: String.t()

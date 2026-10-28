@@ -7,17 +7,11 @@ defmodule PhoenixKit.Email.Content do
 
   ## Layers, most specific first
 
-  1. **A database template** from the emails package, when one is active under
-     this name. Transitional — the template table is being retired (see
-     `dev_docs/plans/2026-09-06-filesystem-templates.md`), but it is the only
-     customization mechanism installs have today, and it must keep winning until
-     the export task has shipped and operators have moved their edits to files.
-     Removing it before then would silently revert every customized message.
-  2. **A host override file**, resolved by `PhoenixKit.Templates` across the
+  1. **A host override file**, resolved by `PhoenixKit.Templates` across the
      recipient's locale, its base language, and a locale-less fallback.
-  3. **Core's own default**, a Gettext call evaluated in the recipient's locale.
+  2. **Core's own default**, a Gettext call evaluated in the recipient's locale.
 
-  Layers 2 and 3 combine per part, so a host that overrides only the body keeps
+  The two layers combine per part, so a host that overrides only the body keeps
   core's translated subject.
 
   ## What a host override looks like on disk
@@ -113,8 +107,6 @@ defmodule PhoenixKit.Email.Content do
   `layout.txt` names the group — its content is the group name, nothing
   else.
 
-  A database template (layer 1) is never wrapped.
-
   ## Sources, for a preview
 
   `resolve_with_sources/5` resolves exactly as `resolve/5` and also says
@@ -123,16 +115,15 @@ defmodule PhoenixKit.Email.Content do
   ## Why the default is a function
 
   `defaults` is a zero-arity function, not a map, because it is evaluated
-  *inside* the recipient's locale — and because layer 1 short-circuits it
-  entirely. Passing a map would translate content that a database template is
-  about to discard.
+  *inside* the recipient's locale, and only when no override file supplies the
+  part. Passing a map would translate content that an override is about to
+  discard.
   """
 
   alias PhoenixKit.Config
   alias PhoenixKit.Email.Branding
   alias PhoenixKit.Email.Layout
   alias PhoenixKit.Email.Markdown
-  alias PhoenixKit.Email.Provider
   alias PhoenixKit.Templates
   alias PhoenixKit.Utils.RecipientLocale
 
@@ -159,29 +150,24 @@ defmodule PhoenixKit.Email.Content do
   ]
 
   @typedoc """
-  Resolved content plus the database template it came from, if any.
-
-  `db_template` is `nil` on the file/default path and is handed back so the
-  caller can record usage against the row it used.
+  Resolved content: the subject, the text body and the optional HTML body.
   """
   @type resolved :: %{
           subject: String.t() | nil,
           text: String.t() | nil,
-          html: String.t() | nil,
-          db_template: map() | nil
+          html: String.t() | nil
         }
 
   @typedoc """
   Where one part was found.
 
-    * `:db` — the active database template.
     * `{:file, path}` — a host override file.
     * `{:blank_file, path}` — a host file that is empty or whitespace only,
       which counts as no part at all (it does **not** fall back to the
       default).
     * `:default` — the caller's default (core's Gettext copy, or a module's).
   """
-  @type source :: :db | :default | {:file, Path.t()} | {:blank_file, Path.t()}
+  @type source :: :default | {:file, Path.t()} | {:blank_file, Path.t()}
 
   @typedoc """
   Where everything in one resolved message came from — for a preview screen.
@@ -250,35 +236,14 @@ defmodule PhoenixKit.Email.Content do
     locale = Keyword.get(opts, :locale) || RecipientLocale.for_rendering(recipient)
     paths = Keyword.get(opts, :paths) || override_paths()
 
-    case Provider.current().get_active_template_by_name(name) do
-      nil ->
-        resolve_files(name, variables, RecipientLocale.in_locale(locale, defaults),
-          locale: locale,
-          paths: paths,
-          layout: Keyword.get(opts, :layout, true)
-        )
-
-      template ->
-        rendered = Provider.current().render_template(template, variables, locale)
-
-        # A provider answers in ITS shape: core's own `DefaultProvider` returns
-        # `%{subject:, html_body:, text_body:}`, and `phoenix_kit_emails`
-        # validates exactly those three keys on every render. Normalising both
-        # bodies here is what lets each consumer read `.text`/`.html` whichever
-        # branch produced the content — reading `rendered.text` raised a
-        # KeyError on every send that found a template in the database.
-        resolved = %{
-          subject: rendered.subject,
-          text: rendered.text_body,
-          html: rendered.html_body,
-          db_template: template
-        }
-
-        {resolved, db_sources(resolved)}
-    end
+    resolve_files(name, variables, RecipientLocale.in_locale(locale, defaults),
+      locale: locale,
+      paths: paths,
+      layout: Keyword.get(opts, :layout, true)
+    )
   end
 
-  # Layers 2 and 3. `defaults` is already evaluated in the recipient's locale.
+  # Both layers. `defaults` is already evaluated in the recipient's locale.
   defp resolve_files(name, variables, defaults, opts) do
     template_opts = Keyword.take(opts, [:locale, :paths])
     accent = Branding.configured_accent_color()
@@ -328,7 +293,7 @@ defmodule PhoenixKit.Email.Content do
       }
       |> Map.merge(chrome)
 
-    {%{subject: rendered.subject, text: text, html: html, db_template: nil}, sources}
+    {%{subject: rendered.subject, text: text, html: html}, sources}
   end
 
   # A body from the first entry of the order whose part was found in that
@@ -435,20 +400,6 @@ defmodule PhoenixKit.Email.Content do
       :default when not present? -> nil
       source -> source
     end
-  end
-
-  defp db_sources(resolved) do
-    %{
-      subject: if(resolved.subject, do: :db),
-      text: if(resolved.text, do: :db),
-      html: if(resolved.html, do: :db),
-      markdown: nil,
-      html_from: if(resolved.html, do: :html),
-      text_from: if(resolved.text, do: :text),
-      group: nil,
-      group_from: nil
-    }
-    |> Map.merge(no_chrome())
   end
 
   defp present(part) do

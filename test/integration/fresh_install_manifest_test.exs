@@ -1,8 +1,9 @@
 defmodule PhoenixKit.Integration.FreshInstallManifestTest do
   @moduledoc """
   A database built from nothing by today's chain is what the `ExpectedSchema`
-  manifest describes, and holds exactly the tables
-  `PhoenixKit.Migrations.ModuleOwnedTables` classifies.
+  manifest describes, and holds exactly core's tables
+  (`PhoenixKit.Migrations.ModuleOwnedTables.core_tables/0`): since 3.0 no module's
+  table is created by core.
 
   `hand_declared_manifest_test.exs` checks the manifest against the suite's
   own database, which has been migrated one version at a time since it was
@@ -74,7 +75,7 @@ defmodule PhoenixKit.Integration.FreshInstallManifestTest do
     assert Report.exit_code(report) == 0
   end
 
-  test "a fresh install holds exactly the tables ModuleOwnedTables classifies" do
+  test "a fresh install holds exactly core's tables and none of a module's" do
     %{rows: rows} =
       Repo.query!(
         "SELECT tablename FROM pg_tables WHERE schemaname = $1 AND tablename LIKE 'phoenix_kit%'",
@@ -82,11 +83,13 @@ defmodule PhoenixKit.Integration.FreshInstallManifestTest do
       )
 
     built = rows |> List.flatten() |> MapSet.new()
+    core = MapSet.new(ModuleOwnedTables.core_tables())
+    modules = MapSet.new(ModuleOwnedTables.module_tables())
 
-    listed =
-      MapSet.new(ModuleOwnedTables.core_tables() ++ ModuleOwnedTables.module_tables())
+    assert MapSet.intersection(built, modules) == MapSet.new(),
+           "core's chain created a module's table (each module's chain does that)"
 
-    assert MapSet.difference(built, listed) == MapSet.new()
-    assert MapSet.difference(listed, built) == MapSet.new()
+    assert MapSet.difference(built, core) == MapSet.new()
+    assert MapSet.difference(core, built) == MapSet.new()
   end
 end

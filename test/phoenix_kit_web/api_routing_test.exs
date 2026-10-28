@@ -9,9 +9,8 @@ defmodule PhoenixKitWeb.APIRoutingTest do
 
   import PhoenixKit.Test.ApiHarness
 
-  alias PhoenixKit.API.MCP.Origin
+  alias PhoenixKit.API.MCP
   alias PhoenixKit.API.Paths
-  alias PhoenixKit.API.PublicDiscovery
   alias PhoenixKit.API.REST
   alias PhoenixKit.Utils.Routes
   alias PhoenixKit.WebsiteAccess.AllowedAddresses
@@ -58,30 +57,15 @@ defmodule PhoenixKitWeb.APIRoutingTest do
                route_info("POST", "/api/public/v1/shop.search_products")
     end
 
-    test "the deprecated alias is the same plug, with the public audience, and says so" do
-      alias_forward = prefix_segments() ++ ["api", "shop", "v1"]
-
-      assert %{plug: REST, plug_opts: opts, forward: ^alias_forward} =
-               route_info("POST", "/api/shop/v1/shop.search_products")
-
-      assert opts[:audience] == :public
-      assert opts[:deprecated][:path] == "/api/shop/v1"
-      assert opts[:deprecated][:successor] == Paths.rest_path(:public)
-    end
-
-    test "the alias is routed before the /:locale scopes, as the canonical path is" do
-      for path <- [
-            "/api/shop/v1",
-            "/api/shop/v1/openapi.json",
-            "/api/shop/v1/shop.search_products"
-          ],
-          verb <- ["GET", "POST", "OPTIONS"] do
-        assert %{plug: REST, plug_opts: [{:audience, :public} | _]} = route_info(verb, path),
+    test "the old shop paths are gone: neither is an API route any more" do
+      for verb <- ["GET", "POST"],
+          path <- ["/api/shop/v1", "/api/shop/v1/openapi.json", "/mcp/shop"] do
+        refute match?(%{plug: plug} when plug in [REST, MCP], route_info(verb, path)),
                "#{verb} #{path}"
       end
     end
 
-    test "the canonical forwards carry no deprecation option" do
+    test "the forwards carry the audience and nothing else" do
       assert %{plug_opts: [audience: :public]} = route_info("GET", "/api/public/v1")
       assert %{plug_opts: [audience: :admin]} = route_info("GET", "/api/admin/v1")
     end
@@ -137,7 +121,7 @@ defmodule PhoenixKitWeb.APIRoutingTest do
       api = for {%{plug: REST}, index} <- routes, do: index
 
       assert length(api) ==
-               Enum.count(Paths.entries(), fn {[first | _], _, _, _} -> first == "api" end)
+               Enum.count(Paths.entries(), fn {[first | _], _, _} -> first == "api" end)
 
       prefix = Routes.prefix_base()
 
@@ -295,99 +279,6 @@ defmodule PhoenixKitWeb.APIRoutingTest do
     end
   end
 
-  describe "the deprecated alias /api/shop/v1" do
-    setup %{conn: conn} do
-      setup_api()
-      %{conn: with_client_ip(conn)}
-    end
-
-    defp successor_link,
-      do: "<#{PublicDiscovery.api_url(Origin.canonical_origin())}>; rel=\"successor-version\""
-
-    test "answers like the canonical path: the same tools, the same CORS", %{conn: conn} do
-      canonical = get(conn, Routes.path("/api/public/v1"))
-      aliased = get(conn, Routes.path("/api/shop/v1"))
-
-      assert aliased.status == 200
-      assert json(aliased) == json(canonical)
-      assert ["*"] = get_resp_header(aliased, "access-control-allow-origin")
-    end
-
-    test "runs a tool as the public audience", %{conn: conn} do
-      conn = post_json(conn, "/api/shop/v1/testkit.public_echo", ~s({"text":"hi"}))
-
-      assert conn.status == 200
-      assert %{"echo" => "hi"} = json(conn)
-    end
-
-    test "carries Deprecation and a successor-version Link; the canonical path carries neither",
-         %{conn: conn} do
-      aliased = get(conn, Routes.path("/api/shop/v1"))
-
-      assert ["@1792454400"] = get_resp_header(aliased, "deprecation")
-      assert [link] = get_resp_header(aliased, "link")
-      assert link =~ successor_link()
-
-      canonical = get(conn, Routes.path("/api/public/v1"))
-      assert [] = get_resp_header(canonical, "deprecation")
-      refute canonical |> get_resp_header("link") |> Enum.join(", ") =~ "successor-version"
-    end
-
-    test "adds its Link to the links of the tool list instead of replacing them", %{conn: conn} do
-      aliased = get(conn, Routes.path("/api/shop/v1"))
-
-      assert [link] = get_resp_header(aliased, "link")
-      assert link =~ successor_link()
-      assert link =~ ~s(rel="service-desc")
-      assert link =~ ~s(rel="service-doc")
-    end
-
-    test "marks every answer of the plug, a 404 problem and a 405 too", %{conn: conn} do
-      for answer <- [
-            get(conn, Routes.path("/api/shop/v1/no/such/path")),
-            put(conn, Routes.path("/api/shop/v1/testkit.public_echo"), %{}),
-            post_json(conn, "/api/shop/v1/no.such_tool", "{}")
-          ] do
-        assert ["@1792454400"] = get_resp_header(answer, "deprecation")
-        assert answer |> get_resp_header("link") |> Enum.join(", ") =~ successor_link()
-      end
-    end
-
-    test "the OpenAPI document served there names the canonical server only", %{conn: conn} do
-      document = conn |> get(Routes.path("/api/shop/v1/openapi.json")) |> json()
-
-      assert [%{"url" => url}] = document["servers"]
-      assert url =~ Paths.rest_path(:public)
-      refute JSON.encode!(document) =~ "/api/shop"
-    end
-
-    test "logs once per node, at info level", %{conn: conn} do
-      :persistent_term.erase({Paths, :deprecation_logged, "/api/shop/v1"})
-      previous = Logger.level()
-      Logger.configure(level: :info)
-      on_exit(fn -> Logger.configure(level: previous) end)
-
-      log =
-        ExUnit.CaptureLog.capture_log([level: :info], fn ->
-          get(conn, Routes.path("/api/shop/v1"))
-          get(conn, Routes.path("/api/shop/v1"))
-        end)
-
-      assert [_once] = Regex.scan(~r/deprecated path/, log)
-      assert log =~ "/api/shop/v1"
-      assert log =~ Paths.rest_path(:public)
-    end
-
-    test "with the API switched off it is a bare 404 that names nothing", %{conn: conn} do
-      switch(:public, false)
-      aliased = get(conn, Routes.path("/api/shop/v1"))
-
-      assert aliased.status == 404
-      assert [] = get_resp_header(aliased, "deprecation")
-      assert [] = get_resp_header(aliased, "link")
-    end
-  end
-
   describe "the website password gate" do
     setup %{conn: conn} do
       setup_api()
@@ -446,11 +337,6 @@ defmodule PhoenixKitWeb.APIRoutingTest do
       # The same through a percent-encoded prefix.
       encoded = post_json(conn, "/api/%70ublic/v1/x", "{not json")
       assert encoded.status == 404
-
-      # The deprecated alias is gated like the canonical path.
-      aliased = post_json(conn, "/api/shop/v1/x", "{not json")
-      assert aliased.status == 404
-      assert [] = get_resp_header(aliased, "deprecation")
     end
 
     test "the guard's 400 and 413 stay for an address on the allow-list", %{conn: conn} do

@@ -75,6 +75,7 @@ defmodule PhoenixKit.Migrations.Postgres.V176 do
 
   use Ecto.Migration
 
+  alias PhoenixKit.Migrations.ModuleOwnedTables
   alias PhoenixKit.Migrations.Repair.Probe
   alias PhoenixKit.Migrations.UUIDFKColumns
 
@@ -87,7 +88,7 @@ defmodule PhoenixKit.Migrations.Postgres.V176 do
     flush()
 
     still_not_valid =
-      for {table, uuid_fk, ref_table, ref_col, _on_delete} <- UUIDFKColumns.fk_constraints(),
+      for {table, uuid_fk, ref_table, ref_col, _on_delete} <- core_fk_constraints(),
           label =
             validate_one(repo(), table, uuid_fk, ref_table, ref_col, prefix, escaped_prefix),
           not is_nil(label) do
@@ -97,6 +98,18 @@ defmodule PhoenixKit.Migrations.Postgres.V176 do
     report_still_not_valid(still_not_valid)
 
     execute("COMMENT ON TABLE #{prefix_table_name("phoenix_kit", prefix)} IS '176'")
+  end
+
+  @doc false
+  # Only the constraints on core's own tables: core 3.0 never validates, or
+  # otherwise changes, a module's table (`ModuleOwnedTables`).
+  def core_fk_constraints do
+    Enum.filter(
+      UUIDFKColumns.fk_constraints(),
+      fn {table, _uuid_fk, _ref_table, _ref_col, _on_delete} ->
+        ModuleOwnedTables.owner(to_string(table)) == :core
+      end
+    )
   end
 
   def down(%{prefix: prefix} = _opts) do

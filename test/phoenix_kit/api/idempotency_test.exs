@@ -274,14 +274,14 @@ defmodule PhoenixKit.API.IdempotencyTest do
       refute Idempotency.credential_bearing?(body)
     end
 
-    test "the names and the marker of the old checkout links are still credentials (legacy)" do
-      for name <- ~w(claim_url checkout_url claim_token) do
-        refute Idempotency.storable?(JSON.encode!(%{name => "x"})), name
+    test "the names and the marker of the old checkout links are no longer credentials" do
+      for name <- ~w(claim_url checkout_url) do
+        assert Idempotency.storable?(JSON.encode!(%{name => "x"})), name
       end
 
-      refute Idempotency.storable?(~s({"url":"https://shop.example/checkout/claim/AbC123"}))
-      refute Idempotency.storable?(~s({"url":"https://shop.example/Checkout/Claim/AbC123"}))
-      refute Idempotency.storable?(~s({"link":{"href":"https://shop.example/checkout/claim/x"}}))
+      assert Idempotency.storable?(~s({"url":"https://shop.example/checkout/claim/AbC123"}))
+      # A name ending in `_token` is still core's rule.
+      refute Idempotency.storable?(JSON.encode!(%{"claim_token" => "x"}))
     end
 
     test "an API key anywhere in the body is not" do

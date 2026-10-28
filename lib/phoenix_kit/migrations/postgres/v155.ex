@@ -128,131 +128,31 @@ defmodule PhoenixKit.Migrations.Postgres.V155 do
   merely orphaned — but it's a UI selection, not delivery-identifying
   history, so this doesn't carry the same "outlives the column" risk
   `crm_contact_uuid` does.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
 
   def up(opts) do
-    p = prefix_str(Map.get(opts, :prefix, "public"))
-
-    up_crm_contact_uuid(p)
-    up_recipient_check(p)
-    up_dedup_indexes(p)
-    up_source_params(p)
+    prefix = Map.get(opts, :prefix, "public")
+    p = prefix_str(prefix)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '155'")
   end
 
   def down(opts) do
-    p = prefix_str(Map.get(opts, :prefix, "public"))
-
-    # Reverse of up/1: source_params added last, unwind first.
-    down_source_params(p)
-    down_dedup_indexes(p)
-    down_recipient_check(p)
-    down_crm_contact_uuid(p)
+    prefix = Map.get(opts, :prefix, "public")
+    p = prefix_str(prefix)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '154'")
-  end
-
-  # ── Section: crm_contact_uuid ──
-
-  defp up_crm_contact_uuid(p) do
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    ADD COLUMN IF NOT EXISTS crm_contact_uuid UUID
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS idx_newsletters_deliveries_crm_contact
-    ON #{p}phoenix_kit_newsletters_deliveries (crm_contact_uuid)
-    """)
-  end
-
-  defp down_crm_contact_uuid(p) do
-    execute("DROP INDEX IF EXISTS #{p}idx_newsletters_deliveries_crm_contact")
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_deliveries DROP COLUMN IF EXISTS crm_contact_uuid"
-    )
-  end
-
-  # ── Section: recipient-check CHECK — widened, not XOR'd ──
-
-  defp up_recipient_check(p) do
-    # DROP then unconditional ADD (not the guarded-existence DO $$ pattern
-    # V152 used) — this section *replaces* the constraint's definition
-    # under the same name, so re-running up/1 must re-apply the new
-    # definition even if a stale one is already present, not skip it.
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    DROP CONSTRAINT IF EXISTS phoenix_kit_newsletters_deliveries_recipient_check
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    ADD CONSTRAINT phoenix_kit_newsletters_deliveries_recipient_check
-    CHECK (
-      (user_uuid IS NOT NULL OR recipient_email IS NOT NULL)
-      AND NOT (user_uuid IS NOT NULL AND crm_contact_uuid IS NOT NULL)
-    )
-    """)
-  end
-
-  defp down_recipient_check(p) do
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    DROP CONSTRAINT IF EXISTS phoenix_kit_newsletters_deliveries_recipient_check
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    ADD CONSTRAINT phoenix_kit_newsletters_deliveries_recipient_check
-    CHECK (user_uuid IS NOT NULL OR recipient_email IS NOT NULL)
-    """)
-  end
-
-  # ── Section: per-broadcast dedup indexes ──
-
-  defp up_dedup_indexes(p) do
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletters_deliveries_uniq_broadcast_user
-    ON #{p}phoenix_kit_newsletters_deliveries (broadcast_uuid, user_uuid)
-    WHERE user_uuid IS NOT NULL
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletters_deliveries_uniq_broadcast_contact
-    ON #{p}phoenix_kit_newsletters_deliveries (broadcast_uuid, crm_contact_uuid)
-    WHERE crm_contact_uuid IS NOT NULL
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_newsletters_deliveries_uniq_broadcast_email
-    ON #{p}phoenix_kit_newsletters_deliveries (broadcast_uuid, recipient_email)
-    WHERE recipient_email IS NOT NULL
-    """)
-  end
-
-  defp down_dedup_indexes(p) do
-    execute("DROP INDEX IF EXISTS #{p}idx_newsletters_deliveries_uniq_broadcast_email")
-    execute("DROP INDEX IF EXISTS #{p}idx_newsletters_deliveries_uniq_broadcast_contact")
-    execute("DROP INDEX IF EXISTS #{p}idx_newsletters_deliveries_uniq_broadcast_user")
-  end
-
-  # ── Section: source_params for the user_group recipient source ──
-
-  defp up_source_params(p) do
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts
-    ADD COLUMN IF NOT EXISTS source_params JSONB NOT NULL DEFAULT '{}'::jsonb
-    """)
-  end
-
-  defp down_source_params(p) do
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts DROP COLUMN IF EXISTS source_params"
-    )
   end
 
   defp prefix_str("public"), do: "public."

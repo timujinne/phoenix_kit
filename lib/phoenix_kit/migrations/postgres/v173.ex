@@ -46,146 +46,29 @@ defmodule PhoenixKit.Migrations.Postgres.V173 do
   history, and later renames/translation fixes must not rewrite old orders.
 
   All operations are idempotent.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
-
-  alias PhoenixKit.Migrations.Postgres.Helpers
 
   def up(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    Helpers.ensure_uuid_v7_function(prefix)
-    uuid_default = Helpers.uuid_v7_call(prefix)
-
-    # ── Definition roots ─────────────────────────────────────────────
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_attribute_groups (
-      uuid UUID PRIMARY KEY DEFAULT #{uuid_default},
-      name VARCHAR(255) NOT NULL,
-      data JSONB NOT NULL DEFAULT '{}',
-      status VARCHAR(20) NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT phoenix_kit_cat_attribute_groups_status_check
-        CHECK (status IN ('active', 'archived'))
-    )
-    """)
-
-    # ── Attributes within a group ────────────────────────────────────
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_attributes (
-      uuid UUID PRIMARY KEY DEFAULT #{uuid_default},
-      group_uuid UUID NOT NULL
-        REFERENCES #{p}phoenix_kit_cat_attribute_groups(uuid) ON DELETE RESTRICT,
-      key VARCHAR(100) NOT NULL,
-      name VARCHAR(255) NOT NULL,
-      data JSONB NOT NULL DEFAULT '{}',
-      kind VARCHAR(20) NOT NULL DEFAULT 'multi',
-      status VARCHAR(20) NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT phoenix_kit_cat_attributes_kind_check
-        CHECK (kind IN ('fixed', 'multi')),
-      CONSTRAINT phoenix_kit_cat_attributes_status_check
-        CHECK (status IN ('active', 'archived'))
-    )
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_attributes_group_key_index
-      ON #{p}phoenix_kit_cat_attributes (group_uuid, key)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_cat_attributes_group_position_index
-      ON #{p}phoenix_kit_cat_attributes (group_uuid, position)
-    """)
-
-    # ── Values within an attribute ───────────────────────────────────
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_attribute_values (
-      uuid UUID PRIMARY KEY DEFAULT #{uuid_default},
-      attribute_uuid UUID NOT NULL
-        REFERENCES #{p}phoenix_kit_cat_attributes(uuid) ON DELETE RESTRICT,
-      key VARCHAR(100) NOT NULL,
-      value VARCHAR(255) NOT NULL,
-      data JSONB NOT NULL DEFAULT '{}',
-      is_default BOOLEAN NOT NULL DEFAULT FALSE,
-      status VARCHAR(20) NOT NULL DEFAULT 'active',
-      position INTEGER NOT NULL DEFAULT 0,
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT phoenix_kit_cat_attribute_values_status_check
-        CHECK (status IN ('active', 'archived'))
-    )
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_attribute_values_attr_key_index
-      ON #{p}phoenix_kit_cat_attribute_values (attribute_uuid, key)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_cat_attribute_values_attr_position_index
-      ON #{p}phoenix_kit_cat_attribute_values (attribute_uuid, position)
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_attribute_values_default_index
-      ON #{p}phoenix_kit_cat_attribute_values (attribute_uuid) WHERE is_default
-    """)
-
-    # ── Item ↔ group assignment ──────────────────────────────────────
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_item_attribute_groups (
-      uuid UUID PRIMARY KEY DEFAULT #{uuid_default},
-      item_uuid UUID NOT NULL
-        REFERENCES #{p}phoenix_kit_cat_items(uuid) ON DELETE CASCADE,
-      attribute_group_uuid UUID NOT NULL
-        REFERENCES #{p}phoenix_kit_cat_attribute_groups(uuid) ON DELETE RESTRICT,
-      position INTEGER NOT NULL DEFAULT 0,
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    """)
-
-    # One group per item is the CURRENT business rule, deliberately carried
-    # by this index alone. Multi-group support = replace this with a
-    # UNIQUE (item_uuid, attribute_group_uuid) index; no data moves.
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_item_attr_groups_item_index
-      ON #{p}phoenix_kit_cat_item_attribute_groups (item_uuid)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attr_groups_group_index
-      ON #{p}phoenix_kit_cat_item_attribute_groups (attribute_group_uuid)
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '173'")
   end
 
-  @doc """
-  Rolls V173 back by dropping the four tables in dependency order.
-
-  **Lossy rollback:** all attribute groups, attributes, values, and
-  item↔group assignments are lost. Items themselves — including their
-  legacy hand-typed `data["meta"]` metadata — are untouched.
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    # Plain drops in dependency order — CASCADE could silently take out
-    # FKs or views a parent application hung off these tables later.
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_cat_item_attribute_groups")
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_cat_attribute_values")
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_cat_attributes")
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_cat_attribute_groups")
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '172'")
   end

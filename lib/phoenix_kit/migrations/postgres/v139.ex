@@ -7,6 +7,15 @@ defmodule PhoenixKit.Migrations.Postgres.V139 do
   pixel placement) and pixel-mode zoom. Read/written whole, like `layout`.
 
   All statements are idempotent (IF NOT EXISTS), safe to re-run.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -15,19 +24,12 @@ defmodule PhoenixKit.Migrations.Postgres.V139 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_dashboards
-    ADD COLUMN IF NOT EXISTS config JSONB NOT NULL DEFAULT '{}'
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '139'")
   end
 
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("ALTER TABLE #{p}phoenix_kit_dashboards DROP COLUMN IF EXISTS config")
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '138'")
   end

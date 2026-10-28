@@ -3,9 +3,8 @@ defmodule PhoenixKit.API.ExecutorClientTokenTest do
   How the executor finds and charges the client token of a public caller: the tool
   declares the input field (`Tool.client_token`), so the token is hashed after the tool
   lookup, the lookup itself is paid from the network bucket only, and the call then pays
-  its full price to the token bucket and the rest to the network bucket. A tool written
-  before the field existed, with a `cart_token` property, is still read through
-  `PhoenixKit.API.Legacy`.
+  its full price to the token bucket and the rest to the network bucket. A tool that
+  declares no field has no client token: a `cart_token` property is an ordinary field.
   """
   use PhoenixKit.DataCase, async: false
 
@@ -37,8 +36,8 @@ defmodule PhoenixKit.API.ExecutorClientTokenTest do
           cost: 3
         ),
         tool("ctk.undeclared", %{"session_token" => %{"type" => "string"}}, []),
-        tool("ctk.legacy", %{"cart_token" => %{"type" => "string"}}, []),
-        tool("ctk.priced_legacy", %{"cart_token" => %{"type" => "string"}}, cost: 3),
+        tool("ctk.cart", %{"cart_token" => %{"type" => "string"}}, []),
+        tool("ctk.priced_cart", %{"cart_token" => %{"type" => "string"}}, cost: 3),
         tool(
           "ctk.both",
           %{"cart_token" => %{"type" => "string"}, "session_token" => %{"type" => "string"}},
@@ -106,10 +105,11 @@ defmodule PhoenixKit.API.ExecutorClientTokenTest do
       assert json(conn)["hash"] == nil
     end
 
-    test "is taken from cart_token for a tool that predates the declaration (legacy)" do
-      conn = public_call("ctk.legacy", %{"cart_token" => "abc"}, unique_ip())
+    test "a cart_token property is not a client token unless the tool declares it" do
+      conn = public_call("ctk.cart", %{"cart_token" => "abc"}, unique_ip())
 
-      assert json(conn)["hash"] == hash("abc")
+      assert conn.status == 200
+      assert json(conn)["hash"] == nil
     end
 
     test "a declared field wins over cart_token" do
@@ -152,11 +152,11 @@ defmodule PhoenixKit.API.ExecutorClientTokenTest do
       assert network_used(ip) == 3
     end
 
-    test "a legacy cart_token is charged like a declared one" do
+    test "an undeclared cart_token charges no token bucket" do
       ip = unique_ip()
 
-      assert public_call("ctk.priced_legacy", %{"cart_token" => "old"}, ip).status == 200
-      assert token_used("old") == 3
+      assert public_call("ctk.priced_cart", %{"cart_token" => "old"}, ip).status == 200
+      assert token_used("old") == 0
       assert network_used(ip) == 3
     end
 

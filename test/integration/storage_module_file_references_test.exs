@@ -16,8 +16,13 @@ defmodule PhoenixKit.Integration.StorageModuleFileReferencesTest do
   alias PhoenixKit.Migrations.ModuleOwnedTables
   alias PhoenixKit.ModuleRegistry
   alias PhoenixKit.Modules.Storage
+  alias PhoenixKit.Test.ModuleFixtureTables
 
   @post_media "phoenix_kit_post_media"
+
+  setup do
+    ModuleFixtureTables.create!([:post_media, :entities, :entity_data])
+  end
 
   defp make_file do
     checksum = "cs_#{System.unique_integer([:positive])}"

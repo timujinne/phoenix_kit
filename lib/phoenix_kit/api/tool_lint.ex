@@ -30,8 +30,7 @@ defmodule PhoenixKit.API.ToolLint do
   needs an object `inputSchema`, and `structuredContent` is an object), that a
   `required` name is declared when the object is closed, that a tool has a
   description, that a public tool with a `danger:` declares a `client_token:`
-  (or, until 3.0.0, has the input `PhoenixKit.API.Legacy.legacy_client_token/1`
-  names, which the executor reads the same way) and lists that field in `required` (a dry run is answered before the client
+  and lists that field in `required` (a dry run is answered before the client
   token is checked, so the schema has to refuse a call without one), that a
   `client_token:` is a string property of the input schema and belongs to a
   public tool (an admin tool is identified by its key), and that no two tools
@@ -61,7 +60,6 @@ defmodule PhoenixKit.API.ToolLint do
   the names.
   """
 
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.Tool
   alias PhoenixKit.API.Validator
 
@@ -96,8 +94,6 @@ defmodule PhoenixKit.API.ToolLint do
   @doc "Checks the schemas, the roots and the description of one tool."
   @spec check_tool(Tool.t()) :: :ok | {:error, [String.t()]}
   def check_tool(%Tool{} = tool) do
-    tool = with_client_token(tool)
-
     case input_messages(tool) ++
            output_messages(tool) ++
            description_messages(tool) ++
@@ -189,14 +185,6 @@ defmodule PhoenixKit.API.ToolLint do
       _no_required -> []
     end
   end
-
-  # A public tool built before `Tool.client_token` existed declares no field; the executor
-  # reads its client token through `PhoenixKit.API.Legacy.legacy_client_token/1`, so the
-  # lint checks the tool the executor runs.
-  defp with_client_token(%Tool{client_token: nil} = tool),
-    do: %{tool | client_token: Legacy.legacy_client_token(tool)}
-
-  defp with_client_token(%Tool{} = tool), do: tool
 
   defp client_token_messages(%Tool{client_token: nil}), do: []
 

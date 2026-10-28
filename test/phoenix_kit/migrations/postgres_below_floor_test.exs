@@ -135,4 +135,21 @@ defmodule PhoenixKit.Migrations.PostgresBelowFloorTest do
       assert Postgres.plan_down(205, 210, 200) == :noop
     end
   end
+
+  describe "the 3.0 upgrade gate" do
+    test "the bridge is a concrete 2.x release whose chain ends at the minimum upgrade version" do
+      assert {:ok, %Version{major: 2}} = Version.parse(Postgres.bridge_version())
+      assert Postgres.minimum_version() <= @current
+    end
+
+    test "a database below the minimum is refused with the bridge named, one at it is not" do
+      minimum = Postgres.minimum_version()
+
+      assert {:raise, below, ^minimum} =
+               Postgres.plan_up(minimum - 1, @current, @floor, minimum)
+
+      assert below == minimum - 1
+      refute match?({:raise, _, _}, Postgres.plan_up(minimum, @current, @floor, minimum))
+    end
+  end
 end

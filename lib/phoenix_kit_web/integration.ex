@@ -276,12 +276,10 @@ defmodule PhoenixKitWeb.Integration do
   # plugs leave it alone.
   #
   # The forwards are `PhoenixKit.API.Paths.entries/0`, the table
-  # `PhoenixKit.API.BodyGuard` guards too: the canonical paths, then the
-  # deprecated aliases of the public ones (`PhoenixKit.API.Legacy`), which go
-  # to the same plugs with `deprecated:` options.
+  # `PhoenixKit.API.BodyGuard` guards too.
   defp generate_api_routes(url_prefix) do
     forwards =
-      for {segments, _audience, _cors?, _kind} = entry <- Paths.entries() do
+      for {segments, _audience, _cors?} = entry <- Paths.entries() do
         path = Paths.path(segments)
         plug = Paths.plug(segments)
         opts = Paths.plug_opts(entry)
@@ -2001,8 +1999,8 @@ defmodule PhoenixKitWeb.Integration do
 
       # The machine API. Literal-rooted (`/api/...`), so it belongs with the
       # surfaces declared BEFORE the `/:locale`-rooted ones below: a later
-      # position would let a `/:locale/...` route bind `/api/public/v1/...` (or
-      # its deprecated alias) with `locale = "api"`. Pinned by
+      # position would let a `/:locale/...` route bind `/api/public/v1/...`
+      # with `locale = "api"`. Pinned by
       # test/phoenix_kit_web/api_routing_test.exs.
       unquote(generate_api_routes(url_prefix))
 

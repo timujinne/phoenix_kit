@@ -24,21 +24,6 @@ defmodule PhoenixKit.Integration.Users.WelcomeEmailTest do
 
   @password "ValidPassword123!"
 
-  defmodule RaisingProvider do
-    @moduledoc false
-    def get_active_template_by_name(_name), do: raise("provider down")
-  end
-
-  defmodule ExitingProvider do
-    @moduledoc false
-    def get_active_template_by_name(_name), do: exit(:provider_gone)
-  end
-
-  defmodule ThrowingProvider do
-    @moduledoc false
-    def get_active_template_by_name(_name), do: throw(:provider_threw)
-  end
-
   # Fail after the message was handed over: whether it went out is unknown.
   defmodule RaisingAdapter do
     @moduledoc false
@@ -390,16 +375,17 @@ defmodule PhoenixKit.Integration.Users.WelcomeEmailTest do
     end
 
     test "building the email fails: the mark is cleared and the retry sends it" do
-      put_env_for_test(:email_provider, __MODULE__.RaisingProvider)
+      # A template root that is not a path: building the email raises
+      put_env_for_test(:template_paths, [:not_a_path])
       user = create_user()
       assert {:ok, %User{confirmed_at: %_{}}} = Auth.confirm_user(confirmation_token(user))
 
       log = ExUnit.CaptureLog.capture_log(fn -> assert {:error, _} = perform(user) end)
 
-      assert log =~ "provider down (will retry)"
+      assert log =~ "(will retry)"
       refute marked?(user)
 
-      Application.delete_env(:phoenix_kit, :email_provider)
+      Application.delete_env(:phoenix_kit, :template_paths)
       assert :ok = perform(user)
       assert [_] = welcome_emails(user.email)
       assert marked?(user)
@@ -487,21 +473,9 @@ defmodule PhoenixKit.Integration.Users.WelcomeEmailTest do
       assert marked?(user)
     end
 
-    for {provider, label} <- [{ExitingProvider, "exits"}, {ThrowingProvider, "throws"}] do
-      test "building the email #{label}: the mark is cleared for a retry" do
-        put_env_for_test(:email_provider, unquote(provider))
-        user = create_user()
-        assert {:ok, _} = Auth.confirm_user(confirmation_token(user))
-
-        log = ExUnit.CaptureLog.capture_log(fn -> assert {:error, _} = perform(user) end)
-
-        assert log =~ "(will retry)"
-        refute marked?(user)
-      end
-    end
-
     test "the last attempt says it gives up" do
-      put_env_for_test(:email_provider, __MODULE__.RaisingProvider)
+      # A template root that is not a path: building the email raises
+      put_env_for_test(:template_paths, [:not_a_path])
       user = create_user()
       assert {:ok, _} = Auth.confirm_user(confirmation_token(user))
       job = %Oban.Job{args: %{"user_uuid" => user.uuid}, attempt: 3, max_attempts: 3}

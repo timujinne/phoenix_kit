@@ -29,81 +29,29 @@ defmodule PhoenixKit.Migrations.Postgres.V159 do
   accepted counts only, no per-request rows and no reader PII.
 
   All operations are idempotent.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
-
-  @disable_ddl_transaction true
 
   def up(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_publishing_categories (
-      uuid UUID PRIMARY KEY DEFAULT #{p}uuid_generate_v7(),
-      group_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_publishing_groups(uuid) ON DELETE CASCADE,
-      parent_uuid UUID REFERENCES #{p}phoenix_kit_publishing_categories(uuid) ON DELETE SET NULL,
-      name VARCHAR(255) NOT NULL,
-      slug VARCHAR(255) NOT NULL,
-      name_i18n JSONB NOT NULL DEFAULT '{}',
-      description VARCHAR(1024),
-      position INTEGER NOT NULL DEFAULT 0,
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      CONSTRAINT phoenix_kit_publishing_categories_group_slug_uniq UNIQUE (group_uuid, slug)
-    )
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS idx_publishing_categories_group
-    ON #{p}phoenix_kit_publishing_categories (group_uuid)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS idx_publishing_categories_parent
-    ON #{p}phoenix_kit_publishing_categories (parent_uuid)
-    """)
-
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_publishing_post_categories (
-      post_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_publishing_posts(uuid) ON DELETE CASCADE,
-      category_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_publishing_categories(uuid) ON DELETE CASCADE,
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      PRIMARY KEY (post_uuid, category_uuid)
-    )
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS idx_publishing_post_categories_category
-    ON #{p}phoenix_kit_publishing_post_categories (category_uuid)
-    """)
-
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_publishing_post_views (
-      post_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_publishing_posts(uuid) ON DELETE CASCADE,
-      view_date DATE NOT NULL,
-      count INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY (post_uuid, view_date)
-    )
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '159'")
   end
 
-  @doc """
-  Rolls V159 back by dropping the categories, assignment, and view tables.
-
-  **Lossy rollback:** all categories, assignments, and view counts are
-  lost. Back up before rolling back in production.
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_publishing_post_views CASCADE")
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_publishing_post_categories CASCADE")
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_publishing_categories CASCADE")
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '158'")
   end

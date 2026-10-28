@@ -11,18 +11,14 @@ defmodule PhoenixKit.Integration.ModuleOwnedManifestTest do
   `:wrong_shape`, and on an install where the FK was gone `repair` re-created
   it pointing at the email templates table.
 
-  Each test puts the FK in one state inside the sandbox transaction (which
-  rolls every change back) and runs the real `Repair.verify/1` or
-  `Repair.repair/1` against the suite's migrated database. Only findings about
-  the broadcasts table are asserted: the shared test database may carry
-  unrelated drift left by other packages' runs.
+  Since core 3.0 the chain no longer creates the broadcasts table or its FK at
+  all (the newsletters chain does), so the cases that put the FK in a state and
+  ran `verify`/`repair` over it went; the manifest check stays.
   """
 
   use PhoenixKit.DataCase, async: false
 
   alias PhoenixKit.Migrations.ExpectedSchema
-  alias PhoenixKit.Migrations.Repair
-  alias PhoenixKit.Test.Repo
 
   @table "phoenix_kit_newsletters_broadcasts"
   @fk "fk_newsletters_broadcasts_template"
@@ -33,92 +29,5 @@ defmodule PhoenixKit.Integration.ModuleOwnedManifestTest do
 
     refute Enum.any?(objects, &(&1.id == @id))
     refute Enum.any?(objects, &match?(%{check: {:catalog, %{name: @fk}}}, &1))
-  end
-
-  test "(a) as the chain creates it: verify says nothing about it" do
-    assert fk_target() == "phoenix_kit_email_templates"
-
-    assert table_findings(verify()) == []
-  end
-
-  test "(b) repointed at a module's own table: verify says nothing about it" do
-    Repo.query!("CREATE TABLE public.phoenix_kit_newsletters_layouts (uuid uuid PRIMARY KEY)")
-    Repo.query!("ALTER TABLE public.#{@table} DROP CONSTRAINT #{@fk}")
-
-    Repo.query!("""
-    ALTER TABLE public.#{@table} ADD CONSTRAINT #{@fk}
-      FOREIGN KEY (template_uuid) REFERENCES public.phoenix_kit_newsletters_layouts(uuid)
-      ON DELETE SET NULL
-    """)
-
-    assert fk_target() == "phoenix_kit_newsletters_layouts"
-    assert table_findings(verify()) == []
-  end
-
-  test "(c) gone: verify says nothing, and repair does not put it back" do
-    Repo.query!("ALTER TABLE public.#{@table} DROP CONSTRAINT #{@fk}")
-
-    assert table_findings(verify()) == []
-
-    assert {:ok, report} = Repair.repair(repo: Repo, prefix: "public")
-    assert table_findings(report) == []
-    assert fk_target() == nil
-  end
-
-  test "the whole broadcasts table is the module's: no other dropped FK is reported or repaired" do
-    other = "fk_newsletters_broadcasts_created_by"
-    Repo.query!("ALTER TABLE public.#{@table} DROP CONSTRAINT #{@fk}")
-    Repo.query!("ALTER TABLE public.#{@table} DROP CONSTRAINT #{other}")
-
-    assert table_findings(verify()) == []
-
-    assert {:ok, report} = Repair.repair(repo: Repo, prefix: "public")
-    assert table_findings(report) == []
-
-    refute constraint_exists?(other)
-    assert fk_target() == nil
-  end
-
-  defp verify do
-    assert {:ok, report} = Repair.verify(repo: Repo, prefix: "public")
-    report
-  end
-
-  # Findings about the broadcasts table or the FK, whatever their severity.
-  defp table_findings(report) do
-    Enum.filter(report.findings, fn finding ->
-      id = finding.object_id || ""
-      String.contains?(id, @table) or String.contains?(id, @fk)
-    end)
-  end
-
-  defp fk_target do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT f.relname
-        FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        JOIN pg_class f ON f.oid = c.confrelid
-        WHERE c.conname = $1 AND t.relname = $2 AND n.nspname = 'public'
-        """,
-        [@fk, @table]
-      )
-
-    case rows do
-      [[target]] -> target
-      [] -> nil
-    end
-  end
-
-  defp constraint_exists?(name) do
-    %{rows: [[exists]]} =
-      Repo.query!(
-        "SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = $1)",
-        [name]
-      )
-
-    exists
   end
 end

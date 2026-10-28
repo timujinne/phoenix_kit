@@ -48,34 +48,22 @@ defmodule PhoenixKit.Migrations.Postgres.V171 do
   `{"de":"hat"}` — collides in the old bucket. That refusal is honest; an
   operator rolling back must first undo whatever cross-language pairs were
   created under the new contract.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
 
-  alias PhoenixKit.Migrations.Postgres.ShopSlugProjection
-
   def up(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    # Bounded rather than indefinite: the trigger creation takes ACCESS
-    # EXCLUSIVE on each parent, and a migration waiting forever behind a long
-    # read is a silent hang with nothing printed (V163 precedent).
-    execute("SET lock_timeout = '5000ms'")
-
-    for spec <- ShopSlugProjection.specs() do
-      execute(ShopSlugProjection.dedupe_sql(spec.parent, spec.live_statuses, p))
-
-      for sql <- ShopSlugProjection.up_sql(spec, p) do
-        execute(sql)
-      end
-    end
-
-    # The old expression indexes are superseded, not replaced in place — the
-    # projection pkeys enforce the corrected bucket. Dropped AFTER the
-    # projection exists so there is no window with no enforcement at all.
-    execute("DROP INDEX IF EXISTS #{p}idx_shop_products_slug_primary")
-    execute("DROP INDEX IF EXISTS #{p}idx_shop_categories_slug_primary")
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '171'")
   end
@@ -83,28 +71,6 @@ defmodule PhoenixKit.Migrations.Postgres.V171 do
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    for spec <- Enum.reverse(ShopSlugProjection.specs()) do
-      for sql <- ShopSlugProjection.down_sql(spec, p) do
-        execute(sql)
-      end
-    end
-
-    # See the moduledoc: these can refuse over data that is legitimate under
-    # V171. A refusal here is the correct outcome, not a bug.
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_products_slug_primary
-      ON #{p}phoenix_kit_shop_products
-      USING btree (#{p}extract_primary_slug(slug))
-      WHERE (#{p}extract_primary_slug(slug) IS NOT NULL)
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_categories_slug_primary
-      ON #{p}phoenix_kit_shop_categories
-      USING btree (#{p}extract_primary_slug(slug))
-      WHERE (#{p}extract_primary_slug(slug) IS NOT NULL)
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '170'")
   end

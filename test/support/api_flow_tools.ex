@@ -62,6 +62,16 @@ defmodule PhoenixKit.Test.ApiFlowTools do
   def enabled?, do: :persistent_term.get(@enabled_key, true)
   def set_enabled(on?) when is_boolean(on?), do: :persistent_term.put(@enabled_key, on?)
 
+  def api_problems do
+    %{
+      insufficient_stock: %{
+        status: 422,
+        title: "Insufficient stock",
+        advice: "Reduce the quantities listed in context.lines; nothing was posted."
+      }
+    }
+  end
+
   def api_tools do
     [
       admin("flowkit.read_items", "flowkit.items:read", "dashboard", @read, :read_items, %{}),
@@ -172,19 +182,6 @@ defmodule PhoenixKit.Test.ApiFlowTools do
         danger: :always,
         client_token: "session_token",
         replay: false
-      ),
-      # The two tools below predate `Tool.client_token`: they name their client token
-      # `cart_token` and declare nothing, which core still honours (`PhoenixKit.API.Legacy`).
-      public("flowkit.legacy_write", @write, :public_write, %{
-        "text" => %{"type" => "string"},
-        "cart_token" => %{"type" => "string"}
-      }),
-      public(
-        "flowkit.legacy_clear",
-        @destructive,
-        :legacy_clear,
-        %{"cart_token" => %{"type" => "string"}},
-        danger: :always
       )
     ]
   end
@@ -211,7 +208,7 @@ defmodule PhoenixKit.Test.ApiFlowTools do
     )
   end
 
-  defp public(name, annotations, function, properties, opts \\ []) do
+  defp public(name, annotations, function, properties, opts) do
     Tool.new!(
       name: name,
       audience: :public,
@@ -485,18 +482,6 @@ defmodule PhoenixKit.Test.ApiFlowTools do
        %{
          "rows" => [%{"ref" => ref, "action" => "clear", "from" => Map.get(Store.items(), ref)}]
        }, Store.fingerprint([ref])}
-    else
-      Store.delete([ref])
-      {:ok, %{"cleared" => true}}
-    end
-  end
-
-  def legacy_clear(%{"cart_token" => token} = input, ctx) do
-    send(self(), {:flow, "flowkit.legacy_clear", input, ctx})
-    ref = "legacy:" <> token
-
-    if ctx.dry_run? do
-      {:preview, %{"rows" => [%{"ref" => ref, "action" => "clear"}]}, Store.fingerprint([ref])}
     else
       Store.delete([ref])
       {:ok, %{"cleared" => true}}

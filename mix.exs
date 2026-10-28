@@ -1,7 +1,7 @@
 defmodule PhoenixKit.MixProject do
   use Mix.Project
 
-  @version "2.65.0"
+  @version "3.0.0"
   @description "A foundation for building Elixir Phoenix apps — SaaS, social networks, ERP systems, marketplaces, and more"
   @source_url "https://github.com/BeamLabEU/phoenix_kit"
 
@@ -485,6 +485,7 @@ defmodule PhoenixKit.MixProject do
       main: "PhoenixKit",
       extras: [
         "README.md",
+        "guides/upgrading-to-3.0.md",
         "guides/integration.md",
         "guides/oauth-and-magic-link-setup.md",
         "guides/aws-email-setup.md",

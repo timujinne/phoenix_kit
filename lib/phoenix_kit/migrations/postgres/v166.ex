@@ -38,6 +38,15 @@ defmodule PhoenixKit.Migrations.Postgres.V166 do
 
   No FK on `attributed_project_uuid` — projects live in an optional
   package, exactly like the mention targets in V165.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -46,47 +55,6 @@ defmodule PhoenixKit.Migrations.Postgres.V166 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_comments
-      -- What the reader was shown. NULL on historical rows, which keep
-      -- resolving live; only rows written from here on are pinned.
-      ADD COLUMN IF NOT EXISTS author_display_name TEXT,
-      -- 'personal' | 'project'. NULL reads as 'personal' so nothing needs
-      -- a backfill and no existing comment changes meaning.
-      ADD COLUMN IF NOT EXISTS attribution_mode TEXT,
-      -- The project spoken for, and the name it had at the time.
-      ADD COLUMN IF NOT EXISTS attributed_project_uuid UUID,
-      ADD COLUMN IF NOT EXISTS attributed_label TEXT
-    """)
-
-    # Only two values are meaningful, and a typo'd third would render as an
-    # unhandled state on a public page. Cheaper to refuse it here.
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE c.conname = 'phoenix_kit_comments_attribution_mode_check'
-          AND t.relname = 'phoenix_kit_comments'
-          AND n.nspname = '#{schema_name(prefix)}'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_comments
-          ADD CONSTRAINT phoenix_kit_comments_attribution_mode_check
-          CHECK (attribution_mode IS NULL OR attribution_mode IN ('personal', 'project'));
-      END IF;
-    END $$;
-    """)
-
-    # Every comment a project has spoken through, for the moderation view
-    # that has to answer "what have we said publicly, and who wrote it".
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_comments_attributed_project_idx
-      ON #{p}phoenix_kit_comments (attributed_project_uuid)
-      WHERE attributed_project_uuid IS NOT NULL
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '166'")
   end
 
@@ -94,26 +62,8 @@ defmodule PhoenixKit.Migrations.Postgres.V166 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_comments_attributed_project_idx")
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_comments
-      DROP CONSTRAINT IF EXISTS phoenix_kit_comments_attribution_mode_check
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_comments
-      DROP COLUMN IF EXISTS attributed_label,
-      DROP COLUMN IF EXISTS attributed_project_uuid,
-      DROP COLUMN IF EXISTS attribution_mode,
-      DROP COLUMN IF EXISTS author_display_name
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '165'")
   end
-
-  defp schema_name("public"), do: "public"
-  defp schema_name(prefix), do: prefix
 
   defp prefix_str("public"), do: "public."
   defp prefix_str(prefix), do: "#{prefix}."

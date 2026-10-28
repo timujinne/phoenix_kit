@@ -25,6 +25,15 @@ defmodule PhoenixKit.Migrations.Postgres.V149 do
   losing its catalogue-local identity.
 
   All operations are idempotent.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -33,64 +42,12 @@ defmodule PhoenixKit.Migrations.Postgres.V149 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    # ── Item ↔ supplier sourcing info (CRM federation lands here) ───────
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_item_supplier_info (
-      uuid UUID PRIMARY KEY DEFAULT #{p}uuid_generate_v7(),
-      item_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_cat_items(uuid) ON DELETE CASCADE,
-      supplier_uuid UUID NOT NULL,
-      supplier_sku VARCHAR(100),
-      supplier_name_snapshot VARCHAR(255),
-      unit_cost NUMERIC(14,4),
-      currency VARCHAR(3),
-      lead_time_days INTEGER,
-      min_order_qty NUMERIC(14,4),
-      valid_from DATE,
-      valid_to DATE,
-      position INTEGER NOT NULL DEFAULT 0,
-      metadata JSONB NOT NULL DEFAULT '{}',
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_supplier_info_item_index
-    ON #{p}phoenix_kit_cat_item_supplier_info (item_uuid)
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_supplier_info_supplier_index
-    ON #{p}phoenix_kit_cat_item_supplier_info (supplier_uuid)
-    """)
-
-    # ── Soft CRM xref on local suppliers ─────────────────────────────────
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_suppliers
-    ADD COLUMN IF NOT EXISTS crm_company_uuid UUID
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '149'")
   end
 
-  @doc """
-  Rolls V149 back by dropping the item-supplier-info table and the supplier
-  CRM xref column, in reverse order.
-
-  **Lossy rollback:** all per-supplier item sourcing info (cost, SKU, lead
-  time, CRM links) is lost. Items, suppliers, and the V146 scalar
-  `primary_supplier_uuid` are untouched.
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_cat_item_supplier_info CASCADE")
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_suppliers
-    DROP COLUMN IF EXISTS crm_company_uuid
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '148'")
   end

@@ -19,17 +19,14 @@ defmodule PhoenixKit.API.Problem do
 
   The codes of core are a closed table here (`core_code?/1`). A module adds its
   own through `c:PhoenixKit.Module.api_problems/0` (it can never replace a code of
-  core), and `PhoenixKit.API.Legacy` supplies the few codes the API had
-  before they became a module's, for as long as no enabled module declares them.
-  Both are read only here, when an error is answered, so a successful call pays
-  nothing. `statuses/0` is the table as it stands right now. A code that is in
-  none of the three answers `500` and is logged: it means a handler returned a
-  code nothing declares.
+  core). They are read only here, when an error is answered, so a successful call
+  pays nothing. `statuses/0` is the table as it stands right now. A code that is
+  in neither answers `500` and is logged: it means a handler returned a code
+  nothing declares.
   """
 
   import Plug.Conn
 
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.LogSafe
   alias PhoenixKit.ModuleRegistry
 
@@ -83,19 +80,15 @@ defmodule PhoenixKit.API.Problem do
 
   @doc """
   Every error code the API can answer with right now, with its HTTP status: core's,
-  those of the enabled modules and the `PhoenixKit.API.Legacy` ones no module
-  declares.
+  those of the enabled modules.
   """
   @spec statuses() :: %{atom() => pos_integer()}
   def statuses do
     Map.merge(
-      Map.new(Legacy.problems(), fn {code, %{status: status}} -> {code, status} end),
-      Map.merge(
-        Map.new(ModuleRegistry.all_api_problems(), fn {code, %{status: status}} ->
-          {code, status}
-        end),
-        @statuses
-      )
+      Map.new(ModuleRegistry.all_api_problems(), fn {code, %{status: status}} ->
+        {code, status}
+      end),
+      @statuses
     )
   end
 
@@ -105,15 +98,14 @@ defmodule PhoenixKit.API.Problem do
 
   @doc """
   What is declared for a `code` that core does not define: `%{status, title, advice}`
-  from the enabled module that declares it, else from `PhoenixKit.API.Legacy`, else
-  `nil`. A module's declaration replaces the legacy one as a whole.
+  from the enabled module that declares it, else `nil`.
   """
   @spec declared(atom()) ::
           %{status: pos_integer(), title: String.t(), advice: String.t() | nil} | nil
   def declared(code) when is_atom(code) do
     if core_code?(code),
       do: nil,
-      else: Map.get(ModuleRegistry.all_api_problems(), code) || Map.get(Legacy.problems(), code)
+      else: Map.get(ModuleRegistry.all_api_problems(), code)
   end
 
   @doc """
@@ -149,7 +141,7 @@ defmodule PhoenixKit.API.Problem do
   end
 
   # `{status, title, known?}`: core's table first (no registry read), then what a module
-  # or Legacy declares, else the generic 500.
+  # declares, else the generic 500.
   defp resolve(code) do
     case Map.fetch(@statuses, code) do
       {:ok, status} ->

@@ -35,6 +35,15 @@ defmodule PhoenixKit.Migrations.Postgres.V177 do
   stamps. Every statement is IF-NOT-EXISTS idempotent, so an install that
   already ran this DDL as V176 (pre-renumber deploys) re-runs it as V177
   as a clean no-op.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -43,50 +52,12 @@ defmodule PhoenixKit.Migrations.Postgres.V177 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_cat_item_attribute_sets (
-      item_uuid UUID NOT NULL,
-      set_uuid UUID NOT NULL,
-      position INTEGER NOT NULL DEFAULT 0,
-      data JSONB NOT NULL DEFAULT '{}'::jsonb,
-      inserted_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-      updated_at TIMESTAMP(0) WITHOUT TIME ZONE NOT NULL,
-      PRIMARY KEY (item_uuid, set_uuid)
-    )
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE c.conname = 'phoenix_kit_cat_item_attribute_sets_item_uuid_fkey'
-          AND t.relname = 'phoenix_kit_cat_item_attribute_sets'
-          AND n.nspname = '#{prefix}'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_cat_item_attribute_sets
-          ADD CONSTRAINT phoenix_kit_cat_item_attribute_sets_item_uuid_fkey
-          FOREIGN KEY (item_uuid) REFERENCES #{p}phoenix_kit_cat_items(uuid)
-          ON DELETE CASCADE;
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_cat_item_attribute_sets_set_uuid_index
-      ON #{p}phoenix_kit_cat_item_attribute_sets (set_uuid)
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '177'")
   end
 
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_cat_item_attribute_sets")
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '176'")
   end

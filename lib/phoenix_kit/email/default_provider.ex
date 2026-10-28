@@ -3,7 +3,6 @@ defmodule PhoenixKit.Email.DefaultProvider do
   No-op email provider. Used when phoenix_kit_emails package is not installed.
 
   - Interception: passes emails through unchanged, no tracking
-  - Templates: returns nil → triggers hardcoded fallbacks in Mailer
   - AWS: returns empty/false → Mailer uses static config only
   """
   @behaviour PhoenixKit.Email.Provider
@@ -16,18 +15,6 @@ defmodule PhoenixKit.Email.DefaultProvider do
   # No package, no queue — every message is sent on the calling process.
   @impl true
   def maybe_enqueue(_email, _opts), do: :continue
-
-  # Templates — nil triggers hardcoded fallback
-  @impl true
-  def get_active_template_by_name(_name), do: nil
-  @impl true
-  def render_template(_t, _v), do: %{subject: "", html_body: "", text_body: ""}
-  @impl true
-  def render_template(_t, _v, _l), do: %{subject: "", html_body: "", text_body: ""}
-  @impl true
-  def track_usage(_template), do: :ok
-  @impl true
-  def get_source_module(_template), do: nil
 
   # AWS — not configured without package
   @impl true

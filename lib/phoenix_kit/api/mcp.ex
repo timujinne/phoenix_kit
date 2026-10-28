@@ -7,10 +7,7 @@ defmodule PhoenixKit.API.MCP do
       forward "/mcp/admin", PhoenixKit.API.MCP, audience: :admin
       forward "/mcp/public", PhoenixKit.API.MCP, audience: :public
 
-  `phoenix_kit_routes/0` emits both, and the deprecated alias of the public
-  one (`PhoenixKit.API.Paths`), which also takes `deprecated: [path: ...,
-  successor: ...]`: the answers on it carry `Deprecation` and a `Link` to the
-  canonical path (`PhoenixKit.API.Auth`).
+  `phoenix_kit_routes/0` emits both (`PhoenixKit.API.Paths`).
 
   The admin endpoint takes the same bearer key as the REST API (clients that
   let you set a request header for a remote MCP server can use it); the public
@@ -107,7 +104,7 @@ defmodule PhoenixKit.API.MCP do
             "PhoenixKit.API.MCP :audience must be :admin or :public, got: #{inspect(audience)}"
     end
 
-    [audience: audience] ++ Keyword.take(opts, [:deprecated])
+    [audience: audience]
   end
 
   @impl Plug

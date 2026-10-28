@@ -65,8 +65,7 @@ defmodule PhoenixKit.Email.Catalog do
       (`t:PhoenixKit.Email.Content.resolved/0`).
     * `sources` — where each part came from (`t:PhoenixKit.Email.Content.sources/0`).
     * `variables` — the sample variables used.
-    * `missing` — placeholders the samples leave unbound, by part (empty for a
-      database template, which renders through its own provider).
+    * `missing` — placeholders the samples leave unbound, by part.
   """
   @type preview :: %{
           content: Content.resolved(),
@@ -160,12 +159,6 @@ defmodule PhoenixKit.Email.Catalog do
 
   # The placeholders the samples leave unbound, against the same content the
   # render used. Branding is bound on every send, so it is bound here too.
-  # A database template renders through its provider, with placeholders of its
-  # own; checking the file/default content would report on what was not used.
-  defp missing(_name, %{db_template: template}, _defaults, _variables, _locale, _paths)
-       when not is_nil(template),
-       do: %{}
-
   defp missing(name, _content, defaults, variables, locale, paths) do
     Templates.missing_variables(
       name,

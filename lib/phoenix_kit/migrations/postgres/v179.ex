@@ -40,6 +40,15 @@ defmodule PhoenixKit.Migrations.Postgres.V179 do
   point of the column. Repoint those items first (unlink the manufacturer in
   the catalogue UI) and the rollback succeeds. Better to fail loudly here than
   to silently drop the offending references.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -48,98 +57,12 @@ defmodule PhoenixKit.Migrations.Postgres.V179 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_items
-    ADD COLUMN IF NOT EXISTS manufacturer_source VARCHAR(20) NOT NULL DEFAULT 'local'
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_items
-    ADD COLUMN IF NOT EXISTS manufacturer_name_snapshot VARCHAR(255)
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE c.conname = 'phoenix_kit_cat_items_manufacturer_source_check'
-          AND t.relname = 'phoenix_kit_cat_items'
-          AND n.nspname = '#{prefix}'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_cat_items
-          ADD CONSTRAINT phoenix_kit_cat_items_manufacturer_source_check
-          CHECK (manufacturer_source IN ('local', 'crm_company'));
-      END IF;
-    END $$;
-    """)
-
-    # The FK is what forced every item's manufacturer to be a local row.
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_items
-    DROP CONSTRAINT IF EXISTS phoenix_kit_cat_items_manufacturer_uuid_fkey
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '179'")
   end
 
-  @doc """
-  Rolls V179 back: restores the foreign key and drops the two columns.
-
-  Raises if any item currently references a CRM party as its manufacturer —
-  see the moduledoc. Nothing is silently discarded.
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM #{p}phoenix_kit_cat_items
-        WHERE manufacturer_source <> 'local' AND manufacturer_uuid IS NOT NULL
-      ) THEN
-        RAISE EXCEPTION 'V179 down: items reference a CRM manufacturer; unlink them before rolling back';
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_items
-    DROP CONSTRAINT IF EXISTS phoenix_kit_cat_items_manufacturer_source_check
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        WHERE c.conname = 'phoenix_kit_cat_items_manufacturer_uuid_fkey'
-          AND t.relname = 'phoenix_kit_cat_items'
-          AND n.nspname = '#{prefix}'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_cat_items
-          ADD CONSTRAINT phoenix_kit_cat_items_manufacturer_uuid_fkey
-          FOREIGN KEY (manufacturer_uuid)
-          REFERENCES #{p}phoenix_kit_cat_manufacturers(uuid) ON DELETE SET NULL;
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_items
-    DROP COLUMN IF EXISTS manufacturer_name_snapshot
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_items
-    DROP COLUMN IF EXISTS manufacturer_source
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '178'")
   end

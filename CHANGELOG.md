@@ -1,3 +1,64 @@
+## 3.0.0 - 2026-10-27
+
+**Core no longer creates the tables of the optional modules, and the database layer for email templates is gone.** An
+existing install must be at **V225** (the last 2.x release, 2.65.0) before it upgrades: below that,
+`mix phoenix_kit.update` raises `BelowFloorError` naming 2.65.0. Hosts that edited email templates in the admin UI export them
+to files first (`mix phoenix_kit_emails.templates.export`). Modules need their own releases that accept core 3.x (the
+pin `>= <floor> and < 4.0.0`); release core's 2.65.0, then 3.0.0, then the modules.
+
+### Breaking (3.0): the deprecated shop names of the machine API are gone
+
+The deprecation window of the module-neutral machine API closes: `PhoenixKit.API.Legacy` and everything that read it are removed.
+
+- **Paths.** `/api/shop/v1` and `/mcp/shop` are no longer served (use `/api/public/v1` and `/mcp/public`). With them go the
+  `Deprecation` / `Link: rel="successor-version"` headers and the `:deprecated` option of the API plugs; `Paths.entries/0` is now
+  `{segments, audience, cors?}`.
+- **Settings.** The old rate-limit keys `api_public_cart_rate_per_min`, `api_public_cart_rows_per_ip_hour` and
+  `api_public_cart_rows_global_hour` are no longer read as a fallback; only `api_public_token_rate_per_min`,
+  `api_public_new_rows_per_ip_hour` and `api_public_new_rows_global_hour` count. The old rows are left in place, not migrated; the
+  first Settings -> API save writes the new keys. `Config.int/3` and `Config.rate_limits_without_fallback/0` are removed.
+- **Client token.** A public tool must declare `client_token:`; a `cart_token` input property is no longer read as one.
+- **Error codes.** `cart_not_found`, `cart_locked`, `unsupported_source` and `insufficient_stock` are no longer answered by core;
+  they exist only where an enabled module declares them in `api_problems/0` (otherwise they are an unknown code: a 500).
+- **Credentials.** `claim_url`, `checkout_url` and the `/checkout/claim/` marker are no longer treated as credentials by the
+  idempotency store or the approvals; a tool declares its secret outputs with `credentials:` (names ending in `_token` stay core's rule).
+- **`PhoenixKit.API.RateLimit.check_cart_rows/1`** is removed; call `check_new_rows/1`.
+
+### Breaking (3.0): email templates no longer come from the database
+
+`PhoenixKit.Email.Content` resolves a message from a host override file, then core's (or a module's) shipped default.
+The database layer is gone: the `Email.Provider` callbacks `get_active_template_by_name/1`, `render_template/2,3`,
+`track_usage/1` and `get_source_module/1` are removed (so is `Mailer.track_usage_after_delivery/2`), `Content.resolved()`
+has no `db_template` key, the `:db` source and the email preview's "database template" notice are removed, and V135 no
+longer seeds templates. A host that edited templates in the admin UI must export them to files with
+`mix phoenix_kit_emails.templates.export` **before** upgrading; the old `phoenix_kit_email_templates` table is left in
+place, untouched.
+
+### Breaking (3.0): core no longer creates any module's table
+
+Core's chain used to create 140 tables that belong to 25 modules (`PhoenixKit.Migrations.ModuleOwnedTables`). It no
+longer does: V135 and V136–V225 had that DDL removed, and each module's own migration chain creates its tables (every
+module has had that chain since the plan `dev_docs/plans/2026-10-25-module-table-ownership.md`). A fresh install gets
+core's tables from `mix phoenix_kit.update`, then each installed module's from the same run, in dependency order
+(`Migrations.Modules.order_by_dependencies/1`: staff before projects, billing before ecommerce).
+
+- **An existing install must be at V225 (the last 2.x) before it upgrades.** Below that, `mix phoenix_kit.update` and
+  `PhoenixKit.Migrations.up/1` raise `BelowFloorError` naming the last 2.x release as the bridge
+  (`Postgres.minimum_version/0`). Fresh installs and installs at V225 are unaffected: no schema change.
+- **V163 and V176 touch core's own tables only.** They used to repair every broken `phoenix_kit_*` table and validate a
+  shared list of constraints that included module tables, so installing core 3.0 over module tables that already existed
+  could rewrite a column, delete duplicate rows (V163) or validate a constraint (V176) in a module's table. Both are
+  filtered to `ModuleOwnedTables.owner/1 == :core`; `mix phoenix_kit.repair_uuid` stays the explicit tool for the rest.
+  A database at V225 (every real 2.x upgrade) never ran either again.
+- New [Upgrading to PhoenixKit 3.0](guides/upgrading-to-3.0.md) guide; the README install and upgrade sections now start at 3.0.
+- Legacy tables core created and later dropped (`phoenix_kit_ai_accounts`, `phoenix_kit_newsletters_lists`,
+  `phoenix_kit_newsletters_list_members`) are no longer created at all.
+- `phoenix_kit_doc_documents.project_uuid` gets its foreign key to `phoenix_kit_projects` only where that table
+  existed when the document creator's chain ran (it does not depend on projects).
+- Tooling: `ModuleChainCheck.check_all/3` and `build_all/3`, and `dev_docs/squash/rehearse_module_chains.exs`
+  (`--record-full` / `--compare-full`), prove that core plus the 25 chains rebuild the same schema.
+
+
 ## 2.65.0 - 2026-10-27
 
 **The last 2.x release.** Core 3.0 stops creating the tables of the optional modules (each module's own migration chain creates

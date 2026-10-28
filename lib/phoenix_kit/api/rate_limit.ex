@@ -182,11 +182,6 @@ defmodule PhoenixKit.API.RateLimit do
     end
   end
 
-  @doc false
-  @deprecated "Use check_new_rows/1"
-  @spec check_cart_rows(String.t() | nil) :: :ok | {:error, pos_integer()}
-  def check_cart_rows(ip), do: check_new_rows(ip)
-
   # Charges nothing: whether `cost` more units still fit the network's window.
   defp peek_network(ip, limit, cost) do
     if Backend.get("api:public:ip:" <> network(ip), @minute) + cost > limit,

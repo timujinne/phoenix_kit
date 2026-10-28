@@ -114,6 +114,15 @@ defmodule PhoenixKit.Migrations.Postgres.V186 do
   whatever the currency table says at that later moment, which is not
   the same information. `down/1` is provided because every migration in
   this chain needs one, not because rolling back is free.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -122,86 +131,14 @@ defmodule PhoenixKit.Migrations.Postgres.V186 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    Enum.each(up_statements(p), &execute/1)
+    execute("COMMENT ON TABLE #{p}phoenix_kit IS '186'")
   end
 
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    Enum.each(down_statements(p), &execute/1)
-  end
-
-  # Public (and idempotent) so the suite can run the REAL statements against
-  # seeded cart/order rows — `up/1` itself can't be invoked outside an
-  # `Ecto.Migrator` runner (same constraint as V182Test/V184Test and
-  # friends), and by the time any test runs, the chain has already added
-  # these columns to an install with no rows to backfill in the first
-  # place. `p` is the rendered prefix including the trailing dot.
-  @doc false
-  def up_statements(p) do
-    [
-      """
-      DO $$
-      DECLARE
-        n integer;
-      BEGIN
-        SELECT count(*) INTO n FROM #{p}phoenix_kit_currencies WHERE is_default;
-        IF n <> 1 THEN
-          RAISE EXCEPTION 'V186 needs exactly one default currency in #{p}phoenix_kit_currencies, found %', n;
-        END IF;
-      END $$
-      """,
-      "ALTER TABLE #{p}phoenix_kit_shop_carts ADD COLUMN IF NOT EXISTS base_currency character varying(3)",
-      "ALTER TABLE #{p}phoenix_kit_shop_carts ADD COLUMN IF NOT EXISTS exchange_rate numeric(15,6)",
-      "ALTER TABLE #{p}phoenix_kit_shop_cart_items ADD COLUMN IF NOT EXISTS base_unit_price numeric(15,2)",
-      "ALTER TABLE #{p}phoenix_kit_orders ADD COLUMN IF NOT EXISTS base_currency character varying(3)",
-      "ALTER TABLE #{p}phoenix_kit_orders ADD COLUMN IF NOT EXISTS exchange_rate numeric(15,6)",
-      "ALTER TABLE #{p}phoenix_kit_orders ADD COLUMN IF NOT EXISTS base_total numeric(15,2)",
-      """
-      UPDATE #{p}phoenix_kit_shop_carts c
-         SET base_currency = b.code,
-             exchange_rate = CASE
-               WHEN c.currency = b.code THEN 1.0
-               ELSE (SELECT x.exchange_rate FROM #{p}phoenix_kit_currencies x WHERE x.code = c.currency)
-             END
-        FROM (SELECT code FROM #{p}phoenix_kit_currencies WHERE is_default) b
-       WHERE c.base_currency IS NULL
-      """,
-      """
-      UPDATE #{p}phoenix_kit_shop_cart_items ci
-         SET base_unit_price = ci.unit_price
-        FROM #{p}phoenix_kit_shop_carts c
-       WHERE c.uuid = ci.cart_uuid
-         AND ci.base_unit_price IS NULL
-         AND c.currency = c.base_currency
-      """,
-      """
-      UPDATE #{p}phoenix_kit_orders o
-         SET base_currency = b.code,
-             exchange_rate = CASE
-               WHEN o.currency = b.code THEN 1.0
-               ELSE (SELECT x.exchange_rate FROM #{p}phoenix_kit_currencies x WHERE x.code = o.currency)
-             END,
-             base_total = CASE WHEN o.currency = b.code THEN o.total ELSE NULL END
-        FROM (SELECT code FROM #{p}phoenix_kit_currencies WHERE is_default) b
-       WHERE o.base_currency IS NULL
-      """,
-      "COMMENT ON TABLE #{p}phoenix_kit IS '186'"
-    ]
-  end
-
-  @doc false
-  def down_statements(p) do
-    [
-      "ALTER TABLE #{p}phoenix_kit_shop_carts DROP COLUMN IF EXISTS base_currency",
-      "ALTER TABLE #{p}phoenix_kit_shop_carts DROP COLUMN IF EXISTS exchange_rate",
-      "ALTER TABLE #{p}phoenix_kit_shop_cart_items DROP COLUMN IF EXISTS base_unit_price",
-      "ALTER TABLE #{p}phoenix_kit_orders DROP COLUMN IF EXISTS base_currency",
-      "ALTER TABLE #{p}phoenix_kit_orders DROP COLUMN IF EXISTS exchange_rate",
-      "ALTER TABLE #{p}phoenix_kit_orders DROP COLUMN IF EXISTS base_total",
-      "COMMENT ON TABLE #{p}phoenix_kit IS '185'"
-    ]
+    execute("COMMENT ON TABLE #{p}phoenix_kit IS '185'")
   end
 
   defp prefix_str("public"), do: "public."

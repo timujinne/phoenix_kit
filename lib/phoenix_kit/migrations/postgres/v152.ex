@@ -112,6 +112,14 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
   `Broadcaster` insert path already guards the same invariant before this
   constraint existed — this is a cheap, redundant DB-level backstop, not
   a replacement for it.
+
+  ## Core 3.0
+
+  Only the first section (send profiles move to core Email) stays in core's chain.
+  The CRM contact lists and the broadcast recipient source belong to
+  `phoenix_kit_crm` and `phoenix_kit_newsletters`; their chains build those
+  tables now (`PhoenixKit.Migrations.ModuleOwnedTables`, plan
+  `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8).
   """
 
   use Ecto.Migration
@@ -129,8 +137,6 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
     p = prefix_str(prefix)
 
     up_send_profiles_to_core_email(opts, prefix, p)
-    up_crm_contact_lists(opts, prefix, p)
-    up_broadcast_crm_source(opts, prefix, p)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '152'")
   end
@@ -139,10 +145,6 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    # Reverse of up/1: added third, so it unwinds first.
-    down_broadcast_crm_source(opts, prefix, p)
-    # CRM contact lists was added second, so it unwinds next.
-    down_crm_contact_lists(opts, prefix, p)
     down_send_profiles_to_core_email(opts, prefix, p)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '151'")
@@ -226,187 +228,6 @@ defmodule PhoenixKit.Migrations.Postgres.V152 do
 
       execute("DROP TABLE IF EXISTS #{p}phoenix_kit_email_send_profiles CASCADE")
     end
-  end
-
-  # ── Section: CRM contact lists ──
-
-  defp up_crm_contact_lists(_opts, prefix, p) do
-    Helpers.ensure_extension!("citext")
-
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_crm_lists (
-      uuid UUID PRIMARY KEY DEFAULT #{Helpers.uuid_v7_call(prefix)},
-      name VARCHAR(255) NOT NULL,
-      slug VARCHAR(255) NOT NULL,
-      description TEXT,
-      status VARCHAR(20) NOT NULL DEFAULT 'active'
-        CHECK (status IN ('active', 'archived')),
-      subscribable BOOLEAN NOT NULL DEFAULT FALSE,
-      subscriber_count INTEGER NOT NULL DEFAULT 0,
-      locale VARCHAR(10),
-      metadata JSONB NOT NULL DEFAULT '{}',
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_lists_slug
-    ON #{p}phoenix_kit_crm_lists (slug)
-    """)
-
-    execute("""
-    CREATE TABLE IF NOT EXISTS #{p}phoenix_kit_crm_list_members (
-      uuid UUID PRIMARY KEY DEFAULT #{Helpers.uuid_v7_call(prefix)},
-      list_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_crm_lists(uuid) ON DELETE CASCADE,
-      contact_uuid UUID NOT NULL REFERENCES #{p}phoenix_kit_crm_contacts(uuid) ON DELETE CASCADE,
-      email CITEXT,
-      status VARCHAR(20) NOT NULL DEFAULT 'subscribed'
-        CHECK (status IN ('subscribed', 'pending', 'removed')),
-      subscribed_at TIMESTAMPTZ,
-      unsubscribed_at TIMESTAMPTZ,
-      source VARCHAR(20) NOT NULL DEFAULT 'manual'
-        CHECK (source IN ('manual', 'import', 'form', 'api')),
-      metadata JSONB NOT NULL DEFAULT '{}',
-      inserted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_list_members_list_contact
-    ON #{p}phoenix_kit_crm_list_members (list_uuid, contact_uuid)
-    """)
-
-    # Per-list email uniqueness on the denormalized snapshot — a `removed`
-    # member still holds its email slot, so re-importing the same address
-    # cannot silently resubscribe it under a second row.
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_crm_list_members_list_email
-    ON #{p}phoenix_kit_crm_list_members (list_uuid, email)
-    WHERE email IS NOT NULL
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS idx_crm_list_members_contact
-    ON #{p}phoenix_kit_crm_list_members (contact_uuid)
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_crm_contacts
-    ADD COLUMN IF NOT EXISTS locale VARCHAR(10)
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_crm_contacts
-    ADD COLUMN IF NOT EXISTS opted_out_at TIMESTAMPTZ
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_crm_contacts
-    ADD COLUMN IF NOT EXISTS consent JSONB NOT NULL DEFAULT '{}'
-    """)
-  end
-
-  defp down_crm_contact_lists(_opts, _prefix, p) do
-    execute("ALTER TABLE #{p}phoenix_kit_crm_contacts DROP COLUMN IF EXISTS consent")
-    execute("ALTER TABLE #{p}phoenix_kit_crm_contacts DROP COLUMN IF EXISTS opted_out_at")
-    execute("ALTER TABLE #{p}phoenix_kit_crm_contacts DROP COLUMN IF EXISTS locale")
-
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_crm_list_members CASCADE")
-    execute("DROP TABLE IF EXISTS #{p}phoenix_kit_crm_lists CASCADE")
-  end
-
-  # ── Section: broadcasts can source recipients from a CRM list ──
-
-  defp up_broadcast_crm_source(opts, prefix, p) do
-    Helpers.ensure_extension!("citext")
-
-    # A crm_list broadcast has no newsletters list of its own.
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts
-    ALTER COLUMN list_uuid DROP NOT NULL
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts
-    ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) NOT NULL DEFAULT 'newsletters_list'
-    """)
-
-    # Bare UUID, no FK — same soft-reference pattern as send_profile_uuid:
-    # newsletters must not hard-depend on the CRM module being installed.
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts
-    ADD COLUMN IF NOT EXISTS crm_list_uuid UUID
-    """)
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS idx_newsletters_broadcasts_crm_list
-    ON #{p}phoenix_kit_newsletters_broadcasts (crm_list_uuid)
-    WHERE crm_list_uuid IS NOT NULL
-    """)
-
-    # A CRM-sourced delivery generally has no core User row at all (most
-    # CRM contacts never log in) — recipient_email is the address that
-    # makes such a delivery addressable, snapshotted when the send is
-    # enqueued (same idea as phoenix_kit_crm_list_members.email).
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    ALTER COLUMN user_uuid DROP NOT NULL
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-    ADD COLUMN IF NOT EXISTS recipient_email CITEXT
-    """)
-
-    # Cheap integrity guard: with both NOT NULLs dropped above, a delivery
-    # row addressable by neither a core User nor a snapshotted email is
-    # unreachable by any send path — Postgres has no
-    # `ADD CONSTRAINT IF NOT EXISTS`, so guard on the constraint name (same
-    # pattern used elsewhere in this migration chain, e.g. V125's
-    # `add_status_entity_uuid_fk/2`). Deliberately no CHECK on `source_type`
-    # here — this repo's convention keeps enum-shaped columns Ecto-only
-    # (see `broadcasts.status`), not DB CHECK-constrained.
-    escaped_prefix = Map.get(opts, :escaped_prefix, prefix)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT FROM information_schema.table_constraints
-        WHERE table_schema = '#{escaped_prefix}'
-          AND table_name = 'phoenix_kit_newsletters_deliveries'
-          AND constraint_name = 'phoenix_kit_newsletters_deliveries_recipient_check'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_newsletters_deliveries
-          ADD CONSTRAINT phoenix_kit_newsletters_deliveries_recipient_check
-          CHECK (user_uuid IS NOT NULL OR recipient_email IS NOT NULL);
-      END IF;
-    END $$;
-    """)
-  end
-
-  defp down_broadcast_crm_source(_opts, _prefix, p) do
-    # Deliberately does NOT restore the NOT NULLs — see the module doc's
-    # "Section: broadcasts can source recipients from a CRM list" note.
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_deliveries DROP CONSTRAINT IF EXISTS phoenix_kit_newsletters_deliveries_recipient_check"
-    )
-
-    execute("DROP INDEX IF EXISTS #{p}idx_newsletters_broadcasts_crm_list")
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts DROP COLUMN IF EXISTS crm_list_uuid"
-    )
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_broadcasts DROP COLUMN IF EXISTS source_type"
-    )
-
-    execute(
-      "ALTER TABLE #{p}phoenix_kit_newsletters_deliveries DROP COLUMN IF EXISTS recipient_email"
-    )
   end
 
   # ── Shared helpers ──

@@ -113,15 +113,16 @@ defmodule PhoenixKit.Integration.PrefixMigrationTest do
            ]
 
     # And the chain must have built a full complement of indexes in the
-    # prefixed schema (142 versions produce 700+; a low count would mean
-    # part of the chain silently skipped).
+    # prefixed schema (core's tables alone produce about 200 since 3.0,
+    # which no longer builds the modules'; a low count would mean part of the
+    # chain silently skipped).
     %{rows: [[index_count]]} =
       Repo.query!(
         "SELECT count(*) FROM pg_indexes WHERE schemaname = $1 AND tablename LIKE 'phoenix_kit%'",
         [@schema]
       )
 
-    assert index_count > 500
+    assert index_count > 150
 
     # uuid_generate_v7() must live in the prefixed schema, not wherever
     # search_path pointed (2026-07-12 field report: unqualified CREATE
@@ -147,7 +148,7 @@ defmodule PhoenixKit.Integration.PrefixMigrationTest do
       Repo.query!(
         """
         SELECT column_default FROM information_schema.columns
-        WHERE table_schema = $1 AND table_name = 'phoenix_kit_projects' AND column_name = 'uuid'
+        WHERE table_schema = $1 AND table_name = 'phoenix_kit_activities' AND column_name = 'uuid'
         """,
         [@schema]
       )
@@ -169,7 +170,7 @@ defmodule PhoenixKit.Integration.PrefixMigrationTest do
     assert is_binary(uuid) and byte_size(uuid) == 36
 
     # V40/V56-path pin: a LEGACY table's uuid default must also be bound to
-    # the prefixed function (the projects assert above covers the raw-SQL
+    # the prefixed function (the activities assert above covers the raw-SQL
     # CREATE TABLE path; this covers the ALTER TABLE backfill path).
     %{rows: [[users_default]]} =
       Repo.query!(

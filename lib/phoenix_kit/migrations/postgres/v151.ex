@@ -38,156 +38,29 @@ defmodule PhoenixKit.Migrations.Postgres.V151 do
   first (citext compares case-insensitively).
 
   All operations are idempotent.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
 
-  alias PhoenixKit.Migrations.Postgres.Helpers
-
   def up(opts) do
     prefix = Map.get(opts, :prefix, "public")
-    escaped_prefix = Map.get(opts, :escaped_prefix, prefix)
     p = prefix_str(prefix)
-
-    # ------------------------------------------------------------------
-    # Block 1: supplier_source on the V149 junction
-    # ------------------------------------------------------------------
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_item_supplier_info
-    ADD COLUMN IF NOT EXISTS supplier_source VARCHAR(20) NOT NULL DEFAULT 'local'
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint
-        WHERE conname = 'phoenix_kit_cat_item_supplier_info_supplier_source_check'
-        AND conrelid = '#{p}phoenix_kit_cat_item_supplier_info'::regclass
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_cat_item_supplier_info
-        ADD CONSTRAINT phoenix_kit_cat_item_supplier_info_supplier_source_check
-        CHECK (supplier_source IN ('crm_company', 'crm_contact', 'local'));
-      END IF;
-    END $$;
-    """)
-
-    # ------------------------------------------------------------------
-    # Block 2: is_primary + partial-unique (one primary per item)
-    # ------------------------------------------------------------------
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_item_supplier_info
-    ADD COLUMN IF NOT EXISTS is_primary BOOLEAN NOT NULL DEFAULT FALSE
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_item_supplier_info_primary_uniq
-    ON #{p}phoenix_kit_cat_item_supplier_info (item_uuid)
-    WHERE is_primary
-    """)
-
-    # ------------------------------------------------------------------
-    # Block 3: CRM email normalization to citext
-    # ------------------------------------------------------------------
-
-    # no-op when citext is already installed (avoids the privilege check on
-    # bare CREATE EXTENSION IF NOT EXISTS for low-privilege roles)
-    Helpers.ensure_extension!("citext")
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{escaped_prefix}'
-        AND table_name = 'phoenix_kit_crm_contacts'
-        AND column_name = 'email'
-        AND udt_name <> 'citext'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_crm_contacts
-        ALTER COLUMN email TYPE citext;
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{escaped_prefix}'
-        AND table_name = 'phoenix_kit_crm_companies'
-        AND column_name = 'email'
-        AND udt_name <> 'citext'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_crm_companies
-        ALTER COLUMN email TYPE citext;
-      END IF;
-    END $$;
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '151'")
   end
 
-  @doc """
-  Rolls V151 back.
-
-  **Lossy for the two columns:** `supplier_source` values and `is_primary`
-  flags are dropped (the junction rows themselves survive). CRM email
-  columns revert from `citext` to `VARCHAR(255)` (their V138 shape).
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
-    escaped_prefix = Map.get(opts, :escaped_prefix, prefix)
     p = prefix_str(prefix)
-
-    execute("""
-    DROP INDEX IF EXISTS #{p}phoenix_kit_cat_item_supplier_info_primary_uniq
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_item_supplier_info
-    DROP COLUMN IF EXISTS is_primary
-    """)
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_item_supplier_info
-    DROP COLUMN IF EXISTS supplier_source
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{escaped_prefix}'
-        AND table_name = 'phoenix_kit_crm_contacts'
-        AND column_name = 'email'
-        AND udt_name = 'citext'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_crm_contacts
-        ALTER COLUMN email TYPE VARCHAR(255);
-      END IF;
-    END $$;
-    """)
-
-    execute("""
-    DO $$
-    BEGIN
-      IF EXISTS (
-        SELECT 1 FROM information_schema.columns
-        WHERE table_schema = '#{escaped_prefix}'
-        AND table_name = 'phoenix_kit_crm_companies'
-        AND column_name = 'email'
-        AND udt_name = 'citext'
-      ) THEN
-        ALTER TABLE #{p}phoenix_kit_crm_companies
-        ALTER COLUMN email TYPE VARCHAR(255);
-      END IF;
-    END $$;
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '150'")
   end

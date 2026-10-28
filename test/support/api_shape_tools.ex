@@ -43,6 +43,16 @@ defmodule PhoenixKit.Test.ApiShapeTools do
 
   def enabled?, do: ApiTools.enabled?()
 
+  def api_problems do
+    %{
+      insufficient_stock: %{
+        status: 422,
+        title: "Insufficient stock",
+        advice: "Reduce the quantities listed in context.lines; nothing was posted."
+      }
+    }
+  end
+
   def api_tools do
     [
       admin_tool("testkit.bad_shape", :bad_shape),

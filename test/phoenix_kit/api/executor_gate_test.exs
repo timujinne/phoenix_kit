@@ -550,39 +550,6 @@ defmodule PhoenixKit.API.ExecutorGateTest do
     end
   end
 
-  describe "a public tool that declares no client token but has a cart_token property (legacy)" do
-    test "its code is bound to the cart_token, and another token may not use it" do
-      ApiFlowStore.put("legacy:token-1", ["line"])
-      first = public_call("flowkit.legacy_clear", %{"cart_token" => "token-1"})
-
-      assert %{"status" => "confirmation_required", "confirm_token" => code} = json(first)
-      assert [row] = rows("token")
-
-      assert row.client_token_hash ==
-               :crypto.hash(:sha256, "token-1") |> Base.url_encode64(padding: false)
-
-      other =
-        public_call("flowkit.legacy_clear", %{"cart_token" => "token-2", "confirm_token" => code})
-
-      assert other.status == 409
-
-      done =
-        public_call("flowkit.legacy_clear", %{"cart_token" => "token-1", "confirm_token" => code})
-
-      assert done.status == 200
-      refute Map.has_key?(ApiFlowStore.items(), "legacy:token-1")
-    end
-
-    test "a dangerous call without the token is a 422 that names cart_token" do
-      conn = public_call("flowkit.legacy_clear", %{})
-
-      assert conn.status == 422
-      assert json(conn)["detail"] == "A client token is required for this operation."
-      assert Enum.any?(json(conn)["context"]["errors"], &(&1["path"] == "cart_token"))
-      assert rows("token") == []
-    end
-  end
-
   describe "a NUL character in the input" do
     # Neither a confirmation code nor an approval can keep it (it is not storable in jsonb),
     # so the call is a 422 before anything is claimed or written, on every path.

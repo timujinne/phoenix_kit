@@ -24,17 +24,11 @@ defmodule PhoenixKit.API.Config do
   | `api_public_new_rows_per_ip_hour` | `120` |
   | `api_public_new_rows_global_hour` | `2000` |
 
-  The three `api_public_token_*` and `api_public_new_rows_*` limits were renamed
-  when the API was made module-neutral. While the deprecation window lasts
-  (`PhoenixKit.API.Legacy`) a limit whose new key holds no valid number reads
-  its old key, then the default.
-
   List settings are stored as newline-separated strings: `PhoenixKit.Settings`
   has no list setter and a JSON setting cannot hold a bare list. Use
   `encode_list/1` when writing one and `parse_list/1` when reading one.
   """
 
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.Settings
 
   @type rate_limits :: %{
@@ -148,19 +142,8 @@ defmodule PhoenixKit.API.Config do
   request, so a non-positive value is treated as unset.
   """
   @spec int(String.t(), integer()) :: integer()
-  def int(key, default) when is_binary(key) and is_integer(default),
-    do: int(key, nil, default)
-
-  @doc """
-  Reads an integer setting that was renamed: the value of `key` when it is a
-  valid limit (see `int/2`), else the value of `legacy_key` when that is, else
-  `default`. A `nil` `legacy_key` reads `key` alone.
-  """
-  @spec int(String.t(), String.t() | nil, integer()) :: integer()
-  def int(key, legacy_key, default)
-      when is_binary(key) and (is_binary(legacy_key) or is_nil(legacy_key)) and
-             is_integer(default) do
-    Enum.find_value([key, legacy_key], default, &limit/1)
+  def int(key, default) when is_binary(key) and is_integer(default) do
+    limit(key) || default
   rescue
     _ -> default
   catch
@@ -180,20 +163,8 @@ defmodule PhoenixKit.API.Config do
   @spec rate_limits() :: rate_limits()
   def rate_limits do
     Map.new(@rate_defaults, fn {name, {key, default}} ->
-      {name, int(key, Legacy.setting_fallback(key), default)}
+      {name, int(key, default)}
     end)
-  end
-
-  @doc """
-  The rate-limit settings as `rate_limits/0` gives them, but reading each key
-  alone: the deprecated key of a renamed limit is not consulted. The settings
-  form compares what it is given with this, so that its first save writes a
-  value that was in effect through a deprecated key under the new key. Goes
-  away with `PhoenixKit.API.Legacy`.
-  """
-  @spec rate_limits_without_fallback() :: rate_limits()
-  def rate_limits_without_fallback do
-    Map.new(@rate_defaults, fn {name, {key, default}} -> {name, int(key, default)} end)
   end
 
   @doc """
@@ -232,8 +203,6 @@ defmodule PhoenixKit.API.Config do
   end
 
   # The setting as a limit: a whole number above zero, else `nil`.
-  defp limit(nil), do: nil
-
   defp limit(key) do
     case key |> Settings.get_setting_cached(nil) |> whole_number() do
       value when is_integer(value) and value > 0 -> value

@@ -70,10 +70,6 @@ defmodule PhoenixKit.Email.ContentTest do
       assert Gettext.get_locale() == "pt"
     end
 
-    test "reports no database template on this path" do
-      assert Content.resolve("register", user("de"), %{}, defaults()).db_template == nil
-    end
-
     test "a recipient with no preference still resolves to a usable locale" do
       resolved = Content.resolve("register", "stranger@example.com", %{}, defaults())
 
@@ -560,7 +556,7 @@ defmodule PhoenixKit.Email.ContentTest do
       resolved =
         Content.resolve("md_keys_probe", user("en"), %{}, fn -> %{} end, paths: [root])
 
-      assert resolved |> Map.keys() |> Enum.sort() == [:db_template, :html, :subject, :text]
+      assert resolved |> Map.keys() |> Enum.sort() == [:html, :subject, :text]
     end
   end
 

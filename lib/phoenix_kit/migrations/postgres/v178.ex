@@ -36,6 +36,15 @@ defmodule PhoenixKit.Migrations.Postgres.V178 do
 
   Additive only: no drops, no reshapes of anything core's ExpectedSchema
   manifest already declares.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -44,45 +53,12 @@ defmodule PhoenixKit.Migrations.Postgres.V178 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_manufacturers
-    ADD COLUMN IF NOT EXISTS crm_company_uuid UUID
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_manufacturers_crm_company_uuid_index
-      ON #{p}phoenix_kit_cat_manufacturers (crm_company_uuid)
-      WHERE crm_company_uuid IS NOT NULL
-    """)
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_cat_suppliers_crm_company_uuid_index
-      ON #{p}phoenix_kit_cat_suppliers (crm_company_uuid)
-      WHERE crm_company_uuid IS NOT NULL
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '178'")
   end
 
-  @doc """
-  Rolls V178 back: drops both partial unique indexes and the manufacturer
-  cross-reference column.
-
-  **Lossy:** manufacturer→CRM links are lost (the supplier column is V149's and
-  survives). Nothing else is touched — the CRM party rows and their roles live
-  in CRM's own tables and are not this migration's to remove.
-  """
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_cat_suppliers_crm_company_uuid_index")
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_cat_manufacturers_crm_company_uuid_index")
-
-    execute("""
-    ALTER TABLE #{p}phoenix_kit_cat_manufacturers
-    DROP COLUMN IF EXISTS crm_company_uuid
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '177'")
   end

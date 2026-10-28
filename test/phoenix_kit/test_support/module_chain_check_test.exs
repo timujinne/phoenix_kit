@@ -1,9 +1,11 @@
 defmodule PhoenixKit.TestSupport.ModuleChainCheckTest do
   @moduledoc """
-  `PhoenixKit.TestSupport.ModuleChainCheck` against three fixture chains: one
-  that builds a table of its own (passes), one that relies on core for its
-  tables (the six modules with no chain today), and one whose adoption DDL
-  is incomplete (the gap the check exists to surface).
+  `PhoenixKit.TestSupport.ModuleChainCheck` against a fixture chain that builds
+  a table of its own (passes). The two cases that needed core to create a
+  module's tables (a module with no chain, an incomplete adoption) went in core
+  3.0, where core creates none: `check/3` can no longer see a difference, so
+  what is left to prove is that a chain builds its tables on core's alone
+  (`dev_docs/squash/rehearse_module_chains.exs`).
 
   Each check builds core's chain into a scratch schema of its own, through
   `Ecto.Migrator` — so `ExUnit.Case`, not a sandboxed `DataCase`.
@@ -16,8 +18,6 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheckTest do
 
   @moduletag :integration
   @moduletag timeout: :timer.minutes(3)
-
-  @referral_tables ~w(phoenix_kit_referral_codes phoenix_kit_referral_code_usage)
 
   defmodule OwnTableChain do
     use Ecto.Migration
@@ -46,31 +46,6 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheckTest do
     def down(_opts), do: :ok
   end
 
-  defmodule NoChain do
-    def current_version, do: 1
-    def up(_opts), do: :ok
-    def down(_opts), do: :ok
-  end
-
-  defmodule IncompleteAdoption do
-    use Ecto.Migration
-
-    def current_version, do: 1
-
-    def up(opts) do
-      p = Keyword.fetch!(opts, :prefix)
-
-      execute("""
-      CREATE TABLE IF NOT EXISTS "#{p}".phoenix_kit_referral_codes (
-        uuid uuid PRIMARY KEY DEFAULT "#{p}".uuid_generate_v7(),
-        code character varying(255) NOT NULL
-      )
-      """)
-    end
-
-    def down(_opts), do: :ok
-  end
-
   test "a chain that builds its own table passes, and the scratch schema is removed" do
     schema = "pkcc_test_own"
 
@@ -83,25 +58,5 @@ defmodule PhoenixKit.TestSupport.ModuleChainCheckTest do
                  [schema]
                )
              end)
-  end
-
-  test "a module relying on core for its tables is reported, table by table" do
-    assert {:error, report} = ModuleChainCheck.check(Repo, NoChain, tables: @referral_tables)
-
-    assert report =~ "NoChain does not build the same tables without core"
-    assert report =~ "phoenix_kit_referral_codes: the module's chain does not create it"
-    assert report =~ "phoenix_kit_referral_code_usage: the module's chain does not create it"
-  end
-
-  test "adoption DDL that differs from what core builds is reported, column by column" do
-    assert {:error, report} =
-             ModuleChainCheck.check(Repo, IncompleteAdoption,
-               tables: ["phoenix_kit_referral_codes"]
-             )
-
-    assert report =~ "phoenix_kit_referral_codes: column max_uses (integer NOT NULL) — today only"
-    assert report =~ "phoenix_kit_referral_codes: column created_by_uuid"
-    refute report =~ "column code "
-    refute report =~ "phoenix_kit_referral_codes: the module's chain does not create it"
   end
 end

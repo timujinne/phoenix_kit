@@ -9,15 +9,13 @@ defmodule PhoenixKit.API.ProblemTest do
   import Plug.Conn
   import Plug.Test
 
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.Problem
 
   defp decode(conn), do: JSON.decode!(conn.resp_body)
 
   describe "status/1" do
     test "maps every documented error code" do
-      # Core's own codes plus the four of the old shop API, which `PhoenixKit.API.Legacy`
-      # keeps answering while no module declares them.
+      # Core's own codes; a module adds its own through `api_problems/0`.
       expected = %{
         unauthorized: 401,
         forbidden: 403,
@@ -26,32 +24,30 @@ defmodule PhoenixKit.API.ProblemTest do
         token_in_url: 400,
         invalid_json: 400,
         not_found: 404,
-        cart_not_found: 404,
         module_disabled: 404,
         module_write_disabled: 403,
         method_not_allowed: 405,
         not_acceptable: 406,
         confirm_token_invalid: 409,
         revision_mismatch: 409,
-        cart_locked: 409,
         idempotency_key_reused: 409,
         idempotency_in_progress: 409,
         payload_too_large: 413,
         validation_failed: 422,
-        unsupported_source: 422,
-        insufficient_stock: 422,
         rate_limited: 429,
         internal_error: 500
       }
 
       assert Problem.statuses() == expected
 
-      for code <- ~w(cart_not_found cart_locked unsupported_source insufficient_stock)a do
-        refute Problem.core_code?(code)
+      for code <- Map.keys(expected) do
+        assert Problem.core_code?(code)
       end
 
-      for code <- Map.keys(expected) -- Map.keys(Legacy.problems()) do
-        assert Problem.core_code?(code)
+      # The shop's codes were core's until 3.0; now a module declares them.
+      for code <- ~w(cart_not_found cart_locked unsupported_source insufficient_stock)a do
+        refute Problem.core_code?(code)
+        assert Problem.status(code) == 500
       end
 
       for {code, status} <- expected do

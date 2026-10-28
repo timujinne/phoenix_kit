@@ -63,6 +63,15 @@ defmodule PhoenixKit.Migrations.Postgres.V167 do
   `phoenix_kit_post_groups` is deliberately untouched — its schema declares a
   composite `[:user_uuid, :slug]` constraint, so a global unique would be
   wrong there, and it is a separate missing index.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -71,106 +80,12 @@ defmodule PhoenixKit.Migrations.Postgres.V167 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    # Bounded rather than indefinite: this takes an ACCESS EXCLUSIVE lock to
-    # swap the index, and a migration that waits forever behind a long read is
-    # a silent hang with nothing printed (V163 precedent).
-    execute("SET lock_timeout = '5000ms'")
-
-    execute("""
-    DO $$
-    DECLARE
-      g RECORD;
-      r RECORD;
-      suffix text;
-      base text;
-      candidate text;
-      n int;
-    BEGIN
-      -- Refuse before rewriting anything: two reachable posts on one slug is
-      -- an editorial call, and this runs unattended.
-      FOR g IN
-        SELECT slug,
-               count(*) FILTER (
-                 WHERE status IN ('public', 'unlisted', 'scheduled')) AS live_n
-          FROM #{p}phoenix_kit_posts
-         GROUP BY slug
-        HAVING count(*) > 1
-      LOOP
-        IF g.live_n > 1 THEN
-          RAISE EXCEPTION
-            'Cannot apply V167: slug % is shared by % live posts. Give one of them a different slug, then upgrade.',
-            g.slug, g.live_n;
-        END IF;
-      END LOOP;
-
-      FOR r IN
-        SELECT uuid, slug FROM (
-          SELECT uuid,
-                 slug,
-                 row_number() OVER (
-                   PARTITION BY slug
-                   ORDER BY CASE
-                              WHEN status IN ('public', 'unlisted', 'scheduled') THEN 0
-                              ELSE 1
-                            END,
-                            inserted_at ASC,
-                            uuid ASC) AS rn
-            FROM #{p}phoenix_kit_posts) ranked
-         WHERE rn > 1
-         ORDER BY slug, rn
-      LOOP
-        n := 2;
-
-        LOOP
-          suffix := '-' || n;
-
-          -- slug is varchar(255) and Postgres ERRORS on overflow rather than
-          -- truncating, so the base is trimmed to leave room for the suffix.
-          -- The trailing-dash strip stops "foo-" || "-2".
-          base := regexp_replace(left(r.slug, 255 - length(suffix)), '-+$', '');
-          candidate := base || suffix;
-
-          -- Probes every slug, not just this group's, so an unrelated post
-          -- already holding "foo-2" pushes this one to "foo-3".
-          EXIT WHEN NOT EXISTS (
-            SELECT 1 FROM #{p}phoenix_kit_posts WHERE slug = candidate);
-
-          n := n + 1;
-        END LOOP;
-
-        RAISE NOTICE 'V167: post % slug % -> %', r.uuid, r.slug, candidate;
-
-        UPDATE #{p}phoenix_kit_posts SET slug = candidate WHERE uuid = r.uuid;
-      END LOOP;
-    END $$;
-    """)
-
-    # See the moduledoc: IF NOT EXISTS matches by name, so without this the
-    # CREATE below is a no-op that stamps the bug as fixed.
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_posts_slug_index")
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_posts_slug_index
-      ON #{p}phoenix_kit_posts USING btree (slug)
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '167'")
   end
 
   def down(opts) do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
-
-    # Lossy, and says so. The index reverts; the slugs this migration
-    # suffixed do not, because the rows they were taken from are gone as far
-    # as this direction can tell. Restoring them would need the original
-    # values, which nothing records (V151 precedent for a one-way repair).
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_posts_slug_index")
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_posts_slug_index
-      ON #{p}phoenix_kit_posts USING btree (slug)
-    """)
 
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '166'")
   end

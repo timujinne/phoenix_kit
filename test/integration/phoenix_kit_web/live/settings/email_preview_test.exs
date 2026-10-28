@@ -56,16 +56,6 @@ defmodule PhoenixKitWeb.Live.Settings.EmailPreviewTest do
     def email_templates, do: throw(:no_list)
   end
 
-  defmodule DbProvider do
-    @moduledoc false
-    def get_active_template_by_name("register"), do: %{name: "register", id: 1}
-    def get_active_template_by_name(_name), do: nil
-
-    def render_template(_template, _variables, _locale) do
-      %{subject: "From the database", html_body: "<p>DB BODY</p>", text_body: "DB BODY"}
-    end
-  end
-
   @path Routes.path("/admin/settings/email-sending/preview")
 
   setup %{conn: conn} do
@@ -250,29 +240,6 @@ defmodule PhoenixKitWeb.Live.Settings.EmailPreviewTest do
     assert has_element?(view, "#email-preview-error", "boom")
     refute has_element?(view, "#email-preview-subject")
     assert has_element?(view, "#email-preview-item-fixture_broken.menu-active")
-  end
-
-  test "warns when an active database template answers the email", %{conn: conn} do
-    previous = Application.get_env(:phoenix_kit, :email_provider)
-    Application.put_env(:phoenix_kit, :email_provider, DbProvider)
-
-    on_exit(fn ->
-      if previous,
-        do: Application.put_env(:phoenix_kit, :email_provider, previous),
-        else: Application.delete_env(:phoenix_kit, :email_provider)
-    end)
-
-    # a placeholder the file leaves unbound is not reported: the database
-    # template answered, the file was never used
-    with_template_root(%{"register/text.txt" => "Code: {{one_time_code}}"})
-
-    {:ok, view, _html} = live(conn, at("register"))
-
-    refute has_element?(view, "#email-preview-missing")
-    assert has_element?(view, "#email-preview-db-notice")
-    assert has_element?(view, "#email-preview-subject", "From the database")
-    assert has_element?(view, "#email-source-subject", "Database template")
-    assert has_element?(view, ~s(iframe#email-preview-html[srcdoc*="DB BODY"]))
   end
 
   test "host HTML reaches the page only inside the iframe's srcdoc", %{conn: conn} do

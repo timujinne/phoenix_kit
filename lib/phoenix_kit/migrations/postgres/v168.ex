@@ -69,6 +69,15 @@ defmodule PhoenixKit.Migrations.Postgres.V168 do
 
   A bounded `lock_timeout` is the V163/V167 answer to the lock this takes: fail loudly
   and quickly rather than hang unattended behind a long read.
+
+  ## Core 3.0
+
+  Everything this version did belonged to a module's tables and now lives in
+  that module's own migration chain (`PhoenixKit.Migrations.ModuleOwnedTables`,
+  plan `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): core no
+  longer creates or changes them. The version is kept so the chain stays
+  numbered; it only moves the marker. Hosts below V225 cannot upgrade to this
+  release (`BelowFloorError`), so nobody replays what the text above describes.
   """
 
   use Ecto.Migration
@@ -77,30 +86,6 @@ defmodule PhoenixKit.Migrations.Postgres.V168 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    # Bounded rather than indefinite: this takes an ACCESS EXCLUSIVE lock to swap the
-    # index, and a migration that waits forever behind a long read is a silent hang
-    # with nothing printed (V163 precedent).
-    execute("SET lock_timeout = '5000ms'")
-
-    dedup_tickets(p)
-    dedup_post_groups(p)
-
-    # IF NOT EXISTS matches by NAME, so creating the unique index without dropping the
-    # non-unique one of the same name is a no-op that reports success. V167 hit this.
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_tickets_slug_index")
-
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_tickets_slug_index
-      ON #{p}phoenix_kit_tickets USING btree (slug)
-    """)
-
-    # Named exactly as post_group.ex:141 declares it; Ecto matches the constraint to
-    # the index by name, so a different name here would leave the bug in place.
-    execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS phoenix_kit_post_groups_user_uuid_slug_index
-      ON #{p}phoenix_kit_post_groups USING btree (user_uuid, slug)
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '168'")
   end
 
@@ -108,115 +93,7 @@ defmodule PhoenixKit.Migrations.Postgres.V168 do
     prefix = Map.get(opts, :prefix, "public")
     p = prefix_str(prefix)
 
-    # Lossy, and says so. The indexes revert; the slugs this migration suffixed do
-    # not, because nothing records the values they replaced (V151/V167 precedent for
-    # a one-way repair).
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_post_groups_user_uuid_slug_index")
-    execute("DROP INDEX IF EXISTS #{p}phoenix_kit_tickets_slug_index")
-
-    execute("""
-    CREATE INDEX IF NOT EXISTS phoenix_kit_tickets_slug_index
-      ON #{p}phoenix_kit_tickets USING btree (slug)
-    """)
-
     execute("COMMENT ON TABLE #{p}phoenix_kit IS '167'")
-  end
-
-  # Oldest row keeps the bare slug; every later collision is suffixed -2, -3, … past
-  # whatever is already taken, matching `PhoenixKit.Utils.Slug.ensure_unique/2` so a
-  # repaired row and a freshly generated one agree on the rule.
-  defp dedup_tickets(p) do
-    execute("""
-    DO $$
-    DECLARE
-      r RECORD;
-      suffix text;
-      base text;
-      candidate text;
-      n int;
-    BEGIN
-      FOR r IN
-        SELECT uuid, slug FROM (
-          SELECT uuid,
-                 slug,
-                 row_number() OVER (
-                   PARTITION BY slug
-                   ORDER BY inserted_at ASC, uuid ASC) AS rn
-            FROM #{p}phoenix_kit_tickets) ranked
-         WHERE rn > 1
-         ORDER BY slug, rn
-      LOOP
-        n := 2;
-
-        LOOP
-          suffix := '-' || n;
-
-          -- slug is varchar(255) and Postgres ERRORS on overflow rather than
-          -- truncating, so the base is trimmed to leave room for the suffix. The
-          -- trailing-dash strip stops "foo-" || "-2".
-          base := regexp_replace(left(r.slug, 255 - length(suffix)), '-+$', '');
-          candidate := base || suffix;
-
-          EXIT WHEN NOT EXISTS (
-            SELECT 1 FROM #{p}phoenix_kit_tickets WHERE slug = candidate);
-
-          n := n + 1;
-        END LOOP;
-
-        RAISE NOTICE 'V168: ticket % slug % -> %', r.uuid, r.slug, candidate;
-
-        UPDATE #{p}phoenix_kit_tickets SET slug = candidate WHERE uuid = r.uuid;
-      END LOOP;
-    END $$;
-    """)
-  end
-
-  # Same rule, partitioned by the OWNER as well as the slug: two users may hold the
-  # same slug, so only a repeat within one `user_uuid` is a duplicate. The free-slug
-  # probe is scoped to that user for the same reason.
-  defp dedup_post_groups(p) do
-    execute("""
-    DO $$
-    DECLARE
-      r RECORD;
-      suffix text;
-      base text;
-      candidate text;
-      n int;
-    BEGIN
-      FOR r IN
-        SELECT uuid, user_uuid, slug FROM (
-          SELECT uuid,
-                 user_uuid,
-                 slug,
-                 row_number() OVER (
-                   PARTITION BY user_uuid, slug
-                   ORDER BY inserted_at ASC, uuid ASC) AS rn
-            FROM #{p}phoenix_kit_post_groups) ranked
-         WHERE rn > 1
-         ORDER BY user_uuid, slug, rn
-      LOOP
-        n := 2;
-
-        LOOP
-          suffix := '-' || n;
-          base := regexp_replace(left(r.slug, 255 - length(suffix)), '-+$', '');
-          candidate := base || suffix;
-
-          EXIT WHEN NOT EXISTS (
-            SELECT 1 FROM #{p}phoenix_kit_post_groups
-             WHERE user_uuid = r.user_uuid AND slug = candidate);
-
-          n := n + 1;
-        END LOOP;
-
-        RAISE NOTICE 'V168: post group % (user %) slug % -> %',
-          r.uuid, r.user_uuid, r.slug, candidate;
-
-        UPDATE #{p}phoenix_kit_post_groups SET slug = candidate WHERE uuid = r.uuid;
-      END LOOP;
-    END $$;
-    """)
   end
 
   defp prefix_str("public"), do: "public."

@@ -568,20 +568,6 @@ defmodule PhoenixKit.API.ExecutorFlowTest do
       assert %{"executed" => false, "dry_run" => true} = json(conn)
     end
 
-    test "a tool that declares no client token but has a cart_token property is still replayed per token (legacy)" do
-      key = idem()
-      body = %{"text" => "hi", "cart_token" => "legacy-one", "idempotency_key" => key}
-
-      first = public_call("flowkit.legacy_write", body)
-      second = public_call("flowkit.legacy_write", body)
-      other = public_call("flowkit.legacy_write", %{body | "cart_token" => "legacy-two"})
-
-      assert second.resp_body == first.resp_body
-      assert get_resp_header(second, "idempotent-replayed") == ["true"]
-      assert get_resp_header(other, "idempotent-replayed") == []
-      assert ApiFlowStore.calls() == 2
-    end
-
     test "a public write without a client token has no idempotency" do
       key = idem()
       body = %{"text" => "hi", "idempotency_key" => key}

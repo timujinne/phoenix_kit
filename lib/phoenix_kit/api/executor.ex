@@ -215,7 +215,6 @@ defmodule PhoenixKit.API.Executor do
   alias PhoenixKit.API.ControlFields
   alias PhoenixKit.API.Flow
   alias PhoenixKit.API.Keys
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.LogSafe
   alias PhoenixKit.API.OutputShape
   alias PhoenixKit.API.Problem
@@ -837,15 +836,6 @@ defmodule PhoenixKit.API.Executor do
 
   defp client_token_hash(_input, _field), do: nil
 
-  # A public tool built before `Tool.client_token` existed declares no field;
-  # `PhoenixKit.API.Legacy` still finds the one it used, so such a tool keeps its limits,
-  # its idempotency scope and its danger gate. The tool the request runs carries the
-  # field it is read through.
-  defp with_client_token(%Tool{client_token: nil} = tool),
-    do: %{tool | client_token: Legacy.legacy_client_token(tool)}
-
-  defp with_client_token(%Tool{} = tool), do: tool
-
   # --- steps ----------------------------------------------------------------
 
   defp require_actor(%{actor: %Actor{kind: :key}} = state), do: {:ok, state}
@@ -912,7 +902,7 @@ defmodule PhoenixKit.API.Executor do
 
     case Registry.find(name, audience) do
       {:ok, %Tool{} = tool} ->
-        {:ok, %{state | tool: with_client_token(tool)}}
+        {:ok, %{state | tool: tool}}
 
       {:error, :not_found} ->
         clipped = clip(name)

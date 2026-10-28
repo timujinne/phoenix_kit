@@ -1035,22 +1035,27 @@ defmodule PhoenixKit.Migrations.Postgres do
   use Ecto.Migration
 
   alias PhoenixKit.Migrations.BelowFloorError
+  alias PhoenixKit.Migrations.ModuleOwnedTables
   alias PhoenixKit.Migrations.Postgres.Helpers
   alias PhoenixKit.Migrations.Repair.Environment
 
   @initial_version 135
   @current_version 225
+
+  # Core 3.0 no longer creates or changes any module's table (plan
+  # `dev_docs/plans/2026-10-25-module-table-ownership.md`, step 8): V135..V225
+  # had that DDL stripped, so a host between V135 and V225 would skip changes
+  # its module tables still need. It must reach the last 2.x release (V225)
+  # first. Fresh installs still start at the V135 baseline.
+  @minimum_upgrade_version 225
   @default_prefix "public"
 
-  # The frozen pre-squash bridge: the last 1.7.x release, which still carries
-  # V01..V134 and is the only supported way back onto the floor from below it.
-  # `BelowFloorError` leaves this `nil` by design ("nil until that release is
-  # tagged"); it is tagged now (v1.7.236), so the two raise sites below name it
-  # instead of making the operator go and look up which release "the last
-  # 1.7.x" was. Bump this only if another 1.7.x ships after the 2.0 cut —
-  # naming an earlier 1.7.x stays correct advice either way, since every 1.7.x
-  # carries the whole pre-squash chain.
-  @bridge_version "1.7.236"
+  # The bridge a below-floor host must install first: 2.65.0, the last 2.x
+  # release, which is at V225 and still carries the module DDL that core 3.0
+  # removed. (2.65.0 in turn sends a host below V135 to 1.7.236, the last 1.7.x,
+  # so an old install walks 1.7.236 -> 2.65.0 -> 3.0.) A later 2.x patch stays
+  # correct advice, since every 2.x from 2.65.0 on is at V225.
+  @bridge_version "2.65.0"
 
   @doc """
   The release an below-floor host must install before this one.
@@ -1075,8 +1080,36 @@ defmodule PhoenixKit.Migrations.Postgres do
   @doc false
   def initial_version, do: @initial_version
 
+  @doc """
+  The lowest version an existing install may be at to upgrade to this release.
+
+  Above `initial_version/0` since 3.0, which stripped the module tables' DDL from
+  V135..V223: an install below this raises `PhoenixKit.Migrations.BelowFloorError`
+  and has to run the last 2.x release first (`bridge_version/0`).
+  """
+  @spec minimum_version() :: pos_integer()
+  def minimum_version, do: @minimum_upgrade_version
+
   @doc false
   def current_version, do: @current_version
+
+  # True when the database holds a table core's 2.x chain created for a module
+  # (`ModuleOwnedTables`): the sign of an install this release did not build.
+  defp module_tables_present?(opts) do
+    %{rows: [[present]]} =
+      repo().query!(
+        """
+        SELECT EXISTS (
+          SELECT FROM pg_catalog.pg_tables
+          WHERE schemaname = $1 AND tablename = ANY($2)
+        )
+        """,
+        [opts.prefix, ModuleOwnedTables.module_tables()],
+        log: false
+      )
+
+    present
+  end
 
   @impl PhoenixKit.Migration
   def up(opts) do
@@ -1084,7 +1117,25 @@ defmodule PhoenixKit.Migrations.Postgres do
     acquire_chain_lock!()
     initial = migrated_version(opts)
 
-    case plan_up(initial, opts.version, @initial_version) do
+    plan = plan_up(initial, opts.version, @initial_version, @minimum_upgrade_version)
+
+    # A fresh install that stopped part-way (a failed migration leaves the
+    # last good version stamped) is below the minimum too, but it is this
+    # release's own and resumes. Only an install a 2.x chain built, which has
+    # the module tables, has to reach V224 first.
+    plan =
+      case plan do
+        {:raise, db_version, _floor}
+        when db_version >= @initial_version and db_version < opts.version ->
+          if module_tables_present?(opts),
+            do: plan,
+            else: {:run_delta, (db_version + 1)..opts.version}
+
+        other ->
+          other
+      end
+
+    case plan do
       {:raise, db_version, floor} ->
         raise BelowFloorError,
           db_version: db_version,
@@ -1197,12 +1248,15 @@ defmodule PhoenixKit.Migrations.Postgres do
   @spec plan_up(
           initial :: non_neg_integer(),
           target :: integer(),
-          initial_version :: pos_integer()
+          initial_version :: pos_integer(),
+          minimum :: pos_integer() | nil
         ) :: up_plan()
-  def plan_up(initial, target, initial_version) do
+  def plan_up(initial, target, initial_version, minimum \\ nil) do
+    minimum = minimum || initial_version
+
     cond do
-      initial > 0 and initial < initial_version ->
-        {:raise, initial, initial_version}
+      initial > 0 and initial < minimum ->
+        {:raise, initial, minimum}
 
       initial == 0 ->
         {:run, initial_version..max(target, initial_version)}

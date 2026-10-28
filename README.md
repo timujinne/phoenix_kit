@@ -29,7 +29,7 @@ mix igniter.install phoenix_kit
 
 This will automatically:
 
-- Add `{:phoenix_kit, "~> 2.0"}` to your `mix.exs` and fetch deps
+- Add `{:phoenix_kit, "~> 3.0"}` to your `mix.exs` and fetch deps
 - Auto-detect your Ecto repository
 - **Validate PostgreSQL compatibility** with adapter detection
 - Generate migration files for authentication tables
@@ -81,7 +81,20 @@ If your Oban config runs on a different repo than the first of `:ecto_repos`
 (`repo:` in `config :my_app, Oban`), the update checks that repo too but
 writes no file for it — it prints the migration to add to that repo instead.
 
-## Upgrading to 2.0
+## Upgrading to 3.0
+
+**New installs need nothing from this section.**
+
+3.0 stops creating the optional modules' tables in core (each module's own chain creates them) and removes the
+database layer for email templates and the deprecated shop names of the machine API. An existing install must be at
+**V225 (PhoenixKit 2.65.0)** before it upgrades; 3.0 refuses a lower database. In short: pin `== 2.65.0` and run
+`mix phoenix_kit.update` until it reports V225, export any email templates you edited
+(`mix phoenix_kit_emails.templates.export`), then update core and all installed modules together and run
+`mix phoenix_kit.update` again. The full recipe is in [Upgrading to PhoenixKit 3.0](guides/upgrading-to-3.0.md).
+
+## Upgrading to 2.0 (historical)
+
+The 2.0 notes below stay for installs that are still on 1.7.x; from 2.0 on, go through 2.65.0 and the 3.0 guide above.
 
 **New installs need nothing from this section.**
 
@@ -305,7 +318,7 @@ an optional dep is not resolved transitively:
 # mix.exs
 def deps do
   [
-    {:phoenix_kit, "~> 2.0"},
+    {:phoenix_kit, "~> 3.0"},
     {:igniter, "~> 0.7", only: [:dev, :test]}
   ]
 end
@@ -334,7 +347,7 @@ detects the change and recompiles itself, so the tasks appear without a manual
 
 For full control, skip the installer entirely:
 
-1. Add `{:phoenix_kit, "~> 2.0"}` to `mix.exs`
+1. Add `{:phoenix_kit, "~> 3.0"}` to `mix.exs`
 2. Run `mix deps.get && mix phoenix_kit.gen.migration`
 3. Configure repository: `config :phoenix_kit, repo: MyApp.Repo`
 4. Add `phoenix_kit_routes()` to your router

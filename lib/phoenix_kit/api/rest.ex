@@ -6,10 +6,7 @@ defmodule PhoenixKit.API.REST do
       forward "/api/admin/v1", PhoenixKit.API.REST, audience: :admin
       forward "/api/public/v1", PhoenixKit.API.REST, audience: :public
 
-  `phoenix_kit_routes/0` emits both, and the deprecated alias of the public
-  one (`PhoenixKit.API.Paths`), which also takes `deprecated: [path: ...,
-  successor: ...]`: the answers on it carry `Deprecation` and a `Link` to the
-  canonical path (`PhoenixKit.API.Auth`). The plug sees the path after the
+  `phoenix_kit_routes/0` emits both (`PhoenixKit.API.Paths`). The plug sees the path after the
   forward, so the routes are:
 
     * `POST /<tool>` runs a tool; the body is the tool's input as one JSON
@@ -76,7 +73,7 @@ defmodule PhoenixKit.API.REST do
             "PhoenixKit.API.REST :audience must be :admin or :public, got: #{inspect(audience)}"
     end
 
-    [audience: audience] ++ Keyword.take(opts, [:deprecated])
+    [audience: audience]
   end
 
   @impl Plug

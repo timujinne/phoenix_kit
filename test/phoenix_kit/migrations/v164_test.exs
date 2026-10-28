@@ -1,9 +1,8 @@
 defmodule PhoenixKit.Migrations.Postgres.V164Test do
   @moduledoc """
-  Pins V164's schema state: `idx_publishing_posts_group_slug` is partial
-  (`WHERE (slug IS NOT NULL)`), and the subscription slug index carries
-  the `types` name — never the stale `plans` name V65's own bare
-  `ALTER INDEX ... RENAME TO` left behind on a named-schema install.
+  Pins that the chain reaches V164. (The slug-index checks on the publishing and
+  subscription tables moved to those modules' chains in core 3.0: core no longer
+  creates the tables.)
 
   V164.up/down can't be invoked outside an `Ecto.Migrator` runner (they
   rely on `Ecto.Migration.execute/1`, which checks for a runner process)
@@ -20,48 +19,6 @@ defmodule PhoenixKit.Migrations.Postgres.V164Test do
   use PhoenixKit.DataCase, async: true
 
   alias PhoenixKit.Test.Repo
-
-  defp indexdef(table, index_name) do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT indexdef FROM pg_indexes
-        WHERE schemaname = current_schema()
-          AND tablename = $1
-          AND indexname = $2
-        """,
-        [table, index_name]
-      )
-
-    case rows do
-      [[definition]] -> definition
-      [] -> nil
-    end
-  end
-
-  describe "phoenix_kit_publishing_posts group_uuid/slug uniqueness" do
-    test "idx_publishing_posts_group_slug is partial on slug IS NOT NULL" do
-      definition = indexdef("phoenix_kit_publishing_posts", "idx_publishing_posts_group_slug")
-
-      assert definition =~ "WHERE (slug IS NOT NULL)"
-    end
-  end
-
-  describe "phoenix_kit_subscription_types slug uniqueness" do
-    test "the slug index carries the types name" do
-      assert indexdef(
-               "phoenix_kit_subscription_types",
-               "phoenix_kit_subscription_types_slug_uidx"
-             )
-    end
-
-    test "the stale plans-named twin is gone" do
-      refute indexdef(
-               "phoenix_kit_subscription_types",
-               "phoenix_kit_subscription_plans_slug_uidx"
-             )
-    end
-  end
 
   describe "version marker" do
     test "phoenix_kit table comment is at or past V164" do

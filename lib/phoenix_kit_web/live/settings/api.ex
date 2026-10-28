@@ -84,10 +84,6 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   the actor (a permanent `setting.changed` entry in the Activity log, which is
   where the key events are read too: this page has no history card).
 
-  A limit that was renamed (`PhoenixKit.API.Legacy`) is compared with what its
-  new key alone gives (`PhoenixKit.API.Config.rate_limits_without_fallback/0`), so
-  the first save writes a value that was in effect through the old key under the
-  new one. The old row is left in place.
   """
   use PhoenixKitWeb, :live_view
   use Gettext, backend: PhoenixKitWeb.Gettext
@@ -996,18 +992,12 @@ defmodule PhoenixKitWeb.Live.Settings.Api do
   end
 
   defp write_limits(socket, wanted) do
-    stored = Config.rate_limits_without_fallback()
-    effective = Config.rate_limits()
+    stored = Config.rate_limits()
 
-    # A number is written when it differs from what its own key holds, or when its
-    # own key holds no valid number and a deprecated key is what is in effect: then
-    # even the default has to be written, to take over from the deprecated key.
+    # A number is written when it differs from what is in effect.
     number_changes =
       Enum.map(wanted.numbers, fn {setting, name, number} ->
-        alone = Map.fetch!(stored, name)
-
-        {setting, Integer.to_string(number),
-         number != alone or alone != Map.fetch!(effective, name)}
+        {setting, Integer.to_string(number), number != Map.fetch!(stored, name)}
       end)
 
     list_changes = [

@@ -131,7 +131,7 @@ defmodule PhoenixKit.API.MCP.Shape do
   What to do next after an error `code`, one sentence for an agent.
 
   Core's codes have it here; any other code takes the `advice` of the enabled module that
-  declares it (`c:PhoenixKit.Module.api_problems/0`) or of `PhoenixKit.API.Legacy`, and a
+  declares it (`c:PhoenixKit.Module.api_problems/0`) and a
   code with none gets a pointer to the problem document.
   """
   @spec advice(atom()) :: String.t()

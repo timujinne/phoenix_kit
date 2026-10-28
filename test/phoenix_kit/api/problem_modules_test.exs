@@ -1,8 +1,8 @@
 defmodule PhoenixKit.API.ProblemModulesTest do
   @moduledoc """
   The error codes a module declares (`api_problems/0`) in `PhoenixKit.API.Problem`
-  and `PhoenixKit.API.MCP.Shape`, and the four codes of the old shop API that
-  `PhoenixKit.API.Legacy` keeps answering until a module declares them.
+  and `PhoenixKit.API.MCP.Shape`. The four codes of the old shop API are no
+  longer core's: they exist only where a module declares them.
   """
   # async: false - `register/1` changes global state.
   use ExUnit.Case, async: false
@@ -10,7 +10,6 @@ defmodule PhoenixKit.API.ProblemModulesTest do
   import ExUnit.CaptureLog
   import Plug.Test
 
-  alias PhoenixKit.API.Legacy
   alias PhoenixKit.API.MCP.Shape
   alias PhoenixKit.API.OpenAPI
   alias PhoenixKit.API.Problem
@@ -39,7 +38,7 @@ defmodule PhoenixKit.API.ProblemModulesTest do
     end
   end
 
-  # What the ecommerce module declares for the four legacy codes: its own values win.
+  # What the ecommerce module declares for two of the old shop codes.
   defmodule OldCodesModule do
     def enabled?, do: true
 
@@ -50,16 +49,6 @@ defmodule PhoenixKit.API.ProblemModulesTest do
       }
     end
   end
-
-  @legacy_codes %{
-    cart_not_found: {404, "Cart not found", "Create a new cart and try again."},
-    cart_locked: {409, "Cart locked", "The cart is already in checkout; start a new cart."},
-    unsupported_source:
-      {422, "Unsupported source", "This product source cannot be changed through the API."},
-    insufficient_stock:
-      {422, "Insufficient stock",
-       "Reduce the quantities listed in context.lines; nothing was posted."}
-  }
 
   setup do
     for {{ModuleRegistry, :warned, {:shadowed_api_problem, _, _}} = key, _} <-
@@ -167,40 +156,32 @@ defmodule PhoenixKit.API.ProblemModulesTest do
     end
   end
 
-  describe "the codes of the old shop API (Legacy)" do
-    test "answer with the same status, title and MCP advice when no module declares them" do
-      for {code, {status, title, advice}} <- @legacy_codes do
-        assert Problem.status(code) == status, "#{code} status"
-        assert Problem.body(code, "D.", %{}, nil)["title"] == title
-        assert Shape.advice(code) == advice, "#{code} advice"
-        assert {^status, %{"code" => code_text, "title" => ^title}} = send_problem(code)
-        assert code_text == Atom.to_string(code)
-        assert Problem.statuses()[code] == status
+  describe "the codes of the old shop API" do
+    test "are unknown to core: a 500 with a warning, until a module declares them" do
+      codes = ~w(cart_not_found cart_locked unsupported_source insufficient_stock)a
+
+      for code <- codes do
+        refute Problem.core_code?(code)
+        assert Problem.status(code) == 500
+        refute Map.has_key?(Problem.statuses(), code)
       end
+
+      log = capture_log(fn -> send_problem(:cart_locked) end)
+      assert log =~ "unknown error code"
     end
 
-    test "send no unknown-code warning" do
-      assert capture_log(fn -> send_problem(:cart_locked) end) == ""
-    end
-
-    test "are no longer in core's own table" do
-      for code <- Map.keys(@legacy_codes), do: refute(Problem.core_code?(code))
-      assert Map.keys(Legacy.problems()) |> Enum.sort() == Map.keys(@legacy_codes) |> Enum.sort()
-    end
-
-    test "give way to a module that declares them" do
+    test "answer as the module that declares them says" do
       with_modules([OldCodesModule], fn ->
         assert Problem.status(:cart_not_found) == 410
         assert Problem.body(:cart_not_found, "D.", %{}, nil)["title"] == "Basket gone"
         assert Shape.advice(:cart_not_found) == "Open a new basket."
 
-        # The declaration replaces the legacy one as a whole: no advice declared, the default.
+        # No advice declared: the default.
         assert Problem.status(:insufficient_stock) == 409
         assert Shape.advice(:insufficient_stock) == Shape.advice(:some_code_nobody_knows)
 
-        # What it does not declare stays legacy.
-        assert Problem.status(:cart_locked) == 409
-        assert Shape.advice(:cart_locked) =~ "checkout"
+        # What it does not declare stays unknown.
+        assert Problem.status(:cart_locked) == 500
       end)
     end
   end
