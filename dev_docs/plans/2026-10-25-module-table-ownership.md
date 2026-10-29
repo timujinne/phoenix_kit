@@ -1,11 +1,111 @@
 # Module tables: every module owns its own
 
-**Status:** in progress — steps 1–3 done, step 4 done, step 5 done, step 6 done, all unreleased. See the
-[progress log](#progress-log).
+**Status:** steps 1–8 and 10 **done and released** (core 2.65.0 and 3.0.0 on 2026-10-27, then every module); step 9
+(dead tables) is open. See [What shipped](#what-shipped-the-30-release-2026-10-27) first; everything after it is the working
+record, in the order it happened.
 **Started:** 2026-10-25. **Tracks:** this file is the shared record of where
 the work stands; update it in the same commit as each step.
 
-## Start here (handoff for the next session, 2026-10-25)
+## What shipped: the 3.0 release (2026-10-27)
+
+**Result.** Core 3.0.0 creates 40 tables, all of them its own. Each of the 25 owner modules creates its own tables with its own
+migration chain, in dependency order, and the same schema comes out: core plus the 25 chains rebuild the whole 2.65.0 schema
+(tables, columns, indexes, constraints, functions, seeds, triggers), with two intended differences (the
+`phoenix_kit_doc_documents` project foreign key exists only where Projects' table does, and `phoenix_kit_email_templates` is
+no longer created). A database upgrades only from V225, the last 2.x. Existing tables are never touched, renamed or dropped.
+
+### Versions
+
+| Package | Released | Notes |
+|---|---|---|
+| phoenix_kit | **2.65.0**, **3.0.0** | 2.65.0 is the last 2.x (V225, the callbacks, ordered module migrations); 3.0.0 is the break |
+| tier 1 | comments 0.5.0, ai 0.27.0, billing 0.24.0, entities 0.7.0, locations 0.8.0, emails 0.7.0, db 0.4.0, boards 0.5.0, stats 0.3.0, hello_world 0.4.0, web_analytics 0.9.0, customer_support 0.5.0, dashboards 0.8.0, referrals 0.8.0, open_graph 0.4.0, user_connections 0.4.0, sync 0.4.0, templates_editor 0.2.0 | no sibling module dependencies |
+| tier 2 | staff 0.11.0, crm 0.18.0, posts 0.7.0, publishing 0.15.0, agent 0.2.0, catalogue 0.50.0, manufacturing 0.5.0 | depend on tier 1 |
+| tier 3 | projects 0.32.0, legal 0.7.0, warehouse 0.7.0, ecommerce 0.8.0, calendar 0.4.0, inbox 0.4.0, newsletters 0.6.0, document_creator 0.10.0 | depend on tier 2 (or on tier 2 in their tests) |
+| not released | bookings (Max's rework), templates (stub), photos (never published) | |
+
+Every module took the next minor of its own line (modules keep their own versions; core is the only one that went to 3.0), a
+core pin of `>= <floor> and < 4.0.0`, and sibling pins raised to the first release that carries that sibling's own chain.
+
+### What changed for a host
+
+1. **Core creates no module table.** V135–V225 had that DDL stripped in place. A fresh install gets core's tables from
+   `mix phoenix_kit.update`, then each installed module's from the same run, in dependency order
+   (`Migrations.Modules.order_by_dependencies/1`, which reads the OTP application graph).
+2. **Upgrades go through 2.65.0.** `Postgres.minimum_version/0` is 225. A lower database raises `BelowFloorError` naming
+   `bridge_version/0` (2.65.0); a database below V135 goes 1.7.236 → 2.65.0 → 3.0. A fresh 3.0 install that stopped part-way
+   resumes (the gate only raises when module tables exist).
+3. **Email templates are files.** The database layer is removed from `Email.Content`, `Mailer`, the `Email.Provider`
+   behaviour and the Emails module (pages, CRUD, seeding); `mix phoenix_kit_emails.templates.export` is the upgrade path and the
+   old table is left in place.
+4. **The deprecated shop names of the machine API are gone** (`PhoenixKit.API.Legacy`): `/api/shop/v1`, `/mcp/shop`, the old
+   settings keys, the `cart_token` fallback, the four shop error codes (modules declare their own), the old checkout-link
+   redaction names, `RateLimit.check_cart_rows/1`.
+5. Operator guide: `guides/upgrading-to-3.0.md`.
+
+### How it was done (the method, for the next major)
+
+- **One authority for ownership.** `PhoenixKit.Migrations.ModuleOwnedTables` says whose each table is; a core test fails if a
+  retained version names a module table. A behavioural test (`module_tables_untouched_test.exs`) runs the chain over module
+  tables that already exist, because a literal-name scan cannot see indirect paths (V163's catalog-driven repair and V176's
+  shared constraint list both still mutated module tables until Codex's review caught them).
+- **Prove before removing.** Each module first got a chain that adopts its tables (`CREATE ... IF NOT EXISTS`, guarded), proved
+  by `ModuleChainCheck` (core's chain then the module's, versus the module's alone, compared in a scratch schema). Only then did
+  core stop creating them (step 8), and the proof for the whole set is `dev_docs/squash/rehearse_module_chains.exs`: build core
+  plus all 25 chains in dependency order and diff the whole schema against a recording of the old one.
+- **Order matters, so core computes it.** Chains run after the modules they reference; the rehearsal's control run (name order)
+  fails on `phoenix_kit_staff_teams`, and dependency order passes. Real edges: projects → staff and entities (hard
+  dependencies, not optional), ecommerce → billing, warehouse → billing, ai, catalogue, comments, locations. A soft link (a
+  foreign key to a table that may not exist) is guarded with `to_regclass`, as in document_creator → projects.
+- **Per-module manifests.** `PhoenixKit.Module` gained `expected_schema/0` and `file_references/0`; manifests are generated
+  from the chain by `dev_docs/squash/generate_module_manifest.exs`, never hand-edited; core's `doctor`/`repair` check core's
+  tables and ask each module for its own.
+- **Release in tiers, after a gate.** Core 2.65.0 first (a release of `main`), then 3.0.0 from the same line, then modules in
+  dependency tiers, five at a time. Per module the gate was `mix deps.update --all` (so the lock resolves core 3.0.0 and the
+  patched deps; `mix hex.audit` is part of `mix precommit`), a fresh test database, `mix format`, `mix precommit`, then the
+  full suite, and only a green result was published (`mix hex.publish --yes`, tag in the repo's own style, GitHub release). The
+  gate and publish scripts were session-local shell, not committed; the steps above are all there is to them.
+- **Tests build their siblings' tables.** A module whose tables reference another module's runs that module's real chain in
+  `test_helper.exs` (test-only dependency where it is not already a dependency), and `ModuleChainCheck.check/3` and
+  `build_alone/4` take `after: [chains]` for the same reason.
+
+### Lessons (what cost time, so it is cheaper next time)
+
+- **A helper that checks "does core have my tables?" silently excludes the integration suite.** open_graph (122 tests) and
+  ecommerce (about 3,500) ran green for days with their database tests excluded. Look at the `(N excluded)` count, not only
+  "0 failures", after any change to what core creates.
+- **A chain that is run before its prerequisite crashes the helper at boot** (agent, ecommerce, staff), which shows up as no
+  test output at all. Run prerequisites first.
+- **A stale `mix.lock` hides the new core.** Modules with a loose core pin kept 2.64.1 in the lock; the gate must update the
+  lock to test the release it is about to publish.
+- **Removing a shared fallback breaks the modules that leaned on it.** Closing the API deprecation window made
+  `warehouse.issue_stock` answer 500 without ecommerce (the `insufficient_stock` code came from core); warehouse now declares it.
+  Grep the ecosystem for every name a removal drops before removing it.
+- **Tests with hidden dependencies on today's date or on a module being switched on** (projects' calendar and composer tests,
+  ecommerce's translation seam) only showed once the suites ran again.
+- **Newer core returns admin paths without the `en/` prefix**, and phoenix_live_view 1.2 refuses to patch to another
+  live_session, which broke the LiveView tests of db, staff and others; the test routers now mount the unprefixed path.
+- **Unpublished sibling pins make `mix deps.get` fail until the sibling is on Hex**, so the bump commits stayed unpushed until
+  their tier; locally `PHOENIX_KIT_<APP>_PATH` stands in.
+- **An independent review earned its keep.** Codex found the V163/V176 data-deletion path, the fixture collisions on an
+  upgraded database and the missing upgrade guide in one pass; the review is
+  `dev_docs/pull_requests/2026/unassigned-core-3.0/CODEX_REVIEW.md`.
+
+### Still open
+
+- **Step 9 — dead tables.** `phoenix_kit_crm_user_role_view`, `phoenix_kit_email_metrics`, `phoenix_kit_email_orphaned_events`,
+  and now `phoenix_kit_email_templates` (no chain creates it; hosts that have it keep it). Dropping deletes data: an explicit
+  decision per table, in the owning module's chain, never core's, and the templates table only after the export has been run.
+- **legal:** `DataCollectionTest` ("an unavailable registry fails policy generation") fails on core 2.65 and 3.0:
+  `DataCollection.fetch_declared/2` returns `{:ok, []}` when module discovery exits. Released as is; worth a look.
+- **crm:** `schema_owner_guard_wiring_test` fails in the release harness (it spawns a nested `mix test` against a scratch
+  database); the behaviour it checks works by hand.
+- **Core `builtin_file_references`:** kept, guarded by table existence; deleting it at the next major is possible now that every
+  owner implements `file_references/0`.
+- **Old log rows** keep a "Database template" badge in Emails with no link; the test email can no longer be overridden by a file.
+- **bookings** is Max's to bring onto the new pins and chain conventions when his rework lands.
+
+## Start here (handoff of 2026-10-25, kept as history)
 
 **Where it stands.** Steps 1–3 are done, committed and pushed to `main` in
 every repo; **nothing is released**. Hosts see no change until the releases.
@@ -126,12 +226,12 @@ new protocol.
 | 2 | "Builds from scratch" test helper + a true fresh-install test | core | **Done** 2026-10-25 (unreleased) |
 | 3 | First migration chain for comments, staff, user_connections, sync, calendar, referrals | 6 modules | **Done** 2026-10-25 (unreleased) |
 | 4 | Complete the chains of ai (3 tables) and document_creator (7 tables) | 2 modules **Done** 2026-10-25 — document_creator `f67f163`, ai `c118542` (unreleased) |
-| 5 | The step-2 test in every adopted module; fix what it finds | 17 modules | In progress — billing (`3fa1164`) and ecommerce (`54061bd`) done 2026-10-25; **Done 2026-10-25**: billing, ecommerce, emails, and the builds-alone test in the other 14 |
-| 6 | Core's manifest hands every module-owned entry over | core | Not started |
+| 5 | The step-2 test in every adopted module; fix what it finds | 17 modules | **Done** 2026-10-25 (released with each module's 3.0 release) |
+| 6 | Core's manifest hands every module-owned entry over | core | **Done** 2026-10-26 (released in 2.65.0) |
 | 7 | Manifest generator (frozen pre-squash part + generated rest, compact, in `priv/`); move core's hard-coded module-table lists to module callbacks | core | **Done** 2026-10-26 (7a `file_references/0`, 7b per-module manifests; unreleased) |
-| 8 | Core stops creating module tables on fresh installs | core | **In progress** 2026-10-27 — decided: core 3.0, strip the DDL in place, installs must be at V225 first; on branch `core-3.0` (not yet merged or pushed) |
+| 8 | Core stops creating module tables on fresh installs | core | **Done and released** 2026-10-27 as core 3.0.0 |
 | 9 | Dead tables (`crm_user_role_view`, `email_metrics`, `email_orphaned_events`) | crm, emails | Not started — per-table decision |
-| 10 | Ecosystem sweep for core 3.0: widen every package's core pin, release in order | core + all modules | Not started — after step 8 |
+| 10 | Ecosystem sweep for core 3.0: widen every package's core pin, release in order | core + all modules | **Done and released** 2026-10-27 (see "What shipped") |
 
 ### Step 1 — ownership map and guard (done)
 
@@ -533,7 +633,10 @@ package, four at a time. Results by class (no package was changed):
 | `phoenix_kit_consent_logs` is legal's (legal's chain owns its shape; core still creates it) | Made 2026-10-25 |
 | ai's endpoints/prompts/requests move to ai (step 4) | Made 2026-10-25 — owner agreed; done in ai `c118542` |
 | Step 8: (a) at 3.0 or (b) in 2.x | Made 2026-10-26 — (a) at 3.0 |
-| Step 9: drop or keep each dead table | Open |
+| Step 9: drop or keep each dead table | Open (now four tables, with `phoenix_kit_email_templates`) |
+| Email templates leave the database at 3.0 | Made 2026-10-27, released |
+| Close the machine-API deprecation window at 3.0.0 (`PhoenixKit.API.Legacy`) | Made 2026-10-27, released |
+| Release 3.0.0 on 2026-10-27 instead of waiting for the weekly release day | Made 2026-10-27 by the owner |
 
 ## Progress log
 
