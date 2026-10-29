@@ -4223,8 +4223,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
           {:noreply, removed(socket, file_uuid, gettext("File permanently deleted"))}
 
         true ->
-          flash = removal_flash(Storage.remove_file_from_folder(file, viewed))
-          {:noreply, removed(socket, file_uuid, flash)}
+          result = Storage.remove_file_from_folder(file, viewed)
+
+          {:noreply,
+           socket
+           |> unpick_removed(file_uuid, result)
+           |> removed(file_uuid, removal_flash(result))}
       end
     else
       # Nothing in this browser shows that file: a stale row, a uuid from

@@ -483,12 +483,64 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerViewerTest do
       end
     end
 
+    # A file linked into the open folder is only taken out of it: no trash
+    # broadcast comes, and it must leave the pick all the same.
+    test "a file only unlinked from the open folder leaves the pick too", %{conn: conn} = ctx do
+      sub = folder!("Kitchen", ctx.scope)
+      a = file!(sub)
+      {:ok, _} = Storage.attach_file_to_folder(a, ctx.scope.uuid)
+      view = open(conn, ctx)
+
+      click_file(view, a)
+      eye(view, a)
+
+      view
+      |> element(~s(#pick-viewer-modal button[phx-click="trash_file"]))
+      |> render_click()
+
+      assert Storage.get_file(a.uuid).status == "active"
+      assert confirm(view) == []
+    end
+
     test "a readonly picker offers no trash", %{conn: conn} = ctx do
       a = file!(ctx.scope)
       view = open(conn, ctx, %{"opts" => %{readonly: true}})
       eye(view, a)
 
       refute has_element?(view, ~s(#pick-viewer-modal button[phx-click="trash_file"]))
+    end
+  end
+
+  # The tile menu's Move to Trash in a picker (`delete_file` on a live file).
+  describe "Move to Trash from the tile menu" do
+    defp kebab_trash(view, file) do
+      view
+      |> element(~s(#pick-file-kebab-grid-#{file.uuid} button[phx-click="delete_file"]))
+      |> render_click()
+    end
+
+    test "a trashed file leaves the pick", %{conn: conn} = ctx do
+      [a, b] = files_in_order!(ctx.scope, 2)
+      view = open(conn, ctx)
+
+      click_file(view, a)
+      click_file(view, b)
+      kebab_trash(view, a)
+
+      assert Storage.get_file(a.uuid).status == "trashed"
+      assert confirm(view) == [b.uuid]
+    end
+
+    test "a file only unlinked from the open folder leaves the pick", %{conn: conn} = ctx do
+      linked = file!(folder!("Elsewhere"))
+      {:ok, _} = Storage.attach_file_to_folder(linked, ctx.scope.uuid)
+      view = open(conn, ctx)
+
+      click_file(view, linked)
+      kebab_trash(view, linked)
+
+      assert Storage.get_file(linked.uuid).status == "active"
+      assert confirm(view) == []
     end
   end
 
