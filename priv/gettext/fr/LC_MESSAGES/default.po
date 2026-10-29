@@ -21532,3 +21532,8 @@ msgstr "Attendez la fin des téléversements"
 #, elixir-autogen, elixir-format
 msgid "No open media browser could receive this upload."
 msgstr "Aucun navigateur de médias ouvert n'a pu recevoir ce téléversement."
+
+#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
+#, elixir-autogen, elixir-format
+msgid "Deselect"
+msgstr "Désélectionner"

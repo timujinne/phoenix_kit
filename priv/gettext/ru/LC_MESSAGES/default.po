@@ -21733,3 +21733,8 @@ msgstr "Дождитесь окончания загрузки"
 #, elixir-autogen, elixir-format
 msgid "No open media browser could receive this upload."
 msgstr "Ни один открытый медиабраузер не смог принять эту загрузку."
+
+#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
+#, elixir-autogen, elixir-format
+msgid "Deselect"
+msgstr "Снять выбор"

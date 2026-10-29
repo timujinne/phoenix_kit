@@ -2776,6 +2776,24 @@ if (typeof window.Chart === "undefined") {
   window.PhoenixKitHooks.ViewerKeydown = {
     mounted() {
       const self = this;
+      // A picker's viewer carries `popover` (see MediaBrowser's browser
+      // template): shown as a popover it sits in the browser's top layer, so
+      // a host modal's transformed box — the containing block of anything
+      // `position: fixed` inside it — cannot clip it, and it paints above
+      // the host's <dialog>. `manual`: no light dismiss and no Escape of its
+      // own; the key handler below owns Escape. A browser without the
+      // Popover API has no `showPopover` and keeps the popup where it is.
+      // Again from updated(): a patch must not leave it hidden.
+      self._showPopover = function() {
+        const el = self.el;
+        if (!el.hasAttribute || !el.hasAttribute("popover") || typeof el.showPopover !== "function") return;
+        let open = false;
+        try { open = el.matches(":popover-open"); } catch (_e) { open = false; }
+        if (!open) {
+          try { el.showPopover(); } catch (_e) { /* not connected, or already shown */ }
+        }
+      };
+      self._showPopover();
       // Tell the stand-in the real viewer is here. It needs the element to
       // find the image and wait for it to paint — mounted is not painted.
       window.dispatchEvent(new CustomEvent("pk:viewer-open", { detail: { el: self.el } }));
@@ -2888,8 +2906,31 @@ if (typeof window.Chart === "undefined") {
         });
       };
       self._warm();
+      // An open modal <dialog> that does not hold this viewer was opened
+      // over it (one opened from inside the viewer, or after it): the key
+      // is that dialog's.
+      function dialogAbove(el) {
+        const dialogs = (document.querySelectorAll && document.querySelectorAll("dialog")) || [];
+        for (let i = 0; i < dialogs.length; i++) {
+          const d = dialogs[i];
+          let modal;
+          try { modal = d.matches(":modal"); } catch (_e) { modal = !!d.open; }
+          if (modal && !(d.contains && d.contains(el))) return true;
+        }
+        return false;
+      }
       self._handler = function(e) {
         if (e.key !== "Escape" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+        if (e.key === "Escape") {
+          if (dialogAbove(self.el)) return;
+          // The viewer is the top layer, so Escape closes the viewer alone.
+          // A host <dialog> holding the browser (a picker in a modal) would
+          // take the same key as its own close request; cancelling the
+          // keydown cancels that request (the dialog gets no `cancel`), and
+          // so does an Escape typed in a field of the viewer, which closes
+          // nothing.
+          e.preventDefault();
+        }
         const t = document.activeElement;
         if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" ||
                   t.isContentEditable === true)) return;
@@ -2938,6 +2979,7 @@ if (typeof window.Chart === "undefined") {
     // patches (sidebar toggle, a comment) are harmless — with the
     // stand-in hidden the listener only refreshes its layout prediction.
     updated() {
+      if (this._showPopover) this._showPopover();
       window.dispatchEvent(new CustomEvent("pk:viewer-open", { detail: { el: this.el } }));
       // …and the dataset now names the NEW neighbours.
       if (this._warm) this._warm();

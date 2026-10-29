@@ -21532,3 +21532,8 @@ msgstr "Warten Sie, bis die Uploads abgeschlossen sind"
 #, elixir-autogen, elixir-format
 msgid "No open media browser could receive this upload."
 msgstr "Kein geöffneter Medienbrowser konnte diesen Upload empfangen."
+
+#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
+#, elixir-autogen, elixir-format
+msgid "Deselect"
+msgstr "Abwählen"

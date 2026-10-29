@@ -358,6 +358,21 @@
         select_mode={@select_mode}
         myself={@myself}
       />
+      <%!-- A picker's click picks, so its viewer opens from the eye. A
+           sibling of the click target, as the kebab is: its click must not
+           pick, and a double click on it must not confirm. --%>
+      <button
+        :if={@picker}
+        type="button"
+        phx-click="view_file"
+        phx-target={@myself}
+        phx-value-file-uuid={file.file_uuid}
+        class="btn btn-xs btn-ghost btn-circle !absolute top-1 right-8 !bg-black/40 hover:!bg-black/60 !text-white !border-0 opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+        title={gettext("View")}
+        aria-label={gettext("View")}
+      >
+        <.icon name="hero-eye" class="w-4 h-4" />
+      </button>
       <%!--
       Per-file kebab menu. Sibling of the click target so
       its buttons don't fire `click_file`. Mirrors the

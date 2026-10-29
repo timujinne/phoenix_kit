@@ -113,6 +113,24 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Helpers do
     end
   end
 
+  # What a picker's viewer offers for the file it shows (MediaCanvasViewer's
+  # `pick`): Deselect for a picked file; else Select, disabled while a
+  # `:multiple` pick is at `max_select`. Nothing for a file in the trash,
+  # which cannot be picked.
+  def viewer_pick_state(_picked, _pick_mode, _max_select, %{status: "trashed"}), do: nil
+
+  def viewer_pick_state(picked, pick_mode, max_select, file) do
+    picked? = file.file_uuid in picked
+
+    %{
+      picked?: picked?,
+      full?:
+        not picked? and pick_mode == :multiple and is_integer(max_select) and
+          length(picked) >= max_select,
+      max_select: max_select
+    }
+  end
+
   # ──────────────────────────────────────────────────────────────
   # Stacks view — function components
   # ──────────────────────────────────────────────────────────────

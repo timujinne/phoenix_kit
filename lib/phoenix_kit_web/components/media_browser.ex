@@ -164,6 +164,27 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   told (`picker_uploading`) so it can keep its own close control from
   dropping the upload.
 
+  A file's tile has an eye: it opens the viewer on that file and changes
+  nothing in the pick (nor does closing the viewer). Previous / next step
+  through the files loaded on the page of the open folder. The viewer's
+  Select / Deselect picks or unpicks the file shown, under the same rules
+  and server check as a click (`:single` replaces; Deselect empties it);
+  Select is disabled while `:multiple` is at `max_select`. The viewer writes
+  nothing to the file — no rotation saved, no annotations, no title or
+  description, no image editor, no featured toggle, refused on the server as
+  under `readonly` — but offers Move to trash for a live file (not under
+  `readonly`; `folder_actions: false` does not take it away, it is an action
+  on a file). A file removed that way leaves the pick.
+
+  Escape closes the viewer and nothing else: the pick stays and the picker
+  stays open. The viewer opens in the browser's top layer (a `popover`), so
+  a host modal whose box is transformed (daisyUI's `.modal-box` is) cannot
+  clip it, and while it is open its Escape is cancelled for the page, so a
+  host `<dialog>` — core `<.modal>`, or any dialog with the `PkDialog` hook —
+  stays open: hosts of those need nothing. A host that closes its modal on
+  Escape by its own key listener (`phx-window-keydown`, a script) must skip
+  an Escape whose `defaultPrevented` is set, or it closes with the viewer.
+
   A picker is usually a second browser on its page, so its DOM ids carry its
   `id` (`<id>-media-browser-sidebar`, `<id>-folder-drop-upload-form`, …).
   Without `picker` the ids are the ones they have always been — hosts, tests
@@ -2942,9 +2963,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
          put_flash(socket, :error, gettext("Cannot move file outside the allowed scope"))}
 
       true ->
+        result = Storage.remove_file_from_folder(file, viewed)
+
         {:noreply,
          socket
-         |> put_flash(:info, removal_flash(Storage.remove_file_from_folder(file, viewed)))
+         |> put_flash(:info, removal_flash(result))
+         |> unpick_removed(file_uuid, result)
          |> close_viewer_on(file_uuid)
          |> reload_current_page()}
     end
@@ -3698,6 +3722,33 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   def handle_event(event, _params, socket) when event in ~w(pick_confirm pick_cancel),
     do: {:noreply, socket}
+
+  # A tile's eye (a picker's click picks, so its viewer opens from here). It
+  # opens the viewer on a file of the page and leaves the pick alone; prev /
+  # next step through the page it is on (`locate_file/2`).
+  def handle_event("view_file", %{"file-uuid" => file_uuid}, socket) do
+    case locate_file(socket, file_uuid) do
+      {file, siblings} -> {:noreply, open_viewer(socket, file, siblings) |> notify_viewer_nav()}
+      nil -> {:noreply, socket}
+    end
+  end
+
+  # The picker viewer's Select / Deselect for the file it shows: a picked
+  # file comes out of the pick (in `:single` too, which a tile's click never
+  # does), any other is picked as a click picks it, checked the same way.
+  def handle_event(
+        "viewer_pick",
+        %{"file-uuid" => file_uuid},
+        %{assigns: %{picker: true}} = socket
+      ) do
+    if file_uuid in socket.assigns.picked do
+      {:noreply, put_pick(socket, List.delete(socket.assigns.picked, file_uuid))}
+    else
+      {:noreply, pick(socket, file_uuid)}
+    end
+  end
+
+  def handle_event("viewer_pick", _params, socket), do: {:noreply, socket}
 
   # In selection mode, clicks toggle the file in/out and stay in selection
   # mode (the toolbar's "Select" button is how callers reach bulk-select).
@@ -5074,6 +5125,16 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     |> close_viewer_on(file_uuid)
     |> reload_current_page()
   end
+
+  # A file removed here (trashed, or taken out of this folder) leaves a
+  # picker's pick at once — the trash broadcast that also drops it does not
+  # come for a file only unlinked or rehomed.
+  defp unpick_removed(socket, file_uuid, {:ok, _how, _file}) do
+    picked = socket.assigns[:picked] || []
+    if file_uuid in picked, do: put_pick(socket, List.delete(picked, file_uuid)), else: socket
+  end
+
+  defp unpick_removed(socket, _file_uuid, _result), do: socket
 
   defp removal_flash({:ok, :trashed, _}), do: gettext("File moved to trash")
   defp removal_flash({:ok, _unlinked_or_rehomed, _}), do: gettext("File removed from this folder")

@@ -937,9 +937,17 @@
         "prev" => has_prev && neighbor_warm_data(Enum.at(siblings, viewer_idx - 1)),
         "next" => has_next && neighbor_warm_data(Enum.at(siblings, viewer_idx + 1))
       }) %>
+    <%!-- A picker is usually opened in a host's modal, whose box carries a  --%>
+    <%!-- transform (daisyUI's `translate`/`scale`): that box would be the   --%>
+    <%!-- containing block of this `position: fixed` popup and clip it.      --%>
+    <%!-- `popover` lets ViewerKeydown lift it into the browser's top layer, --%>
+    <%!-- above the host's <dialog> and out of every ancestor's box. Only a  --%>
+    <%!-- picker: another browser's instant stand-in has to sit ABOVE this   --%>
+    <%!-- popup, which nothing outside the top layer can (a picker's is off). --%>
     <div
       id={"#{@id}-viewer-modal"}
       class="modal modal-open lg:portrait:items-start"
+      popover={if @picker, do: "manual"}
       phx-hook="ViewerKeydown"
       phx-target={@myself}
       data-neighbors={neighbors_json}
@@ -1017,6 +1025,12 @@
         <%!-- persist_rotation, and featured (nil hides the sidebar's own --%>
         <%!-- Set/Unset toggle — the grid/list/stack tile badge is a      --%>
         <%!-- separate, unconditional read of @featured, untouched here). --%>
+        <%!-- A picker's viewer is for looking and choosing: it writes    --%>
+        <%!-- nothing to the file, as under readonly, and carries the     --%>
+        <%!-- pick's Select / Deselect (`pick`). Moving the file to the   --%>
+        <%!-- trash stays (`can_trash`): an action on the file, not a     --%>
+        <%!-- change to it.                                               --%>
+        <% writes? = not @readonly and not @picker %>
         <.live_component
           module={PhoenixKitWeb.Components.MediaCanvasViewer}
           id={viewer_component_id(f)}
@@ -1025,18 +1039,20 @@
           parent_id={@id}
           has_prev={has_prev}
           has_next={has_next}
-          can_annotate={not @readonly}
-          persist_rotation={not @readonly}
+          can_annotate={writes?}
+          persist_rotation={writes?}
           details_path={
-            if @admin and @can_manage_storage and not @readonly,
+            if @admin and @can_manage_storage and writes?,
               do: Routes.path("/admin/media/#{f.file_uuid}/storage")
           }
-          edit_target={if @readonly or @select_mode, do: nil, else: {MediaBrowser, @id}}
+          edit_target={if writes? and not @select_mode, do: {MediaBrowser, @id}}
+          can_trash={@picker and not @readonly}
+          pick={@picker && viewer_pick_state(@picked, @pick_mode, @max_select, f)}
           write_scope={@scope_folder_id}
           own_files_only={@own_files_only}
           write_library_uuid={@library_uuid}
           viewer_uuid={@viewer_uuid}
-          featured={if @readonly, do: nil, else: @featured}
+          featured={if @readonly or @picker, do: nil, else: @featured}
         />
       </div>
       <div class="modal-backdrop" phx-click="close_viewer" phx-target={@myself}></div>
