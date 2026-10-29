@@ -2,9 +2,10 @@
 
 // The media viewer's Escape closes the viewer and nothing under it. A picker
 // is usually opened in a host's modal <dialog>, which takes Escape as its own
-// close request: ViewerKeydown cancels the keydown (so the dialog gets no
-// `cancel`) whenever the viewer is the top layer, and leaves the key alone
-// when a dialog was opened over the viewer. A picker's viewer carries
+// close request: ViewerKeydown cancels the keydown of a picker's viewer (so
+// the dialog gets no `cancel`) whenever it is the top layer, and leaves the
+// key alone when a dialog was opened over it. Any other viewer leaves the
+// key to the page, as before. A picker's viewer carries
 // `popover`, and the hook shows it, which lifts it into the top layer, out of
 // the reach of the host modal's transformed box.
 //
@@ -77,11 +78,20 @@ function mount(opts) {
   return { ...env, ctx, el, pushed, press };
 }
 
-test("Escape with nothing over the viewer closes it and cancels the key for the page", () => {
-  const v = mount();
+test("Escape with nothing over a picker's viewer closes it and cancels the key for the page", () => {
+  const v = mount({ el: viewerEl({ popover: true }) });
   const e = v.press("Escape");
   assert.equal(e.prevented, true, "a host <dialog> must not take the same Escape");
   assert.deepEqual(v.pushed, [{ event: "viewer_keydown", payload: { key: "Escape" } }]);
+});
+
+test("any other viewer leaves the key to the page, as it always did", () => {
+  const el = viewerEl();
+  const v = mount({ el, dialogs: [dialog({ holds: el })] });
+  const e = v.press("Escape");
+  assert.equal(e.prevented, false, "a host <dialog> around a browser that is not a picker still closes");
+  assert.deepEqual(v.pushed, [{ event: "viewer_keydown", payload: { key: "Escape" } }]);
+  assert.equal(mount({ active: { tagName: "TEXTAREA" } }).press("Escape").prevented, false);
 });
 
 test("a host dialog holding the viewer does not count as a layer over it", () => {
@@ -93,7 +103,7 @@ test("a host dialog holding the viewer does not count as a layer over it", () =>
 });
 
 test("a dialog opened over the viewer keeps its Escape; the viewer stays", () => {
-  const el = viewerEl();
+  const el = viewerEl({ popover: true });
   const v = mount({ el, dialogs: [dialog({ holds: el }), dialog({ holds: null })] });
   const e = v.press("Escape");
   assert.equal(e.prevented, false, "that dialog closes on its own close request");
@@ -101,13 +111,13 @@ test("a dialog opened over the viewer keeps its Escape; the viewer stays", () =>
 });
 
 test("a dialog that is not modal is not a layer over the viewer", () => {
-  const v = mount({ dialogs: [dialog({ modal: false })] });
+  const v = mount({ el: viewerEl({ popover: true }), dialogs: [dialog({ modal: false })] });
   assert.equal(v.press("Escape").prevented, true);
   assert.equal(v.pushed.length, 1);
 });
 
 test("Escape typed in a field of the viewer closes nothing, the host modal included", () => {
-  const v = mount({ active: { tagName: "TEXTAREA" } });
+  const v = mount({ el: viewerEl({ popover: true }), active: { tagName: "TEXTAREA" } });
   const e = v.press("Escape");
   assert.equal(e.prevented, true);
   assert.equal(v.pushed.length, 0);

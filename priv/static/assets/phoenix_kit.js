@@ -2921,14 +2921,14 @@ if (typeof window.Chart === "undefined") {
       }
       self._handler = function(e) {
         if (e.key !== "Escape" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-        if (e.key === "Escape") {
+        if (e.key === "Escape" && self.el.hasAttribute && self.el.hasAttribute("popover")) {
           if (dialogAbove(self.el)) return;
-          // The viewer is the top layer, so Escape closes the viewer alone.
-          // A host <dialog> holding the browser (a picker in a modal) would
-          // take the same key as its own close request; cancelling the
-          // keydown cancels that request (the dialog gets no `cancel`), and
-          // so does an Escape typed in a field of the viewer, which closes
-          // nothing.
+          // A picker's viewer is the top layer, so Escape closes the viewer
+          // alone. The host <dialog> holding the picker would take the same
+          // key as its own close request; cancelling the keydown cancels
+          // that request (the dialog gets no `cancel`), and so does an
+          // Escape typed in a field of the viewer, which closes nothing.
+          // Any other viewer leaves the key to the page, as it always did.
           e.preventDefault();
         }
         const t = document.activeElement;

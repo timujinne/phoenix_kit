@@ -3726,12 +3726,20 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # A tile's eye (a picker's click picks, so its viewer opens from here). It
   # opens the viewer on a file of the page and leaves the pick alone; prev /
   # next step through the page it is on (`locate_file/2`).
-  def handle_event("view_file", %{"file-uuid" => file_uuid}, socket) do
+  def handle_event(
+        "view_file",
+        %{"file-uuid" => file_uuid},
+        %{assigns: %{picker: true}} = socket
+      ) do
     case locate_file(socket, file_uuid) do
       {file, siblings} -> {:noreply, open_viewer(socket, file, siblings) |> notify_viewer_nav()}
       nil -> {:noreply, socket}
     end
   end
+
+  # Another browser has no eye: its click opens the viewer (or selects).
+  def handle_event("view_file", _params, socket),
+    do: {:noreply, log_refused(socket, "view_file", "the browser is not a picker")}
 
   # The picker viewer's Select / Deselect for the file it shows: a picked
   # file comes out of the pick (in `:single` too, which a tile's click never

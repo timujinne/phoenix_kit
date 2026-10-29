@@ -275,12 +275,30 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerViewerTest do
       assert confirm(view) == []
     end
 
-    test "a browser that is not a picker has no eye (a click opens its viewer)",
+    test "a browser that is not a picker has no eye, and refuses one (a click opens its viewer)",
          %{conn: conn} = ctx do
-      file!(ctx.scope)
+      a = file!(ctx.scope)
       view = open(conn, ctx, %{"plain" => true})
 
       refute has_element?(view, ~s(#files button[phx-click="view_file"]))
+
+      capture_log(fn ->
+        view |> element("#files") |> render_hook("view_file", %{"file-uuid" => a.uuid})
+      end)
+
+      refute has_element?(view, "#files-viewer-modal")
+    end
+
+    # The eye is the picker's only way into the viewer: a touch screen has no
+    # hover to reveal it.
+    test "stays visible on a touch screen", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      view = open(conn, ctx)
+
+      assert has_element?(
+               view,
+               ~s(#pick button[phx-click="view_file"][phx-value-file-uuid="#{a.uuid}"][class*="pointer-coarse:opacity-100"])
+             )
     end
 
     test "a file that is not on the page opens nothing", %{conn: conn} = ctx do
