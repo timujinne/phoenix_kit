@@ -188,6 +188,12 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
       "Emit the drag-drop data attributes. Off for a consumer with no move " <>
         "handlers, so folders are not draggable into a void."
 
+  attr :drop_only, :boolean,
+    default: false,
+    doc:
+      "With `enable_drag` off, still emit `data-drop-folder` (the top level and every " <>
+        "folder take a drop) but not the draggable folders nor the Trash drop."
+
   attr :class, :any,
     default: "hidden lg:block",
     doc:
@@ -296,7 +302,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
                 do: gettext("Files that are in no folder, and the top folders")
             }
             phx-target={@myself}
-            data-drop-folder={@enable_drag && "root"}
+            data-drop-folder={(@enable_drag or @drop_only) && "root"}
             class={[
               "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm transition-colors mb-1 text-left",
               if(@current_folder == nil and @file_view != "all" and not @filter_trash,
@@ -334,6 +340,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
                 myself={@myself}
                 show_rename={@show_rename}
                 enable_drag={@enable_drag}
+                drop_only={@drop_only}
                 items={@items}
                 item={@item}
               />
@@ -470,6 +477,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
 
   attr :show_rename, :boolean, default: true, doc: "Show the inline rename affordance."
   attr :enable_drag, :boolean, default: true, doc: "Emit drag-drop data attributes."
+  attr :drop_only, :boolean, default: false, doc: "Emit `data-drop-folder` with drag off."
   attr :hover_class, :string, default: "hover:bg-base-200", doc: "Row hover background utility."
 
   def folder_tree_node(assigns) do
@@ -648,7 +656,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
             phx-click={@on_navigate}
             phx-target={@myself}
             phx-value-folder-uuid={@node.folder.uuid}
-            data-drop-folder={@enable_drag && @node.folder.uuid}
+            data-drop-folder={(@enable_drag or @drop_only) && @node.folder.uuid}
             data-draggable-folder={@enable_drag && @node.folder.uuid}
             class="flex items-center gap-1.5 flex-1 text-sm text-left"
           >
@@ -724,6 +732,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
               on_toggle={@on_toggle}
               show_rename={@show_rename}
               enable_drag={@enable_drag}
+              drop_only={@drop_only}
               hover_class={@hover_class}
               items={@items}
               item={@item}
