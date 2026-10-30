@@ -10,7 +10,7 @@ const vm = require("node:vm");
 // shipped hook with a small DOM stand-in: a picked card drags the whole pick
 // (the server holds it) as the batch event, a card that is not picked drags
 // alone, and the drop on the folder the card is in asks for nothing.
-function browser({ pickMode, cardAttrs }) {
+function browser({ pickMode, cardAttrs, rootData }) {
   const source = fs.readFileSync(path.join(__dirname, "../../priv/static/assets/phoenix_kit.js"), "utf8");
   const start = source.indexOf("  function startBoxSelect(");
   const end = source.indexOf("\n  // MAINTENANCE COUNTDOWN HOOK", start);
@@ -48,7 +48,7 @@ function browser({ pickMode, cardAttrs }) {
   const top = element({ dropFolder: "root" });
   const targets = { current, kitchen, top };
 
-  const root = element(pickMode ? { pickMode } : {});
+  const root = element(Object.assign(pickMode ? { pickMode } : {}, rootData || {}));
   root.id = "media";
   root.querySelectorAll = selector => {
     if (selector.includes("[data-draggable-file]")) return cards;
@@ -102,7 +102,7 @@ function browser({ pickMode, cardAttrs }) {
     fire(card, "dragend", dt);
     return dt;
   }
-  return { hook, cards, calls, drag, root };
+  return { hook, cards, calls, drag, root, targets };
 }
 
 const PICKED = { attrs: { "data-pick-order": "1" } };
@@ -170,4 +170,27 @@ test("outside a picker a long press still selects", () => {
   const b = browser({ cardAttrs: [{}, {}, {}] });
   b.hook.setupLongPress();
   assert.ok(b.cards[0].listeners.pointerdown.length > 0);
+});
+
+test("a pick with files off screen gathers them: a drop on the folder shown is asked for", () => {
+  const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED], rootData: { pickCount: "5" } });
+  b.drag(b.cards[0], "current");
+  assert.deepEqual(b.calls, [{ event: "move_selected_to_folder", payload: { "folder-uuid": "current" } }]);
+});
+
+test("a pick that is all on screen still ignores the folder shown", () => {
+  const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED], rootData: { pickCount: "2" } });
+  b.drag(b.cards[0], "current");
+  assert.deepEqual(b.calls, []);
+});
+
+test("text or a link dropped on a folder is not taken for a card", () => {
+  const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, NOT_PICKED] });
+  const dt = { types: ["text/plain"], getData: () => "https://example.com/x", dropEffect: "" };
+  let prevented = false;
+  const ev = { dataTransfer: dt, preventDefault: () => { prevented = true; }, stopPropagation: () => {} };
+  b.targets.kitchen.listeners.dragover.forEach(fn => fn(ev));
+  assert.equal(prevented, false, "not accepted as a drop");
+  b.targets.kitchen.listeners.drop.forEach(fn => fn(ev));
+  assert.deepEqual(b.calls, []);
 });

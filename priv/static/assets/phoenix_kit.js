@@ -9066,6 +9066,11 @@ if (typeof window.Chart === "undefined") {
       }
       function dragOrigin(el) {
         if (!isSelected(el)) return originOf(el);
+        // A pick holds more than the cards on screen (files picked in other
+        // folders): a drop on the folder shown still gathers them there.
+        if (inPicker() && (parseInt(self.el.dataset.pickCount || "0", 10) || 0) > selectedEls().length) {
+          return null;
+        }
         var origin;
         var same = true;
         selectedEls().forEach(function(s) {
@@ -9308,6 +9313,9 @@ if (typeof window.Chart === "undefined") {
             target.style.outlineOffset = "6px";
             return;
           }
+          // Text or a link dragged in from elsewhere is no card of this page:
+          // not accepted, so it is not dropped here either.
+          if (!self._internalDrag) return;
           var isFolder = e.dataTransfer.types.indexOf("application/x-pk-folder") !== -1;
           if (isFolder && target.dataset.dropFolder === self._draggedFolderUuid) {
             // Drop-on-self for a folder — skip preventDefault so the
@@ -9391,6 +9399,8 @@ if (typeof window.Chart === "undefined") {
             if (self._activeDropTarget === target) self._activeDropTarget = null;
             return;
           }
+          // Not one of this page's cards (text, a link): nothing to move.
+          if (!self._internalDrag) return;
           e.preventDefault();
           e.stopPropagation();
           clearHighlight(target);

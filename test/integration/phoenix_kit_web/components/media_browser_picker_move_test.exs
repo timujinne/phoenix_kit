@@ -65,6 +65,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
           allow_move={Map.get(@opts, :allow_move, false)}
           readonly={Map.get(@opts, :readonly, false)}
           own_files_only={@opts[:own_files_only]}
+          only_file_type={@opts[:only_file_type]}
           scope_folder_id={@scope}
           parent_uploads={@uploads}
           phoenix_kit_current_user={@phoenix_kit_current_user}
@@ -215,7 +216,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
       refute has_element?(view, "#pick [data-draggable-folder]")
       refute has_element?(view, "#pick-media-browser-sidebar [data-drop-folder]")
       refute has_element?(view, "#pick [data-drop-trash]")
-      refute has_element?(view, "#pick [data-pick-count]")
+      refute has_element?(view, "#pick[data-pick-count]")
     end
 
     test "a move is refused on the server", %{conn: conn} = ctx do
@@ -477,6 +478,120 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
     end
   end
 
+  describe "with allow_move, what the server refuses" do
+    defp hidden_library! do
+      {:ok, library} =
+        Storage.Libraries.create_system_library(
+          %{
+            name: "Hidden #{System.unique_integer([:positive])}",
+            slug: "h#{System.unique_integer([:positive])}"
+          },
+          hidden: true
+        )
+
+      library
+    end
+
+    defp single(view, file_uuid, folder_uuid),
+      do:
+        hook(view, "move_file_to_folder", %{
+          "file_uuid" => file_uuid,
+          "folder_uuid" => folder_uuid
+        })
+
+    defp moving(_ctx), do: %{folder_actions: false, allow_move: true}
+
+    test "a file in the trash stays in the trash, where it is", %{conn: conn} = ctx do
+      a = file!(ctx.scope, %{status: "trashed"})
+      view = open(conn, ctx, moving(ctx))
+
+      single(view, a.uuid, ctx.kitchen.uuid)
+
+      assert Repo.get(StorageFile, a.uuid).status == "trashed"
+      assert home(a) == ctx.scope.uuid
+      assert flash(view) =~ "Failed to move file"
+    end
+
+    test "a file of another type than the picker lists is not moved", %{conn: conn} = ctx do
+      doc = file!(ctx.scope, %{file_type: "document", mime_type: "application/pdf", ext: "pdf"})
+      view = open(conn, ctx, Map.put(moving(ctx), :only_file_type, "image"))
+
+      single(view, doc.uuid, ctx.kitchen.uuid)
+
+      assert home(doc) == ctx.scope.uuid
+    end
+
+    test "a file of a private library is not moved", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      library = hidden_library!()
+
+      Repo.update_all(from(f in StorageFile, where: f.uuid == ^a.uuid),
+        set: [library_uuid: library.uuid]
+      )
+
+      view = open(conn, ctx, moving(ctx))
+
+      single(view, a.uuid, ctx.kitchen.uuid)
+
+      assert home(a) == ctx.scope.uuid
+    end
+
+    test "text or a link dropped on a folder is no file: refused, the page stays",
+         %{conn: conn} = ctx do
+      view = open(conn, ctx, moving(ctx))
+
+      for junk <- ["garbage", "https://example.com/x", "", "123"] do
+        capture_log(fn -> single(view, junk, ctx.kitchen.uuid) end)
+      end
+
+      assert Process.alive?(view.pid)
+      assert flash(view) =~ "Failed to move file"
+    end
+
+    test "a target that is no uuid, no folder, trashed or of another library is refused",
+         %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      trashed = folder!("Old", ctx.scope)
+
+      Repo.update_all(from(f in Storage.Folder, where: f.uuid == ^trashed.uuid),
+        set: [trashed_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+      )
+
+      foreign = folder!("Foreign", ctx.scope)
+      library = hidden_library!()
+
+      Repo.update_all(from(f in Storage.Folder, where: f.uuid == ^foreign.uuid),
+        set: [library_uuid: library.uuid]
+      )
+
+      view = open(conn, ctx, moving(ctx), [a.uuid])
+
+      for target <- ["garbage", Ecto.UUID.generate(), trashed.uuid, foreign.uuid, 123, nil] do
+        capture_log(fn ->
+          single(view, a.uuid, target)
+          hook(view, "move_selected_to_folder", %{"folder-uuid" => target})
+        end)
+
+        assert home(a) == ctx.scope.uuid, "target #{inspect(target)}"
+      end
+
+      assert Process.alive?(view.pid)
+    end
+
+    test "nothing to move says so, and a refusal of the target says what it is",
+         %{conn: conn} = ctx do
+      a = file!(ctx.kitchen)
+      view = open(conn, ctx, moving(ctx), [a.uuid])
+
+      move_batch(view, ctx.kitchen.uuid)
+      assert flash(view) =~ "Nothing to move"
+      refute flash(view) =~ "0 items"
+
+      capture_log(fn -> move_batch(view, "garbage") end)
+      assert flash(view) =~ "Folder not found"
+    end
+  end
+
   describe "with allow_move, the rest of the folder actions" do
     test "the folder writes are still refused", %{conn: conn} = ctx do
       a = file!(ctx.kitchen)
@@ -548,7 +663,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
 
       refute has_element?(view, "#files-media-browser-sidebar [data-drop-folder]")
       refute has_element?(view, "#files [data-drop-folder=\"#{ctx.kitchen.uuid}\"]")
-      refute has_element?(view, "#files [data-pick-count]")
+      refute has_element?(view, "#files[data-pick-count]")
 
       capture_log(fn ->
         hook(
