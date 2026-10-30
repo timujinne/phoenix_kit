@@ -21941,3 +21941,23 @@ msgstr "Propietario inactivo"
 #, elixir-autogen, elixir-format
 msgid "The expiry date can be %{date} at the latest."
 msgstr "La fecha de caducidad puede ser como máximo el %{date}."
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Include subfolders"
+msgstr "Incluir subcarpetas"
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Show the files of the folders below this one too"
+msgstr "Mostrar también los archivos de las carpetas de debajo"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Nada que mover"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "%{moved} de %{total} elementos movidos"

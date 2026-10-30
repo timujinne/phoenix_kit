@@ -22061,3 +22061,23 @@ msgstr "Omanik pole aktiivne"
 #, elixir-autogen, elixir-format
 msgid "The expiry date can be %{date} at the latest."
 msgstr "Aegumiskuupäev võib olla hiljemalt %{date}."
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Include subfolders"
+msgstr "Kaasa alamkaustad"
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Show the files of the folders below this one too"
+msgstr "Näita ka allpool asuvate kaustade faile"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Pole midagi liigutada"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "Liigutatud: %{moved} / %{total}"

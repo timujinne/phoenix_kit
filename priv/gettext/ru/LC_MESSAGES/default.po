@@ -22142,3 +22142,23 @@ msgstr "Владелец неактивен"
 #, elixir-autogen, elixir-format
 msgid "The expiry date can be %{date} at the latest."
 msgstr "Срок действия — не позднее %{date}."
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Include subfolders"
+msgstr "Включая вложенные папки"
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Show the files of the folders below this one too"
+msgstr "Показывать также файлы из папок ниже"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Нечего переносить"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "Перенесено: %{moved} из %{total}"

@@ -21932,3 +21932,23 @@ msgstr "Eigentümer inaktiv"
 #, elixir-autogen, elixir-format
 msgid "The expiry date can be %{date} at the latest."
 msgstr "Das Ablaufdatum darf höchstens %{date} sein."
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Include subfolders"
+msgstr "Unterordner einbeziehen"
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Show the files of the folders below this one too"
+msgstr "Auch die Dateien der darunterliegenden Ordner anzeigen"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Nichts zu verschieben"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "%{moved} von %{total} Elementen verschoben"
