@@ -119,6 +119,7 @@
     <%= if @awaiting_confirmation? do %>
       <.link
         href={Routes.path("/users/log-out")}
+        data-pk-logout
         method="delete"
         class="font-semibold text-primary hover:underline"
       >
