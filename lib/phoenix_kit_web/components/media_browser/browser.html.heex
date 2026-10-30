@@ -484,7 +484,7 @@
                 }
               >
                 <%= if @uploaded_files == [] &&
-                         (@folders == [] or @file_view == "all" or @subtree_view) do %>
+                         (@folders == [] or @file_view == "all" or subtree_listing?(assigns)) do %>
                   <%!-- Empty state --%>
                   <div class={[
                     "rounded-lg p-8 text-center",
@@ -566,7 +566,7 @@
                       select_mode={assigns[:select_mode]}
                       selected_files={assigns[:selected_files]}
                       selected_folders={assigns[:selected_folders]}
-                      subtree_view={assigns[:subtree_view]}
+                      subtree_listing={subtree_listing?(assigns)}
                       tile_size={assigns[:tile_size]}
                       uploaded_files={assigns[:uploaded_files]}
                     />

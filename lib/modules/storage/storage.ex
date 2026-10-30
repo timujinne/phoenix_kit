@@ -2486,6 +2486,68 @@ defmodule PhoenixKit.Modules.Storage do
     |> List.flatten()
   end
 
+  @doc """
+  The name chains (root first) of many folders at once: `%{folder_uuid => [name]}`.
+  One query per level of the deepest folder, not per folder. A folder that is not
+  there has no entry; a chain stops at an ancestor that is missing, and is cut
+  at 50 levels, as `folder_breadcrumbs/2` is.
+  """
+  def folder_name_chains(folder_uuids) do
+    wanted = folder_uuids |> Enum.reject(&is_nil/1) |> Enum.uniq()
+    known = walk_up_folders(wanted, %{}, 50)
+
+    wanted
+    |> Enum.filter(&Map.has_key?(known, &1))
+    |> Map.new(fn uuid -> {uuid, name_chain(known, uuid, 50)} end)
+  end
+
+  defp walk_up_folders([], known, _levels), do: known
+  defp walk_up_folders(_pending, known, 0), do: known
+
+  defp walk_up_folders(pending, known, levels) do
+    found =
+      from(f in Folder, where: f.uuid in ^pending, select: {f.uuid, {f.name, f.parent_uuid}})
+      |> repo().all()
+      |> Map.new()
+
+    known = Map.merge(known, found)
+
+    next =
+      found
+      |> Map.values()
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.reject(&(is_nil(&1) or Map.has_key?(known, &1)))
+      |> Enum.uniq()
+
+    walk_up_folders(next, known, levels - 1)
+  end
+
+  defp name_chain(_known, nil, _levels), do: []
+  defp name_chain(_known, _uuid, 0), do: []
+
+  defp name_chain(known, uuid, levels) do
+    case Map.get(known, uuid) do
+      nil -> []
+      {name, parent} -> name_chain(known, parent, levels - 1) ++ [name]
+    end
+  end
+
+  @doc """
+  The first of `folder_uuids` that holds `file_uuid` as a LINK (its home does not
+  count), or nil. One query.
+  """
+  def linked_folder_among(file_uuid, folder_uuids)
+      when is_binary(file_uuid) and is_list(folder_uuids) do
+    from(fl in FolderLink,
+      where: fl.file_uuid == ^file_uuid and fl.folder_uuid in ^folder_uuids,
+      select: fl.folder_uuid,
+      limit: 1
+    )
+    |> repo().one()
+  end
+
+  def linked_folder_among(_file_uuid, _folder_uuids), do: nil
+
   @doc "Returns trashed folders ordered by trashed_at descending, with optional scope."
   def list_trashed_folders(scope_folder_id \\ nil, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)
@@ -2675,7 +2737,9 @@ defmodule PhoenixKit.Modules.Storage do
     - `:subtree` — boolean (default false): list the files of the folder (`:folder_uuid`,
       else the scope folder) AND of every folder below it, home or linked, each file once.
       The scope is not widened — a `:folder_uuid` outside it is still `{:error, :out_of_scope}`.
-      With no folder and no scope it is every file, orphans included.
+      A folder in the trash, and everything under it, is not walked (a file linked only into
+      one is not listed). `:include_orphaned` is not read: with no folder and no scope it is
+      every file, orphans included.
 
   ## Returns
     `{files, total_count}` or `{:error, :out_of_scope}`.
@@ -2776,12 +2840,17 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   defp build_subtree_file_query(root_uuid, search) do
-    cte_base = from(f in Folder, where: f.uuid == ^root_uuid, select: %{uuid: f.uuid})
+    cte_base =
+      from(f in Folder,
+        where: f.uuid == ^root_uuid and is_nil(f.trashed_at),
+        select: %{uuid: f.uuid}
+      )
 
     cte_recursive =
       from(f in Folder,
         join: d in "scope_descendants",
         on: f.parent_uuid == d.uuid,
+        where: is_nil(f.trashed_at),
         select: %{uuid: f.uuid}
       )
 

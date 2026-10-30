@@ -168,16 +168,19 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     person walks the tree (another folder shows its own subtree), is not part
     of the URL, and starts off on every mount. Search, the type, shape and
     sort options, the library and the viewer's visibility all apply as they
-    do to a folder; the scope is never widened. A file listed from a
+    do to a folder; the scope is never widened. The switch is not offered
+    over the Trash, the orphaned files or All Files, and those listings are
+    their own whatever the switch says. A file listed from a
     subfolder is picked, viewed, trashed and (with `allow_move`) dragged as
     a file of that subfolder. Works in a controlled browser (`on_navigate`)
     too — the switch is applied here, and a page or folder change that comes
     back through the nav params keeps it.
   - `per_page` (a picker only; default 50, at most 500) — the files on a page.
-    Read when the picker mounts; anything that is not a positive integer is
-    50. Not read outside a picker. The picker's grid is also denser than the browser's (tiles of
-    about 7rem; a Small/Large switch in its bar, Small about 5rem, is the
-    picker's own and starts at Large).
+    Anything that is not a positive integer is 50. A change on a mounted
+    picker reloads it from the first page. Not read outside a picker. The
+    picker's grid is also denser than the browser's (tiles of about 7rem; a
+    Small/Large switch in its bar, Small about 5rem, is the picker's own and
+    starts at Large).
 
   A picker's file menu keeps Download and Move to Trash. Rotate, Edit image,
   the featured toggle and deleting for good (the Trash view's Delete, Empty
@@ -530,6 +533,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   def update(assigns, socket) do
     shown_library = socket.assigns[:library_uuid]
+    shown_per_page = socket.assigns[:per_page]
 
     socket =
       socket
@@ -612,7 +616,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> harvest_rejected_uploads()
       |> force_managed_readonly()
 
-    socket = maybe_switch_library(socket, shown_library)
+    socket =
+      socket
+      |> maybe_switch_library(shown_library)
+      |> maybe_reload_for_per_page(shown_per_page)
 
     socket =
       cond do
@@ -750,6 +757,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   end
 
   defp normalize_per_page(socket), do: socket
+
+  # A mounted picker whose host changed `per_page` lists again from the first page.
+  defp maybe_reload_for_per_page(socket, shown_per_page) do
+    if socket.assigns.picker and is_integer(shown_per_page) and
+         shown_per_page != socket.assigns.per_page and
+         Map.has_key?(socket.assigns, :uploaded_files),
+       do: socket |> assign(:current_page, 1) |> reload_current_page(),
+       else: socket
+  end
 
   defp initial_per_page(%{assigns: %{picker: true, per_page: per_page}}), do: per_page
   defp initial_per_page(_socket), do: @default_per_page
@@ -1873,7 +1889,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         actual_uuid,
         filter_orphaned,
         file_view,
-        list_extra(socket)
+        list_extra_in(
+          socket,
+          file_view: file_view,
+          filter_orphaned: filter_orphaned,
+          filter_trash: false
+        )
       )
 
     orphaned_count =
@@ -2017,14 +2038,18 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     ] ++ subtree_opts(socket) ++ lib_opts(socket)
   end
 
+  # The options of the listing a handler is about to show, before it has
+  # assigned the view it moves to: the subfolders switch is judged on that view,
+  # not on the one being left.
+  @folder_view [file_view: nil, filter_trash: false, filter_orphaned: false]
+
+  defp list_extra_in(socket, view), do: socket |> assign(view) |> list_extra()
+
   # A picker with the subfolders switched on lists the viewed folder's whole
   # subtree (`Storage.list_files_in_scope/2` `:subtree`), whatever the
   # navigation path that asks for a listing.
   defp subtree_opts(socket) do
-    if socket.assigns[:picker] == true and socket.assigns[:subtree_toggle] == true and
-         socket.assigns[:subtree_view] == true,
-       do: [subtree: true],
-       else: []
+    if Helpers.subtree_listing?(socket.assigns), do: [subtree: true], else: []
   end
 
   # Another library than the one on screen: nothing listed belongs to it —
@@ -3399,7 +3424,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       scope = scope_folder_id(socket)
       per_page = socket.assigns.per_page
       q = socket.assigns.search_query
-      {files, total_count} = load_all_view_files(scope, 1, per_page, q, list_extra(socket))
+
+      {files, total_count} =
+        load_all_view_files(scope, 1, per_page, q, list_extra_in(socket, file_view: "all"))
 
       {:noreply,
        socket
@@ -4622,7 +4649,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       else
         scope = scope_folder_id(socket)
         folder_uuid = current_folder_uuid(socket)
-        load_scoped_files(scope, 1, socket.assigns.per_page, folder_uuid, "", list_extra(socket))
+
+        load_scoped_files(
+          scope,
+          1,
+          socket.assigns.per_page,
+          folder_uuid,
+          "",
+          list_extra_in(socket, @folder_view)
+        )
       end
 
     # In trash view `@folders` becomes the trashed-folder list so the
@@ -4802,7 +4837,14 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         if filter_orphaned do
           load_orphaned_files(1, per_page, lib_opts(socket))
         else
-          load_scoped_files(scope, 1, per_page, folder_uuid, search, list_extra(socket))
+          load_scoped_files(
+            scope,
+            1,
+            per_page,
+            folder_uuid,
+            search,
+            list_extra_in(socket, filter_orphaned: false)
+          )
         end
 
       orphaned_count =
@@ -5181,7 +5223,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     else
       scope = scope_folder_id(socket)
       per_page = socket.assigns.per_page
-      {files, total_count} = load_scoped_files(scope, 1, per_page, nil, "", list_extra(socket))
+
+      {files, total_count} =
+        load_scoped_files(scope, 1, per_page, nil, "", list_extra_in(socket, @folder_view))
 
       {:noreply,
        socket
@@ -5228,7 +5272,14 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       per_page = socket.assigns.per_page
 
       {files, total_count} =
-        load_scoped_files(scope, 1, per_page, actual_uuid, "", list_extra(socket))
+        load_scoped_files(
+          scope,
+          1,
+          per_page,
+          actual_uuid,
+          "",
+          list_extra_in(socket, @folder_view)
+        )
 
       {:noreply,
        socket
@@ -5477,7 +5528,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       cond do
         is_nil(root) -> home
         not is_nil(home) and Storage.within_scope?(home, root) -> home
-        true -> Enum.find(Storage.folder_subtree_uuids(root), &Storage.folder_link(&1, file.uuid))
+        true -> Storage.linked_folder_among(file.uuid, Storage.folder_subtree_uuids(root))
       end
     end
   end
@@ -6375,7 +6426,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     folder_uuids =
       files |> Enum.map(& &1.folder_uuid) |> Enum.reject(&is_nil/1) |> Enum.uniq()
 
-    folder_paths = Map.new(folder_uuids, fn fuuid -> {fuuid, Helpers.breadcrumb_path(fuuid)} end)
+    folder_paths = Helpers.breadcrumb_paths(folder_uuids)
 
     # Which libraries of the batch have annotated thumbnails on (a library's
     # own choice, else the site setting), in one query — when off, the baked

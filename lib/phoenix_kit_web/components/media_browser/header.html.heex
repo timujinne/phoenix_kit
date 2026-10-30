@@ -503,13 +503,11 @@
         {gettext("Wait for the uploads to finish")}
       </span>
       <%!-- The picker's own view options: the files of the folders below this
-           one too (`subtree_toggle`), and how big the tiles are. Not shown
-           over the Trash, the orphaned files or All Files, which are flat
-           listings of their own. --%>
+           one too (`subtree_toggle`), and how big the tiles are. The switch
+           is not shown over the Trash, the orphaned files or All Files, which
+           are flat listings of their own. --%>
       <label
-        :if={
-          @subtree_toggle and not @filter_trash and not @filter_orphaned and @file_view != "all"
-        }
+        :if={subtree_offered?(assigns)}
         for={"#{@id}-subtree-toggle"}
         title={gettext("Show the files of the folders below this one too")}
         class="flex items-center gap-2 text-sm cursor-pointer"

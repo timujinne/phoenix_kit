@@ -21718,12 +21718,12 @@ msgstr[0] "%{count} об’єкт переміщено в кошик"
 msgstr[1] "%{count} об’єкти переміщено в кошик"
 msgstr[2] "%{count} об’єктів переміщено в кошик"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
 msgid "Include subfolders"
 msgstr "Включно з вкладеними папками"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
 msgid "Show the files of the folders below this one too"
 msgstr "Показувати також файли з папок нижче"

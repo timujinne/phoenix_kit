@@ -21647,12 +21647,12 @@ msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} élément déplacé vers la corbeille"
 msgstr[1] "%{count} éléments déplacés vers la corbeille"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
 msgid "Include subfolders"
 msgstr "Inclure les sous-dossiers"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
 msgid "Show the files of the folders below this one too"
 msgstr "Afficher aussi les fichiers des dossiers situés en dessous"
