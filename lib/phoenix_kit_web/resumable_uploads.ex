@@ -71,6 +71,13 @@ defmodule PhoenixKitWeb.ResumableUploads do
       `handle_async/3`). `{:retry, _}` and not answering at all leave the file
       in the browser, to be offered to the person with a button.
 
+    * **Your own sign-out links need `data-pk-logout`.** The files stashed in
+      the browser are removed (those of the user signing out) before the
+      request goes out; core's links carry the attribute already.
+    * **A cancelled file is not carried on.** An entry that disappears from the
+      upload without having arrived (`cancel_upload/3`, the cancel button) is
+      reported to the browser as rejected, and its stashed copy is deleted.
+
   Does not depend on Storage; any `allow_upload` can use it.
 
   ## Wire protocol
@@ -82,8 +89,12 @@ defmodule PhoenixKitWeb.ResumableUploads do
   `pk-upload-received`, `-stored`, `-rejected`, `-feed`, `-drop`.
   """
 
+  use Gettext, backend: PhoenixKitWeb.Gettext
+
   import Phoenix.Component, only: [assign: 3, upload_errors: 2]
   import Phoenix.LiveView
+
+  require Logger
 
   alias Phoenix.LiveView.UploadConfig
   alias Phoenix.LiveView.UploadEntry
@@ -91,6 +102,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
   @events ~w(pk_upload_pick pk_upload_resume pk_upload_resume_click pk_upload_discard)
   @max_string 512
   @max_keys 200
+  @max_seqs 20
   @pending_ttl_ms 120_000
 
   @doc """
@@ -123,7 +135,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
     |> put_state(name, new_state(resume_opts))
     |> attach_guard()
     |> attach_hook({:pk_resumable, name}, :handle_event, &handle_event(name, &1, &2, &3))
-    |> attach_hook({:pk_resumable, name}, :after_render, &reject_new(&1, name))
+    |> attach_hook({:pk_resumable, name}, :after_render, &sync_entries(&1, name))
     |> publish(name)
   end
 
@@ -213,7 +225,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
   @spec pending?(Phoenix.LiveView.Socket.t(), atom()) :: boolean()
   def pending?(socket, name) do
     case get_state(socket, name) do
-      %{pending_at: at} when is_integer(at) -> now() - at < @pending_ttl_ms
+      %{outstanding: list} -> live_outstanding(list) != []
       _ -> false
     end
   end
@@ -233,7 +245,9 @@ defmodule PhoenixKitWeb.ResumableUploads do
 
   defp received(socket, name, entry) do
     socket
-    |> update_state(name, &%{&1 | pending_at: nil})
+    |> update_state(name, fn st ->
+      st |> drop_outstanding() |> Map.update!(:refs, &Map.delete(&1, entry.ref))
+    end)
     |> push_event("pk-upload-received", %{upload: Atom.to_string(name), key: client_key(entry)})
   end
 
@@ -245,31 +259,68 @@ defmodule PhoenixKitWeb.ResumableUploads do
     |> push_event(event, %{upload: Atom.to_string(name), key: key})
   end
 
-  # Entries LiveView turned away never open an upload channel, so `progress:`
-  # does not hear of them: they are found among the entries of every event, in
-  # time to be cancelled before the host's own handler (and the render) see them,
-  # and again after every render for the ones that came in without an event the
-  # hook sees (a cancel made then shows from the next render on).
-  defp reject_new(socket, name) do
-    with %{} = state <- get_state(socket, name),
-         %UploadConfig{} = conf <- socket.assigns[:uploads][name] do
-      fresh =
-        for entry <- conf.entries,
-            not MapSet.member?(state.rejected_seen, entry.ref),
-            errors = upload_errors(conf, entry),
-            errors != [],
-            do: {entry, errors}
-
-      Enum.reduce(fresh, socket, fn {entry, errors}, acc ->
-        acc
-        |> update_state(name, &%{&1 | rejected_seen: MapSet.put(&1.rejected_seen, entry.ref)})
-        |> on_rejected(name, entry, errors)
-        |> maybe_cancel(name, entry)
-        |> rejected(name, entry)
-      end)
+  # Two things are found among the entries of every event (before the host's
+  # own handler sees them) and again after every render (for what came in with
+  # no event the hook sees):
+  #
+  #   * entries LiveView turned away — they never open an upload channel, so
+  #     `progress:` does not hear of them: reported to the host, cancelled
+  #     (unless it opted out) and acknowledged to the browser as rejected;
+  #   * entries that were under way and have vanished without being received —
+  #     the person cancelled them: the browser must not carry them on later, so
+  #     they are acknowledged as rejected too.
+  #
+  # A cancel made in `after_render` shows from the next render on.
+  defp sync_entries(socket, name) do
+    with %{} <- get_state(socket, name),
+         %UploadConfig{} <- socket.assigns[:uploads][name] do
+      socket |> reject_new(name) |> forget_cancelled(name)
     else
       _ -> socket
     end
+  end
+
+  defp reject_new(socket, name) do
+    state = get_state(socket, name)
+    conf = socket.assigns.uploads[name]
+
+    fresh =
+      for entry <- conf.entries,
+          not MapSet.member?(state.rejected_seen, entry.ref),
+          errors = upload_errors(conf, entry),
+          errors != [],
+          do: {entry, errors}
+
+    Enum.reduce(fresh, socket, fn {entry, errors}, acc ->
+      acc
+      |> update_state(name, fn st ->
+        drop_outstanding(%{st | rejected_seen: MapSet.put(st.rejected_seen, entry.ref)})
+      end)
+      |> on_rejected(name, entry, errors)
+      |> maybe_cancel(name, entry)
+      |> rejected(name, entry)
+    end)
+  end
+
+  defp forget_cancelled(socket, name) do
+    conf = socket.assigns.uploads[name]
+    present = MapSet.new(conf.entries, & &1.ref)
+
+    {gone, kept} =
+      Enum.split_with(get_state(socket, name).refs, fn {ref, _} ->
+        not MapSet.member?(present, ref)
+      end)
+
+    open =
+      for entry <- conf.entries, not entry.done?, upload_errors(conf, entry) == [], into: %{} do
+        {entry.ref, client_key(entry)}
+      end
+
+    socket = update_state(socket, name, &%{&1 | refs: Map.merge(Map.new(kept), open)})
+
+    Enum.reduce(gone, socket, fn {_ref, key}, acc ->
+      acc |> update_state(name, &drop_outstanding/1) |> rejected(name, key)
+    end)
   end
 
   defp on_rejected(socket, name, entry, errors) do
@@ -280,18 +331,14 @@ defmodule PhoenixKitWeb.ResumableUploads do
   end
 
   defp default_reason(entry, errors) do
-    Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "%{name}: %{reason}",
+    gettext("%{name}: %{reason}",
       name: entry.client_name,
       reason: Enum.map_join(errors, ", ", &error_text/1)
     )
   end
 
-  defp error_text(:too_large),
-    do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "file too large")
-
-  defp error_text(:not_accepted),
-    do: Gettext.dgettext(PhoenixKitWeb.Gettext, "default", "file type not accepted")
-
+  defp error_text(:too_large), do: gettext("file too large")
+  defp error_text(:not_accepted), do: gettext("file type not accepted")
   defp error_text(other), do: to_string(other)
 
   defp maybe_cancel(socket, name, entry) do
@@ -314,8 +361,10 @@ defmodule PhoenixKitWeb.ResumableUploads do
     end
   end
 
-  defp guard(event, %{"upload" => upload}, socket) when event in @events do
-    if Enum.any?(resumable_names(socket), &(Atom.to_string(&1) == upload)),
+  defp guard(event, params, socket) when event in @events do
+    upload = if is_map(params), do: Map.get(params, "upload")
+
+    if is_binary(upload) and Enum.any?(resumable_names(socket), &(Atom.to_string(&1) == upload)),
       do: {:cont, socket},
       else: {:halt, %{error: "not_attached"}, socket}
   end
@@ -324,7 +373,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
 
   defp handle_event(name, event, %{"upload" => upload} = params, socket) when event in @events do
     if upload == Atom.to_string(name) do
-      socket = reject_new(socket, name)
+      socket = sync_entries(socket, name)
       {reply, socket} = handle(event, name, params, socket)
       {:halt, reply, socket}
     else
@@ -333,11 +382,12 @@ defmodule PhoenixKitWeb.ResumableUploads do
   end
 
   # Every other event: the entries it brought may include refused ones.
-  defp handle_event(name, _event, _params, socket), do: {:cont, reject_new(socket, name)}
+  defp handle_event(name, _event, _params, socket), do: {:cont, sync_entries(socket, name)}
 
   defp handle("pk_upload_pick", name, params, socket) do
     items = items(params, socket, name)
-    {%{}, update_state(socket, name, &put_contexts(&1, items))}
+    {socket, dropped} = store_contexts(socket, name, items)
+    {if(dropped > 0, do: %{dropped: dropped}, else: %{}), socket}
   end
 
   defp handle("pk_upload_resume", name, params, socket) do
@@ -347,8 +397,10 @@ defmodule PhoenixKitWeb.ResumableUploads do
     live =
       for e <- conf.entries, e.valid?, not e.cancelled?, into: MapSet.new(), do: client_key(e)
 
-    free = max(conf.max_entries - Enum.count(conf.entries, & &1.valid?), 0)
-    policy = get_state(socket, name).opts[:policy] || (&default_policy/3)
+    st = get_state(socket, name)
+    outstanding = live_outstanding(st.outstanding)
+    free = max(conf.max_entries - Enum.count(conf.entries, & &1.valid?) - length(outstanding), 0)
+    policy = st.opts[:policy] || (&default_policy/3)
 
     {decided, _free} =
       Enum.map_reduce(items, free, fn item, free ->
@@ -359,11 +411,13 @@ defmodule PhoenixKitWeb.ResumableUploads do
     asked = for {:ask, item} <- decided, do: Map.take(item, [:id, :name, :size, :has_bytes])
     keep = for {d, item} <- decided, d != :drop, do: item
 
+    {socket, _dropped} = store_contexts(socket, name, keep)
+
     socket =
       socket
       |> update_state(name, fn st ->
-        st = put_contexts(st, keep)
-        %{st | ask: asked, pending_at: if(ids.(:auto) != [], do: now(), else: st.pending_at)}
+        fed = List.duplicate(now(), length(ids.(:auto)))
+        %{st | ask: asked, outstanding: outstanding ++ fed}
       end)
       |> publish(name)
 
@@ -372,14 +426,17 @@ defmodule PhoenixKitWeb.ResumableUploads do
 
   defp handle("pk_upload_resume_click", name, _params, socket) do
     st = get_state(socket, name)
-    ids = Enum.map(st.ask, & &1.id)
+    conf = socket.assigns.uploads[name]
+    outstanding = live_outstanding(st.outstanding)
+    free = max(conf.max_entries - Enum.count(conf.entries, & &1.valid?) - length(outstanding), 0)
+    {feed, wait} = Enum.split(st.ask, free)
+    ids = Enum.map(feed, & &1.id)
 
     socket =
       socket
-      |> update_state(
-        name,
-        &%{&1 | ask: [], pending_at: if(ids == [], do: &1.pending_at, else: now())}
-      )
+      |> update_state(name, fn st ->
+        %{st | ask: wait, outstanding: outstanding ++ List.duplicate(now(), length(ids))}
+      end)
       |> publish(name)
       |> push_event("pk-upload-feed", %{upload: Atom.to_string(name), ids: ids})
 
@@ -455,24 +512,55 @@ defmodule PhoenixKitWeb.ResumableUploads do
   # ── state ─────────────────────────────────────────────────────────────────
 
   defp new_state(opts) do
-    %{contexts: %{}, pending_at: nil, ask: [], rejected_seen: MapSet.new(), opts: opts}
+    %{
+      contexts: %{},
+      outstanding: [],
+      ask: [],
+      refs: %{},
+      rejected_seen: MapSet.new(),
+      opts: opts
+    }
   end
 
-  defp put_contexts(st, items) do
-    Enum.reduce(items, st, fn item, acc ->
-      if is_binary(item.context) and
-           (Map.has_key?(acc.contexts, item.key) or map_size(acc.contexts) < @max_keys) do
+  # Contexts are the client's to send, so there are limits: keys and seqs per
+  # key. A context that does not fit is dropped (the host then uses its own
+  # default) and the count comes back to the browser and to the log.
+  defp store_contexts(socket, name, items) do
+    {st, dropped} =
+      Enum.reduce(items, {get_state(socket, name), 0}, fn item, {acc, dropped} ->
         by_seq = Map.get(acc.contexts, item.key, %{})
 
-        %{
-          acc
-          | contexts: Map.put(acc.contexts, item.key, Map.put(by_seq, item.seq, item.context))
-        }
-      else
-        acc
-      end
-    end)
+        cond do
+          not is_binary(item.context) ->
+            {acc, dropped}
+
+          Map.has_key?(by_seq, item.seq) or
+              (map_size(by_seq) < @max_seqs and
+                 (by_seq != %{} or map_size(acc.contexts) < @max_keys)) ->
+            {%{
+               acc
+               | contexts:
+                   Map.put(acc.contexts, item.key, Map.put(by_seq, item.seq, item.context))
+             }, dropped}
+
+          true ->
+            {acc, dropped + 1}
+        end
+      end)
+
+    if dropped > 0,
+      do:
+        Logger.warning(
+          "ResumableUploads: #{dropped} context(s) of #{name} dropped, limit reached"
+        )
+
+    {put_state(socket, name, st), dropped}
   end
+
+  defp live_outstanding(list), do: Enum.filter(list, &(now() - &1 < @pending_ttl_ms))
+
+  defp drop_outstanding(st),
+    do: %{st | outstanding: Enum.drop(live_outstanding(st.outstanding), 1)}
 
   defp forget_context(st, key) do
     case Map.get(st.contexts, key) do

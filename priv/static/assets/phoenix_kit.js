@@ -10032,6 +10032,13 @@ if (typeof window.Chart === "undefined") {
     return uploadStashRun("readwrite", function(store) { store.clear(); }).then(function(r) { return r.ok; });
   }
 
+  // The records of one user (a multi-session stack keeps the others').
+  function uploadStashClearUser(user) {
+    return uploadStashAll().then(function(rows) {
+      return uploadStashDelete(rows.filter(function(row) { return row.user === user; }).map(function(row) { return row.id; }));
+    });
+  }
+
   // Records written by the first version of this stash live in a database of
   // their own and are never read again.
   function uploadStashDropOldDatabase() {
@@ -10072,6 +10079,7 @@ if (typeof window.Chart === "undefined") {
       this._inflight = {};    // id -> true: this instance is transferring it
       this._waiting = {};     // id -> true: claimed, waiting for a slot or a click
       this._done = {};        // id -> true: received on this connection; the host will answer
+      this._chain = Promise.resolve();  // received/stored/rejected are handled one at a time, in order
       this._queued = false;
       this._seen = typeof WeakSet === "function" ? new WeakSet() : null;
       this._scanning = false;
@@ -10202,7 +10210,10 @@ if (typeof window.Chart === "undefined") {
       Object.keys(this._held).forEach(function(id) { self._release(id); });
     },
 
+    // Only the lease needs it: a Web Lock says the owner is alive by itself,
+    // and rewriting a record rewrites its Blob.
     _heartbeat() {
+      if (uploadStashLocks()) return;
       var ids = Object.keys(this._inflight);
       if (!ids.length) return;
       var now = Date.now();
@@ -10287,31 +10298,41 @@ if (typeof window.Chart === "undefined") {
         .sort(function(a, b) { return a.seq < b.seq ? -1 : 1; });
     },
 
+    // One at a time: `received` and `stored` of one file arrive together, and
+    // the second must see what the first wrote.
+    _enqueue(task) {
+      var next = this._chain.then(task, task);
+      this._chain = next.catch(function() {});
+      return next;
+    },
+
     // The server has all the bytes of one `key`.
     _received(key) {
       var self = this;
-      uploadStashAll().then(function(rows) {
-        var row = self._byKey(rows, key).filter(function(r) { return r.state === "pending" && self._held[r.id]; })[0] ||
-                  self._byKey(rows, key).filter(function(r) { return r.state === "pending"; })[0];
-        if (row) {
+      return this._enqueue(function() {
+        return uploadStashAll().then(function(rows) {
+          var list = self._byKey(rows, key).filter(function(r) { return r.state === "pending"; });
+          var row = list.filter(function(r) { return self._held[r.id]; })[0] || list[0];
+          if (!row) return null;
           delete self._inflight[row.id];
           self._done[row.id] = true;
           self._release(row.id);
-          uploadStashUpdate([row.id], function(r) { r.state = "received"; r.touched = Date.now(); r.owner = null; });
-        }
-        if (self._queued) self._scan();
+          return uploadStashUpdate([row.id], function(r) { r.state = "received"; r.touched = Date.now(); r.owner = null; });
+        }).then(function() { if (self._queued) self._scan(); });
       });
     },
 
-    // The host stored the file (`stored`) or turned it down for good.
+    // The host stored the file (`stored`), or turned it down for good, or the
+    // person cancelled it (`rejected`: the browser must not carry it on).
     _finish(key, stored) {
       var self = this;
-      uploadStashAll().then(function(rows) {
-        var list = self._byKey(rows, key);
-        var row = (stored ? list.filter(function(r) { return r.state === "received"; })[0] : null) ||
-                  list.filter(function(r) { return self._inflight[r.id]; })[0] || list[0];
-        if (row) self._forget([row.id]);
-        if (self._queued) self._scan();
+      return this._enqueue(function() {
+        return uploadStashAll().then(function(rows) {
+          var list = self._byKey(rows, key);
+          var row = (stored ? list.filter(function(r) { return r.state === "received"; })[0] : null) ||
+                    list.filter(function(r) { return self._inflight[r.id]; })[0] || list[0];
+          return row ? self._forget([row.id]) : null;
+        }).then(function() { if (self._queued) self._scan(); });
       });
     },
 
@@ -10425,16 +10446,23 @@ if (typeof window.Chart === "undefined") {
     }
   };
 
-  // Signing out removes every record of this browser before the request goes
-  // out: the stash holds file bytes, and the next person to sign in must not
-  // find them. A failing IndexedDB must not keep anyone signed in.
+  // Signing out removes the stashed files of the user signing out before the
+  // request goes out: the stash holds file bytes, and the next person to sign
+  // in must not find them. The user is the one the page's hooks were mounted
+  // for (another signed-in user of a multi-session stack keeps his files); a
+  // page with no hook cannot say, and everything goes. A failing IndexedDB must
+  // not keep anyone signed in, and a click that opens a new tab or window is
+  // left alone.
   (function() {
     var proceeding = false;
     document.addEventListener("click", function(e) {
       var el = e.target && e.target.closest ? e.target.closest("[data-pk-logout]") : null;
       if (!el || proceeding) return;
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       e.stopPropagation();
+      var hook = document.querySelector && document.querySelector('[phx-hook="ResumableUpload"][data-user]');
+      var user = hook && hook.dataset ? hook.dataset.user : "";
       var done = false;
       var go = function() {
         if (done) return;
@@ -10443,7 +10471,7 @@ if (typeof window.Chart === "undefined") {
         try { el.click(); } finally { proceeding = false; }
       };
       setTimeout(go, UPLOAD_STASH_LOGOUT_WAIT_MS);
-      try { uploadStashClear().then(go, go); } catch (_) { go(); }
+      try { (user ? uploadStashClearUser(user) : uploadStashClear()).then(go, go); } catch (_) { go(); }
     }, true);
   })();
 

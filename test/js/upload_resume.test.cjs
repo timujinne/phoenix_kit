@@ -92,7 +92,8 @@ function pageLoad({ locks = true, rows, clock } = {}) {
       },
     } : {},
   };
-  const doc = { listeners: {}, addEventListener(type, fn) { this.listeners[type] = fn; } };
+  const doc = { listeners: {}, hooks: [], addEventListener(type, fn) { this.listeners[type] = fn; },
+    querySelector() { return this.hooks[0] || null; } };
   const code = hook + `
     function uploadStashAll() { return Promise.resolve(store.rows.slice()); }
     function uploadStashPut(rec) {
@@ -110,6 +111,7 @@ function pageLoad({ locks = true, rows, clock } = {}) {
       return Promise.resolve(true);
     }
     function uploadStashClear() { store.rows = []; store.cleared = true; return Promise.resolve(true); }
+    function uploadStashClearUser(user) { store.rows = store.rows.filter((r) => r.user !== user); store.clearedUser = user; return Promise.resolve(true); }
     return window.PhoenixKitHooks.ResumableUpload;`;
   const Hook = new Function("window", "store", "Date", "setTimeout", "clearTimeout",
     "setInterval", "clearInterval", "document", "console", code)(
@@ -446,18 +448,95 @@ test("the stash of the first version is dropped", () => {
   assert.strictEqual(page.store.oldDbDeleted, 1);
 });
 
-test("signing out clears the stash before the request goes out, and a failing store does not block it", async () => {
+function clickLogout(page, extra = {}) {
+  let clicks = 0;
+  let prevented = 0;
+  const el = { click() { clicks++; page.doc.listeners.click({ button: 0, target: { closest: () => el }, preventDefault() {}, stopPropagation() {} }); } };
+  page.doc.listeners.click(Object.assign({ button: 0, target: { closest: () => el },
+    preventDefault() { prevented++; }, stopPropagation() {} }, extra));
+  return { clicks: () => clicks, prevented: () => prevented };
+}
+
+test("signing out clears the signing-out user's stash before the request goes out, then replays the click once", async () => {
   const page = pageLoad();
   leftover(page);
-  let clicks = 0;
-  const el = { click() { clicks++; page.doc.listeners.click({ target: { closest: () => el }, preventDefault() {}, stopPropagation() {} }); } };
-  let prevented = 0;
-  page.doc.listeners.click({ target: { closest: () => el }, preventDefault() { prevented++; }, stopPropagation() {} });
-  assert.strictEqual(prevented, 1, "the original navigation is held back");
+  leftover(page, { user: "u2", key: "z|5|7" });
+  page.doc.hooks.push({ dataset: { user: "u1" } });
+  const c = clickLogout(page);
+  assert.strictEqual(c.prevented(), 1, "the original navigation is held back");
+  await settle();
+  assert.strictEqual(page.store.clearedUser, "u1");
+  assert.strictEqual(c.clicks(), 1);
+  assert.deepStrictEqual(rowsOf(page).map((r) => r.user), ["u2"], "another signed-in user keeps his files");
+});
+
+test("a page with no hook cannot say whose files; everything goes", async () => {
+  const page = pageLoad();
+  leftover(page);
+  clickLogout(page);
   await settle();
   assert.strictEqual(page.store.cleared, true);
-  assert.strictEqual(clicks, 1, "then replayed once");
+});
+
+test("a click that opens a new tab or window is left alone", async () => {
+  const page = pageLoad();
+  leftover(page);
+  for (const extra of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { button: 1 }]) {
+    const c = clickLogout(page, extra);
+    assert.strictEqual(c.prevented(), 0);
+  }
+  await settle();
+  assert.strictEqual(rowsOf(page).length, 1);
+});
+
+test("received and stored of one file arrive together: the right record is deleted when the file is in the stash twice", async () => {
+  const page = pageLoad();
+  const stranded = leftover(page, { seq: "s0", state: "received", owner: null });
+  const m = mount(page);
+  m.pick(file("a.png"));                 // same key as the stranded one
+  await settle();
+  const picked = rowsOf(page).find((r) => r.id !== stranded.id);
+  m.handlers["pk-upload-received"]({ upload: "photos", key: "a.png|5|7" });
+  m.handlers["pk-upload-stored"]({ upload: "photos", key: "a.png|5|7" });
+  await settle();
+  assert.ok(!rowsOf(page).some((r) => r.id === picked.id), "the file that was just stored is gone");
+  assert.strictEqual(rowsOf(page).length, 1, "the stranded one stays for its own decision");
+});
+
+test("a cancelled file is rejected by the server and deleted; it is not carried on later", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  m.pick(file("a.png"));
+  await settle();
+  m.handlers["pk-upload-rejected"]({ upload: "photos", key: "a.png|5|7" });
+  await settle();
   assert.deepStrictEqual(rowsOf(page), []);
+  assert.strictEqual(page.held.size, 0);
+  m.ctx.disconnected();
+  m.ctx.reconnected();
+  await settle();
+  assert.strictEqual(resumeCall(m), undefined, "nothing to offer");
+});
+
+test("in lock mode the heartbeat does not rewrite records; under the lease it does", async () => {
+  const locked = pageLoad();
+  const a = mount(locked);
+  a.pick(file("a.png"));
+  await settle();
+  const before = rowsOf(locked)[0].touched;
+  locked.tick(6000);
+  a.ctx._heartbeat();
+  await settle();
+  assert.strictEqual(rowsOf(locked)[0].touched, before);
+
+  const leased = pageLoad({ locks: false });
+  const b = mount(leased);
+  b.pick(file("a.png"));
+  await settle();
+  leased.tick(6000);
+  b.ctx._heartbeat();
+  await settle();
+  assert.strictEqual(rowsOf(leased)[0].touched, leased.clock.t);
 });
 
 test("a file picked while the socket is down is carried on after the reconnect, not left 'in flight'", async () => {

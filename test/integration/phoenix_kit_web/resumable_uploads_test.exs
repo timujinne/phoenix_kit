@@ -63,6 +63,9 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
 
     def handle_event("validate", _params, socket), do: {:noreply, socket}
 
+    def handle_event("cancel", %{"ref" => ref}, socket),
+      do: {:noreply, cancel_upload(socket, :photos, ref)}
+
     def handle_event("check", _params, socket) do
       {:noreply,
        Phoenix.Component.assign(
@@ -379,6 +382,91 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
       render_upload(upload(view, "a.png"), "a.png")
       render_hook(view, "check", %{})
       refute has_element?(view, "#pending")
+    end
+  end
+
+  describe "entries that vanish" do
+    test "a cancelled file is reported as rejected, so the browser does not carry it on", %{
+      conn: conn
+    } do
+      {:ok, view, _} = host(conn)
+      k = key("a.png")
+      render_upload(upload(view, "a.png"), "a.png", 10)
+      [entry] = socket_entries(view)
+
+      render_hook(view, "cancel", %{"ref" => entry.ref})
+      assert_push_event(view, "pk-upload-rejected", %{upload: "photos", key: ^k})
+      refute_push_event(view, "pk-upload-received", %{key: ^k}, 50)
+    end
+
+    test "a file that arrived (received) and was consumed is not reported as cancelled", %{
+      conn: conn
+    } do
+      {:ok, view, _} = host(conn)
+      k = key("a.png")
+      render_upload(upload(view, "a.png"), "a.png")
+      render_submit(element(view, "#f"))
+      assert_push_event(view, "pk-upload-stored", %{key: ^k})
+      refute_push_event(view, "pk-upload-rejected", %{key: ^k}, 50)
+    end
+
+    test "pending? ends when the carried-on file is cancelled or refused", %{conn: conn} do
+      {:ok, view, _} = host(conn)
+      resume(view, [item("a.png")])
+      render_hook(view, "check", %{})
+      assert has_element?(view, "#pending")
+
+      big = String.duplicate("x", 40)
+      assert {:error, _} = render_upload(upload(view, "big.png", :photos, big), "big.png")
+      render_hook(view, "check", %{})
+      refute has_element?(view, "#pending")
+    end
+  end
+
+  describe "slots across answers" do
+    test "files decided auto earlier but not yet fed still take their slots", %{conn: conn} do
+      {:ok, view, _} = host(conn)
+      resume(view, [item("a.png"), item("b.png")])
+      assert_reply(view, %{auto: ["id-a.png", "id-b.png"]})
+
+      resume(view, [item("c.png")])
+      assert_reply(view, %{auto: [], queued: ["id-c.png"]})
+    end
+
+    test "Resume feeds no more asked files than there are free slots", %{conn: conn} do
+      {:ok, view, _} = host(conn)
+
+      resume(view, for(n <- ~w(a b c), do: item("#{n}.png", %{"state" => "received"})))
+      assert_reply(view, %{ask: ["id-a.png", "id-b.png", "id-c.png"]})
+
+      row = "#pk-resumable-photos-#{:erlang.phash2("rec|order-1")}"
+      view |> element(row <> "-resume") |> render_click()
+      assert_push_event(view, "pk-upload-feed", %{ids: ["id-a.png", "id-b.png"]})
+      assert has_element?(view, row <> "-ask"), "the third one still waits for a button"
+    end
+  end
+
+  describe "hostile events" do
+    test "an event of ours with no upload name never reaches the host", %{conn: conn} do
+      {:ok, view, _} = host(conn)
+      render_hook(view, "pk_upload_pick", %{})
+      assert_reply(view, %{error: "not_attached"})
+      assert Process.alive?(view.pid)
+    end
+
+    test "contexts beyond the limits are dropped loudly, not silently", %{conn: conn} do
+      {:ok, view, _} = host(conn)
+
+      # max_entries * 4 items per event, 20 seqs per key.
+      for batch <- 0..2 do
+        items =
+          for i <- 1..8, do: %{"key" => key("a.png"), "seq" => "#{batch}-#{i}", "context" => "c"}
+
+        render_hook(view, "pk_upload_pick", %{"upload" => "docs", "items" => items})
+      end
+
+      assert_reply(view, %{dropped: dropped})
+      assert dropped > 0
     end
   end
 
