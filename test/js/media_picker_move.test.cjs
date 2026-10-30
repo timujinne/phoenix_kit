@@ -44,9 +44,13 @@ function browser({ pickMode, cardAttrs, rootData }) {
     card.querySelector = () => null;
     return card;
   });
+  // The grid of the folder shown is a zone with no background (`data-drop-no-bg`);
+  // the folder's node in the tree is a target of its own with the same name.
+  current.dataset.dropNoBg = "";
+  const node = element({ dropFolder: "current" });
   const kitchen = element({ dropFolder: "kitchen" });
   const top = element({ dropFolder: "root" });
-  const targets = { current, kitchen, top };
+  const targets = { current, node, kitchen, top };
 
   const root = element(Object.assign(pickMode ? { pickMode } : {}, rootData || {}));
   root.id = "media";
@@ -112,7 +116,7 @@ test("a picked card in a picker drags the whole pick: one batch event", () => {
   const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED] });
   const dt = b.drag(b.cards[0], "kitchen");
   assert.ok(dt.types.includes("application/x-pk-batch"));
-  assert.deepEqual(b.calls, [{ event: "move_selected_to_folder", payload: { "folder-uuid": "kitchen" } }]);
+  assert.deepEqual(b.calls, [{ event: "move_picked_to_folder", payload: { "folder-uuid": "kitchen" } }]);
 });
 
 test("a card that is not picked drags alone", () => {
@@ -125,13 +129,15 @@ test("a card that is not picked drags alone", () => {
 test("the top level is named by an empty folder", () => {
   const b = browser({ pickMode: "single", cardAttrs: [PICKED, NOT_PICKED, NOT_PICKED] });
   b.drag(b.cards[0], "top");
-  assert.deepEqual(b.calls, [{ event: "move_selected_to_folder", payload: { "folder-uuid": "" } }]);
+  assert.deepEqual(b.calls, [{ event: "move_picked_to_folder", payload: { "folder-uuid": "" } }]);
 });
 
 test("a drop on the folder the picked cards are in asks for nothing", () => {
   const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED] });
   b.drag(b.cards[0], "current");
   b.drag(b.cards[1], "current");
+  b.drag(b.cards[0], "node");
+  b.drag(b.cards[1], "node");
   assert.deepEqual(b.calls, []);
 });
 
@@ -172,16 +178,50 @@ test("outside a picker a long press still selects", () => {
   assert.ok(b.cards[0].listeners.pointerdown.length > 0);
 });
 
-test("a pick with files off screen gathers them: a drop on the folder shown is asked for", () => {
+test("a pick with files off screen is gathered by a drop on the node of the folder shown", () => {
+  const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED], rootData: { pickCount: "5" } });
+  b.drag(b.cards[0], "node");
+  assert.deepEqual(b.calls, [{ event: "move_picked_to_folder", payload: { "folder-uuid": "current" } }]);
+});
+
+test("…but not by a card let go over the grid", () => {
   const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED], rootData: { pickCount: "5" } });
   b.drag(b.cards[0], "current");
-  assert.deepEqual(b.calls, [{ event: "move_selected_to_folder", payload: { "folder-uuid": "current" } }]);
+  assert.deepEqual(b.calls, []);
 });
 
 test("a pick that is all on screen still ignores the folder shown", () => {
   const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED], rootData: { pickCount: "2" } });
-  b.drag(b.cards[0], "current");
+  b.drag(b.cards[0], "node");
   assert.deepEqual(b.calls, []);
+});
+
+test("in a picker the grid takes no move: a card must be dropped on a folder", () => {
+  const b = browser({ pickMode: "multiple", cardAttrs: [PICKED, NOT_PICKED, PICKED], rootData: { pickCount: "2" } });
+  const fromElsewhere = { dataset: { originFolder: "kitchen" } };
+  const c = browser({ pickMode: "multiple", cardAttrs: [fromElsewhere, {}, {}] });
+  c.drag(c.cards[0], "current");
+  b.drag(b.cards[1], "current");
+  assert.deepEqual(c.calls.concat(b.calls), []);
+});
+
+test("listing the subfolders, a card's folder is the one it names, not the grid's", () => {
+  const fromKitchen = { dataset: { originFolder: "kitchen" } };
+  const fromCurrent = { dataset: { originFolder: "current" } };
+  const b = browser({ pickMode: "multiple", cardAttrs: [fromKitchen, fromCurrent, {}] });
+  b.drag(b.cards[0], "node");
+  b.drag(b.cards[1], "node");
+  b.drag(b.cards[0], "kitchen");
+  assert.deepEqual(b.calls, [
+    { event: "move_file_to_folder", payload: { file_uuid: "a", folder_uuid: "current" } }
+  ]);
+});
+
+test("a picked batch from several folders may go to any node", () => {
+  const picked = (folder) => ({ attrs: { "data-pick-order": "1" }, dataset: { originFolder: folder } });
+  const b = browser({ pickMode: "multiple", cardAttrs: [picked("kitchen"), picked("current"), {}], rootData: { pickCount: "2" } });
+  b.drag(b.cards[0], "node");
+  assert.deepEqual(b.calls.map(c => c.payload["folder-uuid"]), ["current"]);
 });
 
 test("text or a link dropped on a folder is not taken for a card", () => {

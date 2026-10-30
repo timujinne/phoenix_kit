@@ -155,4 +155,52 @@ defmodule PhoenixKit.Modules.Storage.ListFilesSubtreeTest do
 
     assert Storage.linked_folder_among(file.uuid, []) == nil
   end
+
+  test "linked_folder_among/2 takes the first folder by uuid when a file is linked into several" do
+    owner = user!("owner")
+    home = folder!("Home", nil)
+    one = folder!("One", nil)
+    two = folder!("Two", nil)
+    file = file!(home, owner)
+    {:ok, _} = Storage.create_folder_link(two.uuid, file.uuid)
+    {:ok, _} = Storage.create_folder_link(one.uuid, file.uuid)
+
+    assert Storage.linked_folder_among(file.uuid, [two.uuid, one.uuid]) ==
+             Enum.min([one.uuid, two.uuid])
+  end
+
+  test "folder_links_among/2 gives the links of many files in one go, homes not counted" do
+    owner = user!("owner")
+    home = folder!("Home", nil)
+    target = folder!("Target", nil)
+    a = file!(home, owner)
+    b = file!(home, owner)
+    c = file!(target, owner)
+    {:ok, _} = Storage.create_folder_link(target.uuid, a.uuid)
+
+    assert Storage.folder_links_among([a.uuid, b.uuid, c.uuid], [target.uuid, home.uuid]) ==
+             [{a.uuid, target.uuid}]
+
+    assert Storage.folder_links_among([], [target.uuid]) == []
+    assert Storage.folder_links_among([a.uuid], []) == []
+  end
+
+  test "folder_subtree_uuids/2 with live: true leaves out folders in the trash and what is under them" do
+    root = folder!("Root", nil)
+    live = folder!("Live", root)
+    gone = folder!("Gone", root)
+    under_gone = folder!("UnderGone", gone)
+
+    assert Enum.sort(Storage.folder_subtree_uuids(root.uuid)) ==
+             Enum.sort([root.uuid, live.uuid, gone.uuid, under_gone.uuid])
+
+    {:ok, _} = Storage.trash_folder(Repo.get(Storage.Folder, gone.uuid))
+
+    assert Enum.sort(Storage.folder_subtree_uuids(root.uuid, live: true)) ==
+             Enum.sort([root.uuid, live.uuid])
+
+    # The default still walks all of it, as trash and restore need.
+    assert gone.uuid in Storage.folder_subtree_uuids(root.uuid)
+    assert Storage.folder_subtree_uuids(gone.uuid, live: true) == []
+  end
 end

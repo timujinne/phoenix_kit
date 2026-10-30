@@ -523,19 +523,6 @@
         />
         {gettext("Include subfolders")}
       </label>
-      <div id={"#{@id}-tile-size"} class="join">
-        <button
-          :for={{size, label} <- [{"small", gettext("Small")}, {"large", gettext("Large")}]}
-          type="button"
-          phx-click="set_tile_size"
-          phx-value-size={size}
-          phx-target={@myself}
-          aria-pressed={to_string(@tile_size == size)}
-          class={["btn btn-xs join-item", @tile_size == size && "btn-active"]}
-        >
-          {label}
-        </button>
-      </div>
       <div class="flex items-center gap-2 ml-auto">
         <button
           type="button"

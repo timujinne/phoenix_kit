@@ -182,7 +182,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
   end
 
   defp move_batch(view, folder_uuid, extra \\ %{}),
-    do: hook(view, "move_selected_to_folder", Map.merge(%{"folder-uuid" => folder_uuid}, extra))
+    do: hook(view, "move_picked_to_folder", Map.merge(%{"folder-uuid" => folder_uuid}, extra))
 
   defp confirm(view),
     do: view |> element(~s(#pick button[phx-click="pick_confirm"])) |> render_click()
@@ -569,7 +569,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
       for target <- ["garbage", Ecto.UUID.generate(), trashed.uuid, foreign.uuid, 123, nil] do
         capture_log(fn ->
           single(view, a.uuid, target)
-          hook(view, "move_selected_to_folder", %{"folder-uuid" => target})
+          hook(view, "move_picked_to_folder", %{"folder-uuid" => target})
         end)
 
         assert home(a) == ctx.scope.uuid, "target #{inspect(target)}"
@@ -589,6 +589,139 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
 
       capture_log(fn -> move_batch(view, "garbage") end)
       assert flash(view) =~ "Folder not found"
+    end
+  end
+
+  describe "with allow_move and folder actions on, the move dialog is the dialog's" do
+    defp dialog_open?(view),
+      do: has_element?(view, ~s(#pick .modal-box button[phx-click="move_selected_to_folder"]))
+
+    defp choose(view, folder) do
+      view
+      |> element(
+        ~s(#pick .modal-box button[phx-click="move_selected_to_folder"][phx-value-folder-uuid="#{folder.uuid}"])
+      )
+      |> render_click()
+    end
+
+    test "Move on a file moves that file, not the pick, and closes", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      b = file!(ctx.scope)
+      view = open(conn, ctx, %{allow_move: true, folder_actions: true}, [a.uuid])
+
+      view
+      |> element(~s(#pick [phx-click="prepare_move_file"][phx-value-file-uuid="#{b.uuid}"]))
+      |> render_click()
+
+      assert dialog_open?(view)
+      choose(view, ctx.kitchen)
+
+      assert home(b) == ctx.kitchen.uuid
+      assert home(a) == ctx.scope.uuid
+      refute dialog_open?(view)
+    end
+
+    test "Move on a folder moves that folder, not the pick, and closes", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      view = open(conn, ctx, %{allow_move: true, folder_actions: true}, [a.uuid])
+
+      view
+      |> element(
+        ~s(#pick [phx-click="prepare_move_folder"][phx-value-folder-uuid="#{ctx.hall.uuid}"])
+      )
+      |> render_click()
+
+      choose(view, ctx.kitchen)
+
+      assert Storage.get_folder(ctx.hall.uuid).parent_uuid == ctx.kitchen.uuid
+      assert home(a) == ctx.scope.uuid
+      refute dialog_open?(view)
+    end
+
+    test "the dialog's event is still refused under folder_actions: false", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      view = open(conn, ctx, %{allow_move: true, folder_actions: false}, [a.uuid])
+
+      capture_log(fn ->
+        hook(view, "move_selected_to_folder", %{"folder-uuid" => ctx.kitchen.uuid})
+      end)
+
+      assert home(a) == ctx.scope.uuid
+    end
+  end
+
+  describe "with allow_move, events with something missing" do
+    test "are refused and the page stays", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      view = open(conn, ctx, %{folder_actions: false, allow_move: true}, [a.uuid])
+
+      capture_log(fn ->
+        hook(view, "move_picked_to_folder", %{})
+        hook(view, "move_file_to_folder", %{})
+        hook(view, "move_file_to_folder", %{"folder_uuid" => ctx.kitchen.uuid})
+        hook(view, "move_file_to_folder", %{"file_uuid" => a.uuid})
+      end)
+
+      assert Process.alive?(view.pid)
+      assert home(a) == ctx.scope.uuid
+    end
+
+    test "the pick's move is refused when allow_move is off", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      view = open(conn, ctx, %{folder_actions: true}, [a.uuid])
+
+      capture_log(fn -> move_batch(view, ctx.kitchen.uuid) end)
+
+      assert home(a) == ctx.scope.uuid
+    end
+  end
+
+  describe "with allow_move, what came of it" do
+    test "a file dropped on the folder it is in: nothing to move", %{conn: conn} = ctx do
+      a = file!(ctx.kitchen)
+      view = open(conn, ctx, %{folder_actions: false, allow_move: true})
+
+      hook(view, "move_file_to_folder", %{
+        "file_uuid" => a.uuid,
+        "folder_uuid" => ctx.kitchen.uuid
+      })
+
+      assert flash(view) =~ "Nothing to move"
+      refute flash(view) =~ "File moved"
+    end
+
+    test "a pick with a file the picker no longer lists moves the rest", %{conn: conn} = ctx do
+      a = file!(ctx.scope)
+      outside = folder!("Elsewhere")
+      b = file!(ctx.scope)
+      view = open(conn, ctx, %{folder_actions: false, allow_move: true}, [a.uuid, b.uuid])
+
+      Repo.update_all(from(f in StorageFile, where: f.uuid == ^b.uuid),
+        set: [folder_uuid: outside.uuid]
+      )
+
+      move_batch(view, ctx.kitchen.uuid)
+      assert flash(view) =~ "1 item moved"
+      assert home(a) == ctx.kitchen.uuid
+      assert home(b) == outside.uuid
+    end
+
+    test "a file linked into the scope from outside it is left, and the rest said",
+         %{conn: conn} = ctx do
+      outside = folder!("Elsewhere")
+      stranger = file!(outside)
+
+      {:ok, _} =
+        Storage.attach_file_to_folder(Repo.get(StorageFile, stranger.uuid), ctx.hall.uuid)
+
+      a = file!(ctx.scope)
+      view = open(conn, ctx, %{folder_actions: false, allow_move: true}, [a.uuid, stranger.uuid])
+
+      move_batch(view, ctx.kitchen.uuid)
+
+      assert flash(view) =~ "1 of 2 items moved"
+      assert home(a) == ctx.kitchen.uuid
+      assert home(stranger) == outside.uuid
     end
   end
 
@@ -617,9 +750,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
       refute has_element?(view, "#pick-move-modal")
     end
 
-    test "every folder event but the two moves of files is refused with the socket untouched" do
-      for event <- MediaBrowser.folder_action_events(),
-          event not in ~w(move_file_to_folder move_selected_to_folder) do
+    test "every folder event but the move of a file is refused with the socket untouched" do
+      for event <- MediaBrowser.folder_action_events(), event != "move_file_to_folder" do
         socket = %Phoenix.LiveView.Socket{
           assigns: %{
             __changed__: %{},
