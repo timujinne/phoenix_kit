@@ -453,6 +453,61 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
     end
   end
 
+  defmodule BrowserHost do
+    @moduledoc false
+    use Phoenix.LiveView
+
+    def mount(_params, _session, socket),
+      do: {:ok, PhoenixKitWeb.Components.MediaBrowser.setup_uploads(socket)}
+
+    # A host written before `resumable_uploads` existed: it passes nothing for it.
+    def render(assigns) do
+      ~H"""
+      <.live_component
+        module={PhoenixKitWeb.Components.MediaBrowser}
+        id="media-browser"
+        parent_uploads={@uploads}
+      />
+      """
+    end
+  end
+
+  describe "a MediaBrowser host that does not pass resumable_uploads" do
+    test "still gets the hook and automatic continuation; only the button row is missing", %{
+      conn: conn
+    } do
+      {:ok, _} =
+        PhoenixKit.Modules.Storage.create_bucket(%{
+          name: "resumable-#{System.unique_integer([:positive])}",
+          provider: "local",
+          endpoint: Path.join(System.tmp_dir!(), "pk_resumable_bucket"),
+          enabled: true,
+          priority: 0
+        })
+
+      {:ok, view, html} = live_isolated(conn, BrowserHost)
+      assert html =~ ~s(phx-hook="ResumableUpload")
+      assert html =~ ~s(data-upload="media_files")
+
+      render_hook(view, "pk_upload_resume", %{
+        "upload" => "media_files",
+        "items" => [item("clip.png")]
+      })
+
+      assert_reply(view, %{auto: ["id-clip.png"]})
+
+      # A file that needs a decision is kept; no row, no crash.
+      render_hook(view, "pk_upload_resume", %{
+        "upload" => "media_files",
+        "items" => [item("recv.png", %{"state" => "received"})]
+      })
+
+      assert_reply(view, %{ask: ["id-recv.png"]})
+      refute has_element?(view, "[id$=-ask]")
+      assert Process.alive?(view.pid)
+    end
+  end
+
   defp socket_entries(view) do
     :sys.get_state(view.pid).socket.assigns.uploads.photos.entries
   end
