@@ -21,7 +21,7 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
   ## Optional assigns
 
     * `sections` — list of sections to display: `:identity`, `:custom_fields`, `:email`, `:password`, `:oauth`, `:notifications`, `:sessions`
-      (default: all). `:profile` is accepted as a legacy alias that expands to `[:identity, :custom_fields]`
+      (default: all; `:integrations` and `:api_keys` are opt-in, see below). `:profile` is accepted as a legacy alias that expands to `[:identity, :custom_fields]`
     * `email_confirm_url_fn` — `(token -> url)` for email confirmation links
       (default: `&Routes.url("/profile/settings/confirm-email/\#{&1}")`)
     * `return_to` — where OAuth redirect returns to (default:
@@ -31,6 +31,20 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
       by the `:sessions` section to mark the current device and to keep it
       signed in on "sign out other sessions". Without it, no session is
       flagged current and "sign out others" revokes every session.
+
+  ## The `:api_keys` section
+
+  Opt-in, never in `default_sections/0`: it shows the person's own API keys
+  (`PhoenixKitWeb.Live.Components.PersonalApiKeys`, the same component as the page at
+  `/profile/settings/api-keys`). Add `:api_keys` to `sections` and pass two more assigns:
+
+    * `scope` — the session's scope (`@phoenix_kit_current_scope`)
+    * `impersonated` — a boolean, computed in the mount of the host page with
+      `PhoenixKitWeb.Users.MultiSession.impersonated?(session)`, never a constant
+
+  Without both, the section shows only an explanation and no keys, and the nested component
+  refuses every event. The component checks the person's rights itself, so adding the
+  section for someone who holds neither `api_personal_keys` nor `api` shows an explanation too.
 
   ## Parent notifications
 
@@ -98,12 +112,18 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
 
   @doc """
   The section list rendered when a caller doesn't pass `sections` — does NOT
-  include `:integrations` (see the module attribute comment above). A caller
+  include `:integrations` or `:api_keys` (see the module attribute comment above
+  and the moduledoc). A caller
   that wants that section appended should build on this list rather than
   hardcoding a copy, so the two can't drift.
   """
   @spec default_sections() :: [atom()]
   def default_sections, do: @default_sections
+
+  # The keys section shows the signed-in person's keys under their own profile only: the
+  # scope of someone else (an admin looking at a profile) is handed on as absent.
+  defp api_keys_scope(%{uuid: uuid}, %Scope{user: %{uuid: uuid}} = scope), do: scope
+  defp api_keys_scope(_user, _scope), do: nil
 
   # Picking a file no longer sets it on the spot: the crop editor opens on
   # the picked image first, so the person frames it once instead of
@@ -157,6 +177,14 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
       )
       |> assign(:email_confirm_url_fn, email_confirm_url_fn)
       |> assign(:return_to, return_to)
+      |> assign(
+        :api_keys_scope,
+        api_keys_scope(user, assigns[:scope] || socket.assigns[:api_keys_scope])
+      )
+      |> assign(
+        :api_keys_impersonated,
+        Map.get(assigns, :impersonated, socket.assigns[:api_keys_impersonated])
+      )
       |> assign_new(:profile_success_message, fn -> nil end)
       |> assign_new(:email_success_message, fn -> assigns[:email_success_message] end)
       |> assign_new(:email_error_message, fn -> assigns[:email_error_message] end)
@@ -2062,10 +2090,28 @@ defmodule PhoenixKitWeb.Live.Components.UserSettings do
           </div>
         <% end %>
 
-        <%= if :etcher in @sections do %>
+        <%!-- API keys section — opt-in; the component takes the session's scope and
+             borrowed-session flag from the host and checks the rights itself. --%>
+        <%= if :api_keys in @sections do %>
           <%= if Enum.any?(
                    [:identity, :custom_fields, :email, :password, :oauth, :notifications,
                     :sessions, :integrations],
+                   &(&1 in @sections)
+                 ) do %>
+            <div class="divider"></div>
+          <% end %>
+          <.live_component
+            module={PhoenixKitWeb.Live.Components.PersonalApiKeys}
+            id={"#{@id}-api-keys"}
+            scope={@api_keys_scope}
+            impersonated={@api_keys_impersonated}
+          />
+        <% end %>
+
+        <%= if :etcher in @sections do %>
+          <%= if Enum.any?(
+                   [:identity, :custom_fields, :email, :password, :oauth, :notifications,
+                    :sessions, :integrations, :api_keys],
                    &(&1 in @sections)
                  ) do %>
             <div class="divider"></div>
