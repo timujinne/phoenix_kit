@@ -41,7 +41,7 @@ test("the file key matches the server's client_key/1 field for field", () => {
 });
 
 test("every event the hook sends is handled by the server, and vice versa", () => {
-  for (const ev of ["pk_upload_pick", "pk_upload_resume", "pk_upload_resume_click", "pk_upload_discard"]) {
+  for (const ev of ["pk_upload_pick", "pk_upload_resume", "pk_upload_resume_click", "pk_upload_discard", "pk_upload_debug"]) {
     assert.ok(server.includes(ev), `the server handles ${ev}`);
   }
   assert.ok(hook.includes('"pk_upload_pick"') && hook.includes('"pk_upload_resume"'));
@@ -98,8 +98,8 @@ function pageLoad({ locks = true, rows, clock } = {}) {
     function uploadStashAll() { return Promise.resolve(store.rows.slice()); }
     function uploadStashPut(rec) {
       if (store.failBlobPut && rec.blob) return Promise.resolve(false);
-      store.rows = store.rows.filter((x) => x.id !== rec.id).concat([rec]);
-      return Promise.resolve(true);
+      const write = () => { store.rows = store.rows.filter((x) => x.id !== rec.id).concat([rec]); return true; };
+      return store.gate ? store.gate.then(write) : Promise.resolve(write());
     }
     function uploadStashDelete(ids) {
       store.deleted.push(...ids);
@@ -579,4 +579,112 @@ test("the link names the user; a page hook is the fallback when it does not", as
   clickLogout(page, {}, "");
   await settle();
   assert.strictEqual(page.store.clearedUser, "u2");
+});
+
+// ---------------------------------------------------------------------------
+// The camera race: the file lands around the reconnect, before its record is written.
+// ---------------------------------------------------------------------------
+
+const scansOf = (m) => m.pushed.filter((p) => p.name === "pk_upload_debug" && p.payload.phase === "scan");
+const debugOf = (m, phase) => m.pushed.filter((p) => p.name === "pk_upload_debug" && p.payload.phase === phase);
+
+test("pick, reconnect before the write resolves: a scan after the write asks the server", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  let open;
+  page.store.gate = new Promise((r) => { open = r; });
+  m.pick(file("a.png"));
+  m.ctx.reconnected();                 // the scan here finds an empty stash
+  await settle();
+  assert.ok(!resumeCall(m), "nothing written yet, nothing to ask about");
+  page.store.gate = null;
+  open();
+  await settle();
+  const call = resumeCall(m);
+  assert.ok(call, "after the write the hook looks again");
+  assert.strictEqual(call.payload.items.length, 1);
+  assert.strictEqual(call.payload.items[0].name, "a.png");
+});
+
+test("pick while the socket is down: the reconnect, not the write, does the looking", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  m.ctx.disconnected();
+  m.pick(file("a.png"));
+  await settle();
+  assert.ok(!resumeCall(m), "no scan while the socket is down");
+  m.ctx.reconnected();
+  await settle();
+  assert.ok(resumeCall(m));
+});
+
+test("a pick after the reconnect: a scan follows the write, and the file in flight is not asked about", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  m.ctx.reconnected();
+  await settle();
+  const before = scansOf(m).length;
+  m.pick(file("a.png"));
+  await settle();
+  assert.strictEqual(scansOf(m).length, before + 1, "one scan after the write");
+  assert.ok(!resumeCall(m), "LiveView itself carries a file picked on a live socket");
+});
+
+test("a safety scan fires at 3 s and 15 s while something unsent is stashed", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  leftover(page);
+  const safety = page.timers.filter((t) => !t.cleared && (t.ms === 3000 || t.ms === 15000));
+  assert.deepStrictEqual(safety.map((t) => t.ms).sort((a, b) => a - b), [3000, 15000]);
+  safety.find((t) => t.ms === 3000).fn();
+  await settle();
+  assert.ok(resumeCall(m), "the leftover goes to the server");
+});
+
+test("the safety scan asks again after a reconnect, and the timers go with the hook", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  m.ctx.reconnected();
+  const fresh = page.timers.filter((t) => !t.cleared && (t.ms === 3000 || t.ms === 15000));
+  assert.strictEqual(fresh.length, 2, "only the timers of the latest connection are live");
+  m.ctx.destroyed();
+  assert.ok(page.timers.filter((t) => t.ms === 3000 || t.ms === 15000).every((t) => t.cleared));
+});
+
+test("a received record is asked about again by the safety scan", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  leftover(page, { state: "received" });
+  page.timers.filter((t) => !t.cleared && t.ms === 15000).pop().fn();
+  await settle();
+  assert.strictEqual(resumeCall(m).payload.items[0].state, "received");
+});
+
+test("an empty stash: the safety scans do not scan", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  const before = scansOf(m).length;
+  page.timers.filter((t) => !t.cleared && (t.ms === 3000 || t.ms === 15000)).forEach((t) => t.fn());
+  await settle();
+  assert.strictEqual(scansOf(m).length, before);
+  assert.ok(!resumeCall(m));
+});
+
+test("the debug beacon carries counts only: pick, stashed, scan", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  await runScan(page);
+  m.pick(file("secret-name.png"));
+  await settle();
+  assert.deepStrictEqual(debugOf(m, "pick")[0].payload, { upload: "photos", phase: "pick", n: 1, connected: true });
+  assert.deepStrictEqual(debugOf(m, "stashed")[0].payload, { upload: "photos", phase: "stashed", n: 1, connected: true });
+  assert.ok(scansOf(m).length >= 1);
+  assert.ok(!JSON.stringify(m.pushed.filter((p) => p.name === "pk_upload_debug")).includes("secret-name"));
 });

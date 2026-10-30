@@ -205,6 +205,30 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
       assert Process.alive?(view.pid)
     end
 
+    test "pk_upload_debug is logged as counts, answered and kept from the host", %{conn: conn} do
+      import ExUnit.CaptureLog
+      {:ok, view, _} = host(conn)
+      previous = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous) end)
+
+      log =
+        capture_log([level: :info], fn ->
+          render_hook(view, "pk_upload_debug", %{
+            "upload" => "photos",
+            "phase" => "scan",
+            "n" => 2,
+            "connected" => true,
+            "name" => "secret.png"
+          })
+        end)
+
+      assert log =~ "photos scan n=2 connected=true"
+      refute log =~ "secret"
+      assert_reply(view, %{})
+      assert Process.alive?(view.pid)
+    end
+
     test "events of one upload do not touch the other", %{conn: conn} do
       {:ok, view, _} = host(conn)
 
