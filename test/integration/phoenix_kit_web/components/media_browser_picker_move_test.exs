@@ -65,6 +65,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
           allow_move={Map.get(@opts, :allow_move, false)}
           readonly={Map.get(@opts, :readonly, false)}
           own_files_only={@opts[:own_files_only]}
+          viewer_uuid={@opts[:viewer_uuid]}
           only_file_type={@opts[:only_file_type]}
           scope_folder_id={@scope}
           parent_uploads={@uploads}
@@ -722,6 +723,38 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerMoveTest do
       assert flash(view) =~ "1 of 2 items moved"
       assert home(a) == ctx.kitchen.uuid
       assert home(stranger) == outside.uuid
+    end
+  end
+
+  describe "with allow_move, a restricted viewer" do
+    test "never moves another's file, nor anything into a folder that is not theirs",
+         %{conn: conn, user: user} = ctx do
+      {:ok, other} =
+        Auth.register_user(%{
+          email: "viewer-other-#{System.unique_integer([:positive])}@example.com",
+          password: "ValidPassword123!"
+        })
+
+      mine = file!(ctx.scope)
+      mine_too = file!(ctx.scope)
+      theirs = file!(ctx.scope, %{user_uuid: other.uuid})
+
+      view =
+        open(conn, ctx, %{folder_actions: false, allow_move: true, viewer_uuid: user.uuid}, [
+          mine.uuid,
+          theirs.uuid
+        ])
+
+      capture_log(fn ->
+        single(view, theirs.uuid, ctx.kitchen.uuid)
+        move_batch(view, ctx.kitchen.uuid)
+        single(view, mine_too.uuid, ctx.hall.uuid)
+      end)
+
+      # The kitchen and the hall were made by no one the viewer is: the gate
+      # that guards every event names them and refuses.
+      assert [home(theirs), home(mine), home(mine_too)] == List.duplicate(ctx.scope.uuid, 3)
+      assert Process.alive?(view.pid)
     end
   end
 

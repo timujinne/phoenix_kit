@@ -245,9 +245,10 @@
        whole pick with it (`data-pick-order` tells the drag script which are
        picked). Listing the subfolders' files too, a card names the folder it
        is really in (`data-origin-folder`), as the drag script reads it: the
-       zone it sits in is the viewed folder. Outside a picker the card is draggable for the selection
-       gestures too (long press, Shift-click, box select), and without folder
-       actions no folder, tree node or Trash takes a move. --%>
+       zone it sits in is the viewed folder. Outside a picker the card is
+       draggable for the selection gestures too (long press, Shift-click, box
+       select), and without folder actions no folder, tree node or Trash takes
+       a move. --%>
   <%= for file <- @uploaded_files do %>
     <% pick_order = @picker && pick_position(@picked, file.file_uuid) %>
     <div
