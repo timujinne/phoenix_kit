@@ -258,7 +258,9 @@
        draggable (no long press, Shift-click or box select either) — unless
        `allow_move`: then it is dragged to a folder, a picked card taking the
        whole pick with it (`data-pick-order` tells the drag script which are
-       picked). --%>
+       picked). Outside a picker the card is draggable for the selection
+       gestures too (long press, Shift-click, box select), and without folder
+       actions no folder, tree node or Trash takes a move. --%>
   <%= for file <- @uploaded_files do %>
     <% pick_order = @picker && pick_position(@picked, file.file_uuid) %>
     <div

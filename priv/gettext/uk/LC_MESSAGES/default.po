@@ -21727,3 +21727,8 @@ msgstr "Включно з вкладеними папками"
 #, elixir-autogen, elixir-format
 msgid "Show the files of the folders below this one too"
 msgstr "Показувати також файли з папок нижче"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Нічого переносити"

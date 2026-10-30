@@ -21866,3 +21866,8 @@ msgstr "Включая вложенные папки"
 #, elixir-autogen, elixir-format
 msgid "Show the files of the folders below this one too"
 msgstr "Показывать также файлы из папок ниже"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Нечего переносить"

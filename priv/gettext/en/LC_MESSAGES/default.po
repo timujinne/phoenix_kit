@@ -21656,3 +21656,8 @@ msgstr "Include subfolders"
 #, elixir-autogen, elixir-format
 msgid "Show the files of the folders below this one too"
 msgstr "Show the files of the folders below this one too"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Nothing to move"

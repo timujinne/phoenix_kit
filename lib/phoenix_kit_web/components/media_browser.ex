@@ -3093,6 +3093,42 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     {:noreply, log_readonly_blocked(socket, "move_file_to_folder")}
   end
 
+  # A picker with `allow_move` moves the files it could have listed, and no
+  # other: the file and the target are checked before anything is looked up
+  # (the uuid is the client's, a drop of text or a link names anything).
+  def handle_event("move_file_to_folder", %{"file_uuid" => file_uuid} = params, socket)
+      when socket.assigns.allow_move == true do
+    scope = scope_folder_id(socket)
+
+    with {:ok, file} <- pickable_file(socket, file_uuid),
+         {:ok, target} <- pick_move_target(socket, params["folder_uuid"], scope) do
+      from = appearance_folder(socket, file)
+
+      case Storage.move_file_between_folders(file.uuid, from, target, scope) do
+        {:ok, _} ->
+          {:noreply, socket |> put_flash(:info, gettext("File moved")) |> reload_current_page()}
+
+        {:error, :out_of_scope} ->
+          {:noreply, put_flash(socket, :error, pick_move_error(:out_of_scope))}
+
+        {:error, _} ->
+          {:noreply, put_flash(socket, :error, pick_move_error(:failed))}
+      end
+    else
+      :error ->
+        {:noreply,
+         socket
+         |> log_refused("move_file_to_folder", "not a file this picker lists")
+         |> put_flash(:error, pick_move_error(:failed))}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> log_refused("move_file_to_folder", "not a folder it moves into (#{reason})")
+         |> put_flash(:error, pick_move_error(reason))}
+    end
+  end
+
   def handle_event(
         "move_file_to_folder",
         %{"file_uuid" => file_uuid, "folder_uuid" => folder_uuid},
@@ -3106,25 +3142,16 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
     from = appearance_folder_of(socket, file_uuid)
 
-    # A picker with `allow_move` moves the files it could have listed, and
-    # no other: a file it would refuse to pick is not moved by its uuid.
-    if socket.assigns[:allow_move] == true and not pickable?(socket, file_uuid) do
-      {:noreply,
-       socket
-       |> log_refused("move_file_to_folder", "not a file this picker lists")
-       |> put_flash(:error, gettext("Failed to move file"))}
-    else
-      case Storage.move_file_between_folders(file_uuid, from, target, scope) do
-        {:ok, _} ->
-          {:noreply, socket |> put_flash(:info, gettext("File moved")) |> reload_current_page()}
+    case Storage.move_file_between_folders(file_uuid, from, target, scope) do
+      {:ok, _} ->
+        {:noreply, socket |> put_flash(:info, gettext("File moved")) |> reload_current_page()}
 
-        {:error, :out_of_scope} ->
-          {:noreply,
-           put_flash(socket, :error, gettext("Cannot move file outside the allowed scope"))}
+      {:error, :out_of_scope} ->
+        {:noreply,
+         put_flash(socket, :error, gettext("Cannot move file outside the allowed scope"))}
 
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, gettext("Failed to move file"))}
-      end
+      {:error, _} ->
+        {:noreply, put_flash(socket, :error, gettext("Failed to move file"))}
     end
   end
 
@@ -4266,31 +4293,42 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # it was made in), never a list from the client, and each file is checked
   # as a click on it is. The pick itself is not touched.
   def handle_event("move_selected_to_folder", %{"folder-uuid" => folder_uuid}, socket)
-      when socket.assigns.allow_move == true and is_binary(folder_uuid) do
+      when socket.assigns.allow_move == true do
     scope = scope_folder_id(socket)
-    target = if folder_uuid == "", do: scope, else: folder_uuid
 
-    results =
-      socket
-      |> picked_files_to_move()
-      |> Enum.reject(&already_in?(&1, target))
-      |> Enum.map(&move_picked_file(socket, &1, target, scope))
+    case pick_move_target(socket, folder_uuid, scope) do
+      {:ok, target} ->
+        results =
+          socket
+          |> picked_files_to_move()
+          |> Enum.reject(&already_in?(&1, target))
+          |> Enum.map(&move_picked_file(socket, &1, target, scope))
 
-    moved = Enum.count(results, &(&1 == :ok))
+        moved = Enum.count(results, &(&1 == :ok))
 
-    flash =
-      cond do
-        moved == 0 and :out_of_scope in results ->
-          {:error, gettext("Cannot move file outside the allowed scope")}
+        flash =
+          cond do
+            moved > 0 ->
+              {:info, ngettext("%{count} item moved", "%{count} items moved", moved)}
 
-        moved == 0 and results != [] ->
-          {:error, gettext("Failed to move file")}
+            :out_of_scope in results ->
+              {:error, pick_move_error(:out_of_scope)}
 
-        true ->
-          {:info, ngettext("%{count} item moved", "%{count} items moved", moved)}
-      end
+            Enum.any?(results, &(&1 != :skipped)) ->
+              {:error, pick_move_error(:failed)}
 
-    {:noreply, socket |> put_flash(elem(flash, 0), elem(flash, 1)) |> reload_current_page()}
+            true ->
+              {:info, gettext("Nothing to move")}
+          end
+
+        {:noreply, socket |> put_flash(elem(flash, 0), elem(flash, 1)) |> reload_current_page()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> log_refused("move_selected_to_folder", "not a folder it moves into (#{reason})")
+         |> put_flash(:error, pick_move_error(reason))}
+    end
   end
 
   def handle_event("move_selected_to_folder", %{"folder-uuid" => folder_uuid}, socket) do
@@ -5444,6 +5482,26 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     end
   end
 
+  # Where a picker's move may put files, checked once before any file is: "" is
+  # the top level of the browser (the scope folder, in a scoped one); anything
+  # else is a uuid of a live folder of this browser's library inside the scope.
+  # The value is the client's, so it is looked at before it reaches a query.
+  defp pick_move_target(_socket, "", scope), do: {:ok, scope}
+
+  defp pick_move_target(socket, folder_uuid, scope) do
+    with true <- uuid_string?(folder_uuid) || {:error, :not_found},
+         %Storage.Folder{} = folder <- Storage.get_folder(folder_uuid) || {:error, :not_found},
+         true <- is_nil(folder.trashed_at) || {:error, :not_found},
+         true <- in_browser_library?(socket, folder) || {:error, :not_found},
+         true <- Storage.within_scope?(folder.uuid, scope) || {:error, :out_of_scope} do
+      {:ok, folder.uuid}
+    end
+  end
+
+  defp pick_move_error(:out_of_scope), do: gettext("Cannot move file outside the allowed scope")
+  defp pick_move_error(:not_found), do: gettext("Folder not found")
+  defp pick_move_error(:failed), do: gettext("Failed to move file")
+
   # The picked files a picker's move may touch, in the order they were picked:
   # each as a click on it is checked now (the pick can have gone stale), and a
   # contributor (`own_files_only`) moves only the files they uploaded.
@@ -5457,7 +5515,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         :error -> []
       end
     end)
-    |> Enum.filter(&(is_nil(own) or to_string(&1.user_uuid) == own))
+    |> Enum.reject(&(is_binary(own) and others_file?([&1.uuid], own)))
   end
 
   # Home or link: a folder holds a file once.

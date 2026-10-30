@@ -27,7 +27,9 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
   The drag-drop data attributes (`data-drop-folder`, `data-draggable-folder`,
   `data-draggable-file`, `data-drop-trash`) are emitted unless
   `enable_drag={false}`; consumers that wire up the `MediaDragDrop` JS hook get
-  drag-drop for free, others can ignore them.
+  drag-drop for free, others can ignore them. `drop_only` keeps just the drop
+  targets (`data-drop-folder`) when `enable_drag` is off: the tree takes a drop
+  but nothing in it is dragged, and the Trash takes none.
 
   ## Showing what is in the folders
 

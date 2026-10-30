@@ -21665,3 +21665,8 @@ msgstr "Incluir subcarpetas"
 #, elixir-autogen, elixir-format
 msgid "Show the files of the folders below this one too"
 msgstr "Mostrar también los archivos de las carpetas de debajo"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Nothing to move"
+msgstr "Nada que mover"
