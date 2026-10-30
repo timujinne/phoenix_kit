@@ -10473,10 +10473,11 @@ if (typeof window.Chart === "undefined") {
       // context that `pk_upload_resume` carries.
       if (this._off) return;
       try {
-        this.pushEvent("pk_upload_pick", {
+        var sent = this.pushEvent("pk_upload_pick", {
           upload: this._upload,
           items: records.map(function(row) { return { key: row.key, seq: row.seq, context: row.context }; })
         }, function(reply) { if (reply && reply.error) self._off = true; });
+        if (sent && typeof sent.catch === "function") sent.catch(function() {});
       } catch (_) {}
     },
 
@@ -10508,7 +10509,9 @@ if (typeof window.Chart === "undefined") {
     _debug(phase, n) {
       if (this._off) return;
       try {
-        this.pushEvent("pk_upload_debug", { upload: this._upload, phase: phase, n: n, connected: !!this._up });
+        // LiveView 1.2 returns a promise that rejects when the socket is gone.
+        var sent = this.pushEvent("pk_upload_debug", { upload: this._upload, phase: phase, n: n, connected: !!this._up });
+        if (sent && typeof sent.catch === "function") sent.catch(function() {});
       } catch (_) {}
     },
 
@@ -10624,10 +10627,11 @@ if (typeof window.Chart === "undefined") {
       var now = Date.now();
       var freshMs = this._freshMs();
       try {
-        this.pushEvent("pk_upload_resume", {
+        var sent = this.pushEvent("pk_upload_resume", {
           upload: this._upload,
           items: rows.map(function(row) { return uploadStashItem(row, now, freshMs); })
         }, function(reply) { self._answered(reply, byId); });
+        if (sent && typeof sent.catch === "function") sent.catch(function() {});
       } catch (_) {}
     },
 

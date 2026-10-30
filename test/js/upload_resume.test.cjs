@@ -137,13 +137,16 @@ function mount(page, opts = {}) {
       querySelector: () => input,
     },
     handleEvent: (name, fn) => { handlers[name] = fn; },
-    pushEvent: (name, payload, cb) => pushed.push({ name, payload, cb }),
+    pushEvent: (name, payload, cb) => { pushed.push({ name, payload, cb }); return opts.rejecting ? rejected() : undefined; },
     upload: (name, files) => uploaded.push({ name, files }),
   });
   ctx.mounted();
   const pick = (...files) => { input.files = files; ctx._onPick({ target: input }); };
   return { ctx, pushed, uploaded, handlers, input, pick };
 }
+
+const rejections = [];
+const rejected = () => { const p = Promise.reject(new Error("unable to push hook event")); p.catch(() => {}); const real = p.catch.bind(p); return { catch: (fn) => { rejections.push(fn); return real(fn); } }; };
 
 const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) => setImmediate(r)); };
 const file = (name, extra) => Object.assign(new File(["12345"], name, { type: "image/png", lastModified: 7 }), extra);
@@ -687,4 +690,15 @@ test("the debug beacon carries counts only: pick, stashed, scan", async () => {
   assert.deepStrictEqual(debugOf(m, "stashed")[0].payload, { upload: "photos", phase: "stashed", n: 1, connected: true });
   assert.ok(scansOf(m).length >= 1);
   assert.ok(!JSON.stringify(m.pushed.filter((p) => p.name === "pk_upload_debug")).includes("secret-name"));
+});
+
+test("a hook push that the socket rejects is caught, not left unhandled", async () => {
+  const page = pageLoad();
+  rejections.length = 0;
+  const m = mount(page, { rejecting: true });
+  m.pick(file("a.png"));
+  await settle();
+  const names = m.pushed.map((p) => p.name);
+  assert.ok(names.includes("pk_upload_debug") && names.includes("pk_upload_pick"));
+  assert.ok(rejections.length >= names.length, "every push had a catch attached");
 });
