@@ -745,6 +745,20 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Helpers do
   def subtree_listing?(assigns),
     do: subtree_offered?(assigns) and Map.get(assigns, :subtree_view) == true
 
+  # The drop-zone name of the folder a card is really in, for a listing that
+  # shows the subfolders' files in the viewed folder's zone ("root" is the top
+  # of the browser: the scope folder in a scoped one). nil when it is not so.
+  def card_origin(true, file, scope_folder_id) do
+    home = file.folder_uuid
+
+    if is_nil(home) or
+         (not is_nil(scope_folder_id) and to_string(home) == to_string(scope_folder_id)),
+       do: "root",
+       else: home
+  end
+
+  def card_origin(_listing, _file, _scope_folder_id), do: nil
+
   def format_file_size(bytes), do: Format.bytes(bytes, base: 1000, decimals: 2)
 
   # The browser's own confirmation of a removal, left out when a removal guard

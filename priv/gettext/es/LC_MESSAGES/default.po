@@ -21670,3 +21670,8 @@ msgstr "Mostrar también los archivos de las carpetas de debajo"
 #, elixir-autogen, elixir-format
 msgid "Nothing to move"
 msgstr "Nada que mover"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "%{moved} de %{total} elementos movidos"

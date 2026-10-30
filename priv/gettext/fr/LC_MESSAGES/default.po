@@ -21661,3 +21661,8 @@ msgstr "Afficher aussi les fichiers des dossiers situés en dessous"
 #, elixir-autogen, elixir-format
 msgid "Nothing to move"
 msgstr "Rien à déplacer"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "%{moved} éléments sur %{total} déplacés"

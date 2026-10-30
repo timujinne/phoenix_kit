@@ -1,7 +1,7 @@
 defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
   @moduledoc """
   The picker's "Include subfolders" switch (`subtree_toggle`), its page size
-  (`per_page`) and its denser grid.
+  (`per_page`) and its grid.
 
   Off (the default) the picker is what it was. On, it lists the files of the
   folder it stands in and of every folder below it, flat, paged; at the top
@@ -50,6 +50,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
           id="files"
           scope_folder_id={@scope}
           subtree_toggle={Map.get(@opts, :subtree_toggle, false)}
+          per_page={Map.get(@opts, :per_page)}
           parent_uploads={@uploads}
           phoenix_kit_current_user={@phoenix_kit_current_user}
         />
@@ -263,7 +264,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       view = open(conn, ctx, %{plain: true, subtree_toggle: true})
 
       refute has_element?(view, "#files-subtree-toggle")
-      refute has_element?(view, "#files-tile-size")
 
       capture_log(fn -> switch_plain(view) end)
 
@@ -281,6 +281,22 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
 
       refute html =~ "data-tile-size"
     end
+  end
+
+  # The page the picker's numbered controls call current, and how many pages
+  # they offer: `{current, last}`.
+  defp pages(view) do
+    doc = view |> render() |> LazyHTML.from_fragment()
+    numbers = LazyHTML.query(doc, ~s(#pick button[phx-click="set_page"][phx-value-page]))
+    active = LazyHTML.query(doc, ~s(#pick button.btn-active[phx-click="set_page"]))
+
+    {
+      active |> LazyHTML.attribute("phx-value-page") |> List.first() |> String.to_integer(),
+      numbers
+      |> LazyHTML.attribute("phx-value-page")
+      |> Enum.map(&String.to_integer/1)
+      |> Enum.max()
+    }
   end
 
   defp switch_plain(view),
@@ -550,17 +566,17 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       switch(view, true)
 
       assert cards(view) == 2
-      assert render(view) =~ "1 / 3"
+      assert pages(view) == {1, 3}
 
       view
-      |> element(~s(#pick button[phx-click="set_page"][phx-value-page="2"]))
+      |> element(~s(#pick button[phx-click="set_page"][phx-value-page="2"]), "2")
       |> render_click()
 
       assert cards(view) == 2
-      assert render(view) =~ "2 / 3"
+      assert pages(view) == {2, 3}
 
       view
-      |> element(~s(#pick button[phx-click="set_page"][phx-value-page="3"]))
+      |> element(~s(#pick button[phx-click="set_page"][phx-value-page="3"]), "3")
       |> render_click()
 
       assert cards(view) == 1
@@ -579,10 +595,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       for _ <- 1..4, do: file!(ctx.scope)
       view = open(conn, ctx, %{subtree_toggle: true, per_page: 2})
       hook(view, "set_page", %{"page" => "2"})
-      assert render(view) =~ "2 / 2"
+      assert pages(view) == {2, 2}
 
       switch(view, true)
-      assert render(view) =~ "1 / 2"
+      assert pages(view) == {1, 2}
     end
   end
 
@@ -592,23 +608,73 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       view = open(conn, ctx, %{per_page: 3})
 
       assert cards(view) == 3
+      assert pages(view) == {1, 2}
+    end
+
+    test "a picker pages with numbered controls, in the subtree too", %{conn: conn} = ctx do
+      for _ <- 1..5, do: file!(ctx.scope)
+      for folder <- [ctx.kitchen, ctx.cabinets], do: file!(folder)
+
+      view = open(conn, ctx, %{subtree_toggle: true, per_page: 3})
+
+      # Not the subtree: 5 files in 2 pages, one button per page, the first lit.
+      assert pages(view) == {1, 2}
+      assert has_element?(view, ~s(#pick .join button[phx-click="set_page"][phx-value-page="2"]))
+
+      view
+      |> element(~s(#pick button[phx-click="set_page"][phx-value-page="2"]), "2")
+      |> render_click()
+
+      assert pages(view) == {2, 2}
+      assert cards(view) == 2
+
+      # The subtree: 7 files in 3 pages, and a click on a number loads that page.
+      switch(view, true)
+      assert pages(view) == {1, 3}
+
+      view
+      |> element(~s(#pick button[phx-click="set_page"][phx-value-page="3"]), "3")
+      |> render_click()
+
+      assert pages(view) == {3, 3}
+      assert cards(view) == 1
+    end
+
+    test "one page has no controls", %{conn: conn} = ctx do
+      file!(ctx.scope)
+      view = open(conn, ctx, %{per_page: 3})
+      refute has_element?(view, ~s(#pick button[phx-click="set_page"]))
+    end
+
+    test "a browser that is not a picker keeps its own Prev / n / Next", %{conn: conn} = ctx do
+      for _ <- 1..51, do: file!(ctx.scope)
+      view = open(conn, ctx, %{plain: true})
+
       assert render(view) =~ "1 / 2"
+      refute has_element?(view, "#files .join button[phx-click=set_page]")
+      assert has_element?(view, ~s(#files button[phx-click="set_page"][phx-value-page="2"]))
+    end
+
+    test "per_page is the browser's own outside a picker", %{conn: conn} = ctx do
+      for _ <- 1..3, do: file!(ctx.scope)
+      view = open(conn, ctx, %{plain: true, per_page: 2})
+      assert cards(view) == 3
     end
 
     test "a change on a mounted picker lists again from the first page", %{conn: conn} = ctx do
       for _ <- 1..5, do: file!(ctx.scope)
       view = open(conn, ctx, %{per_page: 3})
       hook(view, "set_page", %{"page" => "2"})
-      assert render(view) =~ "2 / 2"
+      assert pages(view) == {2, 2}
 
       send(view.pid, {:opts, %{per_page: 2}})
 
       assert cards(view) == 2
-      assert render(view) =~ "1 / 3"
+      assert pages(view) == {1, 3}
 
       send(view.pid, {:opts, %{per_page: 2}})
       hook(view, "set_page", %{"page" => "2"})
-      assert render(view) =~ "2 / 3"
+      assert pages(view) == {2, 3}
     end
 
     test "falls back to 50 for anything that is not a positive integer", %{conn: conn} = ctx do
@@ -617,56 +683,21 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       for bad <- ["many", 0, -4, 2.5, nil] do
         view = open(conn, ctx, %{per_page: bad})
         assert cards(view) == 50
-        assert render(view) =~ "1 / 2"
+        assert pages(view) == {1, 2}
       end
     end
   end
 
   describe "the grid" do
-    test "a picker's tiles are small, a browser's are not", %{conn: conn} = ctx do
+    test "a picker's grid is the browser's, with no size switch", %{conn: conn} = ctx do
       file!(ctx.scope)
       picker = open(conn, ctx)
       plain = open(conn, ctx, %{plain: true})
 
-      assert has_element?(
-               picker,
-               ~s|#pick [data-media-grid][data-tile-size="large"][class*="minmax(7rem,1fr)"][class*="gap-2"]|
-             )
-
-      refute has_element?(picker, ~s|#pick [data-media-grid][class*="minmax(9rem,1fr)"]|)
+      assert has_element?(picker, ~s|#pick [data-media-grid][class*="minmax(9rem,1fr)"]|)
       assert has_element?(plain, ~s|#files [data-media-grid][class*="minmax(9rem,1fr)"]|)
-    end
-
-    test "Small makes them smaller still, and Large brings them back", %{conn: conn} = ctx do
-      file!(ctx.scope)
-      view = open(conn, ctx)
-
-      view |> element(~s(#pick-tile-size button[phx-value-size="small"])) |> render_click()
-
-      assert has_element?(
-               view,
-               ~s|#pick [data-media-grid][data-tile-size="small"][class*="minmax(5rem,1fr)"]|
-             )
-
-      assert has_element?(
-               view,
-               ~s(#pick-tile-size button[phx-value-size="small"][aria-pressed="true"])
-             )
-
-      view |> element(~s(#pick-tile-size button[phx-value-size="large"])) |> render_click()
-      assert has_element?(view, ~s(#pick [data-media-grid][data-tile-size="large"]))
-    end
-
-    test "a size that is not offered is refused, and a browser that is not a picker has none",
-         %{conn: conn} = ctx do
-      file!(ctx.scope)
-      view = open(conn, ctx)
-      capture_log(fn -> hook(view, "set_tile_size", %{"size" => "huge"}) end)
-      assert has_element?(view, ~s(#pick [data-media-grid][data-tile-size="large"]))
-
-      plain = open(conn, ctx, %{plain: true})
-      capture_log(fn -> hook(plain, "set_tile_size", %{"size" => "small"}, "files") end)
-      refute has_element?(plain, "#files [data-tile-size]")
+      refute has_element?(picker, "#pick-tile-size")
+      refute render(picker) =~ "data-tile-size"
     end
   end
 
@@ -726,6 +757,48 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       refute Storage.folder_link(ctx.cabinets.uuid, f.linked.uuid)
     end
 
+    test "a card names the folder it is really in, only while the subfolders are listed",
+         %{conn: conn} = ctx do
+      f = fixture(ctx)
+      view = open(conn, ctx, %{subtree_toggle: true, allow_move: true})
+
+      refute has_element?(view, "#pick [data-origin-folder]")
+
+      switch(view, true)
+
+      assert has_element?(
+               view,
+               ~s(#pick [data-draggable-file="#{f.cabinets.uuid}"][data-origin-folder="#{ctx.cabinets.uuid}"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(#pick [data-draggable-file="#{f.top.uuid}"][data-origin-folder="root"])
+             )
+
+      plain = open(conn, ctx, %{subtree_toggle: true})
+      switch(plain, true)
+      refute has_element?(plain, "#pick [data-origin-folder]")
+    end
+
+    test "a file linked into a folder in the trash is not moved from that link",
+         %{conn: conn} = ctx do
+      f = fixture(ctx)
+
+      Repo.update_all(from(d in Storage.Folder, where: d.uuid == ^ctx.kitchen.uuid),
+        set: [trashed_at: DateTime.utc_now() |> DateTime.truncate(:second)]
+      )
+
+      view = open(conn, ctx, %{subtree_toggle: true, allow_move: true}, [f.linked.uuid])
+      switch(view, true)
+
+      hook(view, "move_picked_to_folder", %{"folder-uuid" => ctx.hall.uuid})
+
+      assert Storage.folder_link(ctx.cabinets.uuid, f.linked.uuid)
+      refute Storage.folder_link(ctx.hall.uuid, f.linked.uuid)
+      assert home(f.linked) == ctx.elsewhere.uuid
+    end
+
     test "a file outside the scope is not moved by its uuid", %{conn: conn} = ctx do
       f = fixture(ctx)
       view = open(conn, ctx, %{subtree_toggle: true, allow_move: true})
@@ -753,7 +826,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
 
       switch(view, true)
 
-      hook(view, "move_selected_to_folder", %{"folder-uuid" => ctx.hall.uuid})
+      hook(view, "move_picked_to_folder", %{"folder-uuid" => ctx.hall.uuid})
 
       assert home(f.cabinets) == ctx.hall.uuid
       assert home(f.kitchen) == ctx.hall.uuid

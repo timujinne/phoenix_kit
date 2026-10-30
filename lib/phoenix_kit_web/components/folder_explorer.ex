@@ -304,7 +304,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
                 do: gettext("Files that are in no folder, and the top folders")
             }
             phx-target={@myself}
-            data-drop-folder={(@enable_drag or @drop_only) && "root"}
+            data-drop-folder={(@enable_drag || @drop_only) && "root"}
             class={[
               "flex items-center gap-2 w-full px-2 py-1.5 rounded-lg text-sm transition-colors mb-1 text-left",
               if(@current_folder == nil and @file_view != "all" and not @filter_trash,
@@ -658,7 +658,7 @@ defmodule PhoenixKitWeb.Components.FolderExplorer do
             phx-click={@on_navigate}
             phx-target={@myself}
             phx-value-folder-uuid={@node.folder.uuid}
-            data-drop-folder={(@enable_drag or @drop_only) && @node.folder.uuid}
+            data-drop-folder={(@enable_drag || @drop_only) && @node.folder.uuid}
             data-draggable-folder={@enable_drag && @node.folder.uuid}
             class="flex items-center gap-1.5 flex-1 text-sm text-left"
           >

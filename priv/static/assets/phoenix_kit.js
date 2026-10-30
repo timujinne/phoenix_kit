@@ -9041,8 +9041,21 @@ if (typeof window.Chart === "undefined") {
       // same goes for every other zone naming that folder (its sidebar
       // node). A batch counts only when all of it shares one home.
       function originOf(el) {
+        // A picker listing the subfolders' files shows them in the zone of the
+        // folder viewed; the card says which folder it is really in.
+        if (el.dataset.originFolder) return el.dataset.originFolder;
         var zone = el.parentElement && el.parentElement.closest("[data-drop-folder]");
         return zone ? zone.dataset.dropFolder : null;
+      }
+      // Whether this target takes nothing from the drag in hand. In a picker
+      // the grid itself (`data-drop-no-bg`) takes no move: a card let go over
+      // it by accident moves nothing; a folder is pointed at. The folder a
+      // card is in takes none either, unless the pick has files in other
+      // folders as well (`_gatherPick`): then its node gathers them.
+      function declines(target) {
+        if (inPicker() && target.dataset.dropNoBg !== undefined) return true;
+        if (!self._dragOrigin || target.dataset.dropFolder !== self._dragOrigin) return false;
+        return !self._gatherPick;
       }
       // What a drag of this card takes along. A picker's batch is its pick
       // (`data-pick-order` marks the picked cards on screen, the server holds
@@ -9058,11 +9071,6 @@ if (typeof window.Chart === "undefined") {
       }
       function dragOrigin(el) {
         if (!isSelected(el)) return originOf(el);
-        // A pick holds more than the cards on screen (files picked in other
-        // folders): a drop on the folder shown still gathers them there.
-        if (inPicker() && (parseInt(self.el.dataset.pickCount || "0", 10) || 0) > selectedEls().length) {
-          return null;
-        }
         var origin;
         var same = true;
         selectedEls().forEach(function(s) {
@@ -9151,6 +9159,10 @@ if (typeof window.Chart === "undefined") {
           if (isSelected(el)) {
             e.dataTransfer.setData("application/x-pk-batch", "1");
             self._draggedBatch = true;
+            // The pick holds more than the cards on screen (files picked in
+            // other folders): a drop on the node of the folder shown gathers them.
+            self._gatherPick = inPicker() &&
+              (parseInt(self.el.dataset.pickCount || "0", 10) || 0) > selectedEls().length;
             selectionGhost(e, el);
             setBatchVisuals(true);
           } else {
@@ -9162,6 +9174,7 @@ if (typeof window.Chart === "undefined") {
         el.removeEventListener("dragend", el._dragend);
         el._dragend = function() {
           self._dragOrigin = null;
+          self._gatherPick = false;
           self._internalDrag = false;
           if (self._draggedBatch) {
             setBatchVisuals(false);
@@ -9319,7 +9332,7 @@ if (typeof window.Chart === "undefined") {
           }
           // The folder the dragged card is already in (see `originOf`):
           // no accept indicator, no drop.
-          if (self._dragOrigin && target.dataset.dropFolder === self._dragOrigin) {
+          if (declines(target)) {
             if (self._activeDropTarget === target) {
               clearHighlight(target);
               self._activeDropTarget = null;
@@ -9405,7 +9418,7 @@ if (typeof window.Chart === "undefined") {
           // Let go over the folder it came from: nothing moves, so nothing
           // is asked of the server (LiveView's page-wide dragover lets the
           // drop happen even though this zone declined it).
-          if (self._dragOrigin && dropFolderUuid === self._dragOrigin) return;
+          if (declines(target)) return;
 
           var isFolder = e.dataTransfer.types.indexOf("application/x-pk-folder") !== -1;
           var isBatch = e.dataTransfer.types.indexOf("application/x-pk-batch") !== -1;
@@ -9420,7 +9433,9 @@ if (typeof window.Chart === "undefined") {
             // for a folder in the batch is handled server-side (the
             // bulk handler skips moving a folder onto itself).
             // The same key the move dialog sends (`phx-value-folder-uuid`).
-            self.pushEventTo(self.el, "move_selected_to_folder", {
+            // A picker's pick has its own event: the move dialog's
+            // `move_selected_to_folder` works on what the dialog was opened for.
+            self.pushEventTo(self.el, inPicker() ? "move_picked_to_folder" : "move_selected_to_folder", {
               "folder-uuid": resolvedTarget
             });
           } else if (isFolder) {

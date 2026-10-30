@@ -2466,8 +2466,21 @@ defmodule PhoenixKit.Modules.Storage do
   Used by trash, restore, and permanent-delete to determine the affected
   subtree in one pass, and by scoped media listings that should include
   files in nested folders.
+
+  With `live: true` a folder in the trash, and everything under it, is left
+  out (the root too, when it is trashed: `[]`) — the folders a listing walks.
   """
-  def folder_subtree_uuids(root_uuid) do
+  def folder_subtree_uuids(root_uuid, opts \\ []) do
+    live? = Keyword.get(opts, :live, false)
+
+    if live? and not live_folder?(root_uuid) do
+      []
+    else
+      walk_subtree(root_uuid, live?)
+    end
+  end
+
+  defp walk_subtree(root_uuid, live?) do
     # A folder seen once is not walked again, so a parent loop in the data
     # (it should never exist) ends the walk instead of hanging it.
     Stream.unfold({[root_uuid], MapSet.new([root_uuid])}, fn
@@ -2475,8 +2488,11 @@ defmodule PhoenixKit.Modules.Storage do
         nil
 
       {pending, seen} ->
+        query = from(f in Folder, where: f.parent_uuid in ^pending, select: f.uuid)
+        query = if live?, do: where(query, [f], is_nil(f.trashed_at)), else: query
+
         children =
-          from(f in Folder, where: f.parent_uuid in ^pending, select: f.uuid)
+          query
           |> repo().all()
           |> Enum.reject(&MapSet.member?(seen, &1))
 
@@ -2533,13 +2549,32 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   @doc """
-  The first of `folder_uuids` that holds `file_uuid` as a LINK (its home does not
-  count), or nil. One query.
+  The links of `file_uuids` into `folder_uuids` (a home does not count), as
+  `{file_uuid, folder_uuid}` pairs ordered by folder uuid. One query.
+  """
+  def folder_links_among(file_uuids, folder_uuids)
+      when is_list(file_uuids) and is_list(folder_uuids) and file_uuids != [] and
+             folder_uuids != [] do
+    from(fl in FolderLink,
+      where: fl.file_uuid in ^file_uuids and fl.folder_uuid in ^folder_uuids,
+      order_by: [asc: fl.folder_uuid],
+      select: {fl.file_uuid, fl.folder_uuid}
+    )
+    |> repo().all()
+  end
+
+  def folder_links_among(_file_uuids, _folder_uuids), do: []
+
+  @doc """
+  The folder of `folder_uuids` that holds `file_uuid` as a LINK (its home does
+  not count) — the first by folder uuid when it holds several — or nil. One
+  query.
   """
   def linked_folder_among(file_uuid, folder_uuids)
       when is_binary(file_uuid) and is_list(folder_uuids) do
     from(fl in FolderLink,
       where: fl.file_uuid == ^file_uuid and fl.folder_uuid in ^folder_uuids,
+      order_by: [asc: fl.folder_uuid],
       select: fl.folder_uuid,
       limit: 1
     )
@@ -2854,7 +2889,9 @@ defmodule PhoenixKit.Modules.Storage do
         select: %{uuid: f.uuid}
       )
 
-    cte = union_all(cte_base, ^cte_recursive)
+    # `union`, not `union_all`: a folder reached twice (a parent loop in the data)
+    # ends the walk, as in `TreeQuery`.
+    cte = union(cte_base, ^cte_recursive)
 
     homed = from(d in "scope_descendants", select: d.uuid)
 

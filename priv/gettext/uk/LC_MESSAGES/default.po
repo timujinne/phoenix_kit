@@ -21732,3 +21732,8 @@ msgstr "Показувати також файли з папок нижче"
 #, elixir-autogen, elixir-format
 msgid "Nothing to move"
 msgstr "Нічого переносити"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "Перенесено %{moved} з %{total} елементів"

@@ -5,24 +5,9 @@
      the gain map's headroom — unless the picture, or a box around it, has a
      layer of its own. One layer for the whole grid, not one per tile: the
      backing store of an HDR layer is 16-bit, and a grid can hold thousands. --%>
-<%!-- A picker's tiles are smaller, so more of the folder fits the window:
-     auto-fill columns of about 7rem (5rem for Small) with a tighter gap. The
-     sizes are spelled out whole, for Tailwind to find. --%>
 <div
   data-media-grid
-  data-tile-size={@picker && @tile_size}
-  class={
-    cond do
-      @picker and @tile_size == "small" ->
-        "grid grid-cols-[repeat(auto-fill,minmax(5rem,1fr))] gap-1.5 [transform:translateZ(0)]"
-
-      @picker ->
-        "grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2 [transform:translateZ(0)]"
-
-      true ->
-        "grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [transform:translateZ(0)]"
-    end
-  }
+  class="grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-3 [transform:translateZ(0)]"
 >
   <%!-- Folders. Without folder actions a folder is neither a drop target nor
        selectable (every bulk action on one is a folder action). --%>
@@ -258,13 +243,16 @@
        draggable (no long press, Shift-click or box select either) — unless
        `allow_move`: then it is dragged to a folder, a picked card taking the
        whole pick with it (`data-pick-order` tells the drag script which are
-       picked). Outside a picker the card is draggable for the selection
+       picked). Listing the subfolders' files too, a card names the folder it
+       is really in (`data-origin-folder`), as the drag script reads it: the
+       zone it sits in is the viewed folder. Outside a picker the card is draggable for the selection
        gestures too (long press, Shift-click, box select), and without folder
        actions no folder, tree node or Trash takes a move. --%>
   <%= for file <- @uploaded_files do %>
     <% pick_order = @picker && pick_position(@picked, file.file_uuid) %>
     <div
       data-draggable-file={if not @readonly and (not @picker or @allow_move), do: file.file_uuid}
+      data-origin-folder={card_origin(@allow_move && @subtree_listing, file, @scope_folder_id)}
       data-selected={
         if @select_mode && MapSet.member?(@selected_files, file.file_uuid),
           do: "true"

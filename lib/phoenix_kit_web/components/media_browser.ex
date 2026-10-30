@@ -156,9 +156,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     drags alone. The server moves files inside the scope only, each one
     checked as a click on it is (live, this library, the viewer's, of
     `only_file_type`, inside the scope), and a batch is the browser's own
-    pick, never a list from the client. Folders are not dragged, the Trash
-    takes no drop, and every other folder action stays refused under
-    `folder_actions: false`. `readonly` still takes it all away.
+    pick, never a list from the client (the drag sends `move_picked_to_folder`;
+    the move dialog's `move_selected_to_folder` is not touched). The drop
+    must be on a folder you point at — a folder of the tree, the top level or a
+    folder tile — never on the grid itself, and not on the folder a card is
+    already in; a pick with files in other folders (picked while walking the
+    tree) is gathered into the folder shown by a drop on its node in the tree.
+    Folders are not dragged, the Trash takes no drop, and every other folder
+    action stays refused under `folder_actions: false`. `readonly` still takes
+    it all away.
   - `subtree_toggle` (default `false`; a picker only) — puts an "Include
     subfolders" switch in the picker's bar. Off, the picker lists the folder
     it stands in, as it always did. On, it lists the files of that folder AND
@@ -177,10 +183,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     back through the nav params keeps it.
   - `per_page` (a picker only; default 50, at most 500) — the files on a page.
     Anything that is not a positive integer is 50. A change on a mounted
-    picker reloads it from the first page. Not read outside a picker. The
-    picker's grid is also denser than the browser's (tiles of about 7rem; a
-    Small/Large switch in its bar, Small about 5rem, is the picker's own and
-    starts at Large).
+    picker reloads it from the first page. Not read outside a picker.
 
   A picker's file menu keeps Download and Move to Trash. Rotate, Edit image,
   the featured toggle and deleting for good (the Trash view's Delete, Empty
@@ -756,7 +759,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     assign(socket, :per_page, per_page)
   end
 
-  defp normalize_per_page(socket), do: socket
+  # Not a picker: the browser's own page size, whatever the host passed.
+  defp normalize_per_page(socket), do: assign(socket, :per_page, @default_per_page)
 
   # A mounted picker whose host changed `per_page` lists again from the first page.
   defp maybe_reload_for_per_page(socket, shown_per_page) do
@@ -884,17 +888,68 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp pickable?(socket, file_uuid), do: match?({:ok, _}, pickable_file(socket, file_uuid))
 
   defp pickable_file(socket, file_uuid) do
-    with true <- uuid_string?(file_uuid),
-         %Storage.File{system_managed: false} = file <- Storage.get_file(file_uuid),
-         true <- file.status != "trashed",
-         true <- socket.assigns[:only_file_type] in [nil, file.file_type],
-         true <- in_browser_library?(socket, file),
-         true <- Storage.viewer_can_see_file?(socket.assigns[:viewer_uuid], file),
-         true <- in_pick_scope?(file, scope_folder_id(socket)) do
-      {:ok, file}
-    else
-      _ -> :error
+    case pickable_files(socket, [file_uuid]) do
+      [file] -> {:ok, file}
+      [] -> :error
     end
+  end
+
+  # The same check for many uuids at once, in the order given: the files in one
+  # query, the libraries in one, the scope's folders walked once. A uuid that is
+  # none, or names a file the picker would not list, is left out.
+  defp pickable_files(socket, uuids) do
+    uuids = uuids |> Enum.filter(&uuid_string?/1) |> Enum.map(&String.downcase/1) |> Enum.uniq()
+
+    files =
+      if uuids == [] do
+        []
+      else
+        PhoenixKit.Config.get_repo().all(
+          from(f in Storage.File, where: f.uuid in ^uuids and f.system_managed == false)
+        )
+      end
+
+    viewer = socket.assigns[:viewer_uuid]
+
+    found =
+      files
+      |> Enum.filter(fn file ->
+        file.status != "trashed" and socket.assigns[:only_file_type] in [nil, file.file_type] and
+          Storage.viewer_can_see_file?(viewer, file)
+      end)
+      |> in_browser_library(socket)
+      |> in_pick_scope(scope_folder_id(socket))
+      |> Map.new(&{to_string(&1.uuid), &1})
+
+    for uuid <- uuids, file = found[uuid], do: file
+  end
+
+  defp in_browser_library(files, socket) do
+    case socket.assigns[:library_uuid] do
+      nil ->
+        private = files |> Enum.map(& &1.library_uuid) |> Libraries.user_or_hidden_among()
+        Enum.reject(files, &(to_string(&1.library_uuid) in private))
+
+      library_uuid ->
+        Enum.filter(files, &(to_string(&1.library_uuid) == to_string(library_uuid)))
+    end
+  end
+
+  defp in_pick_scope([], _scope), do: []
+  defp in_pick_scope(files, nil), do: files
+  defp in_pick_scope([file], scope), do: Enum.filter([file], &in_pick_scope?(&1, scope))
+
+  defp in_pick_scope(files, scope) do
+    folders = MapSet.new(Storage.folder_subtree_uuids(scope))
+    {homed, away} = Enum.split_with(files, &(to_string(&1.folder_uuid) in folders))
+
+    linked =
+      away
+      |> Enum.map(& &1.uuid)
+      |> Storage.folder_links_among(MapSet.to_list(folders))
+      |> MapSet.new(&elem(&1, 0))
+
+    homed ++ Enum.filter(away, &MapSet.member?(linked, to_string(&1.uuid)))
   end
 
   defp in_pick_scope?(_file, nil), do: true
@@ -2206,10 +2261,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     |> assign(:move_expanded, MapSet.new())
     |> assign(:current_page, 1)
     |> assign(:per_page, initial_per_page(socket))
-    # A picker's own view options: the files of the subfolders too, and the
-    # size of the tiles. Socket state, never saved (see `subtree_toggle`).
+    # A picker's own view option: the files of the subfolders too. Socket
+    # state, never saved (see `subtree_toggle`).
     |> assign(:subtree_view, false)
-    |> assign(:tile_size, "large")
     |> then(fn s ->
       if scope_invalid,
         do: assign(s, uploaded_files: [], total_count: 0, total_pages: 0),
@@ -2717,7 +2771,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   @write_events ~w(
     change_folder_color delete_all_orphaned delete_file delete_folder delete_selected
     discard_all_uploads discard_upload empty_trash folder_description_input folder_header_input long_press_select
-    move_file_to_folder move_folder_to_folder move_selected_to_folder new_folder_input
+    move_file_to_folder move_folder_to_folder move_picked_to_folder move_selected_to_folder
+    new_folder_input
     open_cover_picker open_image_editor open_logo_picker open_new_folder_modal
     prepare_move_file prepare_move_folder remove_folder_cover remove_folder_logo
     rename_folder rename_folder_input restore_file restore_folder restore_selected
@@ -2780,9 +2835,11 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   def folder_action_events, do: @folder_action_events
 
   # What `allow_move` gives back to a picker under `folder_actions: false`: the
-  # moves of FILES (`allow_move` is true only in a picker, see
-  # `normalize_picker_attrs/1`). Their handlers check the files themselves.
-  @picker_move_events ~w(move_file_to_folder move_selected_to_folder)
+  # move of a FILE (`allow_move` is true only in a picker, see
+  # `normalize_picker_attrs/1`). Its handler checks the file itself. The drag of
+  # the whole pick is its own event, `move_picked_to_folder`, so the move
+  # dialog's `move_selected_to_folder` never reaches the pick.
+  @picker_move_events ~w(move_file_to_folder)
 
   # What a picker does not have: bulk select (its pick is an ordered list of
   # its own) and the view switch (it always shows the grid).
@@ -3127,17 +3184,21 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
     with {:ok, file} <- pickable_file(socket, file_uuid),
          {:ok, target} <- pick_move_target(socket, params["folder_uuid"], scope) do
-      from = appearance_folder(socket, file)
+      if already_in?(file, target) do
+        {:noreply, put_flash(socket, :info, gettext("Nothing to move"))}
+      else
+        from = appearance_folder(socket, file)
 
-      case Storage.move_file_between_folders(file.uuid, from, target, scope) do
-        {:ok, _} ->
-          {:noreply, socket |> put_flash(:info, gettext("File moved")) |> reload_current_page()}
+        case Storage.move_file_between_folders(file.uuid, from, target, scope) do
+          {:ok, _} ->
+            {:noreply, socket |> put_flash(:info, gettext("File moved")) |> reload_current_page()}
 
-        {:error, :out_of_scope} ->
-          {:noreply, put_flash(socket, :error, pick_move_error(:out_of_scope))}
+          {:error, :out_of_scope} ->
+            {:noreply, put_flash(socket, :error, pick_move_error(:out_of_scope))}
 
-        {:error, _} ->
-          {:noreply, put_flash(socket, :error, pick_move_error(:failed))}
+          {:error, _} ->
+            {:noreply, put_flash(socket, :error, pick_move_error(:failed))}
+        end
       end
     else
       :error ->
@@ -3152,6 +3213,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
          |> log_refused("move_file_to_folder", "not a folder it moves into (#{reason})")
          |> put_flash(:error, pick_move_error(reason))}
     end
+  end
+
+  # …and an event of the picker's move that names no file: refused, not a crash.
+  def handle_event("move_file_to_folder", _params, socket)
+      when socket.assigns.allow_move == true do
+    {:noreply, log_refused(socket, "move_file_to_folder", "it names no file")}
   end
 
   def handle_event(
@@ -4316,46 +4383,35 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     handle_event("move_selected_to_folder", %{"folder-uuid" => folder_uuid}, socket)
   end
 
-  # A picker with `allow_move`: the batch is the browser's own pick (the order
-  # it was made in), never a list from the client, and each file is checked
-  # as a click on it is. The pick itself is not touched.
-  def handle_event("move_selected_to_folder", %{"folder-uuid" => folder_uuid}, socket)
+  # The drag of a picker's pick (`allow_move`) to a folder: the batch is the
+  # browser's own pick (the order it was made in), never a list from the client,
+  # and each file is checked as a click on it is. The pick itself is not
+  # touched. Not `move_selected_to_folder`: that one is the move dialog's, and
+  # works on what the dialog was opened for.
+  def handle_event("move_picked_to_folder", _params, socket)
+      when socket.assigns.readonly == true do
+    {:noreply, log_readonly_blocked(socket, "move_picked_to_folder")}
+  end
+
+  def handle_event("move_picked_to_folder", %{"folder-uuid" => folder_uuid}, socket)
       when socket.assigns.allow_move == true do
     scope = scope_folder_id(socket)
 
     case pick_move_target(socket, folder_uuid, scope) do
       {:ok, target} ->
-        results =
-          socket
-          |> picked_files_to_move()
-          |> Enum.reject(&already_in?(&1, target))
-          |> Enum.map(&move_picked_file(socket, &1, target, scope))
-
-        moved = Enum.count(results, &(&1 == :ok))
-
-        flash =
-          cond do
-            moved > 0 ->
-              {:info, ngettext("%{count} item moved", "%{count} items moved", moved)}
-
-            :out_of_scope in results ->
-              {:error, pick_move_error(:out_of_scope)}
-
-            Enum.any?(results, &(&1 != :skipped)) ->
-              {:error, pick_move_error(:failed)}
-
-            true ->
-              {:info, gettext("Nothing to move")}
-          end
-
-        {:noreply, socket |> put_flash(elem(flash, 0), elem(flash, 1)) |> reload_current_page()}
+        {:noreply, move_picked(socket, target, scope)}
 
       {:error, reason} ->
         {:noreply,
          socket
-         |> log_refused("move_selected_to_folder", "not a folder it moves into (#{reason})")
+         |> log_refused("move_picked_to_folder", "not a folder it moves into (#{reason})")
          |> put_flash(:error, pick_move_error(reason))}
     end
+  end
+
+  def handle_event("move_picked_to_folder", _params, socket) do
+    {:noreply,
+     log_refused(socket, "move_picked_to_folder", "not a picker with allow_move, or no folder")}
   end
 
   def handle_event("move_selected_to_folder", %{"folder-uuid" => folder_uuid}, socket) do
@@ -5012,15 +5068,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     {:noreply, log_refused(socket, "set_subtree_view", "the picker has no such switch")}
   end
 
-  def handle_event("set_tile_size", %{"size" => size}, socket)
-      when size in ["small", "large"] and socket.assigns.picker == true do
-    {:noreply, assign(socket, :tile_size, size)}
-  end
-
-  def handle_event("set_tile_size", _params, socket) do
-    {:noreply, log_refused(socket, "set_tile_size", "the browser is not a picker")}
-  end
-
   def handle_event("set_page", %{"page" => page_str}, socket) do
     page =
       case Integer.parse(page_str) do
@@ -5497,7 +5544,13 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # the viewed folder alone would act on the wrong appearance (or, at
   # the root, on the file's home). Nil only when no folder view shows
   # it: the root / All Files / search, where actions address the file.
-  defp appearance_folder(socket, file) do
+  defp appearance_folder(socket, file),
+    do: socket |> appearances([file]) |> Map.get(to_string(file.uuid))
+
+  # `appearance_folder/2` for many files: `%{file_uuid => folder_uuid | nil}`.
+  # The links are read in one query, and the folders below the viewed one are
+  # walked once, not once per file.
+  defp appearances(socket, files) do
     # The root of a SCOPED browser is the scope folder, not the system root —
     # the same reading `move_file_to_folder` has always applied to a drop on
     # "root". A host embeds the browser scoped to a folder of its own (a
@@ -5510,26 +5563,50 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       List.wrap(current_folder_uuid(socket) || scope_folder_id(socket)) ++
         (socket.assigns[:expanded_stacks] || [])
 
-    Enum.find(candidates, fn folder_uuid ->
-      to_string(file.folder_uuid) == to_string(folder_uuid) or
-        not is_nil(Storage.folder_link(folder_uuid, file.uuid))
-    end) || subtree_appearance(socket, file)
+    linked =
+      files |> Enum.map(& &1.uuid) |> Storage.folder_links_among(candidates) |> MapSet.new()
+
+    here =
+      Map.new(files, fn file ->
+        {to_string(file.uuid),
+         Enum.find(candidates, fn folder_uuid ->
+           to_string(file.folder_uuid) == to_string(folder_uuid) or
+             MapSet.member?(linked, {file.uuid, folder_uuid})
+         end)}
+      end)
+
+    elsewhere = Enum.filter(files, &is_nil(here[to_string(&1.uuid)]))
+    Map.merge(here, subtree_appearances(socket, elsewhere))
   end
 
   # A picker listing the subfolders' files too shows a file of a folder below
   # the viewed one: it appears in the folder that holds it (its home when that
-  # is in the subtree, else the folder of the subtree it is linked into), and
+  # is in the subtree, else a folder of the subtree it is linked into), and
   # a per-file action addresses that folder, as it would in the folder itself.
-  defp subtree_appearance(socket, file) do
-    if Keyword.get(subtree_opts(socket), :subtree, false) do
-      root = current_folder_uuid(socket) || scope_folder_id(socket)
-      home = file.folder_uuid
+  # The subtree is the one the listing walks: no folder in the trash.
+  defp subtree_appearances(_socket, []), do: %{}
 
-      cond do
-        is_nil(root) -> home
-        not is_nil(home) and Storage.within_scope?(home, root) -> home
-        true -> Storage.linked_folder_among(file.uuid, Storage.folder_subtree_uuids(root))
+  defp subtree_appearances(socket, files) do
+    if Helpers.subtree_listing?(socket.assigns) do
+      root = current_folder_uuid(socket) || scope_folder_id(socket)
+
+      if is_nil(root) do
+        Map.new(files, &{to_string(&1.uuid), &1.folder_uuid})
+      else
+        folders = MapSet.new(Storage.folder_subtree_uuids(root, live: true))
+        {homed, away} = Enum.split_with(files, &(to_string(&1.folder_uuid) in folders))
+
+        linked =
+          away
+          |> Enum.map(& &1.uuid)
+          |> Storage.folder_links_among(MapSet.to_list(folders))
+          |> Enum.reduce(%{}, fn {file, folder}, acc -> Map.put_new(acc, file, folder) end)
+
+        Map.new(homed, &{to_string(&1.uuid), &1.folder_uuid})
+        |> Map.merge(Map.new(away, &{to_string(&1.uuid), linked[to_string(&1.uuid)]}))
       end
+    else
+      %{}
     end
   end
 
@@ -5553,48 +5630,103 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp pick_move_error(:not_found), do: gettext("Folder not found")
   defp pick_move_error(:failed), do: gettext("Failed to move file")
 
-  # The picked files a picker's move may touch, in the order they were picked:
-  # each as a click on it is checked now (the pick can have gone stale), and a
-  # contributor (`own_files_only`) moves only the files they uploaded.
+  # The pick dragged to `target`: its files, as of now, in the order they were
+  # picked (the pick can have gone stale, so each is checked as a click on it
+  # is, and a contributor — `own_files_only` — moves only the files they
+  # uploaded), the ones already in `target` left, the rest moved. Says what came
+  # of it. Every lookup is made once for the pick, not once per file.
+  defp move_picked(socket, target, scope) do
+    files = picked_files_to_move(socket)
+    here = files_in_folder(files, target)
+    files = Enum.reject(files, &MapSet.member?(here, to_string(&1.uuid)))
+    origins = pick_origins(socket, files, scope)
+
+    results =
+      Enum.map(files, fn file ->
+        case Map.fetch!(origins, to_string(file.uuid)) do
+          :none ->
+            :skipped
+
+          from ->
+            case Storage.move_file_between_folders(file.uuid, from, target, scope) do
+              {:ok, _} -> :ok
+              {:error, reason} -> reason
+            end
+        end
+      end)
+
+    moved = Enum.count(results, &(&1 == :ok))
+
+    flash =
+      cond do
+        moved == length(results) and moved > 0 ->
+          {:info, ngettext("%{count} item moved", "%{count} items moved", moved)}
+
+        moved > 0 ->
+          {:info,
+           gettext("%{moved} of %{total} items moved", moved: moved, total: length(results))}
+
+        :out_of_scope in results ->
+          {:error, pick_move_error(:out_of_scope)}
+
+        Enum.any?(results, &(&1 != :skipped)) ->
+          {:error, pick_move_error(:failed)}
+
+        true ->
+          {:info, gettext("Nothing to move")}
+      end
+
+    socket |> put_flash(elem(flash, 0), elem(flash, 1)) |> reload_current_page()
+  end
+
   defp picked_files_to_move(socket) do
     own = socket.assigns[:own_files_only]
-
-    socket.assigns.picked
-    |> Enum.flat_map(fn uuid ->
-      case pickable_file(socket, uuid) do
-        {:ok, file} -> [file]
-        :error -> []
-      end
-    end)
-    |> Enum.reject(&(is_binary(own) and others_file?([&1.uuid], own)))
+    files = pickable_files(socket, socket.assigns.picked)
+    if is_binary(own), do: Enum.reject(files, &others_file?([&1.uuid], own)), else: files
   end
 
   # Home or link: a folder holds a file once.
-  defp already_in?(file, target) when is_binary(target) do
-    to_string(file.folder_uuid) == target or not is_nil(Storage.folder_link(target, file.uuid))
+  defp already_in?(file, target),
+    do: MapSet.member?(files_in_folder([file], target), to_string(file.uuid))
+
+  # The uuids of `files` that `folder` holds already (the top level, `nil`, holds
+  # those with no home).
+  defp files_in_folder(files, nil),
+    do: files |> Enum.filter(&is_nil(&1.folder_uuid)) |> MapSet.new(&to_string(&1.uuid))
+
+  defp files_in_folder(files, folder) do
+    linked =
+      files
+      |> Enum.map(& &1.uuid)
+      |> Storage.folder_links_among([folder])
+      |> Enum.map(&elem(&1, 0))
+
+    homed = for file <- files, to_string(file.folder_uuid) == folder, do: file.uuid
+    MapSet.new(homed ++ linked, &to_string/1)
   end
 
-  defp already_in?(file, nil), do: is_nil(file.folder_uuid)
+  # Where each picked file is moved FROM: the folder it appears in where the
+  # browser stands; a file picked in another folder, from its home, if that is
+  # inside the scope; a file only linked into the scope from a home outside it
+  # is `:none`, left, as it is not this browser's to re-home.
+  defp pick_origins(socket, files, scope) do
+    seen = appearances(socket, files)
+    unseen = Enum.filter(files, &is_nil(seen[to_string(&1.uuid)]))
+    in_scope = if unseen != [] and scope, do: MapSet.new(Storage.folder_subtree_uuids(scope))
 
-  # Moves a picked file as it is seen where the browser stands. A picked file
-  # the viewed folder does not hold (picked in another folder) moves from its
-  # home, if that is inside the scope; one only linked into the scope from a
-  # home outside it is left, as it is not this browser's to re-home.
-  defp move_picked_file(socket, file, target, scope) do
-    from =
-      appearance_folder(socket, file) ||
-        if Storage.within_scope?(file.folder_uuid, scope), do: file.folder_uuid, else: :none
+    Map.new(files, fn file ->
+      key = to_string(file.uuid)
 
-    case from do
-      :none ->
-        :skipped
-
-      from ->
-        case Storage.move_file_between_folders(file.uuid, from, target, scope) do
-          {:ok, _} -> :ok
-          {:error, reason} -> reason
+      from =
+        cond do
+          seen[key] -> seen[key]
+          is_nil(scope) -> file.folder_uuid
+          to_string(file.folder_uuid) in in_scope -> file.folder_uuid
+          true -> :none
         end
-    end
+
+      {key, from}
+    end)
   end
 
   defp appearance_folder_of(socket, file_uuid) do
@@ -6484,6 +6616,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         # matches what the viewer's canvas shows. Baked variants are
         # unrotated on disk; nil/garbage reads as unrotated.
         rotation: Map.get(file.metadata || %{}, "rotation"),
+        folder_uuid: file.folder_uuid,
         folder_path: Map.get(folder_paths, file.folder_uuid),
         # What the file's burned copy was rendered from, so the viewer can
         # tell whether the drawing in front of it has already been burned

@@ -21738,3 +21738,8 @@ msgstr "Pokaż także pliki z folderów poniżej"
 #, elixir-autogen, elixir-format
 msgid "Nothing to move"
 msgstr "Nic do przeniesienia"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{moved} of %{total} items moved"
+msgstr "Przeniesiono %{moved} z %{total} elementów"
