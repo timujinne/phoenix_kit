@@ -34,11 +34,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Helpers do
       Enum.reverse(assigns[:upload_problems_session] || [])
   end
 
-  # Only a real upload config can carry the resumable hook: `upload_errors`
-  # and the hook's data attributes read its internals, and component tests
-  # hand down plain maps standing in for one.
-  def resumable_upload?(%{parent_uploads: %{media_files: %Phoenix.LiveView.UploadConfig{}}}),
-    do: true
+  # The hook is rendered only for an upload the host set up with
+  # `allow_resumable_upload/4` (`setup_uploads/1` does): its events would reach
+  # a LiveView with no clause for them otherwise. Component tests hand down
+  # plain maps standing in for a config, which are not.
+  def resumable_upload?(%{parent_uploads: %{media_files: config}}),
+    do: PhoenixKitWeb.ResumableUploads.resumable_config?(config)
 
   def resumable_upload?(_assigns), do: false
 

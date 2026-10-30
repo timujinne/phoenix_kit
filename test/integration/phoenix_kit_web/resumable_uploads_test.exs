@@ -474,6 +474,38 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
     end
   end
 
+  defmodule PlainBrowserHost do
+    @moduledoc false
+    use Phoenix.LiveView
+
+    # A host with its own plain allow_upload and no setup_uploads/1.
+    def mount(_params, _session, socket),
+      do: {:ok, allow_upload(socket, :media_files, accept: :any, auto_upload: true)}
+
+    def render(assigns) do
+      ~H"""
+      <.live_component module={MediaBrowser} id="media-browser" parent_uploads={@uploads} />
+      """
+    end
+  end
+
+  describe "a MediaBrowser host with its own allow_upload" do
+    test "gets no hook (its events would have no handler) and does not crash", %{conn: conn} do
+      {:ok, _} =
+        Storage.create_bucket(%{
+          name: "plain-#{System.unique_integer([:positive])}",
+          provider: "local",
+          endpoint: Path.join(System.tmp_dir!(), "pk_resumable_bucket"),
+          enabled: true,
+          priority: 0
+        })
+
+      {:ok, view, html} = live_isolated(conn, PlainBrowserHost)
+      refute html =~ ~s(phx-hook="ResumableUpload")
+      assert Process.alive?(view.pid)
+    end
+  end
+
   describe "a MediaBrowser host that does not pass resumable_uploads" do
     test "still gets the hook and automatic continuation; only the button row is missing", %{
       conn: conn

@@ -474,3 +474,21 @@ test("a file picked while the socket is down is carried on after the reconnect, 
   await settle();
   assert.strictEqual(m.uploaded.length, 1);
 });
+
+test("a server without handlers for the upload is left alone: nothing more is sent, files stay in the stash", async () => {
+  const page = pageLoad();
+  const m = mount(page);
+  m.pick(file("a.png"));
+  await settle();
+  const pick = m.pushed.find((p) => p.name === "pk_upload_pick");
+  pick.cb({ error: "not_attached" });
+
+  m.pushed.length = 0;
+  m.pick(file("b.png"));
+  m.ctx.disconnected();
+  m.ctx.reconnected();
+  await settle();
+  assert.deepStrictEqual(m.pushed, [], "no pick, no resume");
+  assert.strictEqual(rowsOf(page).length, 2, "the files are still kept");
+  assert.strictEqual(page.held.size, 0, "and owned by nobody");
+});

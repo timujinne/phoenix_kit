@@ -128,6 +128,19 @@ defmodule PhoenixKitWeb.ResumableUploads do
   end
 
   @doc """
+  True for the config of an upload set up with `allow_resumable_upload/4`.
+
+  A component that renders the hook for an upload it did not set up itself
+  (MediaBrowser, for the `parent_uploads` of its host) asks this first: the
+  hook's events would reach a LiveView that has no clause for them.
+  """
+  @spec resumable_config?(term()) :: boolean()
+  def resumable_config?(%UploadConfig{progress_event: fun}) when is_function(fun, 3),
+    do: Function.info(fun, :module) == {:module, __MODULE__}
+
+  def resumable_config?(_), do: false
+
+  @doc """
   The context the browser stored for `entry` when it was picked, or `nil`.
 
   `nil` when the browser sent none, when the same file was picked twice with

@@ -10077,6 +10077,7 @@ if (typeof window.Chart === "undefined") {
       this._scanning = false;
       this._rescan = false;
       this._persisted = false;
+      this._off = false;      // the server has no handlers for this upload: stay silent
       this._warned = false;
       this._root = this.el.dataset.watch === "parent" ? (this.el.parentElement || document.body) : this.el;
 
@@ -10254,11 +10255,12 @@ if (typeof window.Chart === "undefined") {
       // The server learns where each file belongs before LiveView hands it the
       // file; a send that fails (the socket is going) is covered by the
       // context that `pk_upload_resume` carries.
+      if (this._off) return;
       try {
         this.pushEvent("pk_upload_pick", {
           upload: this._upload,
           items: records.map(function(row) { return { key: row.key, seq: row.seq, context: row.context }; })
-        }, function() {});
+        }, function(reply) { if (reply && reply.error) self._off = true; });
       } catch (_) {}
     },
 
@@ -10330,7 +10332,7 @@ if (typeof window.Chart === "undefined") {
 
     _scan() {
       var self = this;
-      if (!this._upload || !this._scope) return;
+      if (!this._upload || !this._scope || this._off) return;
       if (this._scanning) { this._rescan = true; return; }
       this._scanning = true;
       var now = Date.now();
@@ -10372,7 +10374,8 @@ if (typeof window.Chart === "undefined") {
 
     _answered(reply, byId) {
       var self = this;
-      if (!reply || reply.error) return;
+      if (reply && reply.error) { this._off = true; this._releaseAll(); this._waiting = {}; return; }
+      if (!reply) return;
       var list = function(name) { return (reply[name] || []).filter(function(id) { return byId[id]; }); };
       this._queued = list("queued").length > 0;
       this._dropIds(list("drop"));
