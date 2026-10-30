@@ -27,6 +27,7 @@ defmodule PhoenixKitWeb.Live.Users.ProfileSettings do
 
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
+  alias PhoenixKit.Users.ManagedOrganizations.Actor, as: OrganizationActor
   alias PhoenixKit.Utils.Routes
 
   alias PhoenixKitWeb.Components.ProfileSettingsTabs
@@ -57,6 +58,13 @@ defmodule PhoenixKitWeb.Live.Users.ProfileSettings do
   def mount(_params, session, socket) do
     {:ok,
      socket
+     |> assign(
+       :manager_actor,
+       case OrganizationActor.from_session(session) do
+         {:ok, actor} -> actor
+         _ -> nil
+       end
+     )
      |> assign(:page_title, gettext("Profile Settings"))
      |> assign(:project_title, Settings.get_project_title())
      |> assign(:storage_refresh_timer, nil)
@@ -129,6 +137,21 @@ defmodule PhoenixKitWeb.Live.Users.ProfileSettings do
   # in another tab), so the form redraws against the saved values.
   @impl true
   def handle_info({:phoenix_kit_user_updated, updated_user}, socket) do
-    {:noreply, assign(socket, :phoenix_kit_current_user, updated_user)}
+    user =
+      case socket.assigns[:current_session_token] do
+        token when is_binary(token) -> Auth.get_user_by_session_token(token)
+        _ -> updated_user
+      end
+
+    if user do
+      scope = %{socket.assigns.phoenix_kit_current_scope | user: user}
+
+      {:noreply,
+       socket
+       |> assign(:phoenix_kit_current_user, user)
+       |> assign(:phoenix_kit_current_scope, scope)}
+    else
+      {:noreply, push_navigate(socket, to: Routes.path("/users/log-in"))}
+    end
   end
 end

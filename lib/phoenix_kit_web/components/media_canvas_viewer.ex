@@ -851,7 +851,7 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   defp uploader_name(user_uuid) do
     case PhoenixKit.Config.get_repo().get(PhoenixKit.Config.get_users_module(), user_uuid) do
       nil -> nil
-      user -> user.email
+      user -> Auth.User.delivery_email(user)
     end
   end
 

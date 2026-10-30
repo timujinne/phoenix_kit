@@ -21856,6 +21856,197 @@ msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} объект перемещён в корзину"
 msgstr[1] "%{count} объекта перемещено в корзину"
 msgstr[2] "%{count} объектов перемещено в корзину"
+#, elixir-autogen, elixir-format
+msgid "Back to my account"
+msgstr "Вернуться в мой аккаунт"
+
+#, elixir-autogen, elixir-format
+msgid "My account"
+msgstr "Мой аккаунт"
+
+#, elixir-autogen, elixir-format
+msgid "You are now acting as %{organization}."
+msgstr "Теперь вы действуете от имени %{organization}."
+
+#, elixir-autogen, elixir-format
+msgid "Too many organization switches. Please try again later."
+msgstr "Слишком много переключений организаций. Повторите попытку позже."
+
+#, elixir-autogen, elixir-format
+msgid "Could not enter that organization."
+msgstr "Не удалось войти в эту организацию."
+
+#, elixir-autogen, elixir-format
+msgid "You are back in your own account."
+msgstr "Вы вернулись в свой аккаунт."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before adding another account."
+msgstr "Вернитесь в свой аккаунт, прежде чем добавлять другой аккаунт."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before signing in as another user."
+msgstr "Вернитесь в свой аккаунт, прежде чем входить от имени другого пользователя."
+
+#, elixir-autogen, elixir-format
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, из этого браузера"
+
+#, elixir-autogen, elixir-format
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · через %{person}"
+
+#, elixir-autogen, elixir-format
+msgid "Managed organization"
+msgstr "Управляемая организация"
+
+msgid "Add %{person}"
+msgstr "Добавить %{person}"
+
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Сначала добавьте другого активного управляющего или явно оставьте организацию без управляющих как администратор."
+
+msgid "Allow managed organizations to have no active managers"
+msgstr "Разрешить организациям остаться без активных управляющих"
+
+msgid "Allow this organization to have no active managers"
+msgstr "Разрешить этой организации остаться без активных управляющих"
+
+msgid "Check the email address and required fields."
+msgstr "Проверьте адрес почты и обязательные поля."
+
+msgid "Check the organization name, contact email and first manager."
+msgstr "Проверьте название организации, контактную почту и первого управляющего."
+
+msgid "Choose a person"
+msgstr "Выберите человека"
+
+msgid "Contact address updated"
+msgstr "Контактный адрес обновлён"
+
+msgid "Contact email"
+msgstr "Контактная почта"
+
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Переведите организацию на учётные записи управляющих. Прежние данные входа и сеансы будут отозваны."
+
+msgid "Convert to independent organization"
+msgstr "Сделать организацию самостоятельной"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Преобразовать: первый управляющий — %{person}"
+
+msgid "Create managed organization"
+msgstr "Создать управляемую организацию"
+
+msgid "Find an active person"
+msgstr "Найти активного пользователя"
+
+msgid "Find the first manager"
+msgstr "Найти первого управляющего"
+
+msgid "First manager"
+msgstr "Первый управляющий"
+
+msgid "Give this organization its own login"
+msgstr "Дать организации собственный вход"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "Если этот адрес может получать приглашения, его владельцу доступно приглашение управляющего."
+
+msgid "Invite a manager by email"
+msgstr "Пригласить управляющего по почте"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Приглашает человека управлять организацией из своей учётной записи."
+
+msgid "Managed organization created"
+msgstr "Управляемая организация создана"
+
+msgid "Manager added"
+msgstr "Управляющий добавлен"
+
+msgid "Manager removed"
+msgstr "Управляющий удалён"
+
+msgid "Managers"
+msgstr "Управляющие"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Управляющие действуют от имени организации из своих учётных записей."
+
+msgid "New login email"
+msgstr "Новая почта для входа"
+
+msgid "New managed organization"
+msgstr "Новая управляемая организация"
+
+msgid "Organization manager invitation"
+msgstr "Приглашение управляющего организации"
+
+msgid "Organization name"
+msgstr "Название организации"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "У организации теперь собственные данные входа"
+
+msgid "Organization now uses manager accounts"
+msgstr "Организация теперь использует учётные записи управляющих"
+
+msgid "Remove manager"
+msgstr "Удалить управляющего"
+
+msgid "Send invitation"
+msgstr "Отправить приглашение"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "У организации нет собственного входа. Выберите активного человека, который будет управлять ею из своей учётной записи."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "Изменение недоступно. Обновите страницу и проверьте доступ."
+
+msgid "This organization has no managers."
+msgstr "У этой организации нет управляющих."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "Это последний активный управляющий. Добавьте другого или явно разрешите организации остаться без управляющих."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "Все управляющие и их сеансы будут удалены. Задайте новые данные входа; старые останутся отозванными."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Слишком много приглашений. Попробуйте позже."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Для создания управляемой организации войдите в свою учётную запись администратора."
+
+msgid "You can now act for the organization."
+msgstr "Теперь вы можете действовать от имени организации."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "Вас пригласили управлять %{organization}. Создайте личную учётную запись, чтобы принять приглашение."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "Вас пригласили управлять {{organization_name}}"
+
+msgid "invited you to manage their organization."
+msgstr "приглашает вас управлять своей организацией."
+
+msgid "You can now act for %{organization}."
+msgstr "Теперь вы можете действовать от имени %{organization}."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Ваш доступ к действиям от имени %{organization} отозван."
+
+msgid "the organization"
+msgstr "организация"
+
+msgid "another user"
+msgstr "другой пользователь"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Здравствуйте, {{user_email}}!\n\n{{organization_name}} приглашает вас стать управляющим. Управляющие действуют от имени организации из своей учётной записи.\n\nВойдите или создайте личную учётную запись, затем примите приглашение в баннере.\n\n[Посмотреть приглашение управляющего]({{invitation_url}})\n\nПриглашение действует 7 дней. Если вы его не ожидали, можете проигнорировать это письмо.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"

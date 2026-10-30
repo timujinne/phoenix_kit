@@ -21775,6 +21775,197 @@ msgid "%{count} item moved to trash"
 msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} üksus teisaldatud prügikasti"
 msgstr[1] "%{count} üksust teisaldatud prügikasti"
+#, elixir-autogen, elixir-format
+msgid "Back to my account"
+msgstr "Tagasi minu kontole"
+
+#, elixir-autogen, elixir-format
+msgid "My account"
+msgstr "Minu konto"
+
+#, elixir-autogen, elixir-format
+msgid "You are now acting as %{organization}."
+msgstr "Tegutsed nüüd organisatsiooni %{organization} nimel."
+
+#, elixir-autogen, elixir-format
+msgid "Too many organization switches. Please try again later."
+msgstr "Liiga palju organisatsiooni vahetusi. Palun proovi hiljem uuesti."
+
+#, elixir-autogen, elixir-format
+msgid "Could not enter that organization."
+msgstr "Selle organisatsiooni kontole ei saanud siseneda."
+
+#, elixir-autogen, elixir-format
+msgid "You are back in your own account."
+msgstr "Oled tagasi oma kontol."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before adding another account."
+msgstr "Enne teise konto lisamist naase oma kontole."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before signing in as another user."
+msgstr "Enne teise kasutajana sisselogimist naase oma kontole."
+
+#, elixir-autogen, elixir-format
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, sellest brauserist"
+
+#, elixir-autogen, elixir-format
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · kasutaja %{person} kaudu"
+
+#, elixir-autogen, elixir-format
+msgid "Managed organization"
+msgstr "Hallatav organisatsioon"
+
+msgid "Add %{person}"
+msgstr "Lisa %{person}"
+
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Lisa esmalt teine aktiivne haldur või jäta organisatsioon administraatorina teadlikult haldurita."
+
+msgid "Allow managed organizations to have no active managers"
+msgstr "Luba hallatavatel organisatsioonidel jääda aktiivsete halduriteta"
+
+msgid "Allow this organization to have no active managers"
+msgstr "Luba sellel organisatsioonil jääda aktiivsete halduriteta"
+
+msgid "Check the email address and required fields."
+msgstr "Kontrolli e-posti aadressi ja kohustuslikke välju."
+
+msgid "Check the organization name, contact email and first manager."
+msgstr "Kontrolli organisatsiooni nime, kontaktmeili ja esimest haldurit."
+
+msgid "Choose a person"
+msgstr "Vali inimene"
+
+msgid "Contact address updated"
+msgstr "Kontaktmeil uuendatud"
+
+msgid "Contact email"
+msgstr "Kontaktmeil"
+
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Vii organisatsioon üle haldurite kontodele. Senised sisselogimisandmed ja seansid tühistatakse."
+
+msgid "Convert to independent organization"
+msgstr "Muuda iseseisvaks organisatsiooniks"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Muuda, esimeseks halduriks %{person}"
+
+msgid "Create managed organization"
+msgstr "Loo hallatav organisatsioon"
+
+msgid "Find an active person"
+msgstr "Otsi aktiivset inimest"
+
+msgid "Find the first manager"
+msgstr "Otsi esimest haldurit"
+
+msgid "First manager"
+msgstr "Esimene haldur"
+
+msgid "Give this organization its own login"
+msgstr "Anna organisatsioonile oma sisselogimine"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "Kui see aadress saab kutseid vastu võtta, on selle omanikule saadaval halduri kutse."
+
+msgid "Invite a manager by email"
+msgstr "Kutsu haldur e-posti teel"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Kutsub inimese organisatsiooni oma konto kaudu haldama."
+
+msgid "Managed organization created"
+msgstr "Hallatav organisatsioon loodud"
+
+msgid "Manager added"
+msgstr "Haldur lisatud"
+
+msgid "Manager removed"
+msgstr "Haldur eemaldatud"
+
+msgid "Managers"
+msgstr "Haldurid"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Haldurid tegutsevad organisatsiooni nimel oma kontode kaudu."
+
+msgid "New login email"
+msgstr "Uus sisselogimismeil"
+
+msgid "New managed organization"
+msgstr "Uus hallatav organisatsioon"
+
+msgid "Organization manager invitation"
+msgstr "Organisatsiooni halduri kutse"
+
+msgid "Organization name"
+msgstr "Organisatsiooni nimi"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "Organisatsioonil on nüüd oma sisselogimisandmed"
+
+msgid "Organization now uses manager accounts"
+msgstr "Organisatsioon kasutab nüüd haldurite kontosid"
+
+msgid "Remove manager"
+msgstr "Eemalda haldur"
+
+msgid "Send invitation"
+msgstr "Saada kutse"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "Organisatsioonil pole oma sisselogimist. Vali aktiivne inimene, kes haldab seda oma konto kaudu."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "See muudatus pole saadaval. Värskenda lehte ja kontrolli oma ligipääsu."
+
+msgid "This organization has no managers."
+msgstr "Sellel organisatsioonil pole haldureid."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "See inimene on viimane aktiivne haldur. Lisa teine haldur või luba organisatsioonil teadlikult haldurita jääda."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "See eemaldab kõik haldurid ja nende seansid. Määra uued sisselogimisandmed; vanad jäävad tühistatuks."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Liiga palju kutseid. Proovi hiljem uuesti."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Kasuta hallatava organisatsiooni loomiseks oma administraatori kontot."
+
+msgid "You can now act for the organization."
+msgstr "Saad nüüd organisatsiooni nimel tegutseda."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "Sind on kutsutud organisatsiooni %{organization} haldama. Loo kutse vastuvõtmiseks isiklik konto."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "Sind on kutsutud organisatsiooni {{organization_name}} haldama"
+
+msgid "invited you to manage their organization."
+msgstr "kutsus sind oma organisatsiooni haldama."
+
+msgid "You can now act for %{organization}."
+msgstr "Saad nüüd organisatsiooni %{organization} nimel tegutseda."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Sinu ligipääs organisatsiooni %{organization} nimel tegutsemiseks eemaldati."
+
+msgid "the organization"
+msgstr "organisatsioon"
+
+msgid "another user"
+msgstr "teine kasutaja"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Tere, {{user_email}}!\n\n{{organization_name}} kutsus sind halduriks. Haldurid tegutsevad organisatsiooni nimel oma konto kaudu.\n\nLogi sisse või loo isiklik konto ning võta kutse lehe ülaservas vastu.\n\n[Vaata halduri kutset]({{invitation_url}})\n\nKutse aegub 7 päeva pärast. Kui sa seda ei oodanud, võid kirja eirata.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"

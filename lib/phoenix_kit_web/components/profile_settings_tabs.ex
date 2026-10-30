@@ -56,13 +56,14 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
   # The `UserSettings` sections each tab renders, in page order.
   @sections %{
     "account" => [:identity, :custom_fields, :email, :start_page],
+    "managers" => [:managers],
     "security" => [:password, :oauth],
     "sessions" => [:sessions],
     "notifications" => [:notifications],
     "media" => [:etcher]
   }
 
-  @order ~w(account security sessions notifications integrations api-keys media)
+  @order ~w(account managers security sessions notifications integrations api-keys media)
 
   @hidden_key "user_settings_hidden_sections"
 
@@ -229,8 +230,17 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
     end
   end
 
+  defp visible?("managers", %Scope{user: %{managed_by_members: true, acting_user_uuid: person}}),
+    do: is_binary(person)
+
+  defp visible?("managers", _scope), do: false
+
   defp visible?("notifications", _scope),
     do: NotificationTypes.list() != [] and sections("notifications") != []
+
+  defp visible?(tab, %Scope{user: %{managed_by_members: true}})
+       when tab in ["security", "sessions"],
+       do: false
 
   defp visible?("integrations", scope),
     do: not is_nil(scope) and Scope.has_module_access?(scope, "integrations")
@@ -320,6 +330,7 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
 
   defp registered_by_id, do: Map.new(ProfileSettingsTab.all(), &{&1.id, &1})
 
+  defp core_label("managers"), do: gettext("Managers")
   defp core_label("account"), do: gettext("Account")
   defp core_label("security"), do: gettext("Security")
   defp core_label("sessions"), do: gettext("Sessions")
@@ -329,6 +340,7 @@ defmodule PhoenixKitWeb.Components.ProfileSettingsTabs do
   defp core_label("media"), do: gettext("Media")
   defp core_label(id), do: id
 
+  defp core_icon("managers"), do: "hero-user-group"
   defp core_icon("account"), do: "hero-user-circle"
   defp core_icon("security"), do: "hero-lock-closed"
   defp core_icon("sessions"), do: "hero-computer-desktop"

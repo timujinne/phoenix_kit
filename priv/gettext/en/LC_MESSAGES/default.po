@@ -21646,6 +21646,197 @@ msgid "%{count} item moved to trash"
 msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} item moved to trash"
 msgstr[1] "%{count} items moved to trash"
+#, elixir-autogen, elixir-format
+msgid "Back to my account"
+msgstr "Back to my account"
+
+#, elixir-autogen, elixir-format
+msgid "My account"
+msgstr "My account"
+
+#, elixir-autogen, elixir-format
+msgid "You are now acting as %{organization}."
+msgstr "You are now acting as %{organization}."
+
+#, elixir-autogen, elixir-format
+msgid "Too many organization switches. Please try again later."
+msgstr "Too many organization switches. Please try again later."
+
+#, elixir-autogen, elixir-format
+msgid "Could not enter that organization."
+msgstr "Could not enter that organization."
+
+#, elixir-autogen, elixir-format
+msgid "You are back in your own account."
+msgstr "You are back in your own account."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before adding another account."
+msgstr "Return to your own account before adding another account."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before signing in as another user."
+msgstr "Return to your own account before signing in as another user."
+
+#, elixir-autogen, elixir-format
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, from this browser"
+
+#, elixir-autogen, elixir-format
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · via %{person}"
+
+#, elixir-autogen, elixir-format
+msgid "Managed organization"
+msgstr "Managed organization"
+
+msgid "Add %{person}"
+msgstr "Add %{person}"
+
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+
+msgid "Allow managed organizations to have no active managers"
+msgstr "Allow managed organizations to have no active managers"
+
+msgid "Allow this organization to have no active managers"
+msgstr "Allow this organization to have no active managers"
+
+msgid "Check the email address and required fields."
+msgstr "Check the email address and required fields."
+
+msgid "Check the organization name, contact email and first manager."
+msgstr "Check the organization name, contact email and first manager."
+
+msgid "Choose a person"
+msgstr "Choose a person"
+
+msgid "Contact address updated"
+msgstr "Contact address updated"
+
+msgid "Contact email"
+msgstr "Contact email"
+
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+
+msgid "Convert to independent organization"
+msgstr "Convert to independent organization"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Convert with %{person} as first manager"
+
+msgid "Create managed organization"
+msgstr "Create managed organization"
+
+msgid "Find an active person"
+msgstr "Find an active person"
+
+msgid "Find the first manager"
+msgstr "Find the first manager"
+
+msgid "First manager"
+msgstr "First manager"
+
+msgid "Give this organization its own login"
+msgstr "Give this organization its own login"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "If this address can receive invitations, a manager invitation is available to its owner."
+
+msgid "Invite a manager by email"
+msgstr "Invite a manager by email"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Invites a person to manage an organization from their own account."
+
+msgid "Managed organization created"
+msgstr "Managed organization created"
+
+msgid "Manager added"
+msgstr "Manager added"
+
+msgid "Manager removed"
+msgstr "Manager removed"
+
+msgid "Managers"
+msgstr "Managers"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Managers use their own accounts to act for this organization."
+
+msgid "New login email"
+msgstr "New login email"
+
+msgid "New managed organization"
+msgstr "New managed organization"
+
+msgid "Organization manager invitation"
+msgstr "Organization manager invitation"
+
+msgid "Organization name"
+msgstr "Organization name"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "Organization now has its own sign-in credentials"
+
+msgid "Organization now uses manager accounts"
+msgstr "Organization now uses manager accounts"
+
+msgid "Remove manager"
+msgstr "Remove manager"
+
+msgid "Send invitation"
+msgstr "Send invitation"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "The organization has no login of its own. Choose an active person who will manage it using their own account."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "This change is not available. Refresh the page and check your access."
+
+msgid "This organization has no managers."
+msgstr "This organization has no managers."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Too many invitations. Please try again later."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Use your own administrator account to create a managed organization."
+
+msgid "You can now act for the organization."
+msgstr "You can now act for the organization."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "You've been invited to manage {{organization_name}}"
+
+msgid "invited you to manage their organization."
+msgstr "invited you to manage their organization."
+
+msgid "You can now act for %{organization}."
+msgstr "You can now act for %{organization}."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Your access to act for %{organization} was removed."
+
+msgid "the organization"
+msgstr "the organization"
+
+msgid "another user"
+msgstr "another user"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"

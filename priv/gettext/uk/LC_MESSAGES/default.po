@@ -21717,6 +21717,197 @@ msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} об’єкт переміщено в кошик"
 msgstr[1] "%{count} об’єкти переміщено в кошик"
 msgstr[2] "%{count} об’єктів переміщено в кошик"
+#, elixir-autogen, elixir-format
+msgid "Back to my account"
+msgstr "Повернутися до мого облікового запису"
+
+#, elixir-autogen, elixir-format
+msgid "My account"
+msgstr "Мій обліковий запис"
+
+#, elixir-autogen, elixir-format
+msgid "You are now acting as %{organization}."
+msgstr "Тепер ви дієте від імені %{organization}."
+
+#, elixir-autogen, elixir-format
+msgid "Too many organization switches. Please try again later."
+msgstr "Забагато перемикань організацій. Спробуйте пізніше."
+
+#, elixir-autogen, elixir-format
+msgid "Could not enter that organization."
+msgstr "Не вдалося увійти до цієї організації."
+
+#, elixir-autogen, elixir-format
+msgid "You are back in your own account."
+msgstr "Ви повернулися до свого облікового запису."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before adding another account."
+msgstr "Поверніться до свого облікового запису, перш ніж додавати інший."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before signing in as another user."
+msgstr "Поверніться до свого облікового запису, перш ніж входити від імені іншого користувача."
+
+#, elixir-autogen, elixir-format
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, із цього браузера"
+
+#, elixir-autogen, elixir-format
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · через %{person}"
+
+#, elixir-autogen, elixir-format
+msgid "Managed organization"
+msgstr "Керована організація"
+
+msgid "Add %{person}"
+msgstr "Додати %{person}"
+
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Спочатку додайте іншого активного керівника або як адміністратор явно залиште організацію без керівників."
+
+msgid "Allow managed organizations to have no active managers"
+msgstr "Дозволити організаціям залишитися без активних керівників"
+
+msgid "Allow this organization to have no active managers"
+msgstr "Дозволити цій організації залишитися без активних керівників"
+
+msgid "Check the email address and required fields."
+msgstr "Перевірте адресу пошти й обов’язкові поля."
+
+msgid "Check the organization name, contact email and first manager."
+msgstr "Перевірте назву організації, контактну пошту й першого керівника."
+
+msgid "Choose a person"
+msgstr "Виберіть людину"
+
+msgid "Contact address updated"
+msgstr "Контактну адресу оновлено"
+
+msgid "Contact email"
+msgstr "Контактна пошта"
+
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Переведіть організацію на облікові записи керівників. Попередні дані входу та сеанси буде відкликано."
+
+msgid "Convert to independent organization"
+msgstr "Зробити організацію самостійною"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Перетворити: перший керівник — %{person}"
+
+msgid "Create managed organization"
+msgstr "Створити керовану організацію"
+
+msgid "Find an active person"
+msgstr "Знайти активного користувача"
+
+msgid "Find the first manager"
+msgstr "Знайти першого керівника"
+
+msgid "First manager"
+msgstr "Перший керівник"
+
+msgid "Give this organization its own login"
+msgstr "Надати організації власний вхід"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "Якщо ця адреса може отримувати запрошення, її власнику доступне запрошення керівника."
+
+msgid "Invite a manager by email"
+msgstr "Запросити керівника поштою"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Запрошує людину керувати організацією зі свого облікового запису."
+
+msgid "Managed organization created"
+msgstr "Керовану організацію створено"
+
+msgid "Manager added"
+msgstr "Керівника додано"
+
+msgid "Manager removed"
+msgstr "Керівника видалено"
+
+msgid "Managers"
+msgstr "Керівники"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Керівники діють від імені організації зі своїх облікових записів."
+
+msgid "New login email"
+msgstr "Нова пошта для входу"
+
+msgid "New managed organization"
+msgstr "Нова керована організація"
+
+msgid "Organization manager invitation"
+msgstr "Запрошення керівника організації"
+
+msgid "Organization name"
+msgstr "Назва організації"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "Організація тепер має власні дані входу"
+
+msgid "Organization now uses manager accounts"
+msgstr "Організація тепер використовує облікові записи керівників"
+
+msgid "Remove manager"
+msgstr "Видалити керівника"
+
+msgid "Send invitation"
+msgstr "Надіслати запрошення"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "Організація не має власного входу. Виберіть активну людину, яка керуватиме нею зі свого облікового запису."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "Зміна недоступна. Оновіть сторінку й перевірте доступ."
+
+msgid "This organization has no managers."
+msgstr "Ця організація не має керівників."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "Це останній активний керівник. Додайте іншого або явно дозвольте організації залишитися без керівників."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "Усіх керівників і їхні сеанси буде видалено. Задайте нові дані входу; старі залишаться відкликаними."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Забагато запрошень. Спробуйте пізніше."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Для створення керованої організації увійдіть у свій обліковий запис адміністратора."
+
+msgid "You can now act for the organization."
+msgstr "Тепер ви можете діяти від імені організації."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "Вас запросили керувати %{organization}. Створіть особистий обліковий запис, щоб прийняти запрошення."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "Вас запросили керувати {{organization_name}}"
+
+msgid "invited you to manage their organization."
+msgstr "запрошує вас керувати своєю організацією."
+
+msgid "You can now act for %{organization}."
+msgstr "Тепер ви можете діяти від імені %{organization}."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Ваш доступ до дій від імені %{organization} відкликано."
+
+msgid "the organization"
+msgstr "організація"
+
+msgid "another user"
+msgstr "інший користувач"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Вітаємо, {{user_email}}!\n\n{{organization_name}} запрошує вас стати керівником. Керівники діють від імені організації зі свого облікового запису.\n\nУвійдіть або створіть особистий обліковий запис, а потім прийміть запрошення в банері.\n\n[Переглянути запрошення керівника]({{invitation_url}})\n\nЗапрошення діє 7 днів. Якщо ви його не очікували, можете проігнорувати цей лист.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"

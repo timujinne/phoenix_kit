@@ -21723,6 +21723,197 @@ msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} element przeniesiony do kosza"
 msgstr[1] "%{count} elementy przeniesione do kosza"
 msgstr[2] "%{count} elementów przeniesionych do kosza"
+#, elixir-autogen, elixir-format
+msgid "Back to my account"
+msgstr "Powrót do mojego konta"
+
+#, elixir-autogen, elixir-format
+msgid "My account"
+msgstr "Moje konto"
+
+#, elixir-autogen, elixir-format
+msgid "You are now acting as %{organization}."
+msgstr "Działasz teraz jako %{organization}."
+
+#, elixir-autogen, elixir-format
+msgid "Too many organization switches. Please try again later."
+msgstr "Zbyt wiele zmian organizacji. Spróbuj ponownie później."
+
+#, elixir-autogen, elixir-format
+msgid "Could not enter that organization."
+msgstr "Nie udało się wejść do tej organizacji."
+
+#, elixir-autogen, elixir-format
+msgid "You are back in your own account."
+msgstr "Wrócono do Twojego własnego konta."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before adding another account."
+msgstr "Wróć do własnego konta przed dodaniem kolejnego konta."
+
+#, elixir-autogen, elixir-format
+msgid "Return to your own account before signing in as another user."
+msgstr "Wróć do własnego konta przed zalogowaniem jako inny użytkownik."
+
+#, elixir-autogen, elixir-format
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, z tej przeglądarki"
+
+#, elixir-autogen, elixir-format
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · za pośrednictwem %{person}"
+
+#, elixir-autogen, elixir-format
+msgid "Managed organization"
+msgstr "Zarządzana organizacja"
+
+msgid "Add %{person}"
+msgstr "Dodaj %{person}"
+
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Najpierw dodaj innego aktywnego zarządcę lub jako administrator jawnie pozostaw organizację bez zarządców."
+
+msgid "Allow managed organizations to have no active managers"
+msgstr "Zezwól organizacjom na brak aktywnych zarządców"
+
+msgid "Allow this organization to have no active managers"
+msgstr "Zezwól tej organizacji na brak aktywnych zarządców"
+
+msgid "Check the email address and required fields."
+msgstr "Sprawdź adres e-mail i wymagane pola."
+
+msgid "Check the organization name, contact email and first manager."
+msgstr "Sprawdź nazwę organizacji, e-mail kontaktowy i pierwszego zarządcę."
+
+msgid "Choose a person"
+msgstr "Wybierz osobę"
+
+msgid "Contact address updated"
+msgstr "Zaktualizowano adres kontaktowy"
+
+msgid "Contact email"
+msgstr "E-mail kontaktowy"
+
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Przełącz organizację na konta zarządców. Dotychczasowe dane logowania i sesje zostaną unieważnione."
+
+msgid "Convert to independent organization"
+msgstr "Przekształć w niezależną organizację"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Przekształć z %{person} jako pierwszym zarządcą"
+
+msgid "Create managed organization"
+msgstr "Utwórz zarządzaną organizację"
+
+msgid "Find an active person"
+msgstr "Znajdź aktywną osobę"
+
+msgid "Find the first manager"
+msgstr "Znajdź pierwszego zarządcę"
+
+msgid "First manager"
+msgstr "Pierwszy zarządca"
+
+msgid "Give this organization its own login"
+msgstr "Nadaj organizacji własne dane logowania"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "Jeśli ten adres może otrzymywać zaproszenia, jego właściciel ma dostęp do zaproszenia dla zarządcy."
+
+msgid "Invite a manager by email"
+msgstr "Zaproś zarządcę przez e-mail"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Zaprasza osobę do zarządzania organizacją z własnego konta."
+
+msgid "Managed organization created"
+msgstr "Utworzono zarządzaną organizację"
+
+msgid "Manager added"
+msgstr "Dodano zarządcę"
+
+msgid "Manager removed"
+msgstr "Usunięto zarządcę"
+
+msgid "Managers"
+msgstr "Zarządcy"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Zarządcy działają w imieniu organizacji z własnych kont."
+
+msgid "New login email"
+msgstr "Nowy e-mail logowania"
+
+msgid "New managed organization"
+msgstr "Nowa zarządzana organizacja"
+
+msgid "Organization manager invitation"
+msgstr "Zaproszenie dla zarządcy organizacji"
+
+msgid "Organization name"
+msgstr "Nazwa organizacji"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "Organizacja ma teraz własne dane logowania"
+
+msgid "Organization now uses manager accounts"
+msgstr "Organizacja korzysta teraz z kont zarządców"
+
+msgid "Remove manager"
+msgstr "Usuń zarządcę"
+
+msgid "Send invitation"
+msgstr "Wyślij zaproszenie"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "Organizacja nie ma własnego logowania. Wybierz aktywną osobę, która będzie zarządzać nią z własnego konta."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "Ta zmiana jest niedostępna. Odśwież stronę i sprawdź uprawnienia."
+
+msgid "This organization has no managers."
+msgstr "Ta organizacja nie ma zarządców."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "Ta osoba jest ostatnim aktywnym zarządcą. Dodaj innego lub jawnie zezwól na brak zarządców."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "Usunie wszystkich zarządców i ich sesje. Ustaw nowe dane logowania; stare pozostaną unieważnione."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Zbyt wiele zaproszeń. Spróbuj ponownie później."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Użyj własnego konta administratora, aby utworzyć zarządzaną organizację."
+
+msgid "You can now act for the organization."
+msgstr "Możesz teraz działać w imieniu organizacji."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "Zaproszono Cię do zarządzania %{organization}. Utwórz konto osobiste, aby przyjąć zaproszenie."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "Zaproszenie do zarządzania {{organization_name}}"
+
+msgid "invited you to manage their organization."
+msgstr "zaprasza Cię do zarządzania organizacją."
+
+msgid "You can now act for %{organization}."
+msgstr "Możesz teraz działać w imieniu %{organization}."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Odebrano Ci dostęp do działania w imieniu %{organization}."
+
+msgid "the organization"
+msgstr "organizacja"
+
+msgid "another user"
+msgstr "inny użytkownik"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Witaj {{user_email}},\n\n{{organization_name}} zaprasza Cię do roli zarządcy. Zarządcy działają w imieniu organizacji z własnego konta.\n\nZaloguj się lub utwórz konto osobiste, a następnie przyjmij zaproszenie w banerze.\n\n[Zobacz zaproszenie dla zarządcy]({{invitation_url}})\n\nZaproszenie wygaśnie za 7 dni. Jeśli go nie oczekiwano, możesz zignorować tę wiadomość.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"
