@@ -311,6 +311,7 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
           <li :if={:logout in @authenticated_links}>
             <.link
               navigate={Routes.path("/users/log-out")}
+              data-pk-logout={PhoenixKitWeb.ResumableUploads.logout_user(assigns)}
               method="delete"
               class="flex items-center gap-3 text-error hover:bg-error hover:text-error-content"
             >
@@ -323,6 +324,7 @@ defmodule PhoenixKitWeb.Components.UserDashboardNav do
           }>
             <.link
               navigate={Routes.path("/users/log-out") <> "?all=1"}
+              data-pk-logout={PhoenixKitWeb.ResumableUploads.logout_user(assigns)}
               method="delete"
               class="flex items-center gap-3 text-error hover:bg-error hover:text-error-content"
             >

@@ -27,7 +27,7 @@ const src = fs.readFileSync(
   path.join(__dirname, "..", "..", "priv", "static", "assets", "phoenix_kit.js"), "utf8");
 
 const start = src.indexOf("  var HIRES_SHOW_DELAY_MS");
-const end = src.indexOf("// UploadResume — keep picked files until the server has them");
+const end = src.indexOf("// ResumableUpload — keep picked files until the host has them");
 assert.ok(start !== -1 && end > start, "could not find the ViewerHiresLoading section");
 
 function load() {

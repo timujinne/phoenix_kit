@@ -21646,3 +21646,289 @@ msgid "%{count} item moved to trash"
 msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} elemento spostato nel cestino"
 msgstr[1] "%{count} elementi spostati nel cestino"
+#: lib/phoenix_kit/users/permissions.ex
+#, elixir-autogen, elixir-format
+msgid "Personal API keys"
+msgstr "Chiavi API personali"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "The API is switched off by an administrator."
+msgstr "L'API è disattivata da un amministratore."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Keys cannot be changed while you act in another account."
+msgstr "Le chiavi non possono essere modificate mentre agisci in un altro account."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "This key is already being replaced."
+msgstr "Questa chiave è già in fase di sostituzione."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Your account cannot own keys right now."
+msgstr "Il tuo account non può possedere chiavi in questo momento."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Some of the chosen scopes are not available to you."
+msgstr "Alcuni degli ambiti scelti non sono disponibili per te."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "You already have the largest number of keys allowed. Revoke one first."
+msgstr "Hai già il numero massimo di chiavi consentito. Revocane prima una."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "The expiry date is required."
+msgstr "La data di scadenza è obbligatoria."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "The scopes of this key can only be narrowed."
+msgstr "Gli ambiti di questa chiave possono solo essere ridotti."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Expires soon"
+msgstr "In scadenza"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Being replaced"
+msgstr "In sostituzione"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "No permission"
+msgstr "Nessun permesso"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "This section was added without the session's context, so it cannot show your keys."
+msgstr "Questa sezione è stata aggiunta senza il contesto della sessione, quindi non può mostrare le tue chiavi."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "You do not have access to API keys."
+msgstr "Non hai accesso alle chiavi API."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "You are acting in another account, so your keys are shown but cannot be changed here. Sign in as yourself to create, rotate or revoke them."
+msgstr "Stai agendo in un altro account: le tue chiavi sono mostrate ma non possono essere modificate qui. Accedi come te stesso per crearle, ruotarle o revocarle."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "The API is switched off by an administrator. Your keys do not work now; you can still revoke them or change their scopes, but not create or rotate them."
+msgstr "L'API è disattivata da un amministratore. Le tue chiavi ora non funzionano; puoi ancora revocarle o modificarne gli ambiti, ma non crearle né ruotarle."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "My API keys"
+msgstr "Le mie chiavi API"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "A key acts with your rights, never with more. If you lose a right, the key loses it at once."
+msgstr "Una chiave agisce con i tuoi diritti, mai con di più. Se perdi un diritto, la chiave lo perde subito."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} of %{max} keys"
+msgstr "%{count} chiavi su %{max}"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Expires on"
+msgstr "Scade il"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "You have no API keys yet"
+msgstr "Non hai ancora chiavi API"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "How to connect"
+msgstr "Come connettersi"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Send the key in the Authorization header of every request:"
+msgstr "Invia la chiave nell'intestazione Authorization di ogni richiesta:"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "REST address:"
+msgstr "Indirizzo REST:"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "MCP address (for AI agents):"
+msgstr "Indirizzo MCP (per gli agenti IA):"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "The key acts only with your rights; do not give it to other people."
+msgstr "La chiave agisce solo con i tuoi diritti; non darla ad altre persone."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Your other keys are on"
+msgstr "Le tue altre chiavi sono in"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Settings → API"
+msgstr "Impostazioni → API"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "No scopes are available to you, so a key could only read its own identity. Ask an administrator for more rights."
+msgstr "Non hai ambiti disponibili, quindi una chiave potrebbe solo leggere la propria identità. Chiedi più diritti a un amministratore."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "These scopes are inactive because you can no longer use them or their module's API is switched off. They stay on the key when you save."
+msgstr "Questi ambiti sono inattivi perché non puoi più usarli o l'API del loro modulo è disattivata. Restano sulla chiave al salvataggio."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "A new key is created with the same scopes and limits and a new expiry date. The old key keeps working for the grace period, then stops."
+msgstr "Viene creata una nuova chiave con gli stessi ambiti e limiti e una nuova data di scadenza. La vecchia chiave continua a funzionare per il periodo di tolleranza, poi si ferma."
+
+#: lib/phoenix_kit_web/live/users/my_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "You don't have access to API keys."
+msgstr "Non hai accesso alle chiavi API."
+
+#: lib/phoenix_kit_web/live/users/my_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Keys that let programs and AI agents act with your rights"
+msgstr "Chiavi che permettono a programmi e agenti IA di agire con i tuoi diritti"
+
+#: lib/phoenix_kit_web/live/settings/api.ex
+#, elixir-autogen, elixir-format
+msgid "Personal keys cannot be rotated while you act in another account."
+msgstr "Le chiavi personali non possono essere ruotate mentre agisci in un altro account."
+
+#: lib/phoenix_kit_web/live/settings/api.ex
+#, elixir-autogen, elixir-format
+msgid "You can only remove scopes from a personal key, not add any."
+msgstr "Da una chiave personale puoi solo rimuovere ambiti, non aggiungerne."
+
+#: lib/phoenix_kit_web/live/settings/api.ex
+#, elixir-autogen, elixir-format
+msgid "This session cannot tell whether you act in another account."
+msgstr "Questa sessione non può stabilire se agisci in un altro account."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#: lib/phoenix_kit_web/live/settings/api.ex
+#, elixir-autogen, elixir-format
+msgid "You already have the largest number of keys allowed, so the old key cannot keep working next to the new one. Rotate with a grace period of 0, or revoke a key first."
+msgstr "Hai già il numero massimo di chiavi consentito, quindi la vecchia chiave non può continuare a funzionare accanto alla nuova. Ruota con un periodo di tolleranza di 0 oppure revoca prima una chiave."
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "You already have the largest number of keys allowed, so the old key cannot keep working next to the new one: the grace period starts at 0 and the old key stops at once. Revoke another key first if you need a longer overlap."
+msgstr "Hai già il numero massimo di chiavi consentito, quindi la vecchia chiave non può continuare a funzionare accanto alla nuova: il periodo di tolleranza parte da 0 e la vecchia chiave si ferma subito. Revoca prima un'altra chiave se ti serve una sovrapposizione più lunga."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Expires on %{date}"
+msgstr "Scade il %{date}"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Remove scopes"
+msgstr "Rimuovi ambiti"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Remove scopes from this key"
+msgstr "Rimuovi ambiti da questa chiave"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "This is a personal key of another person. You can take scopes off it, but not add any. Untick what it should lose."
+msgstr "Questa è la chiave personale di un'altra persona. Puoi togliere ambiti, ma non aggiungerne. Deseleziona ciò che deve perdere."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Remove the unticked scopes"
+msgstr "Rimuovi gli ambiti deselezionati"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "A person makes these keys for themselves on My API keys. The “Personal API keys” permission is given to roles (Users, Roles, or the permissions matrix); an Admin does not get it by itself."
+msgstr "Ognuno crea queste chiavi per sé in «Le mie chiavi API». Il permesso “Chiavi API personali” si assegna ai ruoli (Utenti, Ruoli o la matrice dei permessi); un Admin non lo riceve automaticamente."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Longest lifetime of a personal key, in days (1 to 365)"
+msgstr "Durata massima di una chiave personale, in giorni (da 1 a 365)"
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Personal keys one person may have (1 to 50)"
+msgstr "Chiavi personali per persona (da 1 a 50)"
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
+#, elixir-autogen, elixir-format
+msgid "Personal keys"
+msgstr "Chiavi personali"
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
+#, elixir-autogen, elixir-format
+msgid "A personal key is a person's key for themselves: it acts with that person's own rights, always has an expiry, and never needs approval."
+msgstr "Una chiave personale è la chiave di una persona per sé stessa: agisce con i diritti di quella persona, ha sempre una scadenza e non richiede mai approvazione."
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
+#, elixir-autogen, elixir-format
+msgid "To allow it, give a role the “Personal API keys” permission (Users, Roles, or the permissions matrix). An Admin does not get it by itself. The person makes the keys at %{path}."
+msgstr "Per consentirlo, assegna a un ruolo il permesso “Chiavi API personali” (Utenti, Ruoli o la matrice dei permessi). Un Admin non lo riceve automaticamente. La persona crea le chiavi in %{path}."
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
+#, elixir-autogen, elixir-format
+msgid "The Owner sees personal keys in the keys list. The Owner can revoke one or remove scopes from it, but cannot rotate it or add scopes."
+msgstr "L'Owner vede le chiavi personali nell'elenco delle chiavi. Può revocarne una o togliere ambiti, ma non ruotarla né aggiungere ambiti."
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
+#, elixir-autogen, elixir-format
+msgid "Someone who signs in as a person directly, not as a second account in the same session, with that person's own password, for example after an administrator reset it, can make a key as that person."
+msgstr "Chi accede direttamente come una persona, non come secondo account nella stessa sessione, con la password propria di quella persona, per esempio dopo un ripristino da parte di un amministratore, può creare una chiave a nome di quella persona."
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex
+#, elixir-autogen, elixir-format
+msgid "A person never has more live personal keys than the limit set under “Switches and modules”, a key in the grace period of a rotation included. At the limit, a key can only be rotated with a grace period of 0, which stops the old key at once."
+msgstr "Una persona non ha mai più chiavi personali attive del limite impostato in «Interruttori e moduli», compresa una chiave nel periodo di tolleranza di una rotazione. Al limite, una chiave può essere ruotata solo con un periodo di tolleranza di 0, che ferma subito la vecchia chiave."
+
+#: lib/phoenix_kit_web/live/settings/api.html.heex
+#, elixir-autogen, elixir-format
+msgid "Personal key"
+msgstr "Chiave personale"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Keys: %{count} of %{max}"
+msgstr "Chiavi: %{count} su %{max}"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "Your other keys are on Settings → API"
+msgstr "Le tue altre chiavi sono in Impostazioni → API"
+
+#: lib/phoenix_kit_web/components/personal_key_display.ex
+#, elixir-autogen, elixir-format
+msgid "Owner inactive"
+msgstr "Proprietario inattivo"
+
+#: lib/phoenix_kit_web/live/components/personal_api_keys.ex
+#, elixir-autogen, elixir-format
+msgid "The expiry date can be %{date} at the latest."
+msgstr "La data di scadenza può essere al più tardi il %{date}."

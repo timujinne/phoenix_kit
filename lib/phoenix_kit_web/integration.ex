@@ -814,6 +814,10 @@ defmodule PhoenixKitWeb.Integration do
       live "/profile/settings/integrations/new", Live.Integrations.MyIntegrationForm, :new
       live "/profile/settings/integrations/:uuid", Live.Integrations.MyIntegrationForm, :edit
 
+      # The person's own API keys (the opt-in "api_personal_keys" permission, or "api"),
+      # checked in the LiveView's own mount/3. Before `:tab`, like integrations.
+      live "/profile/settings/api-keys", Live.Users.MyApiKeys, :index
+
       # Registered tabs with a page of their own (`PhoenixKit.ProfileSettingsTab`,
       # host config and module `profile_settings_tabs/0`). Full module names,
       # and before `:tab`, which would otherwise take them.

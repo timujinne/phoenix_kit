@@ -45,6 +45,7 @@
         on_navigate={:navigate}
         initial_params={@initial_params}
         parent_uploads={@uploads}
+        resumable_uploads={@resumable_uploads}
       />
     </div>
   <% else %>
@@ -75,6 +76,7 @@
               <.icon name="hero-rectangle-stack" class="w-5 h-5 text-primary shrink-0" />
               <span class="font-semibold truncate">{library.name}</span>
             </div>
+            <p class="font-mono text-xs text-base-content/60">{library.slug}</p>
             <div class="flex flex-wrap gap-1">
               <span class="badge badge-ghost badge-sm">{role_label(role)}</span>
               <span

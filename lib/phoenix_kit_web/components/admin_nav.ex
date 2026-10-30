@@ -462,6 +462,7 @@ defmodule PhoenixKitWeb.Components.AdminNav do
           <li>
             <.link
               href={Routes.locale_aware_path(assigns, "/users/log-out")}
+              data-pk-logout={PhoenixKitWeb.ResumableUploads.logout_user(assigns)}
               method="delete"
               class="flex items-center gap-3 text-error hover:bg-error hover:text-error-content"
             >
@@ -473,6 +474,7 @@ defmodule PhoenixKitWeb.Components.AdminNav do
             <li>
               <.link
                 href={Routes.locale_aware_path(assigns, "/users/log-out") <> "?all=1"}
+                data-pk-logout={PhoenixKitWeb.ResumableUploads.logout_user(assigns)}
                 method="delete"
                 class="flex items-center gap-3 text-error hover:bg-error hover:text-error-content"
               >
@@ -576,6 +578,7 @@ defmodule PhoenixKitWeb.Components.AdminNav do
 
           <.link
             href={Routes.locale_aware_path(assigns, "/users/log-out")}
+            data-pk-logout={PhoenixKitWeb.ResumableUploads.logout_user(assigns)}
             method="delete"
             class="btn btn-ghost btn-xs flex-1 text-error hover:bg-error hover:text-error-content"
           >

@@ -902,6 +902,31 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerTest do
       end
     end
 
+    test "while the page has set a lost transfer to continue by itself" do
+      resumable = %{media_picker_files: %{ask: [], pending: true}}
+
+      {:ok, socket} =
+        MediaBrowser.update(
+          %{parent_uploads: uploads([]), resumable_uploads: resumable},
+          picker_socket(%{upload_name: :media_picker_files})
+        )
+
+      assert socket.assigns.picker_uploading
+      assert_received {MediaBrowser, "p", {:picker_uploading, true}}
+    end
+
+    test "a pending resume of the other upload does not hold the picker" do
+      resumable = %{media_files: %{ask: [], pending: true}}
+
+      {:ok, socket} =
+        MediaBrowser.update(
+          %{parent_uploads: uploads([]), resumable_uploads: resumable},
+          picker_socket(%{upload_name: :media_picker_files})
+        )
+
+      refute socket.assigns.picker_uploading
+    end
+
     test "a browser that is not a picker reports nothing" do
       {:ok, _socket} =
         MediaBrowser.update(
@@ -1003,6 +1028,18 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerTest do
 
       assert [%{original_file_name: "hall.png", folder_uuid: folder}] = stored(ctx.user)
       assert folder == ctx.scope.uuid
+    end
+
+    test "the picker's own upload is resumable and watched by its own hook",
+         %{conn: conn} = ctx do
+      view = open(conn, ctx, %{"browsers" => ["files", "pick"]})
+
+      assert has_element?(
+               view,
+               ~s([phx-hook="ResumableUpload"][data-upload="media_picker_files"])
+             )
+
+      assert has_element?(view, ~s([phx-hook="ResumableUpload"][data-upload="media_files"]))
     end
 
     test "an upload in the picker is not copied into the other browser", %{conn: conn} = ctx do

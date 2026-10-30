@@ -95,9 +95,11 @@ defmodule PhoenixKit.Modules.Storage do
   import Ecto.Query, warn: false
   require Logger
 
+  alias PhoenixKit.Integrations.ConnectionLock
   alias PhoenixKit.Integrations.Probe
   alias PhoenixKit.Migrations.ModuleOwnedTables
   alias PhoenixKit.ModuleRegistry
+  alias PhoenixKit.Modules.Storage.ProfileBucket
   alias PhoenixKit.Utils.Date, as: UtilsDate
 
   alias PhoenixKit.Modules.Storage.Audit
@@ -403,9 +405,8 @@ defmodule PhoenixKit.Modules.Storage do
   @doc """
   How many buckets use each Integrations connection, as `%{connection_uuid => count}`.
 
-  Removing a connection does not check who uses it (a missing one fails loudly
-  at the next use), so the Integrations pages read this to say so before it
-  happens.
+  Includes disabled buckets. Connections referenced by these buckets are
+  protected from removal and disconnection.
   """
   @spec bucket_counts_by_connection() :: %{String.t() => pos_integer()}
   def bucket_counts_by_connection do
@@ -415,6 +416,48 @@ defmodule PhoenixKit.Modules.Storage do
     |> select([b], {b.integration_uuid, count(b.uuid)})
     |> repo().all()
     |> Map.new()
+  end
+
+  @doc "Storage dependencies of a connection, including disabled and trashed storage."
+  def integration_usage(uuid), do: Map.get(integration_usage_for([uuid]), uuid, [])
+
+  @doc false
+  def integration_usage_for([]), do: %{}
+
+  def integration_usage_for(uuids) do
+    default = Profiles.default_uuid()
+
+    from(b in Bucket,
+      left_join: pb in ProfileBucket,
+      on: pb.bucket_uuid == b.uuid,
+      left_join: l in Library,
+      on:
+        l.storage_profile_uuid == pb.profile_uuid or
+          (is_nil(l.storage_profile_uuid) and pb.profile_uuid == ^default),
+      where: b.integration_uuid in ^uuids,
+      order_by: [asc: b.name],
+      select:
+        {b.integration_uuid,
+         %{
+           bucket: b.bucket_name,
+           bucket_label: b.name,
+           role: pb.role,
+           library:
+             fragment(
+               "CASE WHEN ? = 'user' AND ? IS NULL THEN NULL ELSE ? END",
+               l.kind,
+               b.owner_uuid,
+               l.name
+             ),
+           private_library:
+             fragment("COALESCE(? = 'user' AND ? IS NULL, false)", l.kind, b.owner_uuid),
+           trashed: not is_nil(l.trashed_at),
+           enabled: b.enabled
+         }},
+      distinct: true
+    )
+    |> repo().all()
+    |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 
   @doc """
@@ -463,7 +506,14 @@ defmodule PhoenixKit.Modules.Storage do
 
   """
   def create_bucket(attrs \\ %{}, opts \\ []) do
-    Audit.transaction(fn -> do_create_bucket(attrs, opts) end)
+    Audit.transaction(fn ->
+      ConnectionLock.run(
+        attrs[:integration_uuid] || attrs["integration_uuid"],
+        fn ->
+          do_create_bucket(attrs, opts)
+        end
+      )
+    end)
   end
 
   defp do_create_bucket(attrs, opts) do
@@ -476,7 +526,11 @@ defmodule PhoenixKit.Modules.Storage do
       # `log: false` on every bucket write: the row carries `access_key_id` and
       # the `enc:v1:` ciphertext of `secret_access_key`, which Ecto's SQL debug
       # logger would otherwise print as bound parameters.
-      with {:ok, bucket} <- %Bucket{} |> Bucket.changeset(attrs) |> repo().insert(log: false),
+      with {:ok, bucket} <-
+             %Bucket{}
+             |> Bucket.changeset(attrs)
+             |> validate_bucket_connection()
+             |> repo().insert(log: false),
            :ok <- place_new_bucket(bucket, profile, opts) do
         bucket
       else
@@ -539,22 +593,33 @@ defmodule PhoenixKit.Modules.Storage do
   """
   @spec create_owned_bucket(String.t(), map()) :: {:ok, Bucket.t()} | {:error, Ecto.Changeset.t()}
   def create_owned_bucket(owner_uuid, attrs) when is_binary(owner_uuid) do
-    %Bucket{}
-    |> Bucket.owned_changeset(attrs, owner_uuid,
-      connection_owned?: &owns_connection?(owner_uuid, &1)
+    ConnectionLock.run(
+      attrs[:integration_uuid] || attrs["integration_uuid"],
+      fn ->
+        %Bucket{}
+        |> Bucket.owned_changeset(attrs, owner_uuid,
+          connection_owned?: &owns_connection?(owner_uuid, &1)
+        )
+        |> repo().insert(log: false)
+        |> tap(&bucket_changed/1)
+      end
     )
-    |> repo().insert(log: false)
-    |> tap(&bucket_changed/1)
   end
 
   # Whether `owner_uuid` owns the Object Storage connection `uuid`: the lookup
   # is owner-scoped, so another user's (or a site) connection is "not found".
   @doc false
-  def owns_connection?(owner_uuid, uuid) do
-    match?(
-      {:ok, %{provider: "object_storage"}},
-      PhoenixKit.Integrations.get_integration_by_uuid(uuid, {:user, owner_uuid})
-    )
+  def owns_connection?(owner_uuid, uuid),
+    do: usable_storage_connection?(uuid, {:user, owner_uuid})
+
+  defp usable_storage_connection?(uuid, owner) do
+    case PhoenixKit.Integrations.get_integration_by_uuid(uuid, owner) do
+      {:ok, %{provider: "object_storage", data: data}} ->
+        Enum.all?(~w(access_key secret_key), &(is_binary(data[&1]) and data[&1] != ""))
+
+      _ ->
+        false
+    end
   end
 
   @doc """
@@ -585,11 +650,31 @@ defmodule PhoenixKit.Modules.Storage do
   end
 
   defp do_update_bucket(bucket, attrs, opts) do
-    changeset = bucket_update_changeset(bucket, attrs)
+    uuid = attrs[:integration_uuid] || attrs["integration_uuid"] || bucket.integration_uuid
 
-    with :ok <- refuse_disable_while_in_profiles(bucket, changeset) do
-      update_bucket_row(changeset, opts)
-    end
+    ConnectionLock.run(uuid, fn ->
+      changeset = bucket_update_changeset(bucket, attrs) |> validate_bucket_connection()
+
+      with :ok <- refuse_disable_while_in_profiles(bucket, changeset) do
+        update_bucket_row(changeset, opts)
+      end
+    end)
+  end
+
+  defp validate_bucket_connection(changeset) do
+    uuid = Ecto.Changeset.get_field(changeset, :integration_uuid)
+    owner = Ecto.Changeset.get_field(changeset, :owner_uuid)
+    scope = if owner, do: {:user, owner}, else: :system
+
+    if (changeset.valid? and uuid) &&
+         not usable_storage_connection?(uuid, scope),
+       do:
+         Ecto.Changeset.add_error(
+           changeset,
+           :integration_uuid,
+           "must be an existing object storage connection owned by the bucket owner"
+         ),
+       else: changeset
   end
 
   # A disabled bucket is neither written nor read, whatever its profiles say,
@@ -5573,7 +5658,7 @@ defmodule PhoenixKit.Modules.Storage do
 
       prefix ->
         from(l in Library,
-          join: pb in PhoenixKit.Modules.Storage.ProfileBucket,
+          join: pb in ProfileBucket,
           on: pb.profile_uuid == l.storage_profile_uuid,
           join: b in Bucket,
           on: b.uuid == pb.bucket_uuid,
