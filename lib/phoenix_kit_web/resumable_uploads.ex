@@ -101,7 +101,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
   alias Phoenix.LiveView.UploadEntry
   alias PhoenixKit.Users.Auth.Scope
 
-  @events ~w(pk_upload_pick pk_upload_resume pk_upload_resume_click pk_upload_discard)
+  @events ~w(pk_upload_pick pk_upload_resume pk_upload_resume_click pk_upload_discard pk_upload_debug)
   @max_string 512
   @max_keys 200
   @max_seqs 20
@@ -423,6 +423,19 @@ defmodule PhoenixKitWeb.ResumableUploads do
     items = items(params, socket, name)
     {socket, dropped} = store_contexts(socket, name, items)
     {if(dropped > 0, do: %{dropped: dropped}, else: %{}), socket}
+  end
+
+  # The hook's trace of what it saw (counts only), for reading the order of
+  # events on a device that has no console.
+  defp handle("pk_upload_debug", name, params, socket) do
+    phase = if params["phase"] in ~w(pick stashed scan), do: params["phase"], else: "?"
+    n = if is_integer(params["n"]), do: params["n"], else: -1
+
+    Logger.info(
+      "ResumableUploads: #{name} #{phase} n=#{n} connected=#{params["connected"] == true}"
+    )
+
+    {%{}, socket}
   end
 
   defp handle("pk_upload_resume", name, params, socket) do

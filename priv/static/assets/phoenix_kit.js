@@ -10136,6 +10136,7 @@ if (typeof window.Chart === "undefined") {
   var UPLOAD_STASH_KEEP_MS = 24 * 3600 * 1000;
   var UPLOAD_STASH_FRESH_MS = 30 * 60 * 1000;
   var UPLOAD_STASH_SCAN_MS = 250;
+  var UPLOAD_STASH_SAFETY_MS = [3000, 15000];
   var UPLOAD_STASH_INPUT_WAIT_MS = 500;
   var UPLOAD_STASH_INPUT_TRIES = 10;
   var UPLOAD_STASH_LOGOUT_WAIT_MS = 500;
@@ -10273,6 +10274,8 @@ if (typeof window.Chart === "undefined") {
       this._seen = typeof WeakSet === "function" ? new WeakSet() : null;
       this._scanning = false;
       this._rescan = false;
+      this._up = true;        // the LiveView is connected (mounted means joined)
+      this._safetyTimers = [];
       this._persisted = false;
       this._off = false;      // the server has no handlers for this upload: stay silent
       this._warned = false;
@@ -10287,6 +10290,7 @@ if (typeof window.Chart === "undefined") {
         if (input.name !== self._upload) return;
         if (!input.files || !input.files.length) return;
         self._warnForm(input);
+        self._debug("pick", input.files.length);
         self._stash(Array.prototype.slice.call(input.files));
       };
       this._root.addEventListener("input", this._onPick, true);
@@ -10302,11 +10306,14 @@ if (typeof window.Chart === "undefined") {
 
       uploadStashDropOldDatabase();
       this._scanTimer = setTimeout(function() { self._scan(); }, UPLOAD_STASH_SCAN_MS);
+      this._safety();
     },
 
     // The hook outlives a dropped socket; its transfers do not. Whatever was
     // in flight is a leftover now, and the locks that said otherwise go.
     disconnected() {
+      this._up = false;
+      this._clearSafety();
       this._releaseAll();
       this._inflight = {};
       this._waiting = {};
@@ -10320,12 +10327,15 @@ if (typeof window.Chart === "undefined") {
       // Whatever was picked while the socket was down never left the browser
       // either: it is in flight no longer than the rest.
       this.disconnected();
+      this._up = true;
       this._scan();
+      this._safety();
     },
 
     destroyed() {
       clearInterval(this._beat);
       clearTimeout(this._scanTimer);
+      this._clearSafety();
       if (this._root) {
         this._root.removeEventListener("input", this._onPick, true);
         this._root.removeEventListener("change", this._onPick, true);
@@ -10450,7 +10460,13 @@ if (typeof window.Chart === "undefined") {
           row.blob = null;
           return uploadStashPut(row);
         });
-      }));
+      })).then(function() {
+        // A tablet delivers the camera's file as the tab wakes, around the
+        // reconnect: a look that ran before this write found nothing, and
+        // nothing else would look again.
+        self._debug("stashed", records.length);
+        if (self._up) self._scan();
+      });
 
       // The server learns where each file belongs before LiveView hands it the
       // file; a send that fails (the socket is going) is covered by the
@@ -10461,6 +10477,38 @@ if (typeof window.Chart === "undefined") {
           upload: this._upload,
           items: records.map(function(row) { return { key: row.key, seq: row.seq, context: row.context }; })
         }, function(reply) { if (reply && reply.error) self._off = true; });
+      } catch (_) {}
+    },
+
+    // Looks again a little later while something unsent is in the stash: one
+    // look can land before the record is written or before the socket is up.
+    _safety() {
+      var self = this;
+      this._clearSafety();
+      this._safetyTimers = UPLOAD_STASH_SAFETY_MS.map(function(ms) {
+        return setTimeout(function() {
+          if (!self._up || self._off) return;
+          uploadStashAll().then(function(rows) {
+            var unsent = self._mine(rows).some(function(row) {
+              return (row.state === "pending" || row.state === "received") && !self._done[row.id];
+            });
+            if (unsent) self._scan();
+          });
+        }, ms);
+      });
+    },
+
+    _clearSafety() {
+      (this._safetyTimers || []).forEach(function(t) { clearTimeout(t); });
+      this._safetyTimers = [];
+    },
+
+    // A trace the server logs (counts only), to read the order of events on a
+    // device with no console.
+    _debug(phase, n) {
+      if (this._off) return;
+      try {
+        this.pushEvent("pk_upload_debug", { upload: this._upload, phase: phase, n: n, connected: !!this._up });
       } catch (_) {}
     },
 
@@ -10547,6 +10595,7 @@ if (typeof window.Chart === "undefined") {
       this._scanning = true;
       var now = Date.now();
       uploadStashAll().then(function(rows) {
+        self._debug("scan", self._mine(rows).length);
         var gone = rows.filter(function(row) {
           return now - row.touched > UPLOAD_STASH_KEEP_MS || row.user !== self._user;
         }).map(function(row) { return row.id; });
