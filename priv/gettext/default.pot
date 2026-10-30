@@ -21929,3 +21929,28 @@ msgstr ""
 #, elixir-autogen, elixir-format
 msgid "The expiry date can be %{date} at the latest."
 msgstr ""
+
+#: lib/phoenix_kit_web/components/core/resumable_upload.ex
+#, elixir-autogen, elixir-format
+msgid "Resume upload (%{count})"
+msgstr ""
+
+#: lib/phoenix_kit_web/components/core/resumable_upload.ex
+#, elixir-autogen, elixir-format
+msgid "Some files were not kept — choose them again."
+msgstr ""
+
+#: lib/phoenix_kit_web/resumable_uploads.ex
+#, elixir-autogen, elixir-format
+msgid "%{name}: %{reason}"
+msgstr ""
+
+#: lib/phoenix_kit_web/resumable_uploads.ex
+#, elixir-autogen, elixir-format
+msgid "file too large"
+msgstr ""
+
+#: lib/phoenix_kit_web/resumable_uploads.ex
+#, elixir-autogen, elixir-format
+msgid "file type not accepted"
+msgstr ""
