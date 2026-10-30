@@ -14,19 +14,19 @@
   class={@fill_height && "flex flex-col flex-1 min-h-0 w-full"}
 >
   <%!-- Keeps a copy of every picked file in the browser (IndexedDB) until
-       the server says it has the bytes, so a transfer cut short by a refresh,
-       a closed tab or a dropped connection can be resumed instead of lost.
-       Reports leftovers as `upload_resume_available`. Its parent — this
-       root — is the scope whose file inputs it watches. --%>
-  <div
-    :if={not @readonly and @has_buckets}
-    id={@id <> "-upload-resume"}
-    phx-hook="UploadResume"
-    phx-target={@myself}
-    data-user={upload_stash_user(assigns)}
-    class="hidden"
-  >
-  </div>
+       the server has it saved, and carries a transfer cut short (the page
+       sent to the background, a dropped connection) on by itself, into the
+       folder that was open when the file was picked. Its parent — this root
+       — holds the file inputs it watches. --%>
+  <PhoenixKitWeb.Components.Core.ResumableUpload.resumable_upload
+    :if={not @readonly and @has_buckets and resumable_upload?(assigns)}
+    upload={@parent_uploads.media_files}
+    resumable={@resumable_uploads}
+    scope={"media-browser|#{@id}|#{@library_uuid}|#{@scope_folder_id}"}
+    user={upload_stash_user(assigns)}
+    context={(@current_folder && to_string(@current_folder.uuid)) || ""}
+    watch="parent"
+  />
   <style>
     @keyframes rename-pulse {
       0%, 100% { opacity: 1; }
@@ -188,8 +188,8 @@
               <%!-- and with why — refused before transfer, failed to store,  --%>
               <%!-- interrupted by a refresh. Retry re-sends what was kept;   --%>
               <%!-- Discard lets go. Survives a refresh for anything the      --%>
-              <%!-- server received (UploadInbox) or the browser stashed      --%>
-              <%!-- (UploadResume).                                           --%>
+              <%!-- server received (UploadInbox). Files the browser kept for  --%>
+              <%!-- a lost transfer are the ResumableUpload hook's business.  --%>
               <% problems = upload_problems(assigns) %>
               <div
                 :if={problems != []}
@@ -251,7 +251,7 @@
                       class="btn btn-xs btn-outline btn-primary gap-1"
                     >
                       <.icon name="hero-arrow-path" class="w-3.5 h-3.5" />
-                      {if problem.kind == :browser, do: gettext("Resume"), else: gettext("Retry")}
+                      {gettext("Retry")}
                     </button>
                     <button
                       type="button"

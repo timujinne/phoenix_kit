@@ -24,8 +24,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Helpers do
   #                 died, the page was refreshed) — bytes kept, retryable
   #   :rejected     turned away before transfer (too large, wrong type, more
   #                 than fit at once) — nothing kept; the reason says what to do
-  #   :browser      a transfer the page lost, reported by the UploadResume
-  #                 hook — retryable when the browser kept a copy
   #
   # The first two come from the user's UploadInbox (on disk, so they survive
   # a refresh); the rest live in this browser's session.
@@ -35,6 +33,14 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Helpers do
     (assigns[:upload_inbox_problems] || []) ++
       Enum.reverse(assigns[:upload_problems_session] || [])
   end
+
+  # Only a real upload config can carry the resumable hook: `upload_errors`
+  # and the hook's data attributes read its internals, and component tests
+  # hand down plain maps standing in for one.
+  def resumable_upload?(%{parent_uploads: %{media_files: %Phoenix.LiveView.UploadConfig{}}}),
+    do: true
+
+  def resumable_upload?(_assigns), do: false
 
   # Who the browser-side stash belongs to: it holds file bytes on a machine
   # the next person may sign in on, and Resume would upload them as them.

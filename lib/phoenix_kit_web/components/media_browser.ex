@@ -176,6 +176,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   import Ecto.Query
 
+  import PhoenixKitWeb.ResumableUploads,
+    only: [allow_resumable_upload: 4, resume_context: 2, stored: 3]
+
   # The template and the helpers it draws with live in `MediaBrowser.View`
   # (media_browser/view.ex): split off so neither module is slow to compile
   # on its own. `render/1` calls the view as a plain function, so LiveView's
@@ -355,6 +358,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       # viewer, the next one sliding in beside the current (Fresco.gallery).
       # Off by default while it settles; the full-page media view turns it on.
       |> assign_new(:gallery_mode, fn -> false end)
+      # `@resumable_uploads` of the host, to show the "Resume upload" row for
+      # files that need a person's decision; without it they are kept but
+      # not offered.
+      |> assign_new(:resumable_uploads, fn -> %{media_files: %{ask: []}} end)
       |> assign_new(:upload_in_flight, fn -> false end)
       |> assign_new(:upload_problems_session, fn -> [] end)
       |> close_upload_on_start()
@@ -382,7 +389,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         {:ok, apply_nav_params(socket, socket.assigns.nav_params)}
 
       Map.has_key?(assigns, :pending_upload) ->
-        {:ok, receive_pending_upload(socket, assigns.pending_upload)}
+        {:ok, receive_pending_upload(socket, assigns.pending_upload, assigns[:upload_context])}
 
       Map.get(assigns, :action) == :drain_upload_queue ->
         {:ok, drain_upload_queue(socket)}
@@ -516,10 +523,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     end
   end
 
-  # Where an upload dropped here belongs: this library, and the folder that is
-  # open (or the browser's scope).
-  defp upload_destination(socket) do
-    folder = current_folder_uuid(socket) || scope_folder_id(socket)
+  # Where an upload dropped here belongs: this library, and the folder that was
+  # open when the file was picked (`context`, see below) — or, without one, the
+  # folder that is open now (or the browser's scope).
+  defp upload_destination(socket, context \\ nil) do
+    folder =
+      context_folder(socket, context) || current_folder_uuid(socket) || scope_folder_id(socket)
 
     %{
       library_uuid: library_key(socket),
@@ -527,13 +536,32 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     }
   end
 
+  # The folder the browser showed when the file was picked: its uuid, or "" for
+  # the browser's root. The browser stores it, so it is a wish, not a fact: it
+  # counts only while it is still a folder that exists, is not in the bin, is
+  # inside this browser's scope and is in the library it shows — the checks
+  # `resolve_folder/3` makes to open one. Anything else is no context.
+  defp context_folder(_socket, nil), do: nil
+  defp context_folder(socket, ""), do: scope_folder_id(socket)
+
+  defp context_folder(socket, uuid) when is_binary(uuid) do
+    with {:ok, uuid} <- Ecto.UUID.cast(uuid),
+         %{trashed_at: nil} = folder <- Storage.get_folder(uuid),
+         true <- Storage.within_scope?(folder.uuid, scope_folder_id(socket)),
+         true <- in_shown_library?(folder, lib_opts(socket)) do
+      folder.uuid
+    else
+      _ -> nil
+    end
+  end
+
   # The browser that takes an inbox upload writes down where it belongs and that
   # it is working on it (see `UploadInbox.claim/4`). A readonly browser takes
   # nothing.
-  defp claim_inbox_item(socket, path) do
+  defp claim_inbox_item(socket, path, context) do
     with false <- socket.assigns.readonly == true,
          {user_uuid, id} <- UploadInbox.locate(path) do
-      UploadInbox.claim(user_uuid, id, upload_destination(socket))
+      UploadInbox.claim(user_uuid, id, upload_destination(socket, context))
     end
 
     socket
@@ -559,9 +587,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     end
   end
 
-  defp receive_pending_upload(socket, {path, _entry} = pending) do
+  defp receive_pending_upload(socket, {path, _entry} = pending, context) do
     socket
-    |> claim_inbox_item(path)
+    |> claim_inbox_item(path, context)
     |> enqueue_pending_upload(pending)
   end
 
@@ -602,24 +630,14 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   defp retry_upload_problems(socket, pick) do
     {retry, keep} = Enum.split_with(upload_problems(socket.assigns), &(pick.(&1) and &1.retry))
-    {browser, kept} = Enum.split_with(retry, &(&1.kind == :browser))
 
     socket =
-      Enum.reduce(kept, socket, fn problem, acc ->
+      Enum.reduce(retry, socket, fn problem, acc ->
         case retry_bytes(acc, problem) do
           {:ok, path} -> enqueue_pending_upload(acc, {path, retry_entry(problem)})
           :error -> acc
         end
       end)
-
-    socket =
-      if browser == [] do
-        socket
-      else
-        push_event(socket, "phoenix_kit:upload-resume", %{
-          keys: Enum.map(browser, & &1.client_key)
-        })
-      end
 
     set_upload_problems(socket, keep)
   end
@@ -661,12 +679,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       %{path: path} -> File.rm(path)
       _ -> :ok
     end)
-
-    socket =
-      case for(%{kind: :browser, client_key: key} <- gone, do: key) do
-        [] -> socket
-        keys -> push_event(socket, "phoenix_kit:upload-discard", %{keys: keys})
-      end
 
     set_upload_problems(socket, keep)
   end
@@ -1596,15 +1608,31 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
       socket
       |> assign(:max_upload_size_mb, max_size_mb)
-      |> allow_upload(:media_files,
+      |> allow_browser_upload(:media_files, max_size_mb)
+      # A second upload of the browser (e.g. a picker's) is one more line:
+      # |> allow_browser_upload(:media_picker_files, max_size_mb)
+      |> attach_file_event_forwarding()
+    end
+  end
+
+  # Every upload of the browser survives the page being sent to the
+  # background (see `PhoenixKitWeb.ResumableUploads`). Refused entries are
+  # listed with a reason, and cancelled, by `harvest_rejected_uploads/1`, so
+  # the mechanism only reports them to the browser's stash.
+  defp allow_browser_upload(socket, name, max_size_mb) do
+    allow_resumable_upload(
+      socket,
+      name,
+      [
         accept: :any,
         max_entries: 10,
         max_file_size: max_size_mb * 1_000_000,
         auto_upload: true,
         progress: &__MODULE__.parent_progress/3
-      )
-      |> attach_file_event_forwarding()
-    end
+      ],
+      on_rejected: fn socket, _entry, _errors -> socket end,
+      cancel_rejected: false
+    )
   end
 
   # Entries LiveView turned away before a byte moved, named and cleared.
@@ -1781,14 +1809,26 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
       if result == :done do
         path = into_inbox(socket, persistent_path, entry)
+        # Where the file was picked is the browser's to say, once, now; the
+        # component that stores it gets it with the file.
+        contexts =
+          Map.put(
+            socket.assigns[:media_upload_contexts] || %{},
+            path,
+            resume_context(socket, entry)
+          )
+
         # Payload is wrapped in a tuple so the outer message stays a 3-tuple;
         # the Embed macro's handle_info matches `{Mod, _, _}` only.
         send(self(), {__MODULE__, :process_pending_upload, {path, entry}})
-      end
 
-      # The bytes are the server's now: the browser can drop the copy it
-      # stashed in case the transfer was cut short (the UploadResume hook).
-      {:noreply, ack_received(socket, [entry])}
+        # The bytes are in the user's inbox (or at least on disk): the browser
+        # can drop the copy it stashed in case the transfer was cut short.
+        {:noreply,
+         socket |> assign(:media_upload_contexts, contexts) |> stored(:media_files, entry)}
+      else
+        {:noreply, socket}
+      end
     else
       {:noreply, socket}
     end
@@ -1812,19 +1852,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       _ -> path
     end
   end
-
-  # Tells the UploadResume hook which stashed files it can let go of —
-  # received by the server, or rejected with a reason the panel shows. The
-  # key is what the browser itself knows about a picked file.
-  defp ack_received(socket, entries) do
-    push_event(socket, "phoenix_kit:upload-received", %{
-      keys: Enum.map(entries, &client_key/1)
-    })
-  end
-
-  @doc false
-  def client_key(entry),
-    do: "#{entry.client_name}|#{entry.client_size}|#{entry.client_last_modified}"
 
   # A browser's own copy is an inbox item of its own — with a record, so a
   # failure keeps it findable and a refresh cannot orphan it. No user or an
@@ -1879,20 +1906,34 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> Kernel.||(MapSet.new())
       |> MapSet.to_list()
 
+    {context, contexts} = Map.pop(socket.assigns[:media_upload_contexts] || %{}, path)
+    socket = assign(socket, :media_upload_contexts, contexts)
+
     case component_ids do
       [] ->
         drop_upload_bytes(path, UploadInbox.locate(path))
 
       [single] ->
-        send_update(__MODULE__, id: single, pending_upload: {path, entry})
+        send_update(__MODULE__,
+          id: single,
+          pending_upload: {path, entry},
+          upload_context: context
+        )
 
       [first | rest] ->
-        send_update(__MODULE__, id: first, pending_upload: {path, entry})
+        send_update(__MODULE__, id: first, pending_upload: {path, entry}, upload_context: context)
 
         Enum.each(rest, fn id ->
           case copy_for_recipient(socket, path, entry, id) do
-            {:ok, copy} -> send_update(__MODULE__, id: id, pending_upload: {copy, entry})
-            :error -> :ok
+            {:ok, copy} ->
+              send_update(__MODULE__,
+                id: id,
+                pending_upload: {copy, entry},
+                upload_context: context
+              )
+
+            :error ->
+              :ok
           end
         end)
     end
@@ -1914,7 +1955,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         if open?, do: cancel_upload(acc, :media_files, entry.ref), else: acc
       end)
 
-    {:noreply, ack_received(socket, entries)}
+    {:noreply, socket}
   end
 
   def handle_parent_info(_msg, socket), do: {:noreply, socket}
@@ -3867,40 +3908,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   def handle_event("discard_all_uploads", _params, socket) do
     {:noreply, discard_upload_problems(socket, fn _ -> true end)}
   end
-
-  # The UploadResume hook found files a previous page load stashed and never
-  # heard back about: the transfer was cut short (a refresh, a closed tab, a
-  # dropped connection). Listed like any other problem; Resume re-sends them.
-  def handle_event("upload_resume_available", %{"items" => items}, socket)
-      when is_list(items) do
-    socket =
-      items
-      |> Enum.filter(&(is_map(&1) and is_binary(&1["key"])))
-      |> Enum.reject(fn item ->
-        Enum.any?(socket.assigns.upload_problems_session, &(&1[:client_key] == item["key"]))
-      end)
-      |> Enum.reduce(socket, fn item, acc ->
-        add_upload_problem(acc, %{
-          kind: :browser,
-          client_name: if(is_binary(item["name"]), do: item["name"], else: "file"),
-          client_size: item["size"],
-          client_key: item["key"],
-          retry: item["blob"] == true,
-          reason:
-            if(item["blob"] == true,
-              do: gettext("The upload was cut short — the page was closed or refreshed."),
-              else:
-                gettext(
-                  "The upload was cut short, and the file was too large to keep a copy of. Add it again."
-                )
-            )
-        })
-      end)
-
-    {:noreply, socket}
-  end
-
-  def handle_event("upload_resume_available", _params, socket), do: {:noreply, socket}
 
   def handle_event("cancel_upload", %{"ref" => ref}, socket) do
     {:noreply, cancel_upload(socket, :media_files, ref)}

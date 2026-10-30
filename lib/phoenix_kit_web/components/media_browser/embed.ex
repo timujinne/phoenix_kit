@@ -28,6 +28,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
         module={PhoenixKitWeb.Components.MediaBrowser}
         id="media-browser"
         parent_uploads={@uploads}
+        resumable_uploads={@resumable_uploads}
       />
 
   ## URL sync (shareable folder links)
@@ -52,6 +53,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.Embed do
         on_navigate={:navigate}
         initial_params={@initial_params}
         parent_uploads={@uploads}
+        resumable_uploads={@resumable_uploads}
       />
 
   Everything else is automatic: `initial_params` is parsed from the URL
