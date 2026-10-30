@@ -5701,9 +5701,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     own = socket.assigns[:own_files_only]
     files = pickable_files(socket, socket.assigns.picked)
 
-    if is_binary(own),
-      do: Enum.filter(files, &(to_string(&1.user_uuid) == String.downcase(own))),
-      else: files
+    if is_binary(own) do
+      own = String.downcase(own)
+      Enum.filter(files, &(not is_nil(&1.user_uuid) and to_string(&1.user_uuid) == own))
+    else
+      files
+    end
   end
 
   # Home or link: a folder holds a file once.
