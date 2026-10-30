@@ -382,6 +382,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
     else
       socket
       |> attach_hook(:pk_resumable_guard, :handle_event, &guard/3)
+      |> attach_hook(:pk_resumable_expiry, :handle_info, &expire/2)
       |> then(&%{&1 | private: Map.put(&1.private, :pk_resumable_guard, true)})
     end
   end
@@ -395,6 +396,15 @@ defmodule PhoenixKitWeb.ResumableUploads do
   end
 
   defp guard(_event, _params, socket), do: {:cont, socket}
+
+  defp expire({:pk_resumable_expire, name}, socket) do
+    case get_state(socket, name) do
+      nil -> {:halt, socket}
+      _ -> {:halt, update_state(socket, name, & &1)}
+    end
+  end
+
+  defp expire(_msg, socket), do: {:cont, socket}
 
   defp handle_event(name, event, %{"upload" => upload} = params, socket) when event in @events do
     if upload == Atom.to_string(name) do
@@ -445,6 +455,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
         %{st | ask: asked, outstanding: outstanding ++ fed}
       end)
       |> publish(name)
+      |> schedule_expiry(name, length(ids.(:auto)))
 
     {%{auto: ids.(:auto), queued: ids.(:queued), ask: ids.(:ask), drop: ids.(:drop)}, socket}
   end
@@ -463,6 +474,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
         %{st | ask: wait, outstanding: outstanding ++ List.duplicate(now(), length(ids))}
       end)
       |> publish(name)
+      |> schedule_expiry(name, length(ids))
       |> push_event("pk-upload-feed", %{upload: Atom.to_string(name), ids: ids})
 
     {%{}, socket}
@@ -580,7 +592,18 @@ defmodule PhoenixKitWeb.ResumableUploads do
     {put_state(socket, name, st), dropped}
   end
 
-  defp live_outstanding(list), do: Enum.filter(list, &(now() - &1 < @pending_ttl_ms))
+  defp live_outstanding(list), do: Enum.filter(list, &(now() - &1 < pending_ttl()))
+
+  defp pending_ttl,
+    do: Application.get_env(:phoenix_kit, :resumable_pending_ttl_ms, @pending_ttl_ms)
+
+  # `pending` is published as a snapshot, so nothing would tell a component
+  # that it lapsed when no event follows: ask this process to publish again
+  # just after the TTL (answered by the hook attached in `attach_guard/1`).
+  defp schedule_expiry(socket, name, count) do
+    if count > 0, do: Process.send_after(self(), {:pk_resumable_expire, name}, pending_ttl() + 1)
+    socket
+  end
 
   defp drop_outstanding(st),
     do: %{st | outstanding: Enum.drop(live_outstanding(st.outstanding), 1)}

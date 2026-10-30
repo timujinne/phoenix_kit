@@ -77,6 +77,11 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   ## Picker
 
+  A picker only knows that a lost upload is being carried on by itself (and so
+  holds Confirm / Cancel) when the host passes
+  `resumable_uploads={@resumable_uploads}` to the component; without it the
+  close guard sees the transfer only once the file reaches the page.
+
   `picker` turns the browser into a window for choosing files — the folder
   tree, upload into the open folder, search and sort stay; what is chosen goes
   back to the host:

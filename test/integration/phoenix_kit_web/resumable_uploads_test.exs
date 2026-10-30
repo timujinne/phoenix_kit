@@ -408,6 +408,32 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
     end
   end
 
+  describe "a pending resume that never arrives" do
+    test "lapses in the published assign without any further event", %{conn: conn} do
+      Application.put_env(:phoenix_kit, :resumable_pending_ttl_ms, 30)
+      on_exit(fn -> Application.delete_env(:phoenix_kit, :resumable_pending_ttl_ms) end)
+
+      {:ok, view, _} = host(conn)
+      resume(view, [item("a.png")])
+
+      published = fn -> :sys.get_state(view.pid).socket.assigns.resumable_uploads.photos end
+      assert published.().pending
+
+      deadline = System.monotonic_time(:millisecond) + 2_000
+
+      wait = fn wait ->
+        cond do
+          not published.().pending -> :ok
+          System.monotonic_time(:millisecond) > deadline -> flunk("pending never lapsed")
+          true -> wait.(wait)
+        end
+      end
+
+      wait.(wait)
+      refute published.().pending
+    end
+  end
+
   describe "entries that vanish" do
     test "a cancelled file is reported as rejected, so the browser does not carry it on", %{
       conn: conn
