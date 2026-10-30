@@ -448,10 +448,10 @@ test("the stash of the first version is dropped", () => {
   assert.strictEqual(page.store.oldDbDeleted, 1);
 });
 
-function clickLogout(page, extra = {}) {
+function clickLogout(page, extra = {}, link = "") {
   let clicks = 0;
   let prevented = 0;
-  const el = { click() { clicks++; page.doc.listeners.click({ button: 0, target: { closest: () => el }, preventDefault() {}, stopPropagation() {} }); } };
+  const el = { dataset: { pkLogout: link }, click() { clicks++; page.doc.listeners.click({ button: 0, target: { closest: () => el }, preventDefault() {}, stopPropagation() {} }); } };
   page.doc.listeners.click(Object.assign({ button: 0, target: { closest: () => el },
     preventDefault() { prevented++; }, stopPropagation() {} }, extra));
   return { clicks: () => clicks, prevented: () => prevented };
@@ -461,8 +461,7 @@ test("signing out clears the signing-out user's stash before the request goes ou
   const page = pageLoad();
   leftover(page);
   leftover(page, { user: "u2", key: "z|5|7" });
-  page.doc.hooks.push({ dataset: { user: "u1" } });
-  const c = clickLogout(page);
+  const c = clickLogout(page, {}, "u1");
   assert.strictEqual(c.prevented(), 1, "the original navigation is held back");
   await settle();
   assert.strictEqual(page.store.clearedUser, "u1");
@@ -570,4 +569,14 @@ test("a server without handlers for the upload is left alone: nothing more is se
   assert.deepStrictEqual(m.pushed, [], "no pick, no resume");
   assert.strictEqual(rowsOf(page).length, 2, "the files are still kept");
   assert.strictEqual(page.held.size, 0, "and owned by nobody");
+});
+
+test("the link names the user; a page hook is the fallback when it does not", async () => {
+  const page = pageLoad();
+  leftover(page);
+  leftover(page, { user: "u2", key: "z|5|7" });
+  page.doc.hooks.push({ dataset: { user: "u2" } });
+  clickLogout(page, {}, "");
+  await settle();
+  assert.strictEqual(page.store.clearedUser, "u2");
 });

@@ -71,9 +71,10 @@ defmodule PhoenixKitWeb.ResumableUploads do
       `handle_async/3`). `{:retry, _}` and not answering at all leave the file
       in the browser, to be offered to the person with a button.
 
-    * **Your own sign-out links need `data-pk-logout`.** The files stashed in
-      the browser are removed (those of the user signing out) before the
-      request goes out; core's links carry the attribute already.
+    * **Your own sign-out links need `data-pk-logout={user uuid}`** (see
+      `logout_user/1`). The files stashed in the browser by that user are
+      removed before the request goes out; without a uuid the hook of the page
+      is asked, and failing that everything goes. Core's links carry it.
     * **A cancelled file is not carried on.** An entry that disappears from the
       upload without having arrived (`cancel_upload/3`, the cancel button) is
       reported to the browser as rejected, and its stashed copy is deleted.
@@ -98,11 +99,16 @@ defmodule PhoenixKitWeb.ResumableUploads do
 
   alias Phoenix.LiveView.UploadConfig
   alias Phoenix.LiveView.UploadEntry
+  alias PhoenixKit.Users.Auth.Scope
 
   @events ~w(pk_upload_pick pk_upload_resume pk_upload_resume_click pk_upload_discard)
   @max_string 512
   @max_keys 200
   @max_seqs 20
+  # Only these are final refusals the person reads about; the other entry
+  # errors (`{:writer_failure, _}`, `:external_client_failure`, …) are failures
+  # of the moment: the file stays in the browser, unacknowledged and uncancelled.
+  @final_errors [:too_large, :not_accepted]
   @pending_ttl_ms 120_000
 
   @doc """
@@ -137,6 +143,24 @@ defmodule PhoenixKitWeb.ResumableUploads do
     |> attach_hook({:pk_resumable, name}, :handle_event, &handle_event(name, &1, &2, &3))
     |> attach_hook({:pk_resumable, name}, :after_render, &sync_entries(&1, name))
     |> publish(name)
+  end
+
+  @doc """
+  The uuid of the user a page belongs to, as the value of `data-pk-logout`
+  (`""` when there is none). `assigns` is the page's or component's assigns;
+  the user is looked up as `:phoenix_kit_current_user`, `:user` or in
+  `:phoenix_kit_current_scope`.
+  """
+  @spec logout_user(map()) :: String.t()
+  def logout_user(assigns) when is_map(assigns) do
+    user =
+      assigns[:phoenix_kit_current_user] || assigns[:user] ||
+        Scope.user(assigns[:phoenix_kit_current_scope])
+
+    case user do
+      %{uuid: uuid} when not is_nil(uuid) -> to_string(uuid)
+      _ -> ""
+    end
   end
 
   @doc """
@@ -287,7 +311,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
     fresh =
       for entry <- conf.entries,
           not MapSet.member?(state.rejected_seen, entry.ref),
-          errors = upload_errors(conf, entry),
+          errors = Enum.filter(upload_errors(conf, entry), &(&1 in @final_errors)),
           errors != [],
           do: {entry, errors}
 
@@ -339,7 +363,8 @@ defmodule PhoenixKitWeb.ResumableUploads do
 
   defp error_text(:too_large), do: gettext("file too large")
   defp error_text(:not_accepted), do: gettext("file type not accepted")
-  defp error_text(other), do: to_string(other)
+  defp error_text(other) when is_atom(other), do: Atom.to_string(other)
+  defp error_text(other), do: inspect(other)
 
   defp maybe_cancel(socket, name, entry) do
     if Keyword.get(get_state(socket, name).opts, :cancel_rejected, true),
@@ -550,9 +575,7 @@ defmodule PhoenixKitWeb.ResumableUploads do
 
     if dropped > 0,
       do:
-        Logger.warning(
-          "ResumableUploads: #{dropped} context(s) of #{name} dropped, limit reached"
-        )
+        Logger.debug("ResumableUploads: #{dropped} context(s) of #{name} dropped, limit reached")
 
     {put_state(socket, name, st), dropped}
   end

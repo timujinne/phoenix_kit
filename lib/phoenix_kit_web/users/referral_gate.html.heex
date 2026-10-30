@@ -38,7 +38,7 @@
   <div class="text-center mt-4 text-sm">
     <.link
       href={Routes.path("/users/log-out")}
-      data-pk-logout
+      data-pk-logout={PhoenixKitWeb.ResumableUploads.logout_user(assigns)}
       method="delete"
       class="font-semibold text-primary hover:underline"
     >

@@ -10461,8 +10461,12 @@ if (typeof window.Chart === "undefined") {
       if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
       e.preventDefault();
       e.stopPropagation();
-      var hook = document.querySelector && document.querySelector('[phx-hook="ResumableUpload"][data-user]');
-      var user = hook && hook.dataset ? hook.dataset.user : "";
+      // The link says whose it is; failing that, a hook on the page does.
+      var user = el.dataset ? el.dataset.pkLogout || "" : "";
+      if (!user) {
+        var hook = document.querySelector && document.querySelector('[phx-hook="ResumableUpload"][data-user]');
+        user = hook && hook.dataset ? hook.dataset.user : "";
+      }
       var done = false;
       var go = function() {
         if (done) return;

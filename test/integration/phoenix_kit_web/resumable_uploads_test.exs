@@ -13,6 +13,16 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
   alias PhoenixKitWeb.Components.MediaBrowser
   alias PhoenixKitWeb.ResumableUploads
 
+  defmodule FailingWriter do
+    @moduledoc false
+    @behaviour Phoenix.LiveView.UploadWriter
+
+    def init(_opts), do: {:ok, %{}}
+    def meta(state), do: state
+    def write_chunk(_data, state), do: {:error, :disk_full, state}
+    def close(state, _reason), do: {:ok, state}
+  end
+
   defmodule Host do
     @moduledoc false
     use Phoenix.LiveView
@@ -32,6 +42,18 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
          opts
        )
        |> allow_resumable_upload(:docs, [accept: :any, max_entries: 2, auto_upload: true], [])
+       |> allow_resumable_upload(
+         :flaky,
+         [
+           accept: :any,
+           max_entries: 2,
+           auto_upload: true,
+           writer: fn _name, _entry, _socket ->
+             {PhoenixKitWeb.ResumableUploadsTest.FailingWriter, []}
+           end
+         ],
+         []
+       )
        |> Phoenix.Component.assign(saved: [], pending: false, order: "order-1")}
     end
 
@@ -55,6 +77,7 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
         >
           <.live_file_input upload={@uploads.docs} />
         </.resumable_upload>
+        <.live_file_input upload={@uploads.flaky} />
       </form>
       <p :for={s <- @saved} class="saved">{s}</p>
       <span :if={@pending} id="pending">pending</span>
@@ -420,6 +443,35 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
       assert {:error, _} = render_upload(upload(view, "big.png", :photos, big), "big.png")
       render_hook(view, "check", %{})
       refute has_element?(view, "#pending")
+    end
+  end
+
+  describe "a failure of the moment" do
+    test "a writer failure is neither acknowledged nor cancelled, and does not crash the host", %{
+      conn: conn
+    } do
+      {:ok, view, _} = host(conn)
+      k = key("a.png")
+
+      input =
+        file_input(view, "#f", :flaky, [
+          %{name: "a.png", content: "12345", type: "image/png", last_modified: 7}
+        ])
+
+      render_upload(input, "a.png")
+
+      assert Process.alive?(view.pid)
+      refute_push_event(view, "pk-upload-rejected", %{key: ^k}, 100)
+
+      # The entry is still there with its error, and the mechanism still answers.
+      conf = :sys.get_state(view.pid).socket.assigns.uploads.flaky
+      assert [%{client_name: "a.png"} = entry] = conf.entries
+
+      assert {:writer_failure, :disk_full} in Phoenix.Component.upload_errors(conf, entry),
+             "the fixture really is a failure of the moment"
+
+      resume(view, [], "flaky")
+      assert_reply(view, %{auto: [], queued: [], ask: [], drop: []})
     end
   end
 
