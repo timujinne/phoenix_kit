@@ -502,6 +502,42 @@
         <span class="loading loading-spinner loading-xs text-primary"></span>
         {gettext("Wait for the uploads to finish")}
       </span>
+      <%!-- The picker's own view options: the files of the folders below this
+           one too (`subtree_toggle`), and how big the tiles are. Not shown
+           over the Trash, the orphaned files or All Files, which are flat
+           listings of their own. --%>
+      <label
+        :if={
+          @subtree_toggle and not @filter_trash and not @filter_orphaned and @file_view != "all"
+        }
+        for={"#{@id}-subtree-toggle"}
+        title={gettext("Show the files of the folders below this one too")}
+        class="flex items-center gap-2 text-sm cursor-pointer"
+      >
+        <input
+          type="checkbox"
+          id={"#{@id}-subtree-toggle"}
+          class="toggle toggle-primary toggle-sm"
+          checked={@subtree_view}
+          phx-click="set_subtree_view"
+          phx-value-on={to_string(not @subtree_view)}
+          phx-target={@myself}
+        />
+        {gettext("Include subfolders")}
+      </label>
+      <div id={"#{@id}-tile-size"} class="join">
+        <button
+          :for={{size, label} <- [{"small", gettext("Small")}, {"large", gettext("Large")}]}
+          type="button"
+          phx-click="set_tile_size"
+          phx-value-size={size}
+          phx-target={@myself}
+          aria-pressed={to_string(@tile_size == size)}
+          class={["btn btn-xs join-item", @tile_size == size && "btn-active"]}
+        >
+          {label}
+        </button>
+      </div>
       <div class="flex items-center gap-2 ml-auto">
         <button
           type="button"

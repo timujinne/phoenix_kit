@@ -2672,6 +2672,10 @@ defmodule PhoenixKit.Modules.Storage do
       crosses the antimeridian has `west > east`).
     - `:shape` — `:wide` or `:tall` (or `"wide"` / `"tall"`): only pictures of that
       shape (`PhoenixKit.Modules.Storage.Shape`). Omitted, nil or `"all"` is every shape.
+    - `:subtree` — boolean (default false): list the files of the folder (`:folder_uuid`,
+      else the scope folder) AND of every folder below it, home or linked, each file once.
+      The scope is not widened — a `:folder_uuid` outside it is still `{:error, :out_of_scope}`.
+      With no folder and no scope it is every file, orphans included.
 
   ## Returns
     `{files, total_count}` or `{:error, :out_of_scope}`.
@@ -2690,13 +2694,19 @@ defmodule PhoenixKit.Modules.Storage do
     # Optional UI sort + file-type filter (media browser toolbar).
     sort = opts[:sort] || "newest"
     file_type = opts[:file_type]
+    subtree? = opts[:subtree] == true
 
     if not is_nil(folder_uuid) and not is_nil(scope_folder_id) and
          not within_scope?(folder_uuid, scope_folder_id) do
       {:error, :out_of_scope}
     else
       query =
-        build_scope_file_query(scope_folder_id, folder_uuid, search, include_orphaned)
+        if subtree?,
+          do: build_subtree_file_query(folder_uuid || scope_folder_id, search),
+          else: build_scope_file_query(scope_folder_id, folder_uuid, search, include_orphaned)
+
+      query =
+        query
         |> where([f], f.status != "trashed")
         |> exclude_system_managed()
         |> maybe_filter_file_type(file_type)
@@ -2757,6 +2767,42 @@ defmodule PhoenixKit.Modules.Storage do
   defp apply_file_sort(query, "largest"), do: order_by(query, [f], desc: f.size, asc: f.uuid)
   defp apply_file_sort(query, "smallest"), do: order_by(query, [f], asc: f.size, asc: f.uuid)
   defp apply_file_sort(query, _newest), do: order_by(query, [f], desc: f.inserted_at, asc: f.uuid)
+
+  # Every file of a folder and of the folders below it: homed in one of them or
+  # linked into one, each file once (a file homed here and linked there counts
+  # once). No folder: every file.
+  defp build_subtree_file_query(nil, search) do
+    from(f in PhoenixKit.Modules.Storage.File) |> apply_file_search(search)
+  end
+
+  defp build_subtree_file_query(root_uuid, search) do
+    cte_base = from(f in Folder, where: f.uuid == ^root_uuid, select: %{uuid: f.uuid})
+
+    cte_recursive =
+      from(f in Folder,
+        join: d in "scope_descendants",
+        on: f.parent_uuid == d.uuid,
+        select: %{uuid: f.uuid}
+      )
+
+    cte = union_all(cte_base, ^cte_recursive)
+
+    homed = from(d in "scope_descendants", select: d.uuid)
+
+    linked =
+      from(fl in FolderLink,
+        join: d in "scope_descendants",
+        on: fl.folder_uuid == d.uuid,
+        select: fl.file_uuid
+      )
+
+    from(f in PhoenixKit.Modules.Storage.File,
+      where: f.folder_uuid in subquery(homed) or f.uuid in subquery(linked)
+    )
+    |> recursive_ctes(true)
+    |> with_cte("scope_descendants", as: ^cte)
+    |> apply_file_search(search)
+  end
 
   defp build_scope_file_query(nil, nil, nil, false) do
     from(f in PhoenixKit.Modules.Storage.File)

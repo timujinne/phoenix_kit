@@ -21646,3 +21646,13 @@ msgid "%{count} item moved to trash"
 msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} elemento spostato nel cestino"
 msgstr[1] "%{count} elementi spostati nel cestino"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Include subfolders"
+msgstr "Includi le sottocartelle"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Show the files of the folders below this one too"
+msgstr "Mostra anche i file delle cartelle sottostanti"

@@ -159,6 +159,25 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     pick, never a list from the client. Folders are not dragged, the Trash
     takes no drop, and every other folder action stays refused under
     `folder_actions: false`. `readonly` still takes it all away.
+  - `subtree_toggle` (default `false`; a picker only) — puts an "Include
+    subfolders" switch in the picker's bar. Off, the picker lists the folder
+    it stands in, as it always did. On, it lists the files of that folder AND
+    of every folder below it (homed or linked, each file once), flat, with no
+    folder tiles, paged like any listing; at the top of the scope that is all
+    of the scope. The switch is the picker's own state: it holds while the
+    person walks the tree (another folder shows its own subtree), is not part
+    of the URL, and starts off on every mount. Search, the type, shape and
+    sort options, the library and the viewer's visibility all apply as they
+    do to a folder; the scope is never widened. A file listed from a
+    subfolder is picked, viewed, trashed and (with `allow_move`) dragged as
+    a file of that subfolder. Works in a controlled browser (`on_navigate`)
+    too — the switch is applied here, and a page or folder change that comes
+    back through the nav params keeps it.
+  - `per_page` (a picker only; default 50, at most 500) — the files on a page.
+    Read when the picker mounts; anything that is not a positive integer is
+    50. Not read outside a picker. The picker's grid is also denser than the browser's (tiles of
+    about 7rem; a Small/Large switch in its bar, Small about 5rem, is the
+    picker's own and starts at Large).
 
   A picker's file menu keeps Download and Move to Trash. Rotate, Edit image,
   the featured toggle and deleting for good (the Trash view's Delete, Empty
@@ -576,6 +595,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> assign_new(:folder_labels, fn -> %{} end)
       |> assign_new(:folder_actions, fn -> true end)
       |> assign_new(:allow_move, fn -> false end)
+      |> assign_new(:subtree_toggle, fn -> false end)
       # The removal guard (see the moduledoc's "Removal guard"): `nil` takes
       # the module configured for every browser, a module overrides it,
       # `false` goes without. `removal_pending` is the dialog's state.
@@ -705,9 +725,34 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     |> assign(:picker, socket.assigns.picker == true)
     |> assign(:folder_actions, socket.assigns.folder_actions != false)
     |> assign(:allow_move, socket.assigns.picker == true and socket.assigns.allow_move == true)
+    |> assign(
+      :subtree_toggle,
+      socket.assigns.picker == true and socket.assigns.subtree_toggle == true
+    )
     |> assign(:pick_mode, pick_mode)
     |> assign(:max_select, max_select)
+    |> normalize_per_page()
   end
+
+  @default_per_page 50
+  @picker_max_per_page 500
+
+  # A picker may be given its page size; every other browser pages by 50
+  # whatever the host passes (`init_socket/1` sets that).
+  defp normalize_per_page(%{assigns: %{picker: true}} = socket) do
+    per_page =
+      case socket.assigns[:per_page] do
+        n when is_integer(n) and n > 0 -> min(n, @picker_max_per_page)
+        _ -> @default_per_page
+      end
+
+    assign(socket, :per_page, per_page)
+  end
+
+  defp normalize_per_page(socket), do: socket
+
+  defp initial_per_page(%{assigns: %{picker: true, per_page: per_page}}), do: per_page
+  defp initial_per_page(_socket), do: @default_per_page
 
   # The parent's upload this browser renders and watches: a picker's own
   # (see `setup_uploads/1`), or the shared one — also for a picker whose host
@@ -1969,7 +2014,17 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       sort: socket.assigns[:sort_by] || "newest",
       file_type: socket.assigns[:file_type_filter] || "all",
       shape: socket.assigns[:shape_filter] || "all"
-    ] ++ lib_opts(socket)
+    ] ++ subtree_opts(socket) ++ lib_opts(socket)
+  end
+
+  # A picker with the subfolders switched on lists the viewed folder's whole
+  # subtree (`Storage.list_files_in_scope/2` `:subtree`), whatever the
+  # navigation path that asks for a listing.
+  defp subtree_opts(socket) do
+    if socket.assigns[:picker] == true and socket.assigns[:subtree_toggle] == true and
+         socket.assigns[:subtree_view] == true,
+       do: [subtree: true],
+       else: []
   end
 
   # Another library than the one on screen: nothing listed belongs to it —
@@ -2125,7 +2180,11 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     # Starts collapsed → top-level folders only, drill in via the chevrons.
     |> assign(:move_expanded, MapSet.new())
     |> assign(:current_page, 1)
-    |> assign(:per_page, 50)
+    |> assign(:per_page, initial_per_page(socket))
+    # A picker's own view options: the files of the subfolders too, and the
+    # size of the tiles. Socket state, never saved (see `subtree_toggle`).
+    |> assign(:subtree_view, false)
+    |> assign(:tile_size, "large")
     |> then(fn s ->
       if scope_invalid,
         do: assign(s, uploaded_files: [], total_count: 0, total_pages: 0),
@@ -4857,6 +4916,31 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     {:noreply, cancel_upload(socket, socket.assigns.upload_name, ref)}
   end
 
+  # The picker's "Include subfolders" switch. Local state: a controlled
+  # browser applies it here too, the listing it reloads is the folder it
+  # stands in. The page goes back to the first.
+  def handle_event("set_subtree_view", %{"on" => on}, socket)
+      when on in ["true", "false"] and socket.assigns.subtree_toggle == true do
+    {:noreply,
+     socket
+     |> assign(:subtree_view, on == "true")
+     |> assign(:current_page, 1)
+     |> reload_current_page()}
+  end
+
+  def handle_event("set_subtree_view", _params, socket) do
+    {:noreply, log_refused(socket, "set_subtree_view", "the picker has no such switch")}
+  end
+
+  def handle_event("set_tile_size", %{"size" => size}, socket)
+      when size in ["small", "large"] and socket.assigns.picker == true do
+    {:noreply, assign(socket, :tile_size, size)}
+  end
+
+  def handle_event("set_tile_size", _params, socket) do
+    {:noreply, log_refused(socket, "set_tile_size", "the browser is not a picker")}
+  end
+
   def handle_event("set_page", %{"page" => page_str}, socket) do
     page =
       case Integer.parse(page_str) do
@@ -5340,7 +5424,24 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     Enum.find(candidates, fn folder_uuid ->
       to_string(file.folder_uuid) == to_string(folder_uuid) or
         not is_nil(Storage.folder_link(folder_uuid, file.uuid))
-    end)
+    end) || subtree_appearance(socket, file)
+  end
+
+  # A picker listing the subfolders' files too shows a file of a folder below
+  # the viewed one: it appears in the folder that holds it (its home when that
+  # is in the subtree, else the folder of the subtree it is linked into), and
+  # a per-file action addresses that folder, as it would in the folder itself.
+  defp subtree_appearance(socket, file) do
+    if Keyword.get(subtree_opts(socket), :subtree, false) do
+      root = current_folder_uuid(socket) || scope_folder_id(socket)
+      home = file.folder_uuid
+
+      cond do
+        is_nil(root) -> home
+        not is_nil(home) and Storage.within_scope?(home, root) -> home
+        true -> Enum.find(Storage.folder_subtree_uuids(root), &Storage.folder_link(&1, file.uuid))
+      end
+    end
   end
 
   # The picked files a picker's move may touch, in the order they were picked:

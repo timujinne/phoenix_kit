@@ -21655,3 +21655,13 @@ msgid "%{count} item moved to trash"
 msgid_plural "%{count} items moved to trash"
 msgstr[0] "%{count} elemento movido a la papelera"
 msgstr[1] "%{count} elementos movidos a la papelera"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Include subfolders"
+msgstr "Incluir subcarpetas"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "Show the files of the folders below this one too"
+msgstr "Mostrar también los archivos de las carpetas de debajo"

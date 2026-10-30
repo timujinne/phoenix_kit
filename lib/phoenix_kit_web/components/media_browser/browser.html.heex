@@ -430,6 +430,9 @@
                 renaming_text={assigns[:renaming_text]}
                 scope_folder={assigns[:scope_folder]}
                 scope_folder_id={assigns[:scope_folder_id]}
+                subtree_toggle={assigns[:subtree_toggle]}
+                subtree_view={assigns[:subtree_view]}
+                tile_size={assigns[:tile_size]}
                 scope_folder_name={
                   scope_label(
                     assigns[:scope_folder_id],
@@ -480,7 +483,8 @@
                     do: "true"
                 }
               >
-                <%= if @uploaded_files == [] && (@folders == [] or @file_view == "all") do %>
+                <%= if @uploaded_files == [] &&
+                         (@folders == [] or @file_view == "all" or @subtree_view) do %>
                   <%!-- Empty state --%>
                   <div class={[
                     "rounded-lg p-8 text-center",
@@ -562,6 +566,8 @@
                       select_mode={assigns[:select_mode]}
                       selected_files={assigns[:selected_files]}
                       selected_folders={assigns[:selected_folders]}
+                      subtree_view={assigns[:subtree_view]}
+                      tile_size={assigns[:tile_size]}
                       uploaded_files={assigns[:uploaded_files]}
                     />
                   <% end %>
