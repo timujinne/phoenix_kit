@@ -8,7 +8,9 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
   use PhoenixKitWeb.ConnCase, async: false
 
   alias Phoenix.HTML.Safe
+  alias PhoenixKit.Modules.Storage
   alias PhoenixKitWeb.Components.Core.ResumableUpload
+  alias PhoenixKitWeb.Components.MediaBrowser
   alias PhoenixKitWeb.ResumableUploads
 
   defmodule Host do
@@ -458,13 +460,13 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
     use Phoenix.LiveView
 
     def mount(_params, _session, socket),
-      do: {:ok, PhoenixKitWeb.Components.MediaBrowser.setup_uploads(socket)}
+      do: {:ok, MediaBrowser.setup_uploads(socket)}
 
     # A host written before `resumable_uploads` existed: it passes nothing for it.
     def render(assigns) do
       ~H"""
       <.live_component
-        module={PhoenixKitWeb.Components.MediaBrowser}
+        module={MediaBrowser}
         id="media-browser"
         parent_uploads={@uploads}
       />
@@ -477,7 +479,7 @@ defmodule PhoenixKitWeb.ResumableUploadsTest do
       conn: conn
     } do
       {:ok, _} =
-        PhoenixKit.Modules.Storage.create_bucket(%{
+        Storage.create_bucket(%{
           name: "resumable-#{System.unique_integer([:positive])}",
           provider: "local",
           endpoint: Path.join(System.tmp_dir!(), "pk_resumable_bucket"),
