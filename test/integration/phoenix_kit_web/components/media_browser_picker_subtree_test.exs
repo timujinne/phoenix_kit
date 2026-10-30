@@ -81,6 +81,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
 
     def handle_info({MediaBrowser, _id, {:picker_uploading, _}}, socket), do: {:noreply, socket}
 
+    def handle_info({:opts, opts}, socket),
+      do: {:noreply, assign(socket, :opts, Map.merge(socket.assigns.opts, opts))}
+
+    # What a controlled host does with {:navigate, _}: hands the page back.
+    def handle_info({:nav_back, params}, socket) do
+      Phoenix.LiveView.send_update(MediaBrowser, id: "pick", nav_params: params)
+      {:noreply, socket}
+    end
+
     def handle_info({MediaBrowser, _id, {:navigate, params}}, socket) do
       send(socket.assigns.test_pid, {:navigate, params})
       {:noreply, socket}
@@ -386,6 +395,98 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       refute listed?(view, f.cabinets)
     end
 
+    test "the Trash is the Trash whatever the switch says", %{conn: conn} = ctx do
+      f = fixture(ctx)
+      {:ok, _} = Storage.trash_folder(ctx.hall)
+      view = open(conn, ctx, %{subtree_toggle: true})
+      switch(view, true)
+
+      hook(view, "toggle_trash_filter")
+
+      assert tile?(view, ctx.hall)
+      assert listed?(view, f.hall)
+      refute render(view) =~ "Trash is empty"
+      refute has_element?(view, "#pick-subtree-toggle")
+    end
+
+    test "All Files is All Files whatever the switch says", %{conn: conn} = ctx do
+      f = fixture(ctx)
+      view = open(conn, ctx, %{subtree_toggle: true})
+      switch(view, true)
+
+      hook(view, "navigate_view_all")
+
+      assert listed?(view, f.top)
+      refute listed?(view, f.kitchen)
+      refute has_element?(view, "#pick-subtree-toggle")
+    end
+
+    test "leaving the Trash or All Files, the switch is still on", %{conn: conn} = ctx do
+      f = fixture(ctx)
+      view = open(conn, ctx, %{subtree_toggle: true})
+      switch(view, true)
+
+      hook(view, "toggle_trash_filter")
+      hook(view, "toggle_trash_filter")
+      assert listed?(view, f.cabinets)
+      refute tile?(view, ctx.kitchen)
+
+      hook(view, "navigate_view_all")
+      refute listed?(view, f.cabinets)
+      enter(view, ctx.kitchen)
+      assert listed?(view, f.cabinets)
+      assert has_element?(view, "#pick-subtree-toggle[checked]")
+    end
+
+    test "an unscoped picker lists every file at the top, orphans too", %{conn: conn} = ctx do
+      f = fixture(ctx)
+      orphan = file!(nil)
+      view = open(conn, ctx, %{subtree_toggle: true, unscoped: true})
+
+      switch(view, true)
+
+      for file <- [f.top, f.kitchen, f.cabinets, f.hall, f.outside, orphan],
+          do: assert(listed?(view, file))
+
+      enter(view, ctx.elsewhere)
+      assert listed?(view, f.outside)
+      refute listed?(view, f.top)
+    end
+
+    test "a file trashed from a subfolder goes the way it would go from there",
+         %{conn: conn} = ctx do
+      f = fixture(ctx)
+      view = open(conn, ctx, %{subtree_toggle: true})
+      switch(view, true)
+
+      # Homed in the Cabinets and linked into another folder: it moves home
+      # there rather than into the Trash (a removal from the Cabinets).
+      {:ok, _} = Storage.create_folder_link(ctx.hall.uuid, f.cabinets.uuid)
+      hook(view, "trash_file", %{"file_uuid" => f.cabinets.uuid})
+
+      moved = Repo.get(StorageFile, f.cabinets.uuid)
+      assert moved.status == "active"
+      assert moved.folder_uuid == ctx.hall.uuid
+
+      # Homed outside the scope and linked into the Cabinets: only the link goes.
+      hook(view, "trash_file", %{"file_uuid" => f.linked.uuid})
+
+      kept = Repo.get(StorageFile, f.linked.uuid)
+      assert kept.status == "active"
+      assert kept.folder_uuid == ctx.elsewhere.uuid
+      refute Storage.folder_link(ctx.cabinets.uuid, f.linked.uuid)
+    end
+
+    test "a file outside the scope is not trashed by its uuid", %{conn: conn} = ctx do
+      f = fixture(ctx)
+      view = open(conn, ctx, %{subtree_toggle: true})
+      switch(view, true)
+
+      capture_log(fn -> hook(view, "trash_file", %{"file_uuid" => f.outside.uuid}) end)
+
+      assert Repo.get(StorageFile, f.outside.uuid).status == "active"
+    end
+
     test "a forged folder outside the scope lists nothing of it", %{conn: conn} = ctx do
       f = fixture(ctx)
       view = open(conn, ctx, %{subtree_toggle: true})
@@ -425,8 +526,17 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
       assert listed?(view, f.kitchen)
       refute_received {:navigate, _}
 
+      # The host navigates the browser into the Kitchen, as the URL would.
+      send(view.pid, {:nav_back, %{folder: ctx.kitchen.uuid, q: "", page: 1, view: nil}})
+      render(view)
+
+      assert has_element?(view, "#pick-subtree-toggle[checked]")
+      for file <- [f.kitchen, f.cabinets, f.linked], do: assert(listed?(view, file))
+      for file <- [f.top, f.hall], do: refute(listed?(view, file))
+
       hook(view, "set_page", %{"page" => "1"})
-      assert_receive {:navigate, %{page: 1}}
+      assert_receive {:navigate, %{page: 1, folder: folder}}
+      assert folder == ctx.kitchen.uuid
     end
   end
 
@@ -483,6 +593,22 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerSubtreeTest do
 
       assert cards(view) == 3
       assert render(view) =~ "1 / 2"
+    end
+
+    test "a change on a mounted picker lists again from the first page", %{conn: conn} = ctx do
+      for _ <- 1..5, do: file!(ctx.scope)
+      view = open(conn, ctx, %{per_page: 3})
+      hook(view, "set_page", %{"page" => "2"})
+      assert render(view) =~ "2 / 2"
+
+      send(view.pid, {:opts, %{per_page: 2}})
+
+      assert cards(view) == 2
+      assert render(view) =~ "1 / 3"
+
+      send(view.pid, {:opts, %{per_page: 2}})
+      hook(view, "set_page", %{"page" => "2"})
+      assert render(view) =~ "2 / 3"
     end
 
     test "falls back to 50 for anything that is not a positive integer", %{conn: conn} = ctx do
