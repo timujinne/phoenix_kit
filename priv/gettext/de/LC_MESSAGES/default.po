@@ -21525,127 +21525,196 @@ msgstr "Diese Dateien gehören dem Modul, das sie gespeichert hat, und können h
 
 #: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
-msgid "Wait for the uploads to finish"
-msgstr "Warten Sie, bis die Uploads abgeschlossen sind"
+msgid "Back to my account"
+msgstr "Zurück zu meinem Konto"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "No open media browser could receive this upload."
-msgstr "Kein geöffneter Medienbrowser konnte diesen Upload empfangen."
+msgid "My account"
+msgstr "Mein Konto"
 
-#: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
-msgid "Maximum %{count} file"
-msgid_plural "Maximum %{count} files"
-msgstr[0] "Maximal %{count} Datei"
-msgstr[1] "Maximal %{count} Dateien"
+msgid "You are now acting as %{organization}."
+msgstr "Sie handeln jetzt als %{organization}."
 
-#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
 #, elixir-autogen, elixir-format
-msgid "Deselect"
-msgstr "Abwählen"
+msgid "Too many organization switches. Please try again later."
+msgstr "Zu viele Organisationswechsel. Bitte versuchen Sie es später erneut."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "There is nothing left to remove."
-msgstr "Es gibt nichts mehr zu entfernen."
+msgid "Could not enter that organization."
+msgstr "Diese Organisation konnte nicht geöffnet werden."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "The files changed. Check the list and confirm again."
-msgstr "Die Dateien haben sich geändert. Prüfen Sie die Liste und bestätigen Sie erneut."
+msgid "You are back in your own account."
+msgstr "Sie sind wieder in Ihrem eigenen Konto."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "%{deleted} deleted, %{kept} kept: in use"
-msgstr "%{deleted} gelöscht, %{kept} behalten: in Verwendung"
+msgid "Return to your own account before adding another account."
+msgstr "Kehren Sie zu Ihrem eigenen Konto zurück, bevor Sie ein weiteres Konto hinzufügen."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "The files could not be checked, so nothing was removed. Try again later."
-msgstr "Die Dateien konnten nicht geprüft werden, daher wurde nichts entfernt. Versuchen Sie es später erneut."
+msgid "Return to your own account before signing in as another user."
+msgstr "Kehren Sie zu Ihrem eigenen Konto zurück, bevor Sie sich als anderer Benutzer anmelden."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "The files could not be freed. Nothing was removed."
-msgstr "Die Dateien konnten nicht freigegeben werden. Es wurde nichts entfernt."
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, über diesen Browser"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "This cannot be undone."
-msgstr "Dies kann nicht rückgängig gemacht werden."
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · über %{person}"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "Not available to you"
-msgstr "Für Sie nicht verfügbar"
+msgid "Managed organization"
+msgstr "Verwaltete Organisation"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Please wait…"
-msgstr "Bitte warten…"
+msgid "Add %{person}"
+msgstr "%{person} hinzufügen"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Could not check the files"
-msgstr "Die Dateien konnten nicht geprüft werden"
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Fügen Sie zuerst einen weiteren aktiven Verwalter hinzu oder lassen Sie die Organisation als Administrator ausdrücklich ohne Verwalter."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "and %{count} more file"
-msgid_plural "and %{count} more files"
-msgstr[0] "und %{count} weitere Datei"
-msgstr[1] "und %{count} weitere Dateien"
+msgid "Allow managed organizations to have no active managers"
+msgstr "Verwaltete Organisationen ohne aktive Verwalter zulassen"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "%{count} file is in use and stays in the trash:"
-msgid_plural "%{count} files are in use and stay in the trash:"
-msgstr[0] "%{count} Datei wird verwendet und bleibt im Papierkorb:"
-msgstr[1] "%{count} Dateien werden verwendet und bleiben im Papierkorb:"
+msgid "Allow this organization to have no active managers"
+msgstr "Diese Organisation ohne aktive Verwalter zulassen"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Cannot delete: the file is in use"
-msgid_plural "Cannot delete: %{count} files are in use"
-msgstr[0] "Löschen nicht möglich: Die Datei wird verwendet"
-msgstr[1] "Löschen nicht möglich: %{count} Dateien werden verwendet"
+msgid "Check the email address and required fields."
+msgstr "Prüfen Sie die E-Mail-Adresse und die Pflichtfelder."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Move %{count} folder and its contents to trash?"
-msgid_plural "Move %{count} folders and their contents to trash?"
-msgstr[0] "%{count} Ordner und seinen Inhalt in den Papierkorb verschieben?"
-msgstr[1] "%{count} Ordner und ihren Inhalt in den Papierkorb verschieben?"
+msgid "Check the organization name, contact email and first manager."
+msgstr "Prüfen Sie Organisationsname, Kontaktadresse und ersten Verwalter."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Delete %{count} folder and its contents for good?"
-msgid_plural "Delete %{count} folders and their contents for good?"
-msgstr[0] "%{count} Ordner und seinen Inhalt endgültig löschen?"
-msgstr[1] "%{count} Ordner und ihren Inhalt endgültig löschen?"
+msgid "Choose a person"
+msgstr "Person auswählen"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Delete %{count} file for good?"
-msgid_plural "Delete %{count} files for good?"
-msgstr[0] "%{count} Datei endgültig löschen?"
-msgstr[1] "%{count} Dateien endgültig löschen?"
+msgid "Contact address updated"
+msgstr "Kontaktadresse aktualisiert"
 
+msgid "Contact email"
+msgstr "Kontakt-E-Mail"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
-#, elixir-autogen, elixir-format
-msgid "%{count} item permanently deleted"
-msgid_plural "%{count} items permanently deleted"
-msgstr[0] "%{count} Element endgültig gelöscht"
-msgstr[1] "%{count} Elemente endgültig gelöscht"
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Stellen Sie diese Organisation auf Verwalterkonten um. Bisherige Zugangsdaten und Sitzungen werden widerrufen."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
-#, elixir-autogen, elixir-format
-msgid "%{count} item moved to trash"
-msgid_plural "%{count} items moved to trash"
-msgstr[0] "%{count} Element in den Papierkorb verschoben"
-msgstr[1] "%{count} Elemente in den Papierkorb verschoben"
+msgid "Convert to independent organization"
+msgstr "In eigenständige Organisation umwandeln"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Umstellen mit %{person} als erstem Verwalter"
+
+msgid "Create managed organization"
+msgstr "Verwaltete Organisation erstellen"
+
+msgid "Find an active person"
+msgstr "Aktive Person suchen"
+
+msgid "Find the first manager"
+msgstr "Ersten Verwalter suchen"
+
+msgid "First manager"
+msgstr "Erster Verwalter"
+
+msgid "Give this organization its own login"
+msgstr "Dieser Organisation einen eigenen Zugang geben"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "Wenn diese Adresse Einladungen empfangen kann, steht ihrem Inhaber eine Verwaltereinladung zur Verfügung."
+
+msgid "Invite a manager by email"
+msgstr "Verwalter per E-Mail einladen"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Lädt eine Person ein, eine Organisation über ihr eigenes Konto zu verwalten."
+
+msgid "Managed organization created"
+msgstr "Verwaltete Organisation erstellt"
+
+msgid "Manager added"
+msgstr "Verwalter hinzugefügt"
+
+msgid "Manager removed"
+msgstr "Verwalter entfernt"
+
+msgid "Managers"
+msgstr "Verwalter"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Verwalter handeln über ihre eigenen Konten für diese Organisation."
+
+msgid "New login email"
+msgstr "Neue Anmelde-E-Mail"
+
+msgid "New managed organization"
+msgstr "Neue verwaltete Organisation"
+
+msgid "Organization manager invitation"
+msgstr "Einladung als Organisationsverwalter"
+
+msgid "Organization name"
+msgstr "Organisationsname"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "Die Organisation hat jetzt eigene Zugangsdaten"
+
+msgid "Organization now uses manager accounts"
+msgstr "Die Organisation nutzt jetzt Verwalterkonten"
+
+msgid "Remove manager"
+msgstr "Verwalter entfernen"
+
+msgid "Send invitation"
+msgstr "Einladung senden"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "Die Organisation hat keinen eigenen Zugang. Wählen Sie eine aktive Person, die sie über ihr eigenes Konto verwaltet."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "Diese Änderung ist nicht verfügbar. Laden Sie die Seite neu und prüfen Sie Ihre Berechtigung."
+
+msgid "This organization has no managers."
+msgstr "Diese Organisation hat keine Verwalter."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "Diese Person ist der letzte aktive Verwalter. Fügen Sie einen weiteren hinzu oder erlauben Sie ausdrücklich eine Organisation ohne Verwalter."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "Alle Verwalter und stellvertretenden Sitzungen werden entfernt. Legen Sie neue Zugangsdaten fest; bisherige bleiben widerrufen."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Zu viele Einladungen. Bitte später erneut versuchen."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Nutzen Sie Ihr eigenes Administratorkonto, um eine verwaltete Organisation zu erstellen."
+
+msgid "You can now act for the organization."
+msgstr "Sie können jetzt für die Organisation handeln."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "Sie wurden eingeladen, %{organization} zu verwalten. Erstellen Sie ein persönliches Konto, um die Einladung anzunehmen."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "Einladung zur Verwaltung von {{organization_name}}"
+
+msgid "invited you to manage their organization."
+msgstr "hat Sie zur Verwaltung der Organisation eingeladen."
+
+msgid "You can now act for %{organization}."
+msgstr "Sie können jetzt für %{organization} handeln."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Ihr Zugang zum Handeln für %{organization} wurde entfernt."
+
+msgid "the organization"
+msgstr "die Organisation"
+
+msgid "another user"
+msgstr "ein anderer Nutzer"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Hallo {{user_email}},\n\n{{organization_name}} hat Sie als Verwalter eingeladen. Verwalter handeln über ihr eigenes Konto für die Organisation.\n\nMelden Sie sich an oder erstellen Sie ein persönliches Konto und nehmen Sie dann die Einladung im Banner an.\n\n[Verwaltereinladung ansehen]({{invitation_url}})\n\nDie Einladung läuft nach 7 Tagen ab. Falls Sie diese Nachricht nicht erwartet haben, können Sie sie ignorieren.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"
@@ -21952,3 +22021,123 @@ msgstr "Nichts zu verschieben"
 #, elixir-autogen, elixir-format
 msgid "%{moved} of %{total} items moved"
 msgstr "%{moved} von %{total} Elementen verschoben"
+msgid "Wait for the uploads to finish"
+msgstr "Warten Sie, bis die Uploads abgeschlossen sind"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "No open media browser could receive this upload."
+msgstr "Kein geöffneter Medienbrowser konnte diesen Upload empfangen."
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Maximum %{count} file"
+msgid_plural "Maximum %{count} files"
+msgstr[0] "Maximal %{count} Datei"
+msgstr[1] "Maximal %{count} Dateien"
+
+#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
+#, elixir-autogen, elixir-format
+msgid "Deselect"
+msgstr "Abwählen"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "There is nothing left to remove."
+msgstr "Es gibt nichts mehr zu entfernen."
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "The files changed. Check the list and confirm again."
+msgstr "Die Dateien haben sich geändert. Prüfen Sie die Liste und bestätigen Sie erneut."
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{deleted} deleted, %{kept} kept: in use"
+msgstr "%{deleted} gelöscht, %{kept} behalten: in Verwendung"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "The files could not be checked, so nothing was removed. Try again later."
+msgstr "Die Dateien konnten nicht geprüft werden, daher wurde nichts entfernt. Versuchen Sie es später erneut."
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "The files could not be freed. Nothing was removed."
+msgstr "Die Dateien konnten nicht freigegeben werden. Es wurde nichts entfernt."
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "This cannot be undone."
+msgstr "Dies kann nicht rückgängig gemacht werden."
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Not available to you"
+msgstr "Für Sie nicht verfügbar"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Please wait…"
+msgstr "Bitte warten…"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Could not check the files"
+msgstr "Die Dateien konnten nicht geprüft werden"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "and %{count} more file"
+msgid_plural "and %{count} more files"
+msgstr[0] "und %{count} weitere Datei"
+msgstr[1] "und %{count} weitere Dateien"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} file is in use and stays in the trash:"
+msgid_plural "%{count} files are in use and stay in the trash:"
+msgstr[0] "%{count} Datei wird verwendet und bleibt im Papierkorb:"
+msgstr[1] "%{count} Dateien werden verwendet und bleiben im Papierkorb:"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Cannot delete: the file is in use"
+msgid_plural "Cannot delete: %{count} files are in use"
+msgstr[0] "Löschen nicht möglich: Die Datei wird verwendet"
+msgstr[1] "Löschen nicht möglich: %{count} Dateien werden verwendet"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Move %{count} folder and its contents to trash?"
+msgid_plural "Move %{count} folders and their contents to trash?"
+msgstr[0] "%{count} Ordner und seinen Inhalt in den Papierkorb verschieben?"
+msgstr[1] "%{count} Ordner und ihren Inhalt in den Papierkorb verschieben?"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Delete %{count} folder and its contents for good?"
+msgid_plural "Delete %{count} folders and their contents for good?"
+msgstr[0] "%{count} Ordner und seinen Inhalt endgültig löschen?"
+msgstr[1] "%{count} Ordner und ihren Inhalt endgültig löschen?"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Delete %{count} file for good?"
+msgid_plural "Delete %{count} files for good?"
+msgstr[0] "%{count} Datei endgültig löschen?"
+msgstr[1] "%{count} Dateien endgültig löschen?"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} item permanently deleted"
+msgid_plural "%{count} items permanently deleted"
+msgstr[0] "%{count} Element endgültig gelöscht"
+msgstr[1] "%{count} Elemente endgültig gelöscht"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} item moved to trash"
+msgid_plural "%{count} items moved to trash"
+msgstr[0] "%{count} Element in den Papierkorb verschoben"
+msgstr[1] "%{count} Elemente in den Papierkorb verschoben"

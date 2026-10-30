@@ -21726,136 +21726,196 @@ msgstr "Эти файлы принадлежат модулю, который и
 
 #: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
-msgid "Wait for the uploads to finish"
-msgstr "Дождитесь окончания загрузки"
+msgid "Back to my account"
+msgstr "Вернуться в мой аккаунт"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "No open media browser could receive this upload."
-msgstr "Ни один открытый медиабраузер не смог принять эту загрузку."
+msgid "My account"
+msgstr "Мой аккаунт"
 
-#: lib/phoenix_kit_web/components/media_browser/header.html.heex
 #, elixir-autogen, elixir-format
-msgid "Maximum %{count} file"
-msgid_plural "Maximum %{count} files"
-msgstr[0] "Максимум %{count} файл"
-msgstr[1] "Максимум %{count} файла"
-msgstr[2] "Максимум %{count} файлов"
+msgid "You are now acting as %{organization}."
+msgstr "Теперь вы действуете от имени %{organization}."
 
-#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
 #, elixir-autogen, elixir-format
-msgid "Deselect"
-msgstr "Снять выбор"
+msgid "Too many organization switches. Please try again later."
+msgstr "Слишком много переключений организаций. Повторите попытку позже."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "There is nothing left to remove."
-msgstr "Удалять больше нечего."
+msgid "Could not enter that organization."
+msgstr "Не удалось войти в эту организацию."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "The files changed. Check the list and confirm again."
-msgstr "Файлы изменились. Проверьте список и подтвердите ещё раз."
+msgid "You are back in your own account."
+msgstr "Вы вернулись в свой аккаунт."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
 #, elixir-autogen, elixir-format
-msgid "%{deleted} deleted, %{kept} kept: in use"
-msgstr "Удалено: %{deleted}, оставлено: %{kept} — используются"
+msgid "Return to your own account before adding another account."
+msgstr "Вернитесь в свой аккаунт, прежде чем добавлять другой аккаунт."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "The files could not be checked, so nothing was removed. Try again later."
-msgstr "Не удалось проверить файлы, поэтому ничего не удалено. Повторите позже."
+msgid "Return to your own account before signing in as another user."
+msgstr "Вернитесь в свой аккаунт, прежде чем входить от имени другого пользователя."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "The files could not be freed. Nothing was removed."
-msgstr "Не удалось освободить файлы. Ничего не удалено."
+msgid "%{organization}, from this browser"
+msgstr "%{organization}, из этого браузера"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "This cannot be undone."
-msgstr "Это действие нельзя отменить."
+msgid "%{organization} · via %{person}"
+msgstr "%{organization} · через %{person}"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
 #, elixir-autogen, elixir-format
-msgid "Not available to you"
-msgstr "Недоступно вам"
+msgid "Managed organization"
+msgstr "Управляемая организация"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Please wait…"
-msgstr "Подождите…"
+msgid "Add %{person}"
+msgstr "Добавить %{person}"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Could not check the files"
-msgstr "Не удалось проверить файлы"
+msgid "Add another active manager first, or explicitly leave this organization without managers as an administrator."
+msgstr "Сначала добавьте другого активного управляющего или явно оставьте организацию без управляющих как администратор."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "and %{count} more file"
-msgid_plural "and %{count} more files"
-msgstr[0] "и ещё %{count} файл"
-msgstr[1] "и ещё %{count} файла"
-msgstr[2] "и ещё %{count} файлов"
+msgid "Allow managed organizations to have no active managers"
+msgstr "Разрешить организациям остаться без активных управляющих"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "%{count} file is in use and stays in the trash:"
-msgid_plural "%{count} files are in use and stay in the trash:"
-msgstr[0] "%{count} файл используется и остаётся в корзине:"
-msgstr[1] "%{count} файла используются и остаются в корзине:"
-msgstr[2] "%{count} файлов используются и остаются в корзине:"
+msgid "Allow this organization to have no active managers"
+msgstr "Разрешить этой организации остаться без активных управляющих"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Cannot delete: the file is in use"
-msgid_plural "Cannot delete: %{count} files are in use"
-msgstr[0] "Нельзя удалить: используется %{count} файл"
-msgstr[1] "Нельзя удалить: используются %{count} файла"
-msgstr[2] "Нельзя удалить: используются %{count} файлов"
+msgid "Check the email address and required fields."
+msgstr "Проверьте адрес почты и обязательные поля."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Move %{count} folder and its contents to trash?"
-msgid_plural "Move %{count} folders and their contents to trash?"
-msgstr[0] "Переместить %{count} папку и её содержимое в корзину?"
-msgstr[1] "Переместить %{count} папки и их содержимое в корзину?"
-msgstr[2] "Переместить %{count} папок и их содержимое в корзину?"
+msgid "Check the organization name, contact email and first manager."
+msgstr "Проверьте название организации, контактную почту и первого управляющего."
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Delete %{count} folder and its contents for good?"
-msgid_plural "Delete %{count} folders and their contents for good?"
-msgstr[0] "Удалить %{count} папку и её содержимое навсегда?"
-msgstr[1] "Удалить %{count} папки и их содержимое навсегда?"
-msgstr[2] "Удалить %{count} папок и их содержимое навсегда?"
+msgid "Choose a person"
+msgstr "Выберите человека"
 
-#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
-#, elixir-autogen, elixir-format
-msgid "Delete %{count} file for good?"
-msgid_plural "Delete %{count} files for good?"
-msgstr[0] "Удалить %{count} файл навсегда?"
-msgstr[1] "Удалить %{count} файла навсегда?"
-msgstr[2] "Удалить %{count} файлов навсегда?"
+msgid "Contact address updated"
+msgstr "Контактный адрес обновлён"
 
+msgid "Contact email"
+msgstr "Контактная почта"
 
-#: lib/phoenix_kit_web/components/media_browser.ex
-#, elixir-autogen, elixir-format
-msgid "%{count} item permanently deleted"
-msgid_plural "%{count} items permanently deleted"
-msgstr[0] "%{count} объект удалён навсегда"
-msgstr[1] "%{count} объекта удалено навсегда"
-msgstr[2] "%{count} объектов удалено навсегда"
+msgid "Convert this organization to manager accounts. Its existing credentials and sessions will be revoked."
+msgstr "Переведите организацию на учётные записи управляющих. Прежние данные входа и сеансы будут отозваны."
 
-#: lib/phoenix_kit_web/components/media_browser.ex
-#, elixir-autogen, elixir-format
-msgid "%{count} item moved to trash"
-msgid_plural "%{count} items moved to trash"
-msgstr[0] "%{count} объект перемещён в корзину"
-msgstr[1] "%{count} объекта перемещено в корзину"
-msgstr[2] "%{count} объектов перемещено в корзину"
+msgid "Convert to independent organization"
+msgstr "Сделать организацию самостоятельной"
+
+msgid "Convert with %{person} as first manager"
+msgstr "Преобразовать: первый управляющий — %{person}"
+
+msgid "Create managed organization"
+msgstr "Создать управляемую организацию"
+
+msgid "Find an active person"
+msgstr "Найти активного пользователя"
+
+msgid "Find the first manager"
+msgstr "Найти первого управляющего"
+
+msgid "First manager"
+msgstr "Первый управляющий"
+
+msgid "Give this organization its own login"
+msgstr "Дать организации собственный вход"
+
+msgid "If this address can receive invitations, a manager invitation is available to its owner."
+msgstr "Если этот адрес может получать приглашения, его владельцу доступно приглашение управляющего."
+
+msgid "Invite a manager by email"
+msgstr "Пригласить управляющего по почте"
+
+msgid "Invites a person to manage an organization from their own account."
+msgstr "Приглашает человека управлять организацией из своей учётной записи."
+
+msgid "Managed organization created"
+msgstr "Управляемая организация создана"
+
+msgid "Manager added"
+msgstr "Управляющий добавлен"
+
+msgid "Manager removed"
+msgstr "Управляющий удалён"
+
+msgid "Managers"
+msgstr "Управляющие"
+
+msgid "Managers use their own accounts to act for this organization."
+msgstr "Управляющие действуют от имени организации из своих учётных записей."
+
+msgid "New login email"
+msgstr "Новая почта для входа"
+
+msgid "New managed organization"
+msgstr "Новая управляемая организация"
+
+msgid "Organization manager invitation"
+msgstr "Приглашение управляющего организации"
+
+msgid "Organization name"
+msgstr "Название организации"
+
+msgid "Organization now has its own sign-in credentials"
+msgstr "У организации теперь собственные данные входа"
+
+msgid "Organization now uses manager accounts"
+msgstr "Организация теперь использует учётные записи управляющих"
+
+msgid "Remove manager"
+msgstr "Удалить управляющего"
+
+msgid "Send invitation"
+msgstr "Отправить приглашение"
+
+msgid "The organization has no login of its own. Choose an active person who will manage it using their own account."
+msgstr "У организации нет собственного входа. Выберите активного человека, который будет управлять ею из своей учётной записи."
+
+msgid "This change is not available. Refresh the page and check your access."
+msgstr "Изменение недоступно. Обновите страницу и проверьте доступ."
+
+msgid "This organization has no managers."
+msgstr "У этой организации нет управляющих."
+
+msgid "This person is the last active manager. Add another manager or explicitly allow the organization to have no managers."
+msgstr "Это последний активный управляющий. Добавьте другого или явно разрешите организации остаться без управляющих."
+
+msgid "This removes all managers and acting sessions. Set new credentials; previous credentials stay revoked."
+msgstr "Все управляющие и их сеансы будут удалены. Задайте новые данные входа; старые останутся отозванными."
+
+msgid "Too many invitations. Please try again later."
+msgstr "Слишком много приглашений. Попробуйте позже."
+
+msgid "Use your own administrator account to create a managed organization."
+msgstr "Для создания управляемой организации войдите в свою учётную запись администратора."
+
+msgid "You can now act for the organization."
+msgstr "Теперь вы можете действовать от имени организации."
+
+msgid "You've been invited to manage %{organization}. Create a personal account to accept the invitation."
+msgstr "Вас пригласили управлять %{organization}. Создайте личную учётную запись, чтобы принять приглашение."
+
+msgid "You've been invited to manage {{organization_name}}"
+msgstr "Вас пригласили управлять {{organization_name}}"
+
+msgid "invited you to manage their organization."
+msgstr "приглашает вас управлять своей организацией."
+
+msgid "You can now act for %{organization}."
+msgstr "Теперь вы можете действовать от имени %{organization}."
+
+msgid "Your access to act for %{organization} was removed."
+msgstr "Ваш доступ к действиям от имени %{organization} отозван."
+
+msgid "the organization"
+msgstr "организация"
+
+msgid "another user"
+msgstr "другой пользователь"
+
+msgid "Hi {{user_email}},\n\n{{organization_name}} has invited you to become a manager. Managers act for the organization using their own account.\n\nSign in or create your personal account, then accept the invitation banner.\n\n[Review manager invitation]({{invitation_url}})\n\nThis invitation expires in 7 days. If you did not expect it, you can ignore this email.\n"
+msgstr "Здравствуйте, {{user_email}}!\n\n{{organization_name}} приглашает вас стать управляющим. Управляющие действуют от имени организации из своей учётной записи.\n\nВойдите или создайте личную учётную запись, затем примите приглашение в баннере.\n\n[Посмотреть приглашение управляющего]({{invitation_url}})\n\nПриглашение действует 7 дней. Если вы его не ожидали, можете проигнорировать это письмо.\n"
+
 #: lib/phoenix_kit/users/permissions.ex
 #, elixir-autogen, elixir-format
 msgid "Personal API keys"
@@ -22162,3 +22222,132 @@ msgstr "Нечего переносить"
 #, elixir-autogen, elixir-format
 msgid "%{moved} of %{total} items moved"
 msgstr "Перенесено: %{moved} из %{total}"
+msgid "Wait for the uploads to finish"
+msgstr "Дождитесь окончания загрузки"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "No open media browser could receive this upload."
+msgstr "Ни один открытый медиабраузер не смог принять эту загрузку."
+
+#: lib/phoenix_kit_web/components/media_browser/header.html.heex
+#, elixir-autogen, elixir-format
+msgid "Maximum %{count} file"
+msgid_plural "Maximum %{count} files"
+msgstr[0] "Максимум %{count} файл"
+msgstr[1] "Максимум %{count} файла"
+msgstr[2] "Максимум %{count} файлов"
+
+#: lib/phoenix_kit_web/components/media_canvas_viewer.html.heex
+#, elixir-autogen, elixir-format
+msgid "Deselect"
+msgstr "Снять выбор"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "There is nothing left to remove."
+msgstr "Удалять больше нечего."
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "The files changed. Check the list and confirm again."
+msgstr "Файлы изменились. Проверьте список и подтвердите ещё раз."
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{deleted} deleted, %{kept} kept: in use"
+msgstr "Удалено: %{deleted}, оставлено: %{kept} — используются"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "The files could not be checked, so nothing was removed. Try again later."
+msgstr "Не удалось проверить файлы, поэтому ничего не удалено. Повторите позже."
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "The files could not be freed. Nothing was removed."
+msgstr "Не удалось освободить файлы. Ничего не удалено."
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "This cannot be undone."
+msgstr "Это действие нельзя отменить."
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Not available to you"
+msgstr "Недоступно вам"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Please wait…"
+msgstr "Подождите…"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Could not check the files"
+msgstr "Не удалось проверить файлы"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "and %{count} more file"
+msgid_plural "and %{count} more files"
+msgstr[0] "и ещё %{count} файл"
+msgstr[1] "и ещё %{count} файла"
+msgstr[2] "и ещё %{count} файлов"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} file is in use and stays in the trash:"
+msgid_plural "%{count} files are in use and stay in the trash:"
+msgstr[0] "%{count} файл используется и остаётся в корзине:"
+msgstr[1] "%{count} файла используются и остаются в корзине:"
+msgstr[2] "%{count} файлов используются и остаются в корзине:"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Cannot delete: the file is in use"
+msgid_plural "Cannot delete: %{count} files are in use"
+msgstr[0] "Нельзя удалить: используется %{count} файл"
+msgstr[1] "Нельзя удалить: используются %{count} файла"
+msgstr[2] "Нельзя удалить: используются %{count} файлов"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Move %{count} folder and its contents to trash?"
+msgid_plural "Move %{count} folders and their contents to trash?"
+msgstr[0] "Переместить %{count} папку и её содержимое в корзину?"
+msgstr[1] "Переместить %{count} папки и их содержимое в корзину?"
+msgstr[2] "Переместить %{count} папок и их содержимое в корзину?"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Delete %{count} folder and its contents for good?"
+msgid_plural "Delete %{count} folders and their contents for good?"
+msgstr[0] "Удалить %{count} папку и её содержимое навсегда?"
+msgstr[1] "Удалить %{count} папки и их содержимое навсегда?"
+msgstr[2] "Удалить %{count} папок и их содержимое навсегда?"
+
+#: lib/phoenix_kit_web/components/media_browser/removal_modal.ex
+#, elixir-autogen, elixir-format
+msgid "Delete %{count} file for good?"
+msgid_plural "Delete %{count} files for good?"
+msgstr[0] "Удалить %{count} файл навсегда?"
+msgstr[1] "Удалить %{count} файла навсегда?"
+msgstr[2] "Удалить %{count} файлов навсегда?"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} item permanently deleted"
+msgid_plural "%{count} items permanently deleted"
+msgstr[0] "%{count} объект удалён навсегда"
+msgstr[1] "%{count} объекта удалено навсегда"
+msgstr[2] "%{count} объектов удалено навсегда"
+
+#: lib/phoenix_kit_web/components/media_browser.ex
+#, elixir-autogen, elixir-format
+msgid "%{count} item moved to trash"
+msgid_plural "%{count} items moved to trash"
+msgstr[0] "%{count} объект перемещён в корзину"
+msgstr[1] "%{count} объекта перемещено в корзину"
+msgstr[2] "%{count} объектов перемещено в корзину"

@@ -953,25 +953,21 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
       else: sets ++ List.wrap(VariantSets.get_variant_set(current))
   end
 
-  defp own_storage_label(%{mode: :only, buckets: [first | copies]}) do
-    case length(copies) do
-      0 ->
-        gettext("Your bucket: %{name}", name: first.bucket.bucket_name)
-
-      n ->
-        ngettext(
-          "Your bucket: %{name} (+%{count} copy)",
-          "Your bucket: %{name} (+%{count} copies)",
-          n,
-          name: first.bucket.bucket_name
-        )
-    end
+  defp site_storage_label do
+    gettext("%{project}'s storage", project: PhoenixKit.Settings.get_project_title())
   end
 
-  defp own_storage_label(%{mode: :backup, buckets: buckets}) do
-    gettext("Backed up to: %{names}",
-      names: Enum.map_join(buckets, ", ", & &1.bucket.bucket_name)
-    )
+  defp own_storage_label(%{role: "primary", bucket: bucket}),
+    do: gettext("Your bucket: %{name}", name: bucket.bucket_name)
+
+  defp own_storage_label(%{bucket: bucket}),
+    do: gettext("Backed up to: %{names}", names: bucket.bucket_name)
+
+  defp bucket_integration_label(connections, bucket) do
+    case storage_connection(connections, bucket) do
+      nil -> bucket.provider
+      connection -> Enum.join([connection.name, connection.service], " · ")
+    end
   end
 
   defp trash_confirm(library, own_storage) do
@@ -1095,18 +1091,34 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
                 >{LibraryPreferences.library_url(library, @scope)}</.link>
               </.table_default_cell>
               <.table_default_cell>
-                <span
+                <div
                   :if={storage = @own_storage[to_string(library.uuid)]}
-                  class="badge badge-outline badge-sm"
-                  title={gettext("Where this library keeps its files")}
+                  class="flex flex-col gap-2"
                 >
-                  {own_storage_label(storage)}
-                </span>
+                  <div :for={target <- storage.buckets} class="text-sm">
+                    <div class="flex items-start gap-1.5">
+                      <.icon
+                        name={
+                          if target.role == "primary",
+                            do: "hero-circle-stack",
+                            else: "hero-shield-check"
+                        }
+                        class="size-3.5 shrink-0 mt-0.5 text-base-content/60"
+                      />
+                      <span class="break-all">{own_storage_label(target)}</span>
+                    </div>
+                    <div class="flex items-start gap-1.5 text-xs text-base-content/60 mt-0.5">
+                      <.icon name="hero-cloud" class="size-3 shrink-0 mt-0.5" />
+                      <span class="break-all">{bucket_integration_label(@connections, target.bucket)}</span>
+                    </div>
+                  </div>
+                </div>
                 <span
                   :if={!@own_storage[to_string(library.uuid)]}
-                  class="text-sm text-base-content/60"
+                  class="inline-flex items-center gap-1.5 text-sm text-base-content/60"
                 >
-                  {gettext("The site's storage")}
+                  <.icon name="hero-server-stack" class="size-3.5 shrink-0" />
+                  {site_storage_label()}
                 </span>
                 <div :if={progress = @storage_progress[to_string(library.uuid)]} class="mt-2 max-w-xs">
                   <button
@@ -1291,7 +1303,7 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
                 </div>
               </.table_default_cell>
               <.table_default_cell>
-                <span class="text-sm text-base-content/60">{gettext("The site's storage")}</span>
+                <span class="text-sm text-base-content/60">{site_storage_label()}</span>
               </.table_default_cell>
               <.table_default_cell>
                 <.visibility_badge library={@media.library} />
@@ -1792,7 +1804,7 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
               class="radio radio-sm radio-primary mt-0.5"
             />
             <span class="text-sm">
-              {gettext("The site's storage")}
+              {site_storage_label()}
               <span class="block text-xs text-base-content/60">
                 {gettext("Nothing to set up.")}
               </span>
@@ -1916,7 +1928,9 @@ defmodule PhoenixKitWeb.Live.Components.LibrarySettings do
                 class="radio radio-sm radio-primary mt-0.5"
               />
               <span class="text-sm">
-                {gettext("The site's storage, backed up here")}
+                {gettext("%{project}'s storage, backed up here",
+                  project: PhoenixKit.Settings.get_project_title()
+                )}
                 <span class="block text-xs text-base-content/60">
                   <%= if length(@form["targets"]) > 1 do %>
                     {gettext(

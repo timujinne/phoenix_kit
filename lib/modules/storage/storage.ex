@@ -2493,7 +2493,8 @@ defmodule PhoenixKit.Modules.Storage do
         :any -> query
       end
 
-    if file_uuids == [], do: MapSet.new(), else: query |> repo().all() |> MapSet.new(&to_string/1)
+    linked_uuids = if file_uuids == [], do: [], else: repo().all(query)
+    MapSet.new(linked_uuids, &to_string/1)
   end
 
   # The files homed in a subtree, split in two: `{promote, rest}` — those a

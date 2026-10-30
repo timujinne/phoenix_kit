@@ -469,6 +469,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   @doc false
   defdelegate viewer_component_id(f), to: Helpers
   @doc false
+  defdelegate viewer_component_id(f, assigns), to: Helpers
+  @doc false
   defdelegate image_editor_id(browser_id, file_uuid), to: Helpers
   @doc false
   defdelegate panorama?(file), to: Helpers
@@ -479,7 +481,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     case socket.assigns[:viewer_file] do
       %{file_uuid: ^file_uuid} = f ->
         send_update(PhoenixKitWeb.Components.MediaCanvasViewer,
-          id: viewer_component_id(f),
+          id: viewer_component_id(f, socket.assigns),
           action: :refresh_annotations
         )
 
@@ -829,9 +831,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         _ -> :infinity
       end
 
-    uuids
-    |> Stream.filter(&pickable?(socket, &1))
-    |> then(&if(limit == :infinity, do: Enum.to_list(&1), else: Enum.take(&1, limit)))
+    picked = pickable_uuids(socket, uuids)
+    if limit == :infinity, do: picked, else: Enum.take(picked, limit)
   end
 
   defp start_pick(_socket, _uuids), do: []
@@ -914,40 +915,24 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp pickable_files(socket, uuids) do
     uuids = uuids |> Enum.filter(&uuid_string?/1) |> Enum.map(&String.downcase/1) |> Enum.uniq()
 
-    files =
-      if uuids == [] do
-        []
-      else
-        PhoenixKit.Config.get_repo().all(
-          from(f in Storage.File, where: f.uuid in ^uuids and f.system_managed == false)
-        )
-      end
-
-    viewer = socket.assigns[:viewer_uuid]
-
     found =
-      files
+      uuids
+      |> load_by_uuid(Storage.File)
+      |> shown_only(socket)
       |> Enum.filter(fn file ->
-        file.status != "trashed" and socket.assigns[:only_file_type] in [nil, file.file_type] and
-          Storage.viewer_can_see_file?(viewer, file)
+        not file.system_managed and file.status != "trashed" and
+          socket.assigns[:only_file_type] in [nil, file.file_type]
       end)
-      |> in_browser_library(socket)
       |> in_pick_scope(scope_folder_id(socket))
       |> Map.new(&{to_string(&1.uuid), &1})
 
     for uuid <- uuids, file = found[uuid], do: file
   end
 
-  defp in_browser_library(files, socket) do
-    case socket.assigns[:library_uuid] do
-      nil ->
-        private = files |> Enum.map(& &1.library_uuid) |> Libraries.user_or_hidden_among()
-        Enum.reject(files, &(to_string(&1.library_uuid) in private))
-
-      library_uuid ->
-        Enum.filter(files, &(to_string(&1.library_uuid) == to_string(library_uuid)))
-    end
-  end
+  # Read in bulk while preserving the host's order. Opening or confirming a
+  # large pick must not query the file and scope subtree once per entry.
+  defp pickable_uuids(socket, uuids),
+    do: socket |> pickable_files(uuids) |> Enum.map(&to_string(&1.uuid))
 
   defp in_pick_scope([], _scope), do: []
   defp in_pick_scope(files, nil), do: files
@@ -1001,10 +986,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   defp pick_upload(socket, _result), do: socket
 
-  # Confirm hands the host the pick minus what was trashed or deleted since it
-  # was picked.
+  # Check the whole boundary again: a live file may have moved to another
+  # library or outside the scoped folder since it was picked.
   defp confirm_pick(socket) do
-    uuids = still_live(socket.assigns.picked)
+    uuids = pickable_uuids(socket, socket.assigns.picked)
 
     socket
     |> assign(:picked, uuids)
@@ -1021,20 +1006,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> assign(:pick_reported, message)
       |> notify_picker_host(message)
     end
-  end
-
-  defp still_live([]), do: []
-
-  defp still_live(uuids) do
-    live =
-      from(f in Storage.File,
-        where: f.uuid in ^uuids and f.status != "trashed",
-        select: f.uuid
-      )
-      |> PhoenixKit.Config.get_repo().all()
-      |> MapSet.new(&to_string/1)
-
-    Enum.filter(uuids, &MapSet.member?(live, &1))
   end
 
   defp notify_picker_host(socket, message) do
@@ -1521,7 +1492,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
          %Storage.File{} = file <- Storage.get_file(file_uuid),
          fresh when is_map(fresh) <- enrich_files([file]) |> List.first() do
       send_update(PhoenixKitWeb.Components.MediaCanvasViewer,
-        id: viewer_component_id(viewer),
+        id: viewer_component_id(viewer, socket.assigns),
         burn_refreshed: fresh
       )
     else
@@ -5137,10 +5108,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     # action on one (move, trash, delete) is a folder action.
     folders =
       if socket.assigns.folder_actions,
-        do: MapSet.new(socket.assigns.folders, & &1.uuid),
-        else: MapSet.new()
+        do: socket.assigns.folders,
+        else: []
 
-    {files, folders}
+    {files, MapSet.new(folders, & &1.uuid)}
   end
 
   defp box_uuids(list, allowed) when is_list(list) do
@@ -5910,7 +5881,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp same_files?(pending, analysis, free),
     do:
       Enum.sort(pending.files) == Enum.sort(analysis.files) and
-        Enum.sort(pending.free) == Enum.sort(free)
+        Enum.sort(pending.free) == Enum.sort(free) and
+        Enum.sort(pending.folder_uuids) == Enum.sort(analysis.folder_uuids)
 
   defp removal_execute(event, params, socket, analysis, free, held) do
     only = if analysis.skip?, do: free
@@ -5966,6 +5938,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       kind: analysis.kind,
       skip?: analysis.skip?,
       folders: analysis.folders,
+      folder_uuids: analysis.folder_uuids,
       files: analysis.files,
       free: free,
       places: places,
@@ -6104,7 +6077,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       plan,
       current_folder_uuid(socket),
       skip?: trash? and folders == [],
-      folders: length(folders)
+      folder_uuids: Enum.map(folders, & &1.uuid)
     )
   end
 
@@ -6132,7 +6105,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     if folder && Storage.within_scope?(folder.uuid, scope_folder_id(socket)),
       do:
         removal_analysis_of(action, kind, Storage.removal_plan(plan_action, folder), folder.uuid,
-          folders: 1
+          folder_uuids: [folder.uuid]
         ),
       else: :pass
   end
@@ -6142,7 +6115,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # on folders asks even when no file goes with them.
   defp removal_analysis_of(action, kind, plan, folder_uuid, opts \\ []) do
     files = Enum.uniq(plan.trash ++ plan.delete)
-    folders = Keyword.get(opts, :folders, 0)
+    folder_uuids = Keyword.get(opts, :folder_uuids, [])
+    folders = length(folder_uuids)
 
     if files == [] and folders == 0 do
       :pass
@@ -6152,6 +6126,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         kind: kind,
         files: files,
         folders: folders,
+        folder_uuids: folder_uuids,
         folder_uuid: folder_uuid,
         skip?: Keyword.get(opts, :skip?, false)
       }

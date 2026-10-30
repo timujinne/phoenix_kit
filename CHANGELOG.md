@@ -1,3 +1,72 @@
+## Unreleased
+
+### Added
+
+- Internal managed-organization creation and conversion, with a required first
+  manager, referral admission, credential revocation, and fresh credentials when
+  converting back. An administrator's dedicated creation form requires an
+  active first manager; organization details provide conversion controls.
+- Manager lifecycle locks and last-active-manager protection cover grant
+  removal and person deactivation/deletion; leaving an organization without an
+  active manager requires an explicit override from a live own-admin session.
+  Manager changes record activities and account notifications.
+
+- Managed-organization foundations (V227): manager grants, contact addresses,
+  grant-bound session provenance and invitation kinds. Authentication refuses
+  independent managed-account logins; scopes exclude Owner, Admin, wildcard and
+  API authority.
+- Account mail uses a managed organization's contact address, and the mailer
+  removes reserved `.invalid` recipients from To, Cc and Bcc.
+- Session revocation collects dependent organization sessions under row locks
+  and disconnects their sockets after commit, including credential changes,
+  user deletion and calls inside host-owned transactions. Rollbacks and
+  savepoint rollbacks preserve restored sessions.
+- Managed organizations cannot use credential or session settings in embedded
+  profile components, and the manager's browser does not trigger organization
+  time-zone detection or mismatch alerts. Host-transaction disconnect observers
+  stop after 30 consecutive failed database checks.
+- Organization switching: enter/leave routes, dropdowns in both navs, and a
+  separate durable cookie slot that works while multi-account switching is off.
+  Entry is limited per root user and serializes concurrent requests and
+  revocation; switching away deletes and disconnects the organization token.
+- Shared manager administration in organization details and a non-hideable
+  Managers settings tab while acting. Managers invite by email; administrators
+  can search and add active people. Grant removal and person deactivation or
+  deletion require an explicit own-admin override to leave no active manager.
+- Manager invitations with locked, kind-aware acceptance, scoped cancellation,
+  generic invite responses, per-person/organization rate limits and mail for
+  both existing and new invitees. Kit pages show invitation banners and refresh
+  the organization switcher after acceptance; registration and confirmation
+  automatically accept the manager kind without changing employment.
+- Acting-person attribution in activity metadata and screens, source-browser
+  organization sessions, contact addresses in user/session lists, presence and
+  mentions, managed badges, and switcher translations in all nine locales.
+- Media browser picker mode supports ordered single or multiple selections,
+  selection limits, scoped file checks, and uploads isolated from other browsers.
+- Picker viewers preview files and select or deselect them without changing
+  file details, annotations, or viewer preferences.
+- Optional file removal guards check host references before removal and provide
+  server-side confirmation, usage details, and host-controlled release actions.
+
+### Changed
+
+- Update Etcher to 0.24.0.
+
+### Fixed
+
+- Forms loaded before organization conversion cannot restore passwords, login
+  addresses, Google addresses or forbidden roles. OAuth linking and API-key
+  creation/rotation share conversion's account lock to prevent credentials from
+  escaping its drain.
+
+## 3.2.2 - 2026-10-30
+
+### Fixed
+
+- Media settings list every library storage bucket with its integration, provider and small
+  role icons, instead of hiding backup bucket names behind a copy count.
+- Site storage labels use the configured project title in library lists and storage forms.
+
 ## 3.2.1 - 2026-10-29
 
 ### Added

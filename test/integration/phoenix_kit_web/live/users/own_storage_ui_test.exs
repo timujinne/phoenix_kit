@@ -442,7 +442,7 @@ defmodule PhoenixKitWeb.Live.Users.OwnStorageUITest do
 
     test "a copy on a second integration: the first is main, the second a backup", %{role: role} do
       user = user!(role)
-      aws = connection!(user, %{}, "aws")
+      aws = connection!(user, %{"service" => "aws_s3"}, "aws")
       tigris = connection!(user, %{"endpoint" => "t3.storage.dev"}, "tigris")
 
       socket =
@@ -473,7 +473,12 @@ defmodule PhoenixKitWeb.Live.Users.OwnStorageUITest do
       assert profile.copies_cloud == 2
       assert profile.min_copies_on_write == 1
 
-      assert html(socket) =~ "Your bucket: photos-aws (+1 copy)"
+      rendered = html(socket)
+      assert rendered =~ "Your bucket: photos-aws"
+      assert rendered =~ "Backed up to: photos-tigris"
+      assert rendered =~ "aws · Amazon S3"
+      assert rendered =~ "tigris · Tigris"
+      refute rendered =~ "secret-value"
     end
 
     test "every bucket is checked, and the one that fails is named", %{role: role} do
