@@ -140,35 +140,6 @@ defmodule PhoenixKit.Modules.Storage.ListFilesSubtreeTest do
              Helpers.breadcrumb_path(c.uuid)
   end
 
-  test "linked_folder_among/2 names the folder that links the file, not the one that homes it" do
-    owner = user!("owner")
-    home = folder!("Home", nil)
-    linked_in = folder!("Linked", nil)
-    other = folder!("Other", nil)
-    file = file!(home, owner)
-    {:ok, _} = Storage.create_folder_link(linked_in.uuid, file.uuid)
-
-    assert Storage.linked_folder_among(file.uuid, [home.uuid, other.uuid]) == nil
-
-    assert Storage.linked_folder_among(file.uuid, [home.uuid, linked_in.uuid, other.uuid]) ==
-             linked_in.uuid
-
-    assert Storage.linked_folder_among(file.uuid, []) == nil
-  end
-
-  test "linked_folder_among/2 takes the first folder by uuid when a file is linked into several" do
-    owner = user!("owner")
-    home = folder!("Home", nil)
-    one = folder!("One", nil)
-    two = folder!("Two", nil)
-    file = file!(home, owner)
-    {:ok, _} = Storage.create_folder_link(two.uuid, file.uuid)
-    {:ok, _} = Storage.create_folder_link(one.uuid, file.uuid)
-
-    assert Storage.linked_folder_among(file.uuid, [two.uuid, one.uuid]) ==
-             Enum.min([one.uuid, two.uuid])
-  end
-
   test "folder_links_among/2 gives the links of many files in one go, homes not counted" do
     owner = user!("owner")
     home = folder!("Home", nil)

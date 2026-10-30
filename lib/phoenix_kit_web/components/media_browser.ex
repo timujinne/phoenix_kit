@@ -4426,9 +4426,11 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
     {files, folders} = shown_selection(socket)
 
+    seen = appearances(socket, files)
+
     file_count =
       Enum.count(files, fn file ->
-        from = appearance_folder(socket, file)
+        from = seen[to_string(file.uuid)]
 
         case Storage.move_file_between_folders(file.uuid, from, target, scope) do
           {:ok, _} -> true
@@ -4488,8 +4490,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     else
       # Soft-delete to trash — folder-aware: a file only LINKED into the
       # viewed folder is unlinked, not trashed for its owner.
+      seen = appearances(socket, files)
+
       Enum.each(files, fn file ->
-        viewed = appearance_folder(socket, file)
+        viewed = seen[to_string(file.uuid)]
 
         if removable_here?(file, viewed, scope) do
           Storage.remove_file_from_folder(file, viewed)
@@ -4536,11 +4540,12 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     repo = PhoenixKit.Config.get_repo()
     uuids = MapSet.to_list(socket.assigns.selected_files)
 
+    listed = from(f in Storage.File, where: f.uuid in ^uuids) |> repo.all() |> shown_only(socket)
+    seen = appearances(socket, listed)
+
     files =
-      from(f in Storage.File, where: f.uuid in ^uuids)
-      |> repo.all()
-      |> shown_only(socket)
-      |> Enum.filter(&removable_here?(&1, appearance_folder(socket, &1), scope))
+      listed
+      |> Enum.filter(&removable_here?(&1, seen[to_string(&1.uuid)], scope))
       |> enrich_files()
       |> Enum.map(fn f ->
         %{url: Map.get(f.urls, "original") || Map.get(f.urls, :original), name: f.filename}
@@ -5563,17 +5568,30 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       List.wrap(current_folder_uuid(socket) || scope_folder_id(socket)) ++
         (socket.assigns[:expanded_stacks] || [])
 
+    # A file homed in the first candidate (the folder viewed) is there whatever
+    # links it also has: no link is read for it, the ordinary case costs no query.
+    first = List.first(candidates)
+
+    {homed_here, rest} =
+      Enum.split_with(
+        files,
+        &(not is_nil(first) and to_string(&1.folder_uuid) == to_string(first))
+      )
+
     linked =
-      files |> Enum.map(& &1.uuid) |> Storage.folder_links_among(candidates) |> MapSet.new()
+      rest |> Enum.map(& &1.uuid) |> Storage.folder_links_among(candidates) |> MapSet.new()
 
     here =
-      Map.new(files, fn file ->
-        {to_string(file.uuid),
-         Enum.find(candidates, fn folder_uuid ->
-           to_string(file.folder_uuid) == to_string(folder_uuid) or
-             MapSet.member?(linked, {file.uuid, folder_uuid})
-         end)}
-      end)
+      Map.new(homed_here, &{to_string(&1.uuid), first})
+      |> Map.merge(
+        Map.new(rest, fn file ->
+          {to_string(file.uuid),
+           Enum.find(candidates, fn folder_uuid ->
+             to_string(file.folder_uuid) == to_string(folder_uuid) or
+               MapSet.member?(linked, {file.uuid, folder_uuid})
+           end)}
+        end)
+      )
 
     elsewhere = Enum.filter(files, &is_nil(here[to_string(&1.uuid)]))
     Map.merge(here, subtree_appearances(socket, elsewhere))
@@ -5682,7 +5700,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp picked_files_to_move(socket) do
     own = socket.assigns[:own_files_only]
     files = pickable_files(socket, socket.assigns.picked)
-    if is_binary(own), do: Enum.reject(files, &others_file?([&1.uuid], own)), else: files
+
+    if is_binary(own),
+      do: Enum.filter(files, &(to_string(&1.user_uuid) == String.downcase(own))),
+      else: files
   end
 
   # Home or link: a folder holds a file once.
@@ -6063,9 +6084,11 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
         |> Enum.filter(&(&1.status == "trashed" and Storage.within_scope?(&1.folder_uuid, scope)))
         |> then(&Storage.removal_plan(:delete_files, &1))
       else
+        seen = appearances(socket, files)
+
         files
-        |> Enum.filter(&removable_here?(&1, appearance_folder(socket, &1), scope))
-        |> Enum.map(&Storage.removal_plan(:remove_file, {&1, appearance_folder(socket, &1)}))
+        |> Enum.filter(&removable_here?(&1, seen[to_string(&1.uuid)], scope))
+        |> Enum.map(&Storage.removal_plan(:remove_file, {&1, seen[to_string(&1.uuid)]}))
         |> merge_removal_plans()
       end
 

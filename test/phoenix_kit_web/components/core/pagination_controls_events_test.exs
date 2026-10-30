@@ -81,4 +81,28 @@ defmodule PhoenixKitWeb.Components.Core.PaginationControlsEventsTest do
     assert last =~ "Prev"
     refute last =~ "Next"
   end
+
+  test "neither build_url nor on_page is an error that says so" do
+    assigns = %{}
+
+    assert_raise ArgumentError, ~r/build_url.*on_page/, fn ->
+      rendered_to_string(~H"""
+      <Pagination.pagination_controls page={2} total_pages={3} />
+      """)
+    end
+  end
+
+  test "Prev and Next of the events mode follow the language" do
+    assigns = %{}
+
+    html =
+      Gettext.with_locale(PhoenixKitWeb.Gettext, "ru", fn ->
+        rendered_to_string(~H"""
+        <Pagination.pagination_controls page={2} total_pages={3} on_page="p" />
+        """)
+      end)
+
+    refute html =~ "Prev"
+    refute html =~ "Next"
+  end
 end

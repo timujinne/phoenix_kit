@@ -234,3 +234,10 @@ test("text or a link dropped on a folder is not taken for a card", () => {
   b.targets.kitchen.listeners.drop.forEach(fn => fn(ev));
   assert.deepEqual(b.calls, []);
 });
+
+test("outside a picker the grid still takes a card that came from another folder", () => {
+  const fromKitchen = { dataset: { originFolder: "kitchen" } };
+  const b = browser({ cardAttrs: [fromKitchen, {}, {}] });
+  b.drag(b.cards[0], "current");
+  assert.deepEqual(b.calls, [{ event: "move_file_to_folder", payload: { file_uuid: "a", folder_uuid: "current" } }]);
+});

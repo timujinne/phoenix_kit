@@ -2565,24 +2565,6 @@ defmodule PhoenixKit.Modules.Storage do
 
   def folder_links_among(_file_uuids, _folder_uuids), do: []
 
-  @doc """
-  The folder of `folder_uuids` that holds `file_uuid` as a LINK (its home does
-  not count) — the first by folder uuid when it holds several — or nil. One
-  query.
-  """
-  def linked_folder_among(file_uuid, folder_uuids)
-      when is_binary(file_uuid) and is_list(folder_uuids) do
-    from(fl in FolderLink,
-      where: fl.file_uuid == ^file_uuid and fl.folder_uuid in ^folder_uuids,
-      order_by: [asc: fl.folder_uuid],
-      select: fl.folder_uuid,
-      limit: 1
-    )
-    |> repo().one()
-  end
-
-  def linked_folder_among(_file_uuid, _folder_uuids), do: nil
-
   @doc "Returns trashed folders ordered by trashed_at descending, with optional scope."
   def list_trashed_folders(scope_folder_id \\ nil, opts \\ []) do
     limit = Keyword.get(opts, :limit, 50)

@@ -502,10 +502,10 @@
         <span class="loading loading-spinner loading-xs text-primary"></span>
         {gettext("Wait for the uploads to finish")}
       </span>
-      <%!-- The picker's own view options: the files of the folders below this
-           one too (`subtree_toggle`), and how big the tiles are. The switch
-           is not shown over the Trash, the orphaned files or All Files, which
-           are flat listings of their own. --%>
+      <%!-- The picker's own view option: the files of the folders below this
+           one too (`subtree_toggle`). The switch is not shown over the Trash,
+           the orphaned files or All Files, which are flat listings of their
+           own. --%>
       <label
         :if={subtree_offered?(assigns)}
         for={"#{@id}-subtree-toggle"}

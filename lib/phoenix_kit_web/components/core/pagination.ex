@@ -70,7 +70,7 @@ defmodule PhoenixKitWeb.Components.Core.Pagination do
         phx-target={@target}
         class="join-item btn btn-sm"
       >
-        « Prev
+        « {gettext("Prev")}
       </button>
 
       <button
@@ -92,10 +92,15 @@ defmodule PhoenixKitWeb.Components.Core.Pagination do
         phx-target={@target}
         class="join-item btn btn-sm"
       >
-        Next »
+        {gettext("Next")} »
       </button>
     </div>
     """
+  end
+
+  def pagination_controls(%{build_url: nil}) do
+    raise ArgumentError,
+          "pagination_controls needs either build_url (links) or on_page (events)"
   end
 
   def pagination_controls(assigns) do
