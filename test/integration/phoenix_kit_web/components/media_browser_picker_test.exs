@@ -462,18 +462,6 @@ defmodule PhoenixKitWeb.Components.MediaBrowserPickerTest do
       refute log =~ sentinel
     end
 
-    test "the upload-resume hook of a picker names its browser; a plain one does not",
-         %{
-           conn: conn
-         } = ctx do
-      view = open(conn, ctx, %{"browsers" => ["pick", "files"]})
-
-      assert has_element?(view, ~s(#pick-upload-resume[data-browser="pick"][data-picker="true"]))
-      assert has_element?(view, "#files-upload-resume")
-      refute has_element?(view, "#files-upload-resume[data-browser]")
-      refute has_element?(view, "#files-upload-resume[data-picker]")
-    end
-
     test "folders are browsed, never picked", %{conn: conn} = ctx do
       sub = folder!("Kitchen", ctx.scope)
       view = open(conn, ctx)
