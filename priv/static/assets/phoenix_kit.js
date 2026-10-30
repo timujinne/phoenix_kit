@@ -9901,41 +9901,64 @@ if (typeof window.Chart === "undefined") {
   };
 
   // ============================================================================
-  // UploadResume — keep picked files until the server has them
+  // ResumableUpload — keep picked files until the host has them, and carry on
   // ============================================================================
   //
-  // A transfer cut short — the page refreshed, the tab closed, the connection
-  // dropped — used to take its files with it, and nothing said which. Every
-  // file picked or dropped into a media browser is now copied into IndexedDB
-  // the moment it is chosen, and the copy is dropped when the server says it
-  // has the bytes (`phoenix_kit:upload-received`, pushed on receipt or on
-  // rejection). Whatever is still here when a page loads is a transfer that
-  // never finished: it is reported to the browser component, which lists it
-  // with a Resume button; Resume pushes the keys back
-  // (`phoenix_kit:upload-resume`) and the files are fed to the upload input
-  // again, exactly as a drop would.
+  // A phone or tablet sends the browser to the background while a camera app
+  // has the screen; the LiveView socket drops and the page remounts, and a
+  // transfer that was under way is gone. Every file picked in a form that
+  // carries this hook is copied into IndexedDB the moment it is chosen,
+  // together with an opaque `context` the host reads at that moment (where the
+  // file belongs). After a reconnect or a remount the hook offers whatever is
+  // left to the server (`pk_upload_resume`), which decides per file: carry on
+  // by itself (`auto`), wait for a free slot (`queued`), ask the person
+  // (`ask`) or forget it (`drop`). Files to carry on are handed to the form's
+  // upload through the hook's own `this.upload`.
   //
-  // Files over UPLOAD_STASH_MAX_BYTES keep their name but not their bytes —
-  // a copy of a 2 GB video in the browser's storage is a worse failure than
-  // asking for it again — and are listed as "add it again".
+  // A record has two phases: `pending` (the server has not got all the bytes)
+  // and `received` (it has; the host has not said it saved the file). It is
+  // deleted only on `pk-upload-stored` or `pk-upload-rejected`, so the
+  // delivery is "at least once": a file may arrive twice when the connection
+  // dies between receipt and the host's answer.
   //
-  // Records are scoped to the page path (a library page resumes into that
-  // library) and the signed-in user, and owned by the tab that made them: each tab keeps its live
-  // records' `touched` fresh, so a second tab never mistakes another's
-  // in-flight files for leftovers.
+  // Who may carry a record on: exactly one live owner. A record is owned while
+  // a Web Lock `pk-upload:<id>` is held by the page that is transferring it
+  // (taken with `ifAvailable`, so the check and the claim are one step; the
+  // browser frees it when the page dies, and hidden tabs' timer throttling
+  // does not matter). The lock is given up on `disconnected()` — the hook
+  // outlives a dropped socket, but its transfers do not — and on `destroyed()`.
+  // Browsers without Web Locks fall back to a lease: the owner writes its
+  // instance id and `touched` every UPLOAD_STASH_HEARTBEAT_MS, and a record
+  // untouched for UPLOAD_STASH_LEASE_MS has no owner.
+  //
+  // Records belong to a `scope` (host-chosen, required — never the URL: a
+  // sticky LiveView lives on many pages), an upload name and a user. Another
+  // user's records are never shown or sent, and are removed when a hook
+  // mounts under a different user and when the `data-pk-logout` control is
+  // used; every record is dropped after 24 hours.
   // ----------------------------------------------------------------------------
 
-  var UPLOAD_STASH_DB = "phoenix_kit_upload_stash";
+  var UPLOAD_STASH_DB = "phoenix_kit_resumable_uploads";
+  var UPLOAD_STASH_OLD_DB = "phoenix_kit_upload_stash";
   var UPLOAD_STASH_STORE = "files";
   var UPLOAD_STASH_MAX_BYTES = 250 * 1000 * 1000;
-  var UPLOAD_STASH_STALE_MS = 15000;
   var UPLOAD_STASH_HEARTBEAT_MS = 5000;
-  var UPLOAD_STASH_KEEP_MS = 7 * 24 * 3600 * 1000;
+  var UPLOAD_STASH_LEASE_MS = 15000;
+  var UPLOAD_STASH_KEEP_MS = 24 * 3600 * 1000;
+  var UPLOAD_STASH_FRESH_MS = 30 * 60 * 1000;
+  var UPLOAD_STASH_SCAN_MS = 250;
+  var UPLOAD_STASH_INPUT_WAIT_MS = 500;
+  var UPLOAD_STASH_INPUT_TRIES = 10;
+  var UPLOAD_STASH_LOGOUT_WAIT_MS = 500;
 
-  // The same three things the server's `client_key/1` reads off an upload
-  // entry — LiveView sends the File's own name, size and lastModified.
+  // The same three things the server's `client_key` reads off an upload entry
+  // — LiveView sends the File's own name, size and lastModified.
   function uploadStashKey(file) {
     return file.name + "|" + file.size + "|" + file.lastModified;
+  }
+
+  function uploadStashRecordId(scope, upload, key, seq) {
+    return [scope, upload, key, seq].join("\u0000");
   }
 
   function uploadStashOpen() {
@@ -9955,20 +9978,21 @@ if (typeof window.Chart === "undefined") {
     });
   }
 
-  // One transaction; `fn(store)` does the work. Never rejects — the stash
-  // is a safety net, and a browser refusing storage must not break uploads.
+  // One transaction; `fn(store)` does the work. Never rejects — the stash is a
+  // safety net, and a browser refusing storage must not break uploads. Resolves
+  // `{ok, result}`.
   function uploadStashRun(mode, fn) {
     return uploadStashOpen().then(function(db) {
-      if (!db) return null;
+      if (!db) return { ok: false, result: null };
       return new Promise(function(resolve) {
         try {
           var tx = db.transaction(UPLOAD_STASH_STORE, mode);
           var out = fn(tx.objectStore(UPLOAD_STASH_STORE));
-          tx.oncomplete = function() { db.close(); resolve(out && out.result !== undefined ? out.result : out); };
-          tx.onerror = tx.onabort = function() { db.close(); resolve(null); };
+          tx.oncomplete = function() { db.close(); resolve({ ok: true, result: out && out.result !== undefined ? out.result : out }); };
+          tx.onerror = tx.onabort = function() { db.close(); resolve({ ok: false, result: null }); };
         } catch (_) {
           db.close();
-          resolve(null);
+          resolve({ ok: false, result: null });
         }
       });
     });
@@ -9976,197 +10000,449 @@ if (typeof window.Chart === "undefined") {
 
   function uploadStashAll() {
     return uploadStashRun("readonly", function(store) { return store.getAll(); })
-      .then(function(rows) { return rows || []; });
+      .then(function(r) { return r.result || []; });
   }
 
-  // Records are keyed by scope + file key, so the same picture picked on two
-  // library pages is two records.
-  function uploadStashId(scope, key) { return scope + "\u0000" + key; }
+  // Resolves true when the record was written.
+  function uploadStashPut(record) {
+    return uploadStashRun("readwrite", function(store) { store.put(record); }).then(function(r) { return r.ok; });
+  }
 
-  window.PhoenixKitHooks.UploadResume = {
+  function uploadStashDelete(ids) {
+    if (!ids.length) return Promise.resolve(true);
+    return uploadStashRun("readwrite", function(store) {
+      ids.forEach(function(id) { store.delete(id); });
+    }).then(function(r) { return r.ok; });
+  }
+
+  // Read-modify-write of existing records in one transaction.
+  function uploadStashUpdate(ids, change) {
+    if (!ids.length) return Promise.resolve(true);
+    return uploadStashRun("readwrite", function(store) {
+      ids.forEach(function(id) {
+        var req = store.get(id);
+        req.onsuccess = function() {
+          if (req.result) { change(req.result); store.put(req.result); }
+        };
+      });
+    }).then(function(r) { return r.ok; });
+  }
+
+  function uploadStashClear() {
+    return uploadStashRun("readwrite", function(store) { store.clear(); }).then(function(r) { return r.ok; });
+  }
+
+  // Records written by the first version of this stash live in a database of
+  // their own and are never read again.
+  function uploadStashDropOldDatabase() {
+    try { if (window.indexedDB) window.indexedDB.deleteDatabase(UPLOAD_STASH_OLD_DB); } catch (_) {}
+  }
+
+  function uploadStashLocks() {
+    try {
+      var locks = window.navigator && window.navigator.locks;
+      return locks && typeof locks.request === "function" ? locks : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // Is `row` free to be taken by `inst` under the lease (no Web Locks)?
+  function uploadStashLeaseFree(row, inst, now) {
+    return !row.owner || row.owner === inst || now - row.touched > UPLOAD_STASH_LEASE_MS;
+  }
+
+  // What the server is told about a record.
+  function uploadStashItem(row, now, freshMs) {
+    return {
+      id: row.id, key: row.key, seq: row.seq, name: row.name, size: row.size,
+      context: row.context, has_bytes: !!row.blob, state: row.state,
+      attempts: row.attempts || 0, fresh: freshMs > 0 && now - row.touched <= freshMs
+    };
+  }
+
+  window.PhoenixKitHooks.ResumableUpload = {
     mounted() {
       var self = this;
-      this._tab = Math.random().toString(36).slice(2) + Date.now().toString(36);
-      // The path (a library page resumes into that library) and the user: the
-      // stash holds file bytes, and the next person to sign in on this browser
-      // must not be offered the last one's files.
+      this._inst = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      this._upload = this.el.dataset.upload || "";
+      this._scope = this.el.dataset.scope || "";
       this._user = this.el.dataset.user || "";
-      this._scopes = {};
-      this._live = {};
-      this._root = this.el.parentElement || document.body;
+      this._held = {};        // id -> function that gives the Web Lock up
+      this._inflight = {};    // id -> true: this instance is transferring it
+      this._waiting = {};     // id -> true: claimed, waiting for a slot or a click
+      this._done = {};        // id -> true: received on this connection; the host will answer
+      this._queued = false;
+      this._seen = typeof WeakSet === "function" ? new WeakSet() : null;
+      this._scanning = false;
+      this._rescan = false;
+      this._persisted = false;
+      this._warned = false;
+      this._root = this.el.dataset.watch === "parent" ? (this.el.parentElement || document.body) : this.el;
 
-      // Capture phase on the browser's root: runs before LiveView's own
-      // listener on the input reads (and the drop hook replaces) the files.
+      // Capture phase on the watched root: runs before LiveView's own listener
+      // on the input reads (and the drop hook replaces) the files.
       this._onPick = function(e) {
         var input = e.target;
         if (!input || input.tagName !== "INPUT" || input.type !== "file") return;
         if (!input.hasAttribute("data-phx-upload-ref")) return;
+        if (input.name !== self._upload) return;
         if (!input.files || !input.files.length) return;
+        self._warnForm(input);
         self._stash(Array.prototype.slice.call(input.files));
       };
       this._root.addEventListener("input", this._onPick, true);
       this._root.addEventListener("change", this._onPick, true);
 
       this._beat = setInterval(function() { self._heartbeat(); }, UPLOAD_STASH_HEARTBEAT_MS);
-      this._rescan = null;
 
-      this.handleEvent("phoenix_kit:upload-received", function(p) { self._forget(p.keys); });
-      this.handleEvent("phoenix_kit:upload-discard", function(p) { self._forget(p.keys); });
-      this.handleEvent("phoenix_kit:upload-resume", function(p) { self._resume(p.keys); });
+      this.handleEvent("pk-upload-received", function(p) { self._ours(p) && self._received(p.key); });
+      this.handleEvent("pk-upload-stored", function(p) { self._ours(p) && self._finish(p.key, true); });
+      this.handleEvent("pk-upload-rejected", function(p) { self._ours(p) && self._finish(p.key, false); });
+      this.handleEvent("pk-upload-feed", function(p) { self._ours(p) && self._feedIds(p.ids || []); });
+      this.handleEvent("pk-upload-drop", function(p) { self._ours(p) && self._dropIds(p.ids || []); });
 
-      // A just-loaded page may still be restoring; give it a moment, then
-      // report whatever an earlier page load left behind.
-      this._scan = setTimeout(function() { self._reportLeftovers(false); }, 1500);
+      uploadStashDropOldDatabase();
+      this._scanTimer = setTimeout(function() { self._scan(); }, UPLOAD_STASH_SCAN_MS);
     },
 
-    // A reconnect ends every transfer this tab had in flight — upload
-    // channels do not survive it — so those are leftovers now, not live.
+    // The hook outlives a dropped socket; its transfers do not. Whatever was
+    // in flight is a leftover now, and the locks that said otherwise go.
+    disconnected() {
+      this._releaseAll();
+      this._inflight = {};
+      this._waiting = {};
+      this._done = {};
+      this._queued = false;
+    },
+
+    // The form recovery LiveView does on rejoin has finished by now (it clears
+    // the file input); the stash, not the input, is the source of truth.
     reconnected() {
-      this._reportLeftovers(true);
+      // Whatever was picked while the socket was down never left the browser
+      // either: it is in flight no longer than the rest.
+      this.disconnected();
+      this._scan();
     },
 
     destroyed() {
       clearInterval(this._beat);
-      clearTimeout(this._scan);
-      clearTimeout(this._rescan);
+      clearTimeout(this._scanTimer);
       if (this._root) {
         this._root.removeEventListener("input", this._onPick, true);
         this._root.removeEventListener("change", this._onPick, true);
       }
+      var owned = Object.keys(this._inflight).concat(Object.keys(this._waiting));
+      this._releaseAll();
+      // Lease mode: say the records are free instead of making the next
+      // instance wait for the lease to run out.
+      if (!uploadStashLocks() && owned.length) {
+        uploadStashUpdate(owned, function(row) { row.touched = 0; });
+      }
     },
 
-    // Where a file picked now belongs: the page's path (a library switch
-    // patches the same LiveView, so it is read each time, not once), the folder
-    // open in it, and the signed-in user. The stash holds file bytes, and the
-    // next person to sign in on this browser must not be offered the last
-    // one's files.
-    _scopeNow() {
-      var folder = "";
-      try { folder = new URLSearchParams(window.location.search).get("folder") || ""; } catch (_) {}
-      return window.location.pathname + "\u0000" + folder + "\u0000" + this._user;
+    _ours(payload) { return payload && payload.upload === this._upload; },
+
+    _freshMs() {
+      var ms = parseInt(this.el.dataset.freshMs, 10);
+      return isNaN(ms) || ms < 0 ? UPLOAD_STASH_FRESH_MS : ms;
     },
 
-    // The scope a file was picked under — what the server's acknowledgement of
-    // it names, even if the page has moved on to another library since.
-    _scopeOf(key) {
-      return this._scopes[key] || this._scopeNow();
+    // The server only hears about files LiveView's own change event will carry
+    // — a form without an id or `phx-change` loses them in form recovery.
+    _warnForm(input) {
+      if (this._warned) return;
+      var form = input.form || (input.closest && input.closest("form"));
+      if (!form || !form.id || !form.hasAttribute("phx-change")) {
+        this._warned = true;
+        if (typeof console !== "undefined") {
+          console.warn("ResumableUpload: the form around the upload input needs an id and phx-change");
+        }
+      }
     },
+
+    // ── ownership ───────────────────────────────────────────────────────────
+
+    // Take a record, or find out that someone else has it. Resolves true when
+    // this instance may carry it on.
+    _claim(row) {
+      var self = this;
+      if (this._held[row.id]) return Promise.resolve(true);
+      var locks = uploadStashLocks();
+      if (!locks) {
+        if (!uploadStashLeaseFree(row, this._inst, Date.now())) return Promise.resolve(false);
+        this._held[row.id] = function() {};
+        return uploadStashUpdate([row.id], function(r) { r.owner = self._inst; r.touched = Date.now(); })
+          .then(function() { return true; });
+      }
+      return new Promise(function(resolve) {
+        try {
+          locks.request("pk-upload:" + row.id, { ifAvailable: true }, function(lock) {
+            if (!lock) { resolve(false); return undefined; }
+            return new Promise(function(release) {
+              self._held[row.id] = release;
+              resolve(true);
+            });
+          }).catch(function() { resolve(false); });
+        } catch (_) {
+          resolve(false);
+        }
+      });
+    },
+
+    _release(id) {
+      var release = this._held[id];
+      delete this._held[id];
+      if (release) release();
+    },
+
+    _releaseAll() {
+      var self = this;
+      Object.keys(this._held).forEach(function(id) { self._release(id); });
+    },
+
+    _heartbeat() {
+      var ids = Object.keys(this._inflight);
+      if (!ids.length) return;
+      var now = Date.now();
+      var inst = this._inst;
+      uploadStashUpdate(ids, function(row) { row.touched = now; row.owner = inst; });
+    },
+
+    // ── picking ─────────────────────────────────────────────────────────────
 
     _stash(files) {
       var self = this;
       var now = Date.now();
-      files.forEach(function(file) {
+      var context = this.el.dataset.context || "";
+      var fresh = files.filter(function(file) {
+        if (!self._seen) return true;
+        if (self._seen.has(file)) return false;
+        self._seen.add(file);
+        return true;
+      });
+      if (!fresh.length) return;
+
+      var records = fresh.map(function(file, i) {
+        var seq = now.toString(36) + "-" + i + "-" + Math.random().toString(36).slice(2, 8);
         var key = uploadStashKey(file);
-        var scope = self._scopeNow();
-        self._live[key] = true;
-        self._scopes[key] = scope;
-        var keep = file.size <= UPLOAD_STASH_MAX_BYTES;
-        uploadStashRun("readwrite", function(store) {
-          store.put({
-            id: uploadStashId(scope, key),
-            key: key,
-            scope: scope,
-            name: file.name,
-            type: file.type,
-            size: file.size,
-            lastModified: file.lastModified,
-            blob: keep ? file : null,
-            tab: self._tab,
-            touched: now
-          });
+        return {
+          id: uploadStashRecordId(self._scope, self._upload, key, seq),
+          scope: self._scope, upload: self._upload, user: self._user,
+          key: key, seq: seq, name: file.name, type: file.type, size: file.size,
+          lastModified: file.lastModified,
+          blob: file.size <= UPLOAD_STASH_MAX_BYTES ? file : null,
+          context: context, state: "pending", attempts: 0, touched: now, owner: self._inst
+        };
+      });
+
+      records.forEach(function(row) {
+        self._inflight[row.id] = true;
+        self._claim(row);
+      });
+      this._persist();
+
+      Promise.all(records.map(function(row) {
+        return uploadStashPut(row).then(function(ok) {
+          // Over quota: keep the record, not the bytes ("choose it again").
+          if (ok || !row.blob) return;
+          row.blob = null;
+          return uploadStashPut(row);
         });
+      }));
+
+      // The server learns where each file belongs before LiveView hands it the
+      // file; a send that fails (the socket is going) is covered by the
+      // context that `pk_upload_resume` carries.
+      try {
+        this.pushEvent("pk_upload_pick", {
+          upload: this._upload,
+          items: records.map(function(row) { return { key: row.key, seq: row.seq, context: row.context }; })
+        }, function() {});
+      } catch (_) {}
+    },
+
+    _persist() {
+      if (this._persisted) return;
+      this._persisted = true;
+      try {
+        var storage = window.navigator && window.navigator.storage;
+        if (storage && typeof storage.persist === "function") storage.persist();
+      } catch (_) {}
+    },
+
+    // ── the server's answers ────────────────────────────────────────────────
+
+    _mine(rows) {
+      var self = this;
+      return rows.filter(function(row) {
+        return row.scope === self._scope && row.upload === self._upload && row.user === self._user;
       });
     },
 
-    _heartbeat() {
+    _byKey(rows, key) {
+      return this._mine(rows).filter(function(row) { return row.key === key; })
+        .sort(function(a, b) { return a.seq < b.seq ? -1 : 1; });
+    },
+
+    // The server has all the bytes of one `key`.
+    _received(key) {
       var self = this;
-      var keys = Object.keys(this._live);
-      if (!keys.length) return;
-      var now = Date.now();
-      uploadStashRun("readwrite", function(store) {
-        keys.forEach(function(key) {
-          var req = store.get(uploadStashId(self._scopeOf(key), key));
-          req.onsuccess = function() {
-            var row = req.result;
-            if (row && row.tab === self._tab) { row.touched = now; store.put(row); }
-          };
-        });
+      uploadStashAll().then(function(rows) {
+        var row = self._byKey(rows, key).filter(function(r) { return r.state === "pending" && self._held[r.id]; })[0] ||
+                  self._byKey(rows, key).filter(function(r) { return r.state === "pending"; })[0];
+        if (row) {
+          delete self._inflight[row.id];
+          self._done[row.id] = true;
+          self._release(row.id);
+          uploadStashUpdate([row.id], function(r) { r.state = "received"; r.touched = Date.now(); r.owner = null; });
+        }
+        if (self._queued) self._scan();
       });
     },
 
-    _forget(keys) {
+    // The host stored the file (`stored`) or turned it down for good.
+    _finish(key, stored) {
       var self = this;
-      var ids = (keys || []).map(function(key) { return uploadStashId(self._scopeOf(key), key); });
-      (keys || []).forEach(function(key) { delete self._live[key]; delete self._scopes[key]; });
-      uploadStashRun("readwrite", function(store) {
-        ids.forEach(function(id) { store.delete(id); });
+      uploadStashAll().then(function(rows) {
+        var list = self._byKey(rows, key);
+        var row = (stored ? list.filter(function(r) { return r.state === "received"; })[0] : null) ||
+                  list.filter(function(r) { return self._inflight[r.id]; })[0] || list[0];
+        if (row) self._forget([row.id]);
+        if (self._queued) self._scan();
       });
     },
 
-    // `mine`: this tab's own live records (after a reconnect). Otherwise:
-    // records nobody has touched lately, from any earlier page load.
-    _reportLeftovers(mine) {
+    _forget(ids) {
       var self = this;
+      ids.forEach(function(id) {
+        delete self._inflight[id];
+        delete self._waiting[id];
+        delete self._done[id];
+        self._release(id);
+      });
+      return uploadStashDelete(ids);
+    },
+
+    _dropIds(ids) { this._forget(ids); },
+
+    // ── looking for what a dead page left ───────────────────────────────────
+
+    _scan() {
+      var self = this;
+      if (!this._upload || !this._scope) return;
+      if (this._scanning) { this._rescan = true; return; }
+      this._scanning = true;
       var now = Date.now();
       uploadStashAll().then(function(rows) {
-        var expired = [];
-        var scope = self._scopeNow();
-        var nextLook = null;
-        var items = rows.filter(function(row) {
-          if (now - row.touched > UPLOAD_STASH_KEEP_MS) { expired.push(row.id); return false; }
-          if (row.scope !== scope) return false;
-          if (mine) return row.tab === self._tab && self._live[row.key];
-          if (row.tab === self._tab) return false;
-          if (now - row.touched > UPLOAD_STASH_STALE_MS) return true;
-          // Another page load's record that is still fresh: a refresh leaves
-          // its records for the heartbeat to age out, so look again when this
-          // one would be stale — it is either gone by then (its page finished)
-          // or a leftover to offer.
-          var wait = UPLOAD_STASH_STALE_MS - (now - row.touched) + 500;
-          nextLook = nextLook === null ? wait : Math.min(nextLook, wait);
-          return false;
+        var gone = rows.filter(function(row) {
+          return now - row.touched > UPLOAD_STASH_KEEP_MS || row.user !== self._user;
+        }).map(function(row) { return row.id; });
+        if (gone.length) uploadStashDelete(gone);
+
+        var candidates = self._mine(rows).filter(function(row) {
+          return gone.indexOf(row.id) === -1 && !self._inflight[row.id] && !self._done[row.id] &&
+            (row.state === "pending" || row.state === "received");
         });
-        if (nextLook !== null && !mine) {
-          clearTimeout(self._rescan);
-          self._rescan = setTimeout(function() { self._reportLeftovers(false); }, nextLook);
-        }
-        if (expired.length) {
-          uploadStashRun("readwrite", function(store) { expired.forEach(function(id) { store.delete(id); }); });
-        }
-        if (mine) items.forEach(function(row) { delete self._live[row.key]; });
-        if (!items.length) return;
-        self.pushEventTo(self.el, "upload_resume_available", {
-          items: items.map(function(row) {
-            return { key: row.key, name: row.name, size: row.size, blob: !!row.blob };
-          })
-        });
+        return Promise.all(candidates.map(function(row) {
+          return self._claim(row).then(function(ok) { return ok ? row : null; });
+        }));
+      }).then(function(claimed) {
+        claimed = claimed.filter(function(row) { return row; });
+        claimed.forEach(function(row) { self._waiting[row.id] = true; });
+        self._scanning = false;
+        if (claimed.length) self._ask(claimed);
+        if (self._rescan) { self._rescan = false; self._scan(); }
+      }, function() { self._scanning = false; });
+    },
+
+    _ask(rows) {
+      var self = this;
+      var byId = {};
+      rows.forEach(function(row) { byId[row.id] = row; });
+      var now = Date.now();
+      var freshMs = this._freshMs();
+      try {
+        this.pushEvent("pk_upload_resume", {
+          upload: this._upload,
+          items: rows.map(function(row) { return uploadStashItem(row, now, freshMs); })
+        }, function(reply) { self._answered(reply, byId); });
+      } catch (_) {}
+    },
+
+    _answered(reply, byId) {
+      var self = this;
+      if (!reply || reply.error) return;
+      var list = function(name) { return (reply[name] || []).filter(function(id) { return byId[id]; }); };
+      this._queued = list("queued").length > 0;
+      this._dropIds(list("drop"));
+      this._feed(list("auto").map(function(id) { return byId[id]; }));
+      list("queued").concat(list("ask")).forEach(function(id) { self._waiting[id] = true; });
+    },
+
+    // Files the person asked for with the button.
+    _feedIds(ids) {
+      var self = this;
+      uploadStashAll().then(function(rows) {
+        var wanted = self._mine(rows).filter(function(row) { return ids.indexOf(row.id) !== -1; });
+        var lost = wanted.filter(function(row) { return !row.blob; }).map(function(row) { return row.id; });
+        self._forget(lost);
+        self._feed(wanted.filter(function(row) { return row.blob; }));
       });
     },
 
-    // Feed stashed files back to the upload input, the way the drop hook
-    // does: a DataTransfer's FileList on the input, then the input event
-    // LiveView listens for.
-    _resume(keys) {
+    // Hand stashed files to the form's upload, the way a pick would.
+    _feed(rows) {
       var self = this;
-      var want = {};
-      (keys || []).forEach(function(key) { want[key] = true; });
-      uploadStashAll().then(function(rows) {
-        var files = rows
-          .filter(function(row) { return row.scope === self._scopeNow() && want[row.key] && row.blob; })
-          .map(function(row) {
-            return new File([row.blob], row.name, { type: row.type, lastModified: row.lastModified });
-          });
-        if (!files.length) return;
-        var input = self._root.querySelector("#folder-drop-upload-form input[type=file]") ||
-                    self._root.querySelector("input[type=file][data-phx-upload-ref]");
-        if (!input || typeof DataTransfer === "undefined") return;
-        var dt = new DataTransfer();
-        files.forEach(function(f) { dt.items.add(f); });
-        input.files = dt.files;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
+      rows = rows.filter(function(row) { return row.blob; });
+      if (!rows.length) return;
+      var files = rows.map(function(row) {
+        return new File([row.blob], row.name, { type: row.type, lastModified: row.lastModified });
       });
+      rows.forEach(function(row) {
+        delete self._waiting[row.id];
+        self._inflight[row.id] = true;
+      });
+      uploadStashUpdate(rows.map(function(row) { return row.id; }), function(r) {
+        r.attempts = (r.attempts || 0) + 1; r.touched = Date.now(); r.owner = self._inst;
+      });
+      this._withInput(0, function() {
+        files.forEach(function(file) { self._seen && self._seen.add(file); });
+        self.upload(self._upload, files);
+      });
+    },
+
+    // The upload input may not be in the DOM yet right after a remount.
+    _withInput(tries, run) {
+      var self = this;
+      var found = this._root.querySelector &&
+        this._root.querySelector('input[type=file][data-phx-upload-ref][name="' + this._upload + '"]');
+      if (found || tries >= UPLOAD_STASH_INPUT_TRIES) { run(); return; }
+      setTimeout(function() { self._withInput(tries + 1, run); }, UPLOAD_STASH_INPUT_WAIT_MS);
     }
   };
+
+  // Signing out removes every record of this browser before the request goes
+  // out: the stash holds file bytes, and the next person to sign in must not
+  // find them. A failing IndexedDB must not keep anyone signed in.
+  (function() {
+    var proceeding = false;
+    document.addEventListener("click", function(e) {
+      var el = e.target && e.target.closest ? e.target.closest("[data-pk-logout]") : null;
+      if (!el || proceeding) return;
+      e.preventDefault();
+      e.stopPropagation();
+      var done = false;
+      var go = function() {
+        if (done) return;
+        done = true;
+        proceeding = true;
+        try { el.click(); } finally { proceeding = false; }
+      };
+      setTimeout(go, UPLOAD_STASH_LOGOUT_WAIT_MS);
+      try { uploadStashClear().then(go, go); } catch (_) { go(); }
+    }, true);
+  })();
 
   // ============================================================================
   // FolderDropUpload Hook — drag files from device to upload into current folder
