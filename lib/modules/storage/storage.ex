@@ -2388,6 +2388,12 @@ defmodule PhoenixKit.Modules.Storage do
   bottom-up order so foreign-key constraints stay happy.
   `{:error, :managed}` for a folder of a managed library unless `opts` has
   `managed: :owner`.
+
+  A file in the subtree that cannot be deleted (`{:error, :in_use}` from
+  `delete_file_completely/1`) stays, and so do the folders that hold it, up to
+  this one: everything else is removed, and the answer is `{:error, :in_use}`
+  rather than `{:ok, folder}`. A file whose row vanished mid-delete
+  (`{:error, :not_found}`) blocks nothing — it holds no folder any more.
   """
   def delete_folder_completely(folder, scope_folder_id \\ nil, opts \\ [])
 
@@ -2423,27 +2429,62 @@ defmodule PhoenixKit.Modules.Storage do
     end)
     |> broadcast_files_trashed()
 
+    # What cannot be deleted stays: a file something else refers to
+    # (`{:error, :in_use}`), or any other refusal, is left where it is.
+    results = Enum.map(to_delete, fn file -> {file, delete_file_and_objects(file)} end)
+
     # One `files_deleted` for the whole folder, not one event per file.
-    to_delete
-    |> Enum.flat_map(fn file ->
-      case delete_file_and_objects(file) do
-        {:ok, deleted} -> [deleted.uuid]
-        {:error, _} -> []
-      end
+    results
+    |> Enum.flat_map(fn
+      {_file, {:ok, deleted}} -> [deleted.uuid]
+      {_file, {:error, _}} -> []
     end)
     |> broadcast_files_deleted()
+
+    # Folders that still hold such a file are kept, with every folder above them
+    # inside this subtree: a folder's key on its files is `ON DELETE SET NULL`, so
+    # deleting one would not delete the file it still holds — it would drop the
+    # file, quietly, into the media root. `{:error, :not_found}` blocks nothing:
+    # the row is already gone (a concurrent delete), so no folder still holds it.
+    blocked = for {file, {:error, reason}} when reason != :not_found <- results, do: file
+    kept = folders_still_holding(blocked, subtree_uuids)
 
     # Delete folders from deepest first so parent_uuid foreign keys
     # don't break. `folder_subtree_uuids/1` walks breadth-first; reverse
     # gives us leaves-first ordering.
-    Enum.each(Enum.reverse(subtree_uuids), fn uuid ->
+    subtree_uuids
+    |> Enum.reverse()
+    |> Enum.reject(&MapSet.member?(kept, &1))
+    |> Enum.each(fn uuid ->
       case repo().get(Folder, uuid) do
         nil -> :ok
         f -> repo().delete(f)
       end
     end)
 
-    {:ok, folder}
+    if MapSet.size(kept) == 0, do: {:ok, folder}, else: {:error, :in_use}
+  end
+
+  # The folders of `subtree_uuids` that must stay because a file in `blocked`
+  # is homed in one of them: those folders and every ancestor up to the top of
+  # the subtree.
+  defp folders_still_holding([], _subtree_uuids), do: MapSet.new()
+
+  defp folders_still_holding(blocked, subtree_uuids) do
+    parents =
+      from(f in Folder, where: f.uuid in ^subtree_uuids, select: {f.uuid, f.parent_uuid})
+      |> repo().all()
+      |> Map.new()
+
+    blocked
+    |> Enum.map(& &1.folder_uuid)
+    |> Enum.reduce(MapSet.new(), &with_ancestors(&2, &1, parents))
+  end
+
+  defp with_ancestors(kept, uuid, parents) do
+    if Map.has_key?(parents, uuid) and not MapSet.member?(kept, uuid),
+      do: with_ancestors(MapSet.put(kept, uuid), Map.get(parents, uuid), parents),
+      else: kept
   end
 
   # `{link, folder_trashed_at}` for every `FolderLink` of `file_uuid` that
@@ -5179,7 +5220,8 @@ defmodule PhoenixKit.Modules.Storage do
       PhoenixKit.Modules.Storage.Jobs.ChecksumBackfill,
       PhoenixKit.Modules.Storage.Jobs.LocationBackfill,
       PhoenixKit.Modules.Storage.Jobs.PurgeLibrary,
-      PhoenixKit.Modules.Storage.Jobs.Reconcile
+      PhoenixKit.Modules.Storage.Jobs.Reconcile,
+      PhoenixKit.Modules.Storage.Jobs.VerifyLibrary
     ]
   end
 
@@ -6063,6 +6105,10 @@ defmodule PhoenixKit.Modules.Storage do
   A file of a managed library (`Libraries.managed?/1`) is
   `{:error, :managed}` unless `opts` has `managed: :owner` — the way the module
   that owns the library removes what it stored.
+
+  A file something else still points at — a comment's attachment, a
+  catalogue's PDF — cannot be deleted: it is `{:error, :in_use}`, and nothing
+  about it changes. Delete it again once the reference is gone.
   """
   def delete_file_completely(file, opts \\ [])
 
@@ -6097,34 +6143,7 @@ defmodule PhoenixKit.Modules.Storage do
     # (same directory, different keys) delete their own bytes, and keeps a
     # deduplicated copy's shared keys.
     result =
-      repo().transaction(fn ->
-        # The row before the directories, the order an image edit's swap
-        # takes them in.
-        from(f in PhoenixKit.Modules.Storage.File,
-          where: f.uuid == ^file.uuid,
-          lock: "FOR UPDATE"
-        )
-        |> repo().one()
-        |> case do
-          nil -> repo().rollback(:not_found)
-          _ -> :ok
-        end
-
-        family = [file | list_system_children(file.uuid)]
-        lock_storage_paths(Enum.map(family, & &1.file_path))
-
-        keys =
-          from(fi in FileInstance,
-            where: fi.file_uuid in ^Enum.map(family, & &1.uuid),
-            select: fi.file_name
-          )
-          |> repo().all()
-
-        case delete_file(file) do
-          {:ok, deleted} -> {deleted, unreferenced_keys(keys)}
-          {:error, changeset} -> repo().rollback(changeset)
-        end
-      end)
+      in_use_as_error(file, fn -> delete_row_transaction(file) end)
 
     case result do
       {:ok, {deleted, keys}} ->
@@ -6138,6 +6157,61 @@ defmodule PhoenixKit.Modules.Storage do
       {:error, _} = error ->
         error
     end
+  end
+
+  # A file a module still points at — a comment's attachment, a catalogue's PDF —
+  # is protected by a `RESTRICT` key on that module's table, and Postgres refuses
+  # to remove it. That refusal reaches here as `Ecto.ConstraintError`, because the
+  # delete is of a bare struct. It used to propagate: out of "Delete permanently",
+  # out of "Empty trash", out of the scheduled trash clean-up, and in the media page
+  # out of the LiveView, which went down and came back on the main view with
+  # nothing deleted. It is the answer "this file is in use", so it is returned as
+  # one — `{:error, :in_use}` — and the caller decides what to tell the person.
+  # Only a foreign-key violation is taken this way; any other error still raises.
+  defp in_use_as_error(file, fun) do
+    fun.()
+  rescue
+    error in Ecto.ConstraintError ->
+      if error.type == :foreign_key do
+        Logger.info(
+          "Storage: #{file.uuid} is in use (#{error.constraint}), so it was not deleted"
+        )
+
+        {:error, :in_use}
+      else
+        reraise error, __STACKTRACE__
+      end
+  end
+
+  defp delete_row_transaction(file) do
+    repo().transaction(fn ->
+      # The row before the directories, the order an image edit's swap
+      # takes them in.
+      from(f in PhoenixKit.Modules.Storage.File,
+        where: f.uuid == ^file.uuid,
+        lock: "FOR UPDATE"
+      )
+      |> repo().one()
+      |> case do
+        nil -> repo().rollback(:not_found)
+        _ -> :ok
+      end
+
+      family = [file | list_system_children(file.uuid)]
+      lock_storage_paths(Enum.map(family, & &1.file_path))
+
+      keys =
+        from(fi in FileInstance,
+          where: fi.file_uuid in ^Enum.map(family, & &1.uuid),
+          select: fi.file_name
+        )
+        |> repo().all()
+
+      case delete_file(file) do
+        {:ok, deleted} -> {deleted, unreferenced_keys(keys)}
+        {:error, changeset} -> repo().rollback(changeset)
+      end
+    end)
   end
 
   @doc """
@@ -6484,6 +6558,11 @@ defmodule PhoenixKit.Modules.Storage do
       prefix. A duplicate the same uploader already has is returned as it
       is, in whatever library it is in — compare `library_uuid` if that
       matters to you.
+    * `:return_creation_status` — when true, newly inserted files (including
+      cross-user clones) return `{:ok, file, :created}`. An existing uploader's
+      row still returns `{:ok, file, :duplicate}`. Use this to compensate a
+      refused upload without trashing a file that was already in the library.
+      Defaults to false, preserving the historical return shapes.
     * `:dedup` — `true` (the default) keeps one row per uploader and library
       for the same bytes: a second upload comes back as
       `{:ok, existing_file, :duplicate}`, and another uploader's active copy
@@ -6538,37 +6617,43 @@ defmodule PhoenixKit.Modules.Storage do
       ) do
     # Check if any enabled bucket exists, a user's own included (V206): the
     # library's profile then decides which of them this file goes to.
-    case buckets_available?() do
-      false ->
-        {:error, :no_buckets_configured}
+    result =
+      case buckets_available?() do
+        false ->
+          {:error, :no_buckets_configured}
 
-      true ->
-        if opts[:dedup] == false do
-          # Neither the uploader's own copy nor another's active one is
-          # looked for. No dedup key either (`nil`): the row gets one of its
-          # own, see `row_user_file_checksum/2`.
-          store_new_file_in_buckets(
-            source_path,
-            file_type,
-            user_uuid,
-            file_checksum,
-            nil,
-            ext,
-            original_filename,
-            opts
-          )
-        else
-          # Proceed with storage
-          store_file_with_buckets_available(
-            source_path,
-            file_type,
-            user_uuid,
-            file_checksum,
-            ext,
-            original_filename,
-            opts
-          )
-        end
+        true ->
+          if opts[:dedup] == false do
+            # Neither the uploader's own copy nor another's active one is
+            # looked for. No dedup key either (`nil`): the row gets one of its
+            # own, see `row_user_file_checksum/2`.
+            store_new_file_in_buckets(
+              source_path,
+              file_type,
+              user_uuid,
+              file_checksum,
+              nil,
+              ext,
+              original_filename,
+              opts
+            )
+          else
+            # Proceed with storage
+            store_file_with_buckets_available(
+              source_path,
+              file_type,
+              user_uuid,
+              file_checksum,
+              ext,
+              original_filename,
+              opts
+            )
+          end
+      end
+
+    case {result, opts[:return_creation_status]} do
+      {{:ok, file}, true} -> {:ok, file, :created}
+      {other, _} -> other
     end
   end
 
@@ -6975,7 +7060,9 @@ defmodule PhoenixKit.Modules.Storage do
     end)
     |> case do
       {:ok, {new_file, :duplicate}} ->
-        {:ok, new_file, :duplicate}
+        if opts[:return_creation_status],
+          do: {:ok, new_file, :created},
+          else: {:ok, new_file, :duplicate}
 
       {:error, %Ecto.Changeset{} = changeset} ->
         Logger.error("Failed to clone file for user: #{inspect(changeset.errors)}")

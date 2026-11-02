@@ -52,7 +52,13 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.RemovalModal do
           {error_text(@pending.error)}
         </p>
 
-        <p :if={@state == :confirm and @pending.kind == :delete} class="py-3 text-sm">
+        <p
+          :if={
+            @state == :confirm and @pending.kind == :delete and
+              not combined_title?(@pending, @free_count)
+          }
+          class="py-3 text-sm"
+        >
           {gettext("This cannot be undone.")}
         </p>
 
@@ -170,6 +176,27 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.RemovalModal do
     )
   end
 
+  # Folders and files together: the same wording the client-side confirm of
+  # the same action uses, so the two never disagree.
+  defp title(:confirm, %{kind: kind, folders: folder_count}, free, _blocked)
+       when folder_count > 0 and free > 0 do
+    files = ngettext("%{count} file", "%{count} files", free)
+    folders = ngettext("%{count} folder", "%{count} folders", folder_count)
+
+    if kind == :trash do
+      gettext("Move %{files} and %{folders} (including all folder contents) to trash?",
+        files: files,
+        folders: folders
+      )
+    else
+      gettext(
+        "Permanently delete %{files} and %{folders} (including all folder contents)? This cannot be undone.",
+        files: files,
+        folders: folders
+      )
+    end
+  end
+
   defp title(:confirm, %{kind: :trash, folders: folders}, _free, _blocked) when folders > 0 do
     ngettext(
       "Move %{count} folder and its contents to trash?",
@@ -193,6 +220,10 @@ defmodule PhoenixKitWeb.Components.MediaBrowser.RemovalModal do
   defp title(:confirm, %{kind: :delete}, free, _blocked) do
     ngettext("Delete %{count} file for good?", "Delete %{count} files for good?", free)
   end
+
+  # Whether the title already says what the "This cannot be undone." paragraph
+  # says (the combined folders-and-files delete title ends with it).
+  defp combined_title?(%{folders: folders}, free_count), do: folders > 0 and free_count > 0
 
   defp error_text(message) when is_binary(message), do: message
   defp error_text(_), do: gettext("The files could not be freed. Nothing was removed.")

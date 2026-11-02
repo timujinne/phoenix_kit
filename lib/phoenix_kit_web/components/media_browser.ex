@@ -334,7 +334,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   ## Optional attributes
 
-  - `phoenix_kit_current_user` — logged-in user struct (for upload attribution)
+  - `phoenix_kit_current_user` — logged-in user struct (for upload attribution;
+    required for access checks when showing a user library)
   - `scope_folder_id` — constrain the browser to a virtual root folder
   - `on_navigate` — when truthy, enables controlled mode (URL-sync via parent)
   - `admin` — clicking a file always opens the in-place modal viewer
@@ -404,6 +405,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     `featured` assign (e.g. via `send_update`).
   """
   use PhoenixKitWeb, :live_component
+
+  # A component's flash never reaches the page — LiveView keeps it to the
+  # component — and this browser said everything with `put_flash`: every
+  # delete, move, restore, rename and their failures went unseen. Its
+  # `put_flash` also hands the message to the host LiveView
+  # (`parent_flash/3`, put by `handle_parent_info/2`, which every host gets
+  # from `MediaBrowser.Embed`). The component keeps its own copy as well, as
+  # it always did, for anything that reads the component's state.
+  import Phoenix.LiveView, except: [put_flash: 3]
 
   require Logger
 
@@ -562,6 +572,14 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       # featured toggle, image editor. Navigation, the viewer and downloads
       # stay live. See the moduledoc's `readonly` attribute.
       |> assign_new(:readonly, fn -> false end)
+      # What the host itself said, kept apart from `readonly` / `own_files_only`,
+      # which `refresh_library_permissions/1` also derives from the viewer's
+      # current role: a promotion must be able to lift what a role once imposed.
+      |> assign(:host_readonly, host_value(assigns, socket, :readonly, :host_readonly, false))
+      |> assign(
+        :host_own_files_only,
+        host_value(assigns, socket, :own_files_only, :host_own_files_only, nil)
+      )
       # A user uuid: every write may touch only files that user uploaded
       # (a user library's contributor). Folders stay shared. nil: no limit.
       |> assign_new(:own_files_only, fn -> nil end)
@@ -1393,6 +1411,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   # committed from commit_upload_batch/1 once the batch debounce window closes,
   # so dropping N files produces one page reload instead of N.
   defp process_pending_upload(socket, {path, entry}) do
+    socket = refresh_library_permissions(socket)
+
     cond do
       # `pending_upload` is broadcast to every registered MediaBrowser
       # instance on the page (see handle_parent_info/2), not just the one
@@ -1645,6 +1665,13 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       |> reload_current_page()
       |> parent_flash(flash_type, flash_msg)
     end
+  end
+
+  # See the `import` at the top: the browser's flash goes to the host too.
+  defp put_flash(socket, kind, message) do
+    socket
+    |> Phoenix.LiveView.put_flash(kind, message)
+    |> parent_flash(kind, message)
   end
 
   # A component's `put_flash` never reaches the page layout. The parent
@@ -2626,7 +2653,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   def handle_parent_info({__MODULE__, _id, {:flash, kind, message}}, socket)
       when kind in [:info, :error, :warning] and is_binary(message) do
-    {:noreply, put_flash(socket, kind, message)}
+    {:noreply, Phoenix.LiveView.put_flash(socket, kind, message)}
   end
 
   def handle_parent_info({__MODULE__, :process_pending_upload, {path, entry}}, socket) do
@@ -2754,7 +2781,7 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
         socket
         |> reload_current_page()
-        |> put_flash(flash_type, flash_msg)
+        |> Phoenix.LiveView.put_flash(flash_type, flash_msg)
         |> assign(:last_uploaded_file_uuids, new_uuids)
       else
         socket
@@ -2860,6 +2887,23 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
 
   @doc false
   def picker_file_write_events, do: @picker_file_write_events
+
+  # A host may keep its browser open while membership changes in another tab.
+  # Recheck before reads and writes rather than trusting cached readonly/role
+  # assigns. The recursion marker lets the remaining ownership gates run once.
+  def handle_event(event, params, socket)
+      when is_binary(socket.assigns.library_uuid) and
+             not is_map_key(socket.private, :library_access_checked) do
+    socket = refresh_library_permissions(socket)
+
+    if socket.assigns[:library_access_allowed] == false do
+      {:noreply, log_refused(socket, event, "library access was removed")}
+    else
+      socket = %{socket | private: Map.put(socket.private, :library_access_checked, true)}
+      {:noreply, socket} = handle_event(event, params, socket)
+      {:noreply, %{socket | private: Map.delete(socket.private, :library_access_checked)}}
+    end
+  end
 
   def handle_event(event, _params, socket)
       when event in @folder_action_events and socket.assigns.folder_actions == false and
@@ -3149,22 +3193,53 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
           Storage.trash_folder(folder, scope)
         end
 
-      flash =
-        if socket.assigns[:filter_trash],
-          do: gettext("Folder permanently deleted"),
-          else: gettext("Folder moved to trash")
-
+      # Only `{:ok, _}` is a deletion. Everything else used to fall through
+      # to the success flash — a refused or failed delete said "moved to
+      # trash" while the folder sat where it was.
       case result do
-        {:error, :out_of_scope} ->
-          {:noreply,
-           put_flash(socket, :error, gettext("Cannot delete folder outside the allowed scope"))}
+        {:ok, _} ->
+          flash =
+            if socket.assigns[:filter_trash],
+              do: gettext("Folder permanently deleted"),
+              else: gettext("Folder moved to trash")
 
-        _ ->
           {:noreply,
            socket
            |> reload_folder_lists()
            |> reload_current_page()
            |> put_flash(:info, flash)}
+
+        {:error, :out_of_scope} ->
+          {:noreply,
+           put_flash(socket, :error, gettext("Cannot delete folder outside the allowed scope"))}
+
+        {:error, :managed} ->
+          {:noreply, put_flash(socket, :error, managed_folder_message())}
+
+        {:error, :in_use} ->
+          # What could go went; the folders that still hold a file in use stayed.
+          {:noreply,
+           socket
+           |> reload_folder_lists()
+           |> reload_current_page()
+           |> put_flash(
+             :error,
+             gettext(
+               "Some files in this folder are in use by something else, so they and their folders were kept."
+             )
+           )}
+
+        {:error, reason} ->
+          Logger.warning(
+            "[MediaBrowser] delete_folder #{folder.uuid} failed: #{inspect(reason, limit: 5)}"
+          )
+
+          message =
+            if socket.assigns[:filter_trash],
+              do: gettext("Could not delete the folder. Nothing was removed."),
+              else: gettext("Could not move the folder to the trash. Nothing was moved.")
+
+          {:noreply, socket |> reload_folder_lists() |> put_flash(:error, message)}
       end
     else
       {:noreply, put_flash(socket, :error, gettext("Folder not found"))}
@@ -4477,59 +4552,76 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
     scope = scope_folder_id(socket)
     {files, folders} = shown_selection(socket)
 
-    if socket.assigns.filter_trash do
-      # Permanent delete from trash (with scope guard). The status check is a
-      # belt-and-braces guard: only files actually in the trash may be
-      # destroyed, no matter how a uuid ended up in the selection.
-      Enum.each(files, fn file ->
-        if file.status == "trashed" && Storage.within_scope?(file.folder_uuid, scope) &&
-             file.uuid not in removal_except(socket) &&
-             (is_nil(removal_only(socket)) or file.uuid in removal_only(socket)) do
-          Storage.delete_file_completely(file)
-        end
-      end)
-    else
-      # Soft-delete to trash — folder-aware: a file only LINKED into the
-      # viewed folder is unlinked, not trashed for its owner.
-      seen = appearances(socket, files)
+    # Files the removal guard kept (`removal_except`) are not attempted, let
+    # alone counted as failures: `removal_execute` reports them as "kept: in
+    # use", and a result here would call the same files "could not be removed".
+    files = Enum.reject(files, &(&1.uuid in removal_except(socket)))
 
-      Enum.each(files, fn file ->
-        viewed = seen[to_string(file.uuid)]
+    # Each result is counted: the flash used to report every selected item
+    # as deleted, whatever happened to it.
+    file_results =
+      if socket.assigns.filter_trash do
+        # Permanent delete from trash (with scope guard). The status check is
+        # a belt-and-braces guard: only files actually in the trash may be
+        # destroyed, no matter how a uuid ended up in the selection.
+        Enum.map(files, fn file ->
+          if file.status == "trashed" && Storage.within_scope?(file.folder_uuid, scope) &&
+               (is_nil(removal_only(socket)) or file.uuid in removal_only(socket)),
+             do: Storage.delete_file_completely(file),
+             else: {:error, :not_removable}
+        end)
+      else
+        # Soft-delete to trash — folder-aware: a file only LINKED into the
+        # viewed folder is unlinked, not trashed for its owner.
+        Enum.map(files, fn file ->
+          viewed = appearance_folder(socket, file)
 
-        if removable_here?(file, viewed, scope) do
-          Storage.remove_file_from_folder(file, viewed)
-        end
-      end)
-    end
+          if removable_here?(file, viewed, scope),
+            do: Storage.remove_file_from_folder(file, viewed),
+            else: {:error, :not_removable}
+        end)
+      end
 
     # Folders now have trash support (V119) — recursive trash outside
     # the trash view, recursive permanent delete inside. Both operations
     # cover the folder's entire subtree (descendant folders + files).
-    delete_selected_folders(socket, folders, scope)
+    folder_results = delete_selected_folders(socket, folders, scope)
 
-    file_count = length(files)
-    folder_count = length(folders)
+    {done, failed} =
+      Enum.split_with(file_results ++ folder_results, &match?({:ok, _}, ok_tuple(&1)))
 
-    count = file_count + folder_count
+    socket =
+      socket
+      |> assign(:select_mode, false)
+      |> assign(:selected_files, MapSet.new())
+      |> assign(:selected_folders, MapSet.new())
+      |> reload_folder_lists()
+      |> reload_current_page()
 
-    flash =
-      if socket.assigns.filter_trash,
-        do:
-          ngettext(
-            "%{count} item permanently deleted",
-            "%{count} items permanently deleted",
-            count
-          ),
-        else: ngettext("%{count} item moved to trash", "%{count} items moved to trash", count)
+    socket =
+      if done != [] do
+        put_flash(
+          socket,
+          :info,
+          deleted_selection_message(length(done), socket.assigns.filter_trash)
+        )
+      else
+        socket
+      end
 
-    {:noreply,
-     socket
-     |> assign(:select_mode, false)
-     |> assign(:selected_files, MapSet.new())
-     |> assign(:selected_folders, MapSet.new())
-     |> put_flash(:info, flash)
-     |> reload_folder_lists()
-     |> reload_current_page()}
+    socket =
+      if failed != [] do
+        Logger.warning(
+          "[MediaBrowser] delete_selected: #{length(failed)} not removed: " <>
+            inspect(Enum.uniq(failed), limit: 5)
+        )
+
+        put_flash(socket, :error, not_removed_message(failed))
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   def handle_event("download_selected", _params, socket) do
@@ -4629,8 +4721,15 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
           {:noreply, log_refused(socket, "delete_file", "a picker deletes nothing for good")}
 
         file.status == "trashed" and Storage.within_scope?(file.folder_uuid, scope) ->
-          Storage.delete_file_completely(file)
-          {:noreply, removed(socket, file_uuid, gettext("File permanently deleted"))}
+          # A file that something else still uses is kept, and the message says
+          # so; the viewer stays open on it.
+          case permanent_delete_flash(Storage.delete_file_completely(file)) do
+            {:info, flash} ->
+              {:noreply, removed(socket, file_uuid, flash)}
+
+            {:error, message} ->
+              {:noreply, socket |> put_flash(:error, message) |> reload_current_page()}
+          end
 
         true ->
           result = Storage.remove_file_from_folder(file, viewed)
@@ -6142,6 +6241,20 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp assign_removal_guarded(socket),
     do: assign(socket, :removal_guarded, not is_nil(Removal.guard(socket.assigns)))
 
+  # What a permanent delete of one file answers. The message says why when the file
+  # is in use: pressing Delete and being told nothing — or told it worked — is
+  # the failure this replaces.
+  defp permanent_delete_flash({:ok, _}), do: {:info, gettext("File permanently deleted")}
+
+  defp permanent_delete_flash({:error, :in_use}),
+    do:
+      {:error,
+       gettext(
+         "This file is in use by something else (a comment, for instance), so it can't be deleted."
+       )}
+
+  defp permanent_delete_flash(_), do: {:error, gettext("Failed to remove file")}
+
   defp removal_flash({:ok, :trashed, _}), do: gettext("File moved to trash")
   defp removal_flash({:ok, _unlinked_or_rehomed, _}), do: gettext("File removed from this folder")
   defp removal_flash(_), do: gettext("Failed to move file")
@@ -6469,6 +6582,39 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp editor_scope(%User{} = user), do: Scope.for_user(user)
   defp editor_scope(_user), do: nil
 
+  # The host's value of `key` when this update carries it, else the one kept.
+  defp host_value(assigns, socket, key, kept, default) do
+    if Map.has_key?(assigns, key),
+      do: assigns[key],
+      else: Map.get(socket.assigns, kept, default)
+  end
+
+  defp refresh_library_permissions(socket) do
+    case Libraries.get_library(socket.assigns[:library_uuid]) do
+      %{kind: "user"} = library ->
+        scope = editor_scope(socket.assigns[:phoenix_kit_current_user])
+        role = Libraries.role(library, Scope.user_uuid(scope))
+        privileged? = Scope.system_role?(scope)
+
+        managed? = match?({_, true}, socket.assigns[:managed_library])
+
+        assign(socket,
+          library_access_allowed: Libraries.can_read_library?(scope, library),
+          readonly:
+            socket.assigns[:host_readonly] == true or managed? or
+              not (privileged? or Libraries.allows?(role, :upload)),
+          own_files_only:
+            if(role == :contributor and not privileged?,
+              do: Scope.user_uuid(scope),
+              else: socket.assigns[:host_own_files_only]
+            )
+        )
+
+      _ ->
+        assign(socket, :library_access_allowed, true)
+    end
+  end
+
   # The scope for the Trash view + badge: the folder you're currently in (its
   # whole subtree), falling back to the embedded browser scope at the root.
   # Keeps a folder's Trash to what was deleted under it — never a sibling
@@ -6736,15 +6882,19 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp store_upload(socket, path, entry, ext, mime_type, file_type, user_uuid, file_size) do
     file_hash = Auth.calculate_file_hash(path)
 
-    case Storage.store_file_in_buckets(
-           path,
-           file_type,
-           user_uuid,
-           file_hash,
-           ext,
-           entry.client_name,
-           [mime_type: mime_type] ++ lib_opts(socket)
-         ) do
+    result =
+      Storage.store_file_in_buckets(
+        path,
+        file_type,
+        user_uuid,
+        file_hash,
+        ext,
+        entry.client_name,
+        [mime_type: mime_type, return_creation_status: true] ++ lib_opts(socket)
+      )
+      |> authorize_stored_upload(socket)
+
+    case result do
       # Dedup is still per uploader across the whole install: the same bytes
       # this person already stored in another library come back as that
       # file, which this library cannot show or hold.
@@ -6763,6 +6913,24 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
       {:error, reason} ->
         Logger.error("MediaBrowser upload error: #{inspect(reason)}")
         {:postpone, reason}
+    end
+  end
+
+  defp authorize_stored_upload({:error, _} = error, _socket), do: error
+
+  defp authorize_stored_upload(result, socket) do
+    if refresh_library_permissions(socket).assigns[:readonly] == true do
+      case result do
+        {:ok, file, :created} -> Storage.trash_file(file)
+        _ -> :ok
+      end
+
+      {:error, :not_allowed}
+    else
+      case result do
+        {:ok, file, :created} -> {:ok, file}
+        other -> other
+      end
     end
   end
 
@@ -7090,12 +7258,56 @@ defmodule PhoenixKitWeb.Components.MediaBrowser do
   defp delete_selected_folders(socket, folders, scope) do
     folders
     |> folders_in_scope(scope)
-    |> Enum.each(fn folder ->
+    |> Enum.map(fn folder ->
       if socket.assigns.filter_trash,
         do: Storage.delete_folder_completely(folder, scope),
         else: Storage.trash_folder(folder, scope)
     end)
   end
+
+  # Storage answers `{:ok, _}`, `{:ok, :trashed | :rehomed | …, _}` or `:ok`
+  # when it did what was asked; anything else is a refusal or a failure.
+  defp ok_tuple(:ok), do: {:ok, nil}
+  defp ok_tuple(result) when is_tuple(result) and elem(result, 0) == :ok, do: {:ok, result}
+  defp ok_tuple(other), do: other
+
+  # What to tell the person about the items that stayed. A file or folder that
+  # something else still uses (a comment attachment, say) is not a failure of
+  # theirs or of the system; it is named as that, and the rest — if any — is not.
+  defp not_removed_message(failed) do
+    in_use = Enum.count(failed, &match?({:error, :in_use}, &1))
+    other = length(failed) - in_use
+
+    [
+      if(in_use > 0,
+        do:
+          ngettext(
+            "%{count} item is in use by something else and was kept.",
+            "%{count} items are in use by something else and were kept.",
+            in_use
+          )
+      ),
+      if(other > 0,
+        do:
+          ngettext(
+            "%{count} item could not be removed.",
+            "%{count} items could not be removed.",
+            other
+          )
+      )
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp deleted_selection_message(count, true = _permanent),
+    do: ngettext("%{count} item permanently deleted", "%{count} items permanently deleted", count)
+
+  defp deleted_selection_message(count, _),
+    do: ngettext("%{count} item moved to trash", "%{count} items moved to trash", count)
+
+  defp managed_folder_message,
+    do: gettext("This folder belongs to a module and can't be deleted here.")
 
   # The folders a write carries the contents of: the one a folder event
   # names (never a move's target), and the selected folders of a bulk

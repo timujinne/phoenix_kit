@@ -685,6 +685,8 @@ defmodule PhoenixKitWeb.Components.MediaBrowserRemovalGuardTest do
       assert is_nil(Repo.get(StorageFile, one.uuid))
       assert status(kept) == "trashed"
       assert flash(view) =~ "1 deleted, 1 kept: in use"
+      # The kept file is reported as kept, not as a failure to remove.
+      refute flash(view) =~ "could not be removed"
     end
 
     test "delete_folder in the trash view asks over the subtree and deletes the folder",
@@ -808,8 +810,9 @@ defmodule PhoenixKitWeb.Components.MediaBrowserRemovalGuardTest do
       hook(view, "toggle_select", %{"file-uuid" => loose.uuid})
       hook(view, "toggle_select_folder", %{"folder-uuid" => a.uuid})
 
-      hook(view, "delete_selected")
+      html = hook(view, "delete_selected")
 
+      assert html =~ "Move 2 files and 1 folder (including all folder contents) to trash?"
       assert_received {:places, uuids, %{action: :delete_selected}}
       assert Enum.sort(uuids) == Enum.sort([inside.uuid, loose.uuid])
 
@@ -817,6 +820,32 @@ defmodule PhoenixKitWeb.Components.MediaBrowserRemovalGuardTest do
       assert status(inside) == "trashed"
       assert status(loose) == "trashed"
       assert Storage.get_folder(a.uuid).trashed_at
+    end
+
+    test "delete_selected in the trash view names folders and files together, warning once",
+         %{conn: conn} = ctx do
+      a = folder!("B", ctx.scope)
+      inside = file!(a)
+      loose = trashed!(ctx.scope)
+      {:ok, _} = Storage.trash_folder(a)
+      view = open(conn, ctx)
+      trash_view(view)
+      hook(view, "toggle_select_mode")
+      hook(view, "toggle_select", %{"file-uuid" => loose.uuid})
+      hook(view, "toggle_select_folder", %{"folder-uuid" => a.uuid})
+
+      html = hook(view, "delete_selected")
+
+      assert html =~
+               "Permanently delete 2 files and 1 folder (including all folder contents)? This cannot be undone."
+
+      assert length(String.split(html, "This cannot be undone.")) == 2,
+             "the title carries the warning; the paragraph does not repeat it"
+
+      press(view, "confirm")
+      assert is_nil(Repo.get(StorageFile, loose.uuid))
+      assert is_nil(Repo.get(StorageFile, inside.uuid))
+      assert is_nil(Storage.get_folder(a.uuid))
     end
   end
 
