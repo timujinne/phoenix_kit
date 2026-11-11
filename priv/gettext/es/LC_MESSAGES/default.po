@@ -26853,3 +26853,18 @@ msgstr "Usar su propio almacenamiento"
 #, elixir-autogen, elixir-format
 msgid "Your access to act for %{organization} was updated."
 msgstr "Se ha actualizado tu acceso para actuar en nombre de %{organization}."
+
+#: lib/phoenix_kit_web/components/media_browser.ex:1025
+#, elixir-autogen, elixir-format
+msgid "This file is already stored as another kind of file, so it cannot be picked here."
+msgstr "Este archivo ya está guardado como otro tipo de archivo, así que no se puede seleccionar aquí."
+
+#: lib/phoenix_kit_web/components/media_browser.ex:1029
+#, elixir-autogen, elixir-format
+msgid "This file is not a kind of file this picker takes."
+msgstr "Este archivo no es de un tipo que este selector admita."
+
+#: lib/phoenix_kit_web/components/media_browser.ex:1032
+#, elixir-autogen, elixir-format
+msgid "The file was saved, but it cannot be picked here."
+msgstr "El archivo se guardó, pero no se puede seleccionar aquí."
