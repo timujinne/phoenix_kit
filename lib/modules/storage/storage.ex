@@ -125,6 +125,7 @@ defmodule PhoenixKit.Modules.Storage do
   alias PhoenixKit.Modules.Storage.Library
   alias PhoenixKit.Modules.Storage.Locations
   alias PhoenixKit.Modules.Storage.Manager
+  alias PhoenixKit.Modules.Storage.ManualLocation
   alias PhoenixKit.Modules.Storage.ProcessFileJob
   alias PhoenixKit.Modules.Storage.Profiles
   alias PhoenixKit.Modules.Storage.ProviderRegistry
@@ -4658,7 +4659,9 @@ defmodule PhoenixKit.Modules.Storage do
              row
              |> PhoenixKit.Modules.Storage.File.changeset(
                Map.put(
-                 columns,
+                 # A place set by hand stays (`ManualLocation`); the EXIF summary is
+                 # still recorded, so `ManualLocation.reset/2` can go back to it.
+                 ManualLocation.admit(columns, row),
                  :metadata,
                  Map.merge(row.metadata || %{}, %{"exif" => exif, "hdr" => hdr})
                )

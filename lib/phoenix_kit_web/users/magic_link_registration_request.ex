@@ -9,11 +9,13 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
 
   alias Phoenix.LiveView.JS
   alias PhoenixKit.Settings
+  alias PhoenixKit.Users.EmailDomain
   alias PhoenixKit.Users.MagicLinkRegistration
   alias PhoenixKit.Utils.IpAddress
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth
   alias PhoenixKitWeb.Users.AuthSEO
+  alias PhoenixKitWeb.Users.BotCheck
 
   @impl true
   def mount(_params, _session, socket) do
@@ -37,6 +39,7 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
            |> assign(:page_title, gettext("Register via Magic Link"))
            |> assign(:project_title, project_title)
            |> assign(:email, "")
+           |> assign(:email_suggestion, nil)
            |> assign(:ip_address, IpAddress.extract_from_socket(socket))
            |> assign(:email_sent, false)
            |> assign(:error_message, nil)
@@ -57,26 +60,54 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
     end
   end
 
+  # Keeps the typed address and the "did you mean" hint under it: a pure rule
+  # over the text, no DNS and no lookup.
   @impl true
-  def handle_event("send_magic_link", %{"email" => email}, socket) do
-    if Settings.get_boolean_setting("allow_registration", true) do
-      # Send in the background via start_async so the `@loading` spinner
-      # actually renders (a synchronous handler never re-renders with
-      # loading: true before completing). Mirrors PhoenixKitWeb.Users.MagicLink.
-      email = String.trim(email)
+  def handle_event("validate", %{"email" => email}, socket) when is_binary(email) do
+    {:noreply,
+     socket
+     |> assign(:email, email)
+     |> assign(:email_suggestion, EmailDomain.suggestion(email))}
+  end
 
-      {:noreply,
-       socket
-       |> assign(:email, email)
-       |> assign(:loading, true)
-       |> assign(:error_message, nil)
-       |> send_registration_link_async(email)}
+  def handle_event("validate", _params, socket), do: {:noreply, socket}
+
+  def handle_event("use_email_suggestion", _params, socket) do
+    case socket.assigns[:email_suggestion] do
+      suggestion when is_binary(suggestion) ->
+        {:noreply, socket |> assign(:email, suggestion) |> assign(:email_suggestion, nil)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("send_magic_link", %{"email" => _} = params, socket) do
+    if Settings.get_boolean_setting("allow_registration", true) do
+      case BotCheck.run(socket, params, socket.assigns[:ip_address]) do
+        {:ok, socket} -> request_link(params, socket)
+        {:error, socket} -> {:noreply, socket}
+      end
     else
       {:noreply,
        socket
        |> put_flash(:error, gettext("User registration is currently disabled."))
        |> redirect(to: Routes.path("/users/log-in"))}
     end
+  end
+
+  defp request_link(%{"email" => email}, socket) do
+    # Send in the background via start_async so the `@loading` spinner
+    # actually renders (a synchronous handler never re-renders with
+    # loading: true before completing). Mirrors PhoenixKitWeb.Users.MagicLink.
+    email = String.trim(email)
+
+    {:noreply,
+     socket
+     |> assign(:email, email)
+     |> assign(:loading, true)
+     |> assign(:error_message, nil)
+     |> send_registration_link_async(email)}
   end
 
   @impl true
@@ -108,6 +139,14 @@ defmodule PhoenixKitWeb.Users.MagicLinkRegistrationRequest do
            socket,
            gettext("Please enter a valid email address."),
            gettext("Invalid email format")
+         )}
+
+      {:error, :no_mail_host} ->
+        {:noreply,
+         error_state(
+           socket,
+           gettext("This email domain cannot receive mail. Please check the address."),
+           gettext("Email domain cannot receive mail")
          )}
 
       {:error, :rate_limit_exceeded} ->

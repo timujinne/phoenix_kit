@@ -864,11 +864,61 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
       # An edited image was rewritten without the map its unedited original had.
       hdr: if(is_nil(row.original_file_uuid), do: (row.metadata || %{})["hdr"]),
       uploader: if(admin?, do: uploader_name(row.user_uuid)),
-      uuid: if(admin?, do: row.uuid)
+      uuid: if(admin?, do: row.uuid),
+      extra: extra_info(row)
     }
   end
 
   defp file_row_info(_row, _details_path), do: nil
+
+  @doc """
+  Rows other modules add to the sidebar's file details, from
+  `config :phoenix_kit, :media_file_info, [{module, function}, …]`: each function is called
+  with the file's row and returns a list of `%{label: …, text: …}` maps, with an optional
+  `href` (only an `http(s)` link is kept, and it opens in a new tab). A photos module
+  says where a file fetched from a link came from this way. Shown to whoever sees the
+  file, so a function must return only what that is fit for. A function that raises
+  adds nothing.
+  """
+  @spec extra_info(Storage.File.t()) :: [
+          %{label: String.t(), text: String.t(), href: String.t() | nil}
+        ]
+  def extra_info(%Storage.File{} = row) do
+    :phoenix_kit
+    |> Application.get_env(:media_file_info, [])
+    |> List.wrap()
+    |> Enum.flat_map(fn
+      {module, function} when is_atom(module) and is_atom(function) ->
+        try do
+          module |> apply(function, [row]) |> List.wrap() |> Enum.flat_map(&info_row/1)
+        rescue
+          error ->
+            Logger.warning(
+              "[MediaCanvasViewer] #{inspect(module)}.#{function}/1 failed: #{Exception.message(error)}"
+            )
+
+            []
+        end
+
+      _ ->
+        []
+    end)
+  end
+
+  def extra_info(_row), do: []
+
+  defp info_row(%{label: label, text: text} = row) when is_binary(label) and is_binary(text) do
+    href =
+      case row[:href] do
+        "https://" <> _ = href -> href
+        "http://" <> _ = href -> href
+        _ -> nil
+      end
+
+    [%{label: label, text: text, href: href}]
+  end
+
+  defp info_row(_row), do: []
 
   defp uploader_name(nil), do: nil
 
@@ -1699,6 +1749,20 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
   # them via `handle.getExtension("etcher")` on mount. Returns nil
   # when there's no usable image url — gates the `<Fresco.canvas>`
   # render in the heex.
+  @doc """
+  Etcher's laser measure tool (`:measure`) for annotators, when the host
+  opts in with `config :phoenix_kit, laser_measure: true`. Off by default:
+  it reads a Bosch GLM / PLR laser distance meter over Web Bluetooth and
+  writes each reading onto the picture as a label, which only means
+  something to a site whose people own one. The boards module reads the
+  same switch.
+  """
+  def laser_measure_tools do
+    if Application.get_env(:phoenix_kit, :laser_measure, false) == true,
+      do: [:measure],
+      else: []
+  end
+
   # The board's markup: the same Fresco canvas + Etcher layer the image
   # branch renders, over an empty scene, with the connector tool left ON
   # (arrows between shapes are what a board is for) and nothing that
@@ -1748,22 +1812,23 @@ defmodule PhoenixKitWeb.Components.MediaCanvasViewer do
           nav_buttons={if @can_annotate, do: nil, else: [:visibility]}
           tools={
             if @can_annotate,
-              do: [
-                :grabber,
-                :image,
-                :rectangle,
-                :circle,
-                :polygon,
-                :freehand,
-                :marker,
-                :callout,
-                :text,
-                :textbox,
-                :dimension,
-                :arrow,
-                :line,
-                :eraser
-              ],
+              do:
+                [
+                  :grabber,
+                  :image,
+                  :rectangle,
+                  :circle,
+                  :polygon,
+                  :freehand,
+                  :marker,
+                  :callout,
+                  :text,
+                  :textbox,
+                  :dimension,
+                  :arrow,
+                  :line,
+                  :eraser
+                ] ++ laser_measure_tools(),
               else: []
           }
         />

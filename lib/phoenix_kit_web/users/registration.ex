@@ -12,6 +12,7 @@ defmodule PhoenixKitWeb.Users.Registration do
   alias PhoenixKit.Settings
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Auth.User
+  alias PhoenixKit.Users.EmailDomain
   alias PhoenixKit.Users.Invitations
   alias PhoenixKit.Users.Referrals
   alias PhoenixKit.Utils.Date, as: UtilsDate
@@ -19,6 +20,7 @@ defmodule PhoenixKitWeb.Users.Registration do
   alias PhoenixKit.Utils.Routes
   alias PhoenixKitWeb.Users.Auth, as: WebAuth
   alias PhoenixKitWeb.Users.AuthSEO
+  alias PhoenixKitWeb.Users.BotCheck
 
   def mount(params, session, socket) do
     socket = assign(socket, :page_title, gettext("Register"))
@@ -124,9 +126,16 @@ defmodule PhoenixKitWeb.Users.Registration do
     end
   end
 
+  # An anonymous visitor's request: counted against the site-wide sign-up cap,
+  # and the address's domain is asked for in DNS.
+  @public_door [site_wide: true, check_email_domain: true]
+
   def handle_event("save", %{"user" => user_params} = params, socket) do
     if Settings.get_boolean_setting("allow_registration", true) do
-      do_save(user_params, params, socket)
+      case BotCheck.run(socket, params, socket.assigns[:user_ip_address]) do
+        {:ok, socket} -> do_save(user_params, params, socket)
+        {:error, socket} -> {:noreply, socket}
+      end
     else
       # Re-checked here, not just in mount/3. A LiveView socket outlives the
       # page load that created it, so a form mounted while registration was open
@@ -136,6 +145,23 @@ defmodule PhoenixKitWeb.Users.Registration do
        socket
        |> put_flash(:error, gettext("Registration is currently disabled."))
        |> redirect(to: Routes.path("/users/log-in"))}
+    end
+  end
+
+  # The hint under the email field, taken. The form is a temporary assign (it
+  # holds the typed password), so it cannot be rebuilt here: the browser is
+  # told to put the address into the field, and the field's own change event
+  # brings the whole form back through "validate".
+  def handle_event("use_email_suggestion", _params, socket) do
+    case socket.assigns[:email_suggestion] do
+      suggestion when is_binary(suggestion) ->
+        {:noreply,
+         socket
+         |> assign(:email_suggestion, nil)
+         |> push_event("phoenix_kit:set_input", %{id: "user_email", value: suggestion})}
+
+      _ ->
+        {:noreply, socket}
     end
   end
 
@@ -196,9 +222,9 @@ defmodule PhoenixKitWeb.Users.Registration do
         # Use appropriate registration function based on geolocation setting
         registration_result =
           if track_geolocation do
-            Auth.register_user_with_geolocation(user_params, ip_address)
+            Auth.register_user_with_geolocation(user_params, ip_address, @public_door)
           else
-            Auth.register_user(user_params, ip_address)
+            Auth.register_user(user_params, ip_address, @public_door)
           end
 
         case registration_result do
@@ -292,6 +318,15 @@ defmodule PhoenixKitWeb.Users.Registration do
 
   defp assign_form(socket, %Ecto.Changeset{} = changeset) do
     form = to_form(changeset, as: "user")
+
+    # "Did you mean …@gmail.com?" under the email field. A pure rule over the
+    # typed text (no DNS, no lookup), so it is safe on every keystroke.
+    socket =
+      assign(
+        socket,
+        :email_suggestion,
+        EmailDomain.suggestion(Ecto.Changeset.get_field(changeset, :email))
+      )
 
     if changeset.valid? do
       assign(socket, form: form, check_errors: false)

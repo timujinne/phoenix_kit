@@ -316,6 +316,94 @@ twice with duplicate `flash-<kind>` element ids (which breaks LiveView DOM
 patching) and froze at its dead-render value, since the root layout does not
 re-render on connected updates. Don't add one back.
 
+## Request limits on the public pages
+
+`PhoenixKit.Users.RateLimiter` (in-memory, per node). Every endpoint that sends
+mail on an unauthenticated request takes three buckets, charged narrowest
+first: the address, the network, the whole install. Settings → Authorization →
+Abuse protection shows them with the live site-wide counters
+(`RateLimiter.overview/0`).
+
+| Endpoint | Per address | Per network | Whole site |
+|---|---|---|---|
+| Sign-in (failures) | 5 / min | 15 / min | none (sends nothing) |
+| Registration | 3 / hour | 10 / hour | 300 / hour, public forms only |
+| Magic link | 3 / 5 min | 10 / 5 min | 300 / hour |
+| Password reset | 3 / 5 min | 10 / 5 min | 300 / hour |
+| Confirmation resend | 3 / 5 min | 10 / 5 min | 300 / hour |
+
+- ⚠️ **The registration cap is charged only by a caller that says the request is
+  anonymous**: `Auth.register_user(attrs, ip, site_wide: true)` and
+  `RateLimiter.check_registration_rate_limit(email, ip, site_wide: true)`. The
+  kit's sign-up form and its registration-link request do. A new public sign-up
+  door passes it; OAuth, `admin_create_user/2`, fixtures and imports do not, or
+  the 300th fixture of a test run fails and an attack on the form stops an admin
+  adding users.
+- The completion of a mailed registration link passes `rate_limit: false`: the
+  request for the link was limited and the token proves the address.
+- A site-wide cap is the one limit an attacker can turn on everybody else. It
+  goes last, so a request the narrower buckets refused never spends it.
+
+## The email address check, and mail to unconfirmed accounts
+
+`PhoenixKit.Users.EmailDomain`, on by default (`email_domain_check_enabled`, its
+own form on the Abuse protection tab; `config :phoenix_kit,
+:email_domain_check, false` overrides it and is what `config/test.exs` sets).
+
+- `check/1` asks DNS (MX, then A/AAAA) and refuses on a definite "no": NXDOMAIN,
+  nothing mail could go to, a null MX. Everything else passes. It costs a
+  lookup, so it runs on a SUBMIT only, after `BotCheck` and the limiter:
+  `Auth.register_user(attrs, ip, check_email_domain: true)` and
+  `MagicLinkRegistration.send_registration_link/3`. Never on `phx-change`.
+- `suggestion/1` is the "Did you mean" hint: a pure rule (a list of providers,
+  one edit away, mistyped endings), safe on every keystroke, never a refusal.
+  On the sign-up page the form is a temporary assign, so taking the hint goes
+  through the browser (`push_event "phoenix_kit:set_input"`, a listener in
+  `phoenix_kit.js`), which keeps the typed password.
+- A refusal made before the insert (`registration_refusal/2`: the limiter, the
+  domain) needs `action: :insert` on its changeset or the form shows nothing.
+- Tests: `config :phoenix_kit, :email_domain_resolver, {Mod, :fun}` replaces
+  DNS (`test/integration/users/email_domain_test.exs`).
+
+⚠️ **Mail nobody asked for goes only to a proven address**:
+`Auth.unsolicited_mail_allowed?/1` (confirmed, or a managed organization, or
+`require_email_confirmation` off). The notification email channel and the
+`UserNotifier` alerts (new login, failed sign-ins, passkey added/removed) ask
+it; a new automated email does too. What the holder asks for in the moment
+(confirmation, password reset, magic link) is always sent. The channel answers
+`:ok` for a skipped mail, not a permanent error, which would switch the channel
+off for good.
+
+## Cloudflare Turnstile
+
+`PhoenixKit.Users.Turnstile`, off by default; the switch and the two keys are on
+Settings → Authorization → Abuse protection (`turnstile_enabled`,
+`turnstile_site_key`, `turnstile_secret_key`; every `turnstile_*` key is a
+`settings.security` key, and the secret is restricted). The tab's Turnstile
+form is its own `<form>` with its own event (`save_turnstile` →
+`Turnstile.save_config/2`): the keys are not `Settings.form_setting_keys/0`, so
+no settings form can write them.
+
+- **The five forms that send mail on an anonymous request** (sign-up,
+  registration link, password reset, magic link, confirmation resend) render
+  `<.turnstile_widget id="…" />` inside the form and start their submit with
+  `PhoenixKitWeb.Users.BotCheck.run(socket, params, ip)`. ⚠️ A new form of that
+  kind does both, and the check goes BEFORE the rate limiter and the lookup: a
+  refused bot must not spend an address's or the site's allowance, and the
+  answer must not depend on the address typed.
+- A token is good for one verification. `BotCheck` tells the widget to start
+  over (`phoenix_kit:turnstile_reset`) after every check, so a submit that stays
+  on the page (a validation error) has a fresh one.
+- **No verdict is not a refusal.** A timeout, a 5xx or a body that is not a
+  verdict lets the request through with a warning: the rate limits are still in
+  front. A refused SECRET is a refusal, logged as an error; `save_config/2`
+  probes the secret before storing it so that cannot be saved by mistake.
+- The widget's script is loaded by the `Turnstile` hook in `phoenix_kit.js`, on
+  the first page that shows a widget. The sign-in form has no widget.
+- Tests: `config :phoenix_kit, :turnstile_req_options, plug: fn conn -> … end`
+  stands in for Cloudflare (`test/integration/users/turnstile_test.exs`); the
+  token is passed as the extra `cf-turnstile-response` param of `render_submit`.
+
 ## Testing notes
 
 Rate limiting keys on the peer from `Plug.Conn.get_peer_data/1`, **not**

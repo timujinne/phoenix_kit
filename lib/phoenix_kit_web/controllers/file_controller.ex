@@ -14,6 +14,7 @@ defmodule PhoenixKitWeb.FileController do
 
   alias PhoenixKit.Modules.Storage.{
     FileDetails,
+    FileServer,
     ImageEditing,
     Libraries,
     Manager,
@@ -1241,6 +1242,12 @@ defmodule PhoenixKitWeb.FileController do
   defp verify_file_token(file, variant, token),
     do: URLSigner.verify_file_token(file, variant, token)
 
+  # A video or a song is read from the URL it was redirected to for as long as it
+  # plays (every seek is another request there); a browser never comes back here
+  # for a fresh one, so a 5-minute URL stops a longer video. The redirect itself
+  # is never cached, so each page view still gets its own URL.
+  @media_signed_seconds 4 * 60 * 60
+
   # Get file access info with retry logic for bucket cache race conditions
   # Returns {:local, path} | {:redirect, url} | {:proxy, file_name} | {:error, reason}
   # A file this app would never show in place asks the bucket for the same
@@ -1258,8 +1265,15 @@ defmodule PhoenixKitWeb.FileController do
 
     # Served by the file's own storage profile (V205): its roles and serve
     # order, even for a key a cross-user copy elsewhere shares.
-    get_file_access_with_retry(instance, [{:file_uuid, instance.file_uuid} | opts], 5)
+    opts = [{:file_uuid, instance.file_uuid} | opts]
+    opts = if media?(instance), do: [{:signed_seconds, @media_signed_seconds} | opts], else: opts
+    get_file_access_with_retry(instance, opts, 5)
   end
+
+  defp media?(%{mime_type: type}) when is_binary(type),
+    do: String.starts_with?(String.downcase(type), ["video/", "audio/"])
+
+  defp media?(_instance), do: false
 
   defp get_file_access_with_retry(instance, opts, retries) do
     case Manager.get_file_access(instance.file_name, opts) do
@@ -1315,7 +1329,49 @@ defmodule PhoenixKitWeb.FileController do
       conn
       |> put_variant_cache_headers(instance, cache)
       |> put_content_headers(file, instance, download?)
-      |> send_file(200, file_path)
+      |> send_file_ranged(file_path, etag)
+    end
+  end
+
+  # A part of the file when the request asks for one (`Range`), else all of it.
+  # A browser plays a video by asking for parts: the start, then wherever the
+  # index or the seek position is. Answered whole every time, a video shows
+  # 0:00 until it has all arrived, cannot seek, and Safari may refuse it.
+  #
+  # Only for the exact bytes of this URL: a stand-in (`:pending`) is sent whole
+  # and offers no ranges, because the next part could come from the real
+  # variant once it exists. `If-Range` with another ETag means the client's
+  # parts are of other bytes: it gets the whole file.
+  defp send_file_ranged(conn, file_path, etag) do
+    conn = put_resp_header(conn, "accept-ranges", "bytes")
+
+    with [range] <- get_req_header(conn, "range"),
+         true <- if_range_matches?(conn, etag),
+         {:ok, %{size: size}} <- File.stat(file_path) do
+      case FileServer.parse_range_header(range, size) do
+        {:ok, first, last, content_range: content_range} ->
+          conn
+          |> put_resp_header("content-range", content_range)
+          |> send_file(206, file_path, first, last - first + 1)
+
+        {:error, :range_out_of_bounds} ->
+          conn
+          |> put_resp_header("content-range", "bytes */#{size}")
+          |> send_resp(416, "")
+
+        {:error, :invalid_range} ->
+          send_file(conn, 200, file_path)
+      end
+    else
+      _ -> send_file(conn, 200, file_path)
+    end
+  end
+
+  defp if_range_matches?(conn, etag) do
+    case get_req_header(conn, "if-range") do
+      [] -> true
+      [value] -> value == etag
+      _ -> false
     end
   end
 
@@ -1444,8 +1500,46 @@ defmodule PhoenixKitWeb.FileController do
 
   defp put_redirect_cache_headers(conn, _cache), do: conn
 
-  # Proxy a remote file through the server (for private buckets)
+  # Proxy a remote file through the server (for private buckets). A request for
+  # a part of it (a browser playing a video) reads only that part from the
+  # bucket; anything else, or a bucket that cannot read a part, downloads it.
   defp proxy_remote_file(conn, file, instance, file_name, cache, download?) do
+    case proxy_range(conn, instance, file_name, cache) do
+      {:ok, first, last, bytes} ->
+        conn
+        |> put_variant_cache_headers(instance, cache)
+        |> put_content_headers(file, instance, download?)
+        |> put_resp_header("accept-ranges", "bytes")
+        |> put_resp_header("content-range", "bytes #{first}-#{last}/#{instance.size}")
+        |> send_resp(206, bytes)
+
+      :whole ->
+        proxy_whole_file(conn, file, instance, file_name, cache, download?)
+    end
+  end
+
+  # At most this much of a proxied file per answer. A browser asks for
+  # `bytes=0-` (all of it) first and is content with less: it asks again from
+  # where the answer ended, so a part is all that is ever held in memory.
+  @proxy_part_bytes 8 * 1024 * 1024
+
+  # Only for the exact bytes of this URL (not a stand-in, see
+  # `send_file_ranged/3`), one valid range, and an instance whose size is known.
+  defp proxy_range(conn, instance, file_name, cache) do
+    with false <- cache == :pending,
+         size when is_integer(size) and size > 0 <- instance.size,
+         [range] <- get_req_header(conn, "range"),
+         true <- if_range_matches?(conn, ~s("#{instance.checksum}")),
+         {:ok, first, last, _} <- FileServer.parse_range_header(range, size),
+         last = min(last, first + @proxy_part_bytes - 1),
+         {:ok, bytes} <- Manager.read_range(file_name, first, last) do
+      {:ok, first, last, bytes}
+    else
+      _ -> :whole
+    end
+  end
+
+  defp proxy_whole_file(conn, file, instance, file_name, cache, download?) do
     temp_path =
       Path.join(System.tmp_dir!(), "phoenix_kit_#{instance.uuid}_#{:rand.uniform(1_000_000)}")
 
