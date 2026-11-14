@@ -154,6 +154,7 @@ test("shrunk, the light pass leaves the rows' text, bars and buttons alone", () 
 
   h.collapsed = true;
   li.querySelector('[data-role="status"]').textContent = "kept";
+  li.querySelector('[data-role="progress"]').value = 77;
   h.render(1250);
   assert.strictEqual(h.list.children[0], li, "the row is the same one");
   assert.strictEqual(li.dataset.state, "uploading");
@@ -161,6 +162,7 @@ test("shrunk, the light pass leaves the rows' text, bars and buttons alone", () 
     li.querySelector('[data-role="status"]').textContent, "kept",
     "a shrunk render is not the full redraw"
   );
+  assert.strictEqual(li.querySelector('[data-role="progress"]').value, 77, "nor does it redraw the bar");
 });
 
 test("the queue emptying while shrunk drops the last rows", () => {
@@ -180,19 +182,21 @@ test("the queue emptying while shrunk drops the last rows", () => {
   assert.deepStrictEqual(Object.keys(h.rowEls), []);
 });
 
-test("the queue emptying while shrunk, with files remembered, drops the rows too", () => {
+test("the queue emptying with the panel open and files remembered drops the rows", () => {
   const h = hook();
   h.queue.add([{ name: "sheet.png", size: 1000, lastModified: 1 }]);
   const [it] = h.queue.next(1000);
   h.render(1000);
   h.queue.observe([{ ref: "r1", key: it.key, size: 1000, progress: 100, done: true, error: "" }], 1250);
   h.render(1250);
+  h.collapsed = false; // the person opens the panel again
+  h.render(1250);
   assert.deepStrictEqual(states(h), ["done"]);
 
-  h.queue.dismiss();
   h.leftovers = [{ name: "old.mp4", size: 5000, lastModified: 9 }]; // the "unfinished" notice
+  h.queue.clearFinished(); // "Clear finished" empties the queue
   h.render(1500);
-  assert.strictEqual(h.el.hidden, false);
+  assert.strictEqual(h.el.hidden, false, "the unfinished notice stays");
   assert.strictEqual(h.list.children.length, 0);
   assert.deepStrictEqual(Object.keys(h.rowEls), []);
 });
