@@ -38,6 +38,9 @@
  *   - MentionInput ............ @ and # menu in plain textareas
  *   - UploadStats, UploadGuard  Transfer line under an upload bar; leave-page guard
  *   - AudioRecorder ........... Microphone recorder behind <.audio_recorder>
+ *   - PasskeySignIn, PasskeyRegister  Passkeys of the sign-in page and the Security tab
+ *   - Turnstile ............... Cloudflare bot check on the public sign-up, magic-link,
+ *                               confirmation and password-reset forms
  *   - Leaf, FrescoViewer, FrescoCanvas, TesseraLayer, EtcherLayer: wrappers that
  *     load the vendored viewer/editor library on first mount
  *

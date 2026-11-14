@@ -34,7 +34,7 @@ test.after(() => {
 // the ones added since (`RemovalModal`, #999; `UploadManager`, #1006; `AudioRecorder`, 3.4.0;
 // `PasskeySignIn` and `PasskeyRegister`, the passkeys of the sign-in page and the Security tab; `NavTabsOverflow`,
 // the opt-in overflow menu of `<.nav_tabs>`, admin until a page outside the admin area opts in; `Turnstile`, the
-// Cloudflare bot check of the sign-up, magic-link and password-reset forms). A hook
+// Cloudflare bot check of the sign-up, magic-link, confirmation and password-reset forms). A hook
 // that is neither listed as public nor as admin has been lost; one that is
 // listed twice has been classified twice.
 const PUBLIC = `LibraryLoadNotice CookieConsent FlashAutoDismiss TimezoneOffset TimezoneDetector

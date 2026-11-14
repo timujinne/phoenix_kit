@@ -149,7 +149,7 @@ real uploader because the bundle replaces the stand-in in the turn the hooks mou
 (`upload_resume_reload.test.cjs`).
 
 At design time the public hooks were estimated at ~107 KB of ~507 KB of hook code. **As built** (esbuild 0.25.4
-`--minify`, `gzip -9 -n`): `phoenix_kit.js` is 292 462 B raw, 82 901 gzip, 110 627 minified, 33 866 minified + gzip;
+`--minify`, `gzip -9 -n`): `phoenix_kit.js` is 292 711 B raw, 83 005 gzip, 110 876 minified, 33 964 minified + gzip;
 `phoenix_kit_admin.js` is 448 676 / 126 104 / 169 504 / 49 467. The size budget in `admin_split.test.cjs` (288 KiB for
 the public file) is a coarse backstop; what keeps an admin hook out of the public file is the name check in the same
 test.
@@ -241,8 +241,8 @@ the output of one and of two esbuild passes). The vendored `phoenix_kit.js` and
 
 Expected (same esbuild, measured above): `phoenix_kit_modules.js` 132 KB → 77 KB gzip for the 19-bundle build; the vendored
 `phoenix_kit.js` 226 KB gzip as shipped → 25 KB gzip minified for the public part (**as built**:
-276 KB raw / 79 KB gzip readable, 32 KB gzip minified, the mention field, the two upload hooks and the audio recorder being public;
-the admin bundle is 432 KB / 122 KB readable, 163 KB / 48 KB gzip minified;
+292 711 B raw / 83 005 gzip readable, 33 964 B gzip minified, the mention field, the two upload hooks, the audio recorder,
+the passkey hooks and the Turnstile widget being public; the admin bundle is 448 676 B / 126 104 gzip readable, 49 467 B gzip minified;
 Chart.js stays its own 208 KB / 70 KB file that only the email dashboard fetches).
 
 `dev` builds stay readable, so a stack trace points at real lines.
