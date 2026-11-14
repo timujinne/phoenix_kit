@@ -1437,7 +1437,8 @@
 
       // Rows are drawn in full only while the list is open. Shrunk, each row
       // still carries its file's current state: a host form that asks whether
-      // files are still in flight (li[data-state="uploading"]) must not be
+      // files are still in flight (the panel's li[data-state="queued"],
+      // li[data-state="uploading"], the states busy() counts) must not be
       // answered by a row frozen at the moment the panel shrank.
       if (this.collapsed) this._syncRowStates();
       else this._renderRows();
