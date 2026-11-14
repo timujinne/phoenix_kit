@@ -65,6 +65,11 @@ config :swoosh, :api_client, false
 config :hammer,
   backend: {Hammer.Backend.ETS, [expiry_ms: 60_000, cleanup_interval_ms: 60_000]}
 
+# No DNS in tests: sign-ups here use `@example.com`, a domain that really does
+# publish "no mail", and a lookup with no network waits out its timeout. The
+# tests of the check switch it on for themselves, with a resolver of their own.
+config :phoenix_kit, :email_domain_check, false
+
 config :phoenix_kit, PhoenixKit.Users.RateLimiter,
   login_limit: 5,
   login_window_ms: 60_000,
@@ -83,7 +88,8 @@ config :phoenix_kit, PhoenixKit.Users.RateLimiter,
   # for themselves.
   magic_link_global_limit: nil,
   password_reset_global_limit: nil,
-  confirmation_resend_global_limit: nil
+  confirmation_resend_global_limit: nil,
+  registration_global_limit: nil
 
 # Configure session fingerprinting for tests
 config :phoenix_kit,

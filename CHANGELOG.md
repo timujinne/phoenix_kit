@@ -35,13 +35,79 @@ Run `mix phoenix_kit.update` (V230, V231 and the new `phoenix_kit.js`).
   set it off. V230 adds `phoenix_kit_user_known_devices.country_code`.
   `LoginAlerts.place_for/1`, `device_alerts_enabled?/0`, `country_alerts_enabled?/0`.
 
+- **A site-wide cap on public sign-ups**, and a page that shows every limit.
+  Password reset, magic link and confirmation resend each had an hourly cap for the
+  whole install; registration had only its per-address and per-IP limits, so a
+  botnet with a fresh address and a fresh IP per request could sign up any number
+  of made-up addresses, each one sending a mail that bounces.
+  `registration_global_limit` (default 300 an hour, `nil` switches it off; in
+  `config :phoenix_kit, PhoenixKit.Users.RateLimiter`) is now charged by the
+  sign-up form and by the request for a registration link. ⚠️ Raise it before a
+  launch or a campaign: once reached, the public forms refuse every sign-up until
+  the hour rolls. `Auth.register_user/3` charges it only with `site_wide: true`,
+  so fixtures, imports, OAuth sign-ups and users an admin adds are neither stopped
+  by it nor spend from it; a host's own public sign-up form should pass the option.
+  Settings → Authorization → **Abuse protection** lists the limits of sign-in,
+  registration, magic link, password reset and confirmation resend (per address,
+  per network, whole site) with what each site-wide counter holds now and when it
+  resets. Read-only; `RateLimiter.overview/0`.
+
+- **Cloudflare Turnstile on the public forms that send mail**, off by default:
+  Settings → Authorization → Abuse protection (the switch, the site key and the
+  secret key from the Cloudflare dashboard; `settings.security`). With it on, the
+  sign-up, registration link, password reset, magic link and confirmation resend
+  forms show the widget and refuse a submit without a passed check, before the
+  request counts against any rate limit. The secret key is checked with
+  Cloudflare when it is saved (a wrong one is refused), stored encrypted
+  (`turnstile_secret_key` is a restricted setting) and never rendered back. If
+  Cloudflare cannot be reached the forms keep working on the rate limits alone.
+  ⚠️ Needs the new `phoenix_kit.js` (`mix phoenix_kit.update`) before it is
+  switched on, and a host with a Content-Security-Policy must allow
+  `https://challenges.cloudflare.com` in `script-src` and `frame-src`. A host's
+  own public form adds `<.turnstile_widget id="…" />` inside the form and calls
+  `PhoenixKitWeb.Users.BotCheck.run/3` first in its submit.
+  `PhoenixKit.Users.Turnstile`, `PhoenixKitWeb.Components.Core.TurnstileWidget`.
+
+- **An email address check at sign-up**, on by default: Settings → Authorization →
+  Abuse protection (`email_domain_check_enabled`). On the sign-up form and the
+  registration-link request, an address whose domain cannot receive mail is
+  refused before anything is sent (the domain does not exist, has neither a mail
+  host nor an address, or publishes a null MX), and a likely typo of a big
+  provider (`gmial.com`, `hotmail.con`) gets a "Did you mean …@gmail.com?" hint
+  the person can take or ignore. Only a definite DNS answer refuses: a timeout
+  or a resolver error lets the address through. The lookup runs on submit, after
+  the bot check and the rate limiter. `Auth.register_user/3` checks only with
+  `check_email_domain: true`. ⚠️ A host test suite that signs up through the
+  kit's form with `@example.com` addresses (a domain that really publishes "no
+  mail") sets `config :phoenix_kit, :email_domain_check, false` in its
+  `config/test.exs`. `PhoenixKit.Users.EmailDomain`.
+
 ### Changed
 
+- **An account that has not confirmed its address gets only the mail its holder
+  asks for** (the confirmation, a password reset, a sign-in link). Notification
+  and digest emails, the new-login and failed-sign-in alerts and the passkey
+  notices are no longer sent to it: an unproven address may be a typo or made up,
+  and every mail to it is a bounce or a complaint against the sender. In-app
+  notifications are unchanged. With `require_email_confirmation` off the rule
+  does not apply (such a site has no confirmed accounts to tell apart).
+  `Auth.unsolicited_mail_allowed?/1`.
 - The new-login email now says "a new device or location" (it can be either), and the
   Security notification type's description says the same.
 - `LoginAlerts.check/2` returns the conn (it sets the device cookie) instead of `:ok`.
 
 ### Fixed
+
+- **Finishing a registration from a mailed link no longer counts as another sign-up
+  attempt.** The request for the link took one of the address's three hourly
+  attempts and every submit of the completion form took another, so the third try
+  at the form (a password too short, twice) answered "Too many registration
+  attempts". The completion is not limited again: the request was, and the token
+  proves the address (`register_user/3`, `rate_limit: false`).
+
+- **"Too many registration attempts" is shown on the sign-up form.** The refusal
+  came back as a changeset with no action, which a form renders without errors:
+  the page simply did nothing. It is translated now, too.
 
 - **Invite-only: a person an admin adds is no longer parked on the code screen, and
   the code form speaks the site language.** With `referral_codes_required` on, an
