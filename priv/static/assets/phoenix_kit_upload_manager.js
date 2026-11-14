@@ -1347,6 +1347,10 @@
       var s = q.stats(now);
       var el = this.el;
 
+      // An emptied queue leaves no rows behind, whichever way it emptied and
+      // whether the panel is open or shrunk: the returns below skip the row pass.
+      if (!q.items.length) this._syncRowStates();
+
       var remembered = this.leftovers.length > 0;
       if (!q.items.length && !remembered) { el.hidden = true; return; }
       el.hidden = false;
@@ -1485,6 +1489,7 @@
 
     // The shrunk panel's light pass: every file has a row and every row its
     // file's state; order, text and buttons wait until the list is opened.
+    // Also run when the queue is empty, to drop the last rows.
     _syncRowStates: function() {
       var self = this;
       var seen = {};
