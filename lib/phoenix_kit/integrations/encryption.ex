@@ -28,8 +28,10 @@ defmodule PhoenixKit.Integrations.Encryption do
          * the same endpoint's entry in the host app's env
            (`config :my_app, MyAppWeb.Endpoint, secret_key_base: ...`), for
            code that runs before the endpoint has started or on a node that
-           never starts it (`mix run`, a release `eval`, a job picked up at
-           boot).
+           never starts it (`mix run --no-start`, a release `eval`, a job
+           picked up at boot). Skipped when the endpoint defines the
+           deprecated `init/2` callback, which may replace that secret at
+           start.
 
        Setting the flat key to the value your Endpoint uses is the explicit
        way to pin it:
@@ -1379,13 +1381,15 @@ defmodule PhoenixKit.Integrations.Encryption do
   # `endpoint.config/1` reads the endpoint's ETS table, which exists only once
   # the endpoint has started. Everything that runs before that — the settings
   # cache warmer, other children started ahead of the endpoint, an Oban job
-  # picked up at boot — and every node that never starts it (`mix run`, a
-  # release `eval`, a one-off script) used to find no secret here, resolve NO
-  # key, and treat every stored `enc:v1:` credential as missing: an AI call
-  # went out without its API key and the provider answered "invalid API key"
-  # for a key that is perfectly valid. The endpoint takes its configuration
-  # from the host app's env, which is loaded (`runtime.exs` included) before
-  # any application starts, so the same secret is already there.
+  # picked up at boot — and every node that never starts it (`mix run
+  # --no-start`, a release `eval`, a one-off script) used to find no secret
+  # here, resolve NO key, and treat every stored `enc:v1:` credential as
+  # missing: an AI call went out without its API key and the provider answered
+  # "invalid API key" for a key that is perfectly valid. The endpoint takes its
+  # configuration from the host app's env, which is loaded (`runtime.exs`
+  # included) before any application starts — so, unless the endpoint
+  # defines `init/2` (see `configured_endpoint_secret/1`), the secret it will
+  # run with is already there.
   defp endpoint_secret_key_base do
     case PhoenixKit.Config.get_parent_endpoint() do
       {:ok, endpoint} ->
@@ -1395,6 +1399,10 @@ defmodule PhoenixKit.Integrations.Encryption do
       :error ->
         nil
     end
+  rescue
+    # A malformed `:parent_module` means no endpoint, hence no key — not a
+    # crash in `status/0` or on a read.
+    _ -> nil
   end
 
   defp running_endpoint_secret(endpoint) do
@@ -1404,10 +1412,21 @@ defmodule PhoenixKit.Integrations.Encryption do
     _ -> nil
   end
 
+  # Phoenix still calls a deprecated `init/2` callback at start and runs with
+  # the config it returns, so such an endpoint may run with a secret other than
+  # its app env's. Reading the app env there would encrypt before start under
+  # one key and decrypt after start under another; no key (plaintext writes,
+  # the state before this lookup existed) is the safer answer.
   defp configured_endpoint_secret(endpoint) do
-    case Application.get_application(endpoint) do
-      nil -> nil
-      app -> app |> Application.get_env(endpoint, []) |> Keyword.get(:secret_key_base)
+    cond do
+      function_exported?(endpoint, :init, 2) ->
+        nil
+
+      app = Application.get_application(endpoint) ->
+        app |> Application.get_env(endpoint, []) |> Keyword.get(:secret_key_base)
+
+      true ->
+        nil
     end
   rescue
     # An endpoint env that is not a keyword list is not ours to interpret.

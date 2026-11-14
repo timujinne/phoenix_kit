@@ -51,6 +51,20 @@ defmodule PhoenixKitSkbHost.Endpoint do
   def stop, do: :persistent_term.erase(@running_key)
 end
 
+# A host endpoint that defines the deprecated `init/2` callback: Phoenix runs it
+# at start and uses the config it returns, so its app env may not hold the
+# secret it will run with.
+defmodule PhoenixKitSkbInitHost.Endpoint do
+  def url, do: "http://localhost"
+
+  def config(:secret_key_base),
+    do: raise(ArgumentError, "the table identifier does not refer to an existing ETS table")
+
+  def config(_key), do: nil
+
+  def init(_context, config), do: {:ok, Keyword.put(config, :secret_key_base, "from-init")}
+end
+
 defmodule PhoenixKit.Integrations.EncryptionTest do
   # async: false — the encryption_key/0 fallback tests mutate the global
   # `:phoenix_kit` app env (`:secret_key_base`, `:parent_module`), which
@@ -306,6 +320,35 @@ defmodule PhoenixKit.Integrations.EncryptionTest do
       assert Encryption.status() == :legacy_secret_key_base
       assert Encryption.decrypt_fields(stored)["api_key"] == "sk-valid"
       assert Encryption.decrypt_value(stored["api_key"]) == {:ok, "sk-valid"}
+    end
+
+    test "the app env is not used when the endpoint defines init/2" do
+      app = :phoenix_kit_skb_init_host
+      endpoint = PhoenixKitSkbInitHost.Endpoint
+
+      :ok =
+        :application.load(
+          {:application, app,
+           [
+             description: ~c"skb init host",
+             vsn: ~c"0.0.0",
+             modules: [endpoint],
+             registered: [],
+             applications: [:kernel, :stdlib]
+           ]}
+        )
+
+      on_exit(fn -> :application.unload(app) end)
+      Application.put_env(app, endpoint, secret_key_base: "app-env-secret-init-may-replace")
+      Application.put_env(:phoenix_kit, :parent_module, PhoenixKitSkbInitHost)
+
+      assert Encryption.status() == :disabled_no_key
+    end
+
+    test "a malformed :parent_module resolves no key instead of raising" do
+      Application.put_env(:phoenix_kit, :parent_module, %{not: "a module"})
+
+      assert Encryption.status() == :disabled_no_key
     end
 
     test "the running endpoint's secret wins over the app env once it has started" do
