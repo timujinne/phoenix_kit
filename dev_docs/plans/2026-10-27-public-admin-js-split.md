@@ -101,7 +101,7 @@ the user dashboard, or when it is a global behaviour every page needs; generic s
 public (their cost is a few hundred gzip bytes each, less than one lazy request); specialised or heavy hooks go
 to the admin bundle.** The split is an explicit list in `phoenix_kit.js` (`ADMIN_HOOKS`), and a node test pins it.
 
-*Public, 37* — LibraryLoadNotice, CookieConsent, FlashAutoDismiss, TimezoneOffset, TimezoneDetector,
+*Public, 38* — LibraryLoadNotice, CookieConsent, FlashAutoDismiss, TimezoneOffset, TimezoneDetector,
 LanguageSwitcherSearch, LanguageSwitcherPosition, PkDialog, PkDialogTrigger, PopupLink, ResetSelect,
 SelectOnMount, TimeAgo, CopyToClipboard, FadeOut, PreserveScroll, InfiniteScroll, PageSizeAutoFit,
 MaintenanceCountdown, PkShiftEnter, PkUrlMirror, PhoenixKitUrlState, PkCheckboxIndeterminate, PkDateInput,
@@ -109,7 +109,8 @@ PkChartCrosshair, ViewportPopover, and the five already-lazy library wrappers Le
 TesseraLayer, EtcherLayer; MentionInput, UploadStats and UploadGuard, which core's own `file_upload` component
 and its mention-enabled text fields render, so a module's public page (a form with an upload, a comment box) has
 them; AudioRecorder, the microphone behind `<.audio_recorder>` (3.4.0); and PasskeySignIn and PasskeyRegister,
-the passkeys of the sign-in page and of the Security tab of the account settings (see the end of this section).
+the passkeys of the sign-in page and of the Security tab of the account settings (see the end of this section);
+and Turnstile, the Cloudflare bot check that core renders on its sign-up, magic-link, confirmation and password-reset forms.
 
 *Admin, 41* — SortableGrid, MediaImageZoom, MarkdownEditor, InstantViewer, ViewerKeydown, ViewerPaneFit,
 MediaViewerDialog, ViewerSwipe, ViewerGallery, ViewerHiresLoading, AnnotationBurn, EtcherTooltipActions,
@@ -148,7 +149,7 @@ real uploader because the bundle replaces the stand-in in the turn the hooks mou
 (`upload_resume_reload.test.cjs`).
 
 At design time the public hooks were estimated at ~107 KB of ~507 KB of hook code. **As built** (esbuild 0.25.4
-`--minify`, `gzip -9 -n`): `phoenix_kit.js` is 288 576 B raw, 81 861 gzip, 109 210 minified, 33 473 minified + gzip;
+`--minify`, `gzip -9 -n`): `phoenix_kit.js` is 292 462 B raw, 82 901 gzip, 110 627 minified, 33 866 minified + gzip;
 `phoenix_kit_admin.js` is 448 676 / 126 104 / 169 504 / 49 467. The size budget in `admin_split.test.cjs` (288 KiB for
 the public file) is a coarse backstop; what keeps an admin hook out of the public file is the name check in the same
 test.
