@@ -36,6 +36,15 @@ Run `mix phoenix_kit.update` (V230, V231 and the new `phoenix_kit.js`).
 
 ### Fixed
 
+- **The upload manager's rows keep their state while the panel is shrunk.** A
+  batch that ends cleanly shrinks the panel to one line, and the rows were then
+  no longer redrawn: each stayed at the `data-state` it had when the panel
+  shrank, usually `uploading`. A host form that asks the rows whether files are
+  still in flight (the agent Dock refuses to send while a row says `queued` or
+  `uploading`) held the send back until the user opened the panel. Shrunk, the
+  panel now keeps each row's `data-state` current and adds or drops rows as files
+  come and go; the full redraw still waits until it is opened.
+
 - **A copy between libraries no longer fails when object storage is slow.**
   `Storage.link_copy/3` and `relink_file/3` asked the buckets (is each object there,
   does the thumbnail hold its bytes) inside their transaction, so one request that
