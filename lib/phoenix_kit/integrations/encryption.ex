@@ -1419,7 +1419,8 @@ defmodule PhoenixKit.Integrations.Encryption do
   # the state before this lookup existed) is the safer answer.
   defp configured_endpoint_secret(endpoint) do
     cond do
-      function_exported?(endpoint, :init, 2) ->
+      # `function_exported?/3` is false for a module not loaded yet.
+      Code.ensure_loaded?(endpoint) and function_exported?(endpoint, :init, 2) ->
         nil
 
       app = Application.get_application(endpoint) ->
