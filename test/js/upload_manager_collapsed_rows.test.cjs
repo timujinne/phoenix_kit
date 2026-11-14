@@ -136,10 +136,65 @@ test("a file added while the panel is shrunk gets a row, a cleared one loses it"
   ]);
   h.render(1000);
   assert.deepStrictEqual(states(h), ["queued", "queued"]);
-  h.queue.items = h.queue.items.slice(1); // "Clear finished" / cancel drops one
+  h.queue.cancel(h.queue.items[0].id); // the first file is cancelled...
+  h.queue.clearFinished(); // ...and cleared from the list
+  assert.strictEqual(h.queue.items.length, 1);
   h.render(1000);
   assert.deepStrictEqual(states(h), ["queued"]);
   assert.deepStrictEqual(Object.keys(h.rowEls), [String(h.queue.items[0].id)]);
+});
+
+test("shrunk, the light pass leaves the rows' text, bars and buttons alone", () => {
+  const h = hook();
+  h.queue.add([{ name: "a.png", size: 1000, lastModified: 1 }]);
+  h.queue.next(1000);
+  h.render(1000);
+  const li = h.list.children[0];
+  assert.strictEqual(li.querySelector('[data-role="status"]').textContent, "0% · 1.0 KB");
+
+  h.collapsed = true;
+  li.querySelector('[data-role="status"]').textContent = "kept";
+  h.render(1250);
+  assert.strictEqual(h.list.children[0], li, "the row is the same one");
+  assert.strictEqual(li.dataset.state, "uploading");
+  assert.strictEqual(
+    li.querySelector('[data-role="status"]').textContent, "kept",
+    "a shrunk render is not the full redraw"
+  );
+});
+
+test("the queue emptying while shrunk drops the last rows", () => {
+  const h = hook();
+  h.queue.add([{ name: "sheet.png", size: 1000, lastModified: 1 }]);
+  const [it] = h.queue.next(1000);
+  h.render(1000);
+  h.queue.observe([{ ref: "r1", key: it.key, size: 1000, progress: 100, done: true, error: "" }], 1250);
+  h.render(1250);
+  assert.strictEqual(h.collapsed, true);
+  assert.deepStrictEqual(states(h), ["done"]);
+
+  h.queue.dismiss(); // the one control a shrunk panel keeps
+  h.render(1500);
+  assert.strictEqual(h.el.hidden, true);
+  assert.strictEqual(h.list.children.length, 0, "no row is left in the hidden list");
+  assert.deepStrictEqual(Object.keys(h.rowEls), []);
+});
+
+test("the queue emptying while shrunk, with files remembered, drops the rows too", () => {
+  const h = hook();
+  h.queue.add([{ name: "sheet.png", size: 1000, lastModified: 1 }]);
+  const [it] = h.queue.next(1000);
+  h.render(1000);
+  h.queue.observe([{ ref: "r1", key: it.key, size: 1000, progress: 100, done: true, error: "" }], 1250);
+  h.render(1250);
+  assert.deepStrictEqual(states(h), ["done"]);
+
+  h.queue.dismiss();
+  h.leftovers = [{ name: "old.mp4", size: 5000, lastModified: 9 }]; // the "unfinished" notice
+  h.render(1500);
+  assert.strictEqual(h.el.hidden, false);
+  assert.strictEqual(h.list.children.length, 0);
+  assert.deepStrictEqual(Object.keys(h.rowEls), []);
 });
 
 test("opening the panel again draws the rows in full", () => {
