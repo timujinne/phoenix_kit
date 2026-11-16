@@ -196,7 +196,7 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
         client_name: Pages.client_label(snapshot["client_name"], snapshot["client_id"]),
         redirect_host: RedirectUri.host(request.redirect_uri),
         loopback?: RedirectUri.loopback?(request.redirect_uri),
-        unverified?: snapshot["kind"] in ["cimd", "dcr"],
+        unverified?: snapshot["kind"] != "preregistered",
         client_address: client_address(snapshot),
         email: user.email,
         entries: Scopes.describe(selectable),
