@@ -34,6 +34,7 @@ defmodule PhoenixKitWeb.OAuth.Pages do
   h2{font-size:1rem;margin:1.25rem 0 .4rem}
   p{margin:.5rem 0}
   .host{font-size:1.4rem;font-weight:700;word-break:break-all;margin:.25rem 0}
+  .host-path{font-size:1rem;font-family:ui-monospace,monospace;word-break:break-all;margin:.1rem 0 .5rem}
   .warn{border:1px solid #c80;background:#fff7e0;padding:.6rem .8rem;border-radius:.4rem}
   .muted{color:#666;font-size:.9rem}
   .scopes{list-style:none;padding:0;margin:.25rem 0}
@@ -124,7 +125,9 @@ defmodule PhoenixKitWeb.OAuth.Pages do
   end
 
   @doc """
-  The consent screen. Assigns: `csrf_token`, `action`, `client_name`, `redirect_host`,
+  The consent screen. Assigns: `csrf_token`, `action`, `client_name`, `redirect_host` (the host,
+  with the port when it is not the scheme's own), `redirect_path` (shown under it: on a host that
+  serves pages of many people the path says whose),
   `loopback?`, `unverified?` (the client named itself: a notice that the name is not checked),
   `client_address` (the host of its metadata document, or `nil`), `email`, `entries` (`PhoenixKit.API.OAuth.Scopes.describe/1`), `preselected`,
   `days` (`{default, choices}`), `error` (`nil` or `:no_scopes`).
@@ -149,6 +152,9 @@ defmodule PhoenixKitWeb.OAuth.Pages do
       </p>
       <h2>{gettext("After you decide, your browser is sent to")}</h2>
       <p class="host" id="consent-host">{@redirect_host}</p>
+      <p :if={@redirect_path not in ["", "/"]} class="host-path" id="consent-path">
+        {@redirect_path}
+      </p>
       <p :if={@loopback?} class="warn" id="consent-loopback">
         {gettext(
           "This address is on the computer you are using now. Allow it only if you started this connection yourself."
@@ -291,6 +297,7 @@ defmodule PhoenixKitWeb.OAuth.Pages do
     |> Map.new()
     |> Map.put_new(:reason, nil)
     |> Map.put_new(:error, nil)
+    |> Map.put_new(:redirect_path, "")
     |> Map.put_new(:unverified?, false)
     |> Map.put_new(:client_address, nil)
     |> Map.put_new(:__changed__, nil)

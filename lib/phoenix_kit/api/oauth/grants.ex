@@ -59,7 +59,8 @@ defmodule PhoenixKit.API.OAuth.Grants do
   pass it. A person at the ceiling gets `{:error, :grant_limit}` and nothing is created.
 
   Returns `{:ok, grant, key}`, or the key's refusal (`:forbidden`, `:impersonated`,
-  `:invalid_scopes`, `:owner_inactive`, a changeset, ...).
+  `:invalid_scopes`, `:owner_inactive`, a changeset, ...), `:grant_limit`, or `:client_gone` when
+  the client was deleted in the meantime (nothing is created).
   """
   @spec create(Scope.t() | nil, Client.t(), map(), keyword()) ::
           {:ok, Grant.t(), Key.t()} | {:error, Ecto.Changeset.t() | atom()}
@@ -80,7 +81,7 @@ defmodule PhoenixKit.API.OAuth.Grants do
       with {:ok, key} <- Keys.create_oauth_key(scope, key_attrs, opts),
            :ok <- check_ceiling(user_uuid, ceiling),
            {:ok, grant} <-
-             repo().insert(%Grant{
+             insert(%Grant{
                uuid: grant_uuid,
                user_uuid: user_uuid,
                client_uuid: client.uuid,
@@ -102,6 +103,25 @@ defmodule PhoenixKit.API.OAuth.Grants do
   end
 
   def create(_scope, _client, _attrs, opts) when is_list(opts), do: {:error, :forbidden}
+
+  # A client deleted since the consent screen was shown is an answer (`:client_gone`), not a
+  # constraint error: the foreign key is the one place that sees the delete, whatever the
+  # earlier read of the client said.
+  defp insert(%Grant{} = grant) do
+    grant
+    |> Ecto.Changeset.change()
+    |> Ecto.Changeset.foreign_key_constraint(:client_uuid)
+    |> repo().insert()
+    |> case do
+      {:ok, grant} ->
+        {:ok, grant}
+
+      {:error, %Ecto.Changeset{errors: errors} = changeset} ->
+        if Keyword.has_key?(errors, :client_uuid),
+          do: {:error, :client_gone},
+          else: {:error, changeset}
+    end
+  end
 
   # The person's advisory lock is held by now (the hidden key took it), and stays until the
   # transaction ends.

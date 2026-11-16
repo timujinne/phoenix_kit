@@ -6,6 +6,7 @@ defmodule PhoenixKit.API.OAuth.GrantsTest do
   """
   use PhoenixKit.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
   import PhoenixKit.API.KeyTestSupport
   import PhoenixKit.API.OAuthTestSupport
 
@@ -44,6 +45,17 @@ defmodule PhoenixKit.API.OAuth.GrantsTest do
     assert grant.activated_at == nil and grant.revoked_at == nil
     assert key.expires_at == grant.expires_at
     assert key.name == "OAuth: " <> ctx.client.client_name
+  end
+
+  test "a client deleted since it was read is :client_gone, not a constraint error, and leaves nothing",
+       ctx do
+    Repo.delete!(ctx.client)
+
+    assert Grants.create(ctx.scope, ctx.client, attrs(), impersonated: false) ==
+             {:error, :client_gone}
+
+    assert Repo.all(Grant) == []
+    assert Repo.all(from(k in Key, where: not is_nil(k.oauth_grant_uuid))) == []
   end
 
   test "a client name of combining marks makes a key, not a database error", ctx do

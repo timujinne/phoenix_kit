@@ -14,8 +14,11 @@ defmodule PhoenixKitWeb.OAuth.AuthorizeTest do
 
   import PhoenixKit.Test.ApiHarness, only: [put_setting: 2, setup_api: 0, switch: 2]
 
+  alias PhoenixKit.API.OAuth.Client
+  alias PhoenixKit.API.OAuth.Limits
   alias PhoenixKit.API.OAuth.Request
   alias PhoenixKit.API.OAuth.Resource
+  alias PhoenixKit.API.OAuthCimdStub, as: Stub
   alias PhoenixKit.Test.Repo
   alias PhoenixKit.Utils.Routes
 
@@ -44,9 +47,13 @@ defmodule PhoenixKitWeb.OAuth.AuthorizeTest do
       id = consent_id(conn)
       assert [%Request{} = request] = Repo.all(Request)
       refute id =~ request.uuid
-      # Only the hash of the token is stored.
+      # Only a hash of the token is stored, keyed by the nonce of the browser that asked: the
+      # cookie that browser holds.
+      nonce = browser_value(conn)
+      assert is_binary(nonce)
+
       assert request.request_token_hash ==
-               :crypto.hash(:sha256, Base.url_decode64!(id, padding: false))
+               :crypto.mac(:hmac, :sha256, nonce, Base.url_decode64!(id, padding: false))
 
       assert request.resource == Resource.resource()
       assert request.client_snapshot["client_id"] == client.client_id
@@ -274,6 +281,76 @@ defmodule PhoenixKitWeb.OAuth.AuthorizeTest do
     end
   end
 
+  describe "a client that named itself is never sent a redirect before the person consented" do
+    # This request comes before any sign-in or consent screen: an `https` address listed by an
+    # unverified client (a registered one, a metadata document) must not be reachable through a
+    # redirect from this site. The page is ours, and nothing is stored.
+    @wrong %{
+      "response_type" => "token",
+      "code_challenge_method" => "plain",
+      "code_challenge" => "short",
+      "resource" => "https://elsewhere.example/mcp/admin",
+      "request" => "eyJ",
+      "request_uri" => "https://x.example/r"
+    }
+
+    defp dcr_client! do
+      Repo.insert!(%Client{
+        kind: "dcr",
+        client_id: "dcr_open_redirect_#{System.unique_integer([:positive])}",
+        redirect_uris: ["https://victim-lure.example/phish"]
+      })
+    end
+
+    test "a dynamically registered client gets our error page for every kind of error", %{
+      challenge: challenge
+    } do
+      client = dcr_client!()
+
+      for {name, value} <- @wrong do
+        conn = authorize(browser(), authorize_params(client, challenge, %{name => value}))
+
+        assert conn.status == 400, name
+        assert get_resp_header(conn, "location") == [], name
+        refute conn.resp_body =~ "victim-lure.example", name
+      end
+
+      assert Repo.all(Request) == []
+    end
+
+    test "a client named by a metadata document gets our error page too", %{
+      challenge: challenge
+    } do
+      Stub.install!()
+      claude = Stub.claude_id()
+      Stub.put(claude, Stub.claude_document())
+      Limits.reset(:cimd_client, claude)
+
+      client = %{client_id: claude, redirect_uris: ["https://claude.ai/api/mcp/auth_callback"]}
+      conn = authorize(browser(), authorize_params(client, challenge, %{"response_type" => "x"}))
+
+      assert conn.status == 400
+      assert get_resp_header(conn, "location") == []
+      assert Repo.all(Request) == []
+    end
+
+    test "the same client's valid request still goes to the consent URL", %{challenge: challenge} do
+      client = dcr_client!()
+      conn = authorize(browser(), authorize_params(client, challenge))
+      assert conn.status == 302
+      assert location(conn) =~ ~r|/oauth/consent/[A-Za-z0-9_-]{43}\z|
+    end
+
+    test "a pre-registered client keeps the redirect (the administrator's own choice)", %{
+      client: client,
+      challenge: challenge
+    } do
+      conn = authorize(browser(), authorize_params(client, challenge, %{"response_type" => "x"}))
+      assert conn.status == 302
+      assert location(conn) =~ hd(client.redirect_uris)
+    end
+  end
+
   describe "limits and the switch" do
     test "the network's minute runs out: 429 and Retry-After, no request stored", %{
       client: client,
@@ -359,6 +436,41 @@ defmodule PhoenixKitWeb.OAuth.AuthorizeTest do
       assert Enum.any?(route_lines, &(&1 =~ "CONTROLMARK"))
       refute Enum.any?(route_lines, &(&1 =~ "OAuth"))
       refute Enum.any?(route_lines, &(&1 =~ "SECRETSTATE0123" or &1 =~ challenge))
+    end
+
+    test "the consent token is in no line of the log: not the router's, not the endpoint's request line",
+         %{client: client, challenge: challenge} do
+      previous = Logger.level()
+      Logger.configure(level: :debug)
+      on_exit(fn -> Logger.configure(level: previous) end)
+
+      {user, _role} = holder(["dashboard"])
+      params = authorize_params(client, challenge)
+
+      {id, log} =
+        with_log([level: :debug], fn ->
+          id = authorize(browser(), params) |> consent_id()
+          consent(browser(), id)
+          consent(browser(user), id)
+
+          decide(browser(user), id, %{
+            "decision" => "allow",
+            "scopes" => ["testkit.items:read"],
+            "days" => "30"
+          })
+
+          id
+        end)
+
+      # The control: the endpoint writes its request line for the authorize path (at :info), so a
+      # consent line that is missing is missing because it was switched off, not because nothing
+      # is captured.
+      assert log =~ "[info] GET " <> Routes.path("/oauth/authorize")
+      refute log =~ id
+
+      # The timer line of the kit shows the page, not the token.
+      assert log =~ "[RequestTimer] END GET " <> Routes.path("/oauth/consent/[FILTERED]")
+      refute log =~ ~r|GET /[^ ]*oauth/consent/[A-Za-z0-9_-]{43}|
     end
   end
 end

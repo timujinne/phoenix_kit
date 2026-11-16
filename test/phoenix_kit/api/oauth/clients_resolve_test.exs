@@ -32,6 +32,45 @@ defmodule PhoenixKit.API.OAuth.ClientsResolveTest do
 
   defp resolve(client_id, ip), do: Clients.resolve(client_id, ip: ip)
 
+  describe "a document on the authorization server's own host" do
+    # A path on the site's own domain (a shared pages host, a person's page) must not be able to
+    # name a client: nothing is fetched, the request meets the ordinary "no such client".
+    test "is no client, and nothing is fetched or counted", %{ip: ip} do
+      put_setting("site_url", "https://pages.example.com")
+      own = "https://pages.example.com/someone/client.json"
+      Stub.put(own, Stub.claude_document() |> Map.put("client_id", own))
+
+      for id <- [own, "https://PAGES.example.com./x/client.json"] do
+        assert resolve(id, ip) == {:error, :unknown_client}
+      end
+
+      assert Stub.calls(own) == []
+      assert Repo.all(Client) == []
+    end
+
+    test "a stored document of that host that ran out is not fetched again", %{ip: ip} do
+      put_setting("site_url", "https://pages.example.com")
+      own = "https://pages.example.com/old/client.json"
+      Stub.put(own, Stub.claude_document() |> Map.put("client_id", own))
+
+      Repo.insert!(%Client{
+        kind: "cimd",
+        client_id: own,
+        redirect_uris: ["https://claude.ai/api/mcp/auth_callback"],
+        metadata_expires_at:
+          DateTime.utc_now() |> DateTime.add(-60, :second) |> DateTime.truncate(:second)
+      })
+
+      assert resolve(own, ip) == {:error, :unknown_client}
+      assert Stub.calls(own) == []
+    end
+
+    test "another host of the same domain is another host", %{ip: ip} do
+      put_setting("site_url", "https://pages.example.com")
+      assert {:ok, %Client{}} = resolve(@claude, ip)
+    end
+  end
+
   describe "clean_name/1" do
     test "cuts by graphemes and by code points, whichever is shorter" do
       assert Clients.clean_name(String.duplicate("n", 300)) |> String.length() == 160

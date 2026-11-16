@@ -31,7 +31,10 @@ defmodule PhoenixKitWeb.Endpoint do
   end
 
   plug Plug.RequestId
-  plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
+  # `log:` keeps the OAuth consent capability URL out of the request line of the log.
+  plug Plug.Telemetry,
+    event_prefix: [:phoenix, :endpoint],
+    log: {PhoenixKit.API.OAuth.RequestLog, :level, []}
 
   # Bounds and parses the body of machine API requests (and only those) before
   # Plug.Parsers can, so an oversized or malformed body is a problem+json

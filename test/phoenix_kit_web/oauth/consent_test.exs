@@ -15,10 +15,12 @@ defmodule PhoenixKitWeb.OAuth.ConsentTest do
   import PhoenixKit.Test.ApiHarness, only: [put_setting: 2, setup_api: 0, with_client_ip: 1]
 
   alias PhoenixKit.API.KeyTestSupport
+  alias PhoenixKit.API.OAuth.Client
   alias PhoenixKit.API.OAuth.Code
   alias PhoenixKit.API.OAuth.Grant
   alias PhoenixKit.API.OAuth.Grants
   alias PhoenixKit.API.OAuth.Requests
+  alias PhoenixKit.API.OAuth.Resource
   alias PhoenixKit.Test.Repo
   alias PhoenixKit.Users.Auth
   alias PhoenixKit.Users.Permissions
@@ -40,6 +42,33 @@ defmodule PhoenixKitWeb.OAuth.ConsentTest do
 
   defp allow_form(scopes \\ [@read]),
     do: %{"decision" => "allow", "scopes" => scopes, "days" => "30"}
+
+  describe "denying" do
+    test "the client of a registration hears access_denied (state, iss) only after the person said no",
+         %{user: user, challenge: challenge} do
+      client =
+        Repo.insert!(%Client{
+          kind: "dcr",
+          client_id: "dcr_deny_#{System.unique_integer([:positive])}",
+          redirect_uris: ["https://app.example/cb"]
+        })
+
+      params = authorize_params(client, challenge)
+      id = browser() |> authorize(params) |> consent_id()
+
+      answer = decide(browser(user), id, %{"decision" => "deny"})
+
+      assert answer.status == 302
+      assert location(answer) =~ "https://app.example/cb?"
+
+      assert %{"error" => "access_denied", "state" => state, "iss" => iss} =
+               location_params(answer)
+
+      assert state == params["state"]
+      assert iss == Resource.issuer()
+      assert Repo.all(Grant) == []
+    end
+  end
 
   describe "who may connect an application" do
     test "a person with neither api_personal_keys nor api gets a page and no code", %{
@@ -217,6 +246,48 @@ defmodule PhoenixKitWeb.OAuth.ConsentTest do
     end
   end
 
+  describe "how long a connection can live, at the default settings" do
+    # A grant lasts 30 days by default and at most `api_personal_key_max_days`, whose default is
+    # 90 (its range goes to 365, an administrator's explicit choice). The refresh token ends with
+    # its grant, and nothing renews either.
+    test "a year asked for is 90 days, the screen offers no more, the refresh token ends with the grant",
+         %{user: user, client: client} do
+      {verifier, challenge} = pkce()
+      id = request_id(client, challenge)
+
+      options =
+        user
+        |> browser()
+        |> consent(id)
+        |> Map.fetch!(:resp_body)
+        |> Floki.parse_document!()
+        |> Floki.find("#consent-days option")
+        |> Enum.flat_map(&Floki.attribute(&1, "value"))
+        |> Enum.map(&String.to_integer/1)
+
+      assert Enum.max(options) == 90
+
+      answer = decide(browser(user), id, Map.put(allow_form(), "days", "365"))
+      %{"code" => code} = location_params(answer)
+
+      assert [%Grant{expires_at: ends}] = Repo.all(Grant)
+      assert DateTime.diff(ends, DateTime.utc_now(), :day) in 89..90
+
+      exchanged =
+        exchange_code(%{
+          code: code,
+          verifier: verifier,
+          client: client,
+          redirect_uri: hd(client.redirect_uris)
+        })
+
+      assert exchanged.status == 200
+
+      refresh = Enum.find(Repo.all(PhoenixKit.API.OAuth.Token), &(&1.kind == "refresh"))
+      assert DateTime.compare(refresh.expires_at, ends) in [:lt, :eq]
+    end
+  end
+
   describe "the switch" do
     test "OAuth turned off after the request was made: 404, nothing granted, the request kept",
          %{user: user, client: client, challenge: challenge} do
@@ -254,6 +325,40 @@ defmodule PhoenixKitWeb.OAuth.ConsentTest do
         assert [option] = Floki.find(html, "#consent-days option[selected]")
         assert Floki.attribute(option, "value") == [selected], "max #{max_days}"
       end
+    end
+  end
+
+  describe "where the browser is sent" do
+    defp address_of(user, client, challenge) do
+      html =
+        user
+        |> browser()
+        |> consent(request_id(client, challenge))
+        |> Map.fetch!(:resp_body)
+        |> Floki.parse_document!()
+
+      {Floki.find(html, "#consent-host") |> Floki.text() |> String.trim(),
+       Floki.find(html, "#consent-path") |> Floki.text() |> String.trim()}
+    end
+
+    test "the host, a port that is not the scheme's own, and the path are shown", %{
+      user: user,
+      challenge: challenge
+    } do
+      # A host of pages of many people: the path says whose.
+      shared = client!(%{redirect_uris: ["https://pages.example/users/mallory/cb"]})
+      assert address_of(user, shared, challenge) == {"pages.example", "/users/mallory/cb"}
+
+      ported = client!(%{redirect_uris: ["https://app.example:8443/cb"]})
+      assert address_of(user, ported, challenge) == {"app.example:8443", "/cb"}
+
+      loopback = client!(%{redirect_uris: ["http://127.0.0.1:3000/callback"]})
+      assert address_of(user, loopback, challenge) == {"127.0.0.1:3000", "/callback"}
+    end
+
+    test "a bare host has no path line", %{user: user, challenge: challenge} do
+      bare = client!(%{redirect_uris: ["https://app.example"]})
+      assert address_of(user, bare, challenge) == {"app.example", ""}
     end
   end
 

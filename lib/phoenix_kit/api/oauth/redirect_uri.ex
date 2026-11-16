@@ -57,6 +57,27 @@ defmodule PhoenixKit.API.OAuth.RedirectUri do
     end
   end
 
+  @doc """
+  What the consent screen shows of a URI that parses: `%{host, port, path}`, where `port` is
+  `nil` when it is the scheme's own (443 for `https`, 80 for `http`) and `path` is the path as
+  written (`""` when there is none). The host alone is not enough to judge where a code goes: on
+  a host that serves pages of many people, the path says whose. `nil` for a URI that does not
+  parse.
+  """
+  @spec address(term()) :: %{host: String.t(), port: pos_integer() | nil, path: String.t()} | nil
+  def address(uri) do
+    case parse(uri) do
+      {:ok, %{scheme: scheme, host: host, port: port, path: path}} ->
+        %{host: host, port: if(port == default_port(scheme), do: nil, else: port), path: path}
+
+      :error ->
+        nil
+    end
+  end
+
+  defp default_port("https"), do: 443
+  defp default_port("http"), do: 80
+
   @doc "Whether `uri` points to the loopback (a native application on the same machine)."
   @spec loopback?(term()) :: boolean()
   def loopback?(uri) do

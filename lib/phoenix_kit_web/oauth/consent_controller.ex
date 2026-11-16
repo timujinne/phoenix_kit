@@ -21,6 +21,12 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
 
   Anyone else sees a page and gets no code.
 
+  The request belongs to the browser that made the authorization request
+  (`PhoenixKit.API.OAuth.Requests`): the page, the answer and the disconnect form find it only
+  from that browser, so a consent URL relayed to a signed-in person elsewhere ("open this link to
+  continue") shows "start again" and grants nothing. The sign-in does not drop the binding: it
+  rides a cookie, not the session, which the sign-in clears.
+
   Everything the answer needs comes from the stored request, never from the form: the form
   carries only the decision, the chosen scopes (cut down to what may be offered) and the lifetime.
   The request is used once: a second click, a replayed form or a request that ran out meet the
@@ -107,8 +113,10 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
     if Config.oauth_enabled?(), do: :ok, else: Responses.page(conn, 404, Pages.error(%{}))
   end
 
+  # The request is found only for the browser that started it (its cookie, see `Requests`): the
+  # same URL in another browser is a request that is gone.
   defp fetch(conn, id) do
-    case Requests.fetch(id) do
+    case Requests.fetch(id, Responses.browser_nonce(conn)) do
       {:ok, request} -> {:ok, request}
       :error -> start_again(conn)
     end
@@ -162,7 +170,7 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
         {:ok, code, _grant} ->
           Responses.to_client(conn, request.redirect_uri, code: code, state: request.state)
 
-        {:error, :request_gone} ->
+        {:error, reason} when reason in [:request_gone, :client_gone] ->
           start_again(conn)
 
         {:error, :no_scopes} ->
@@ -202,13 +210,15 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
   defp consent_page(conn, id, %Request{} = request, user, _scope, error) do
     %{selectable: selectable, preselected: preselected} = Consent.options(user, request)
     snapshot = request.client_snapshot || %{}
+    address = RedirectUri.address(request.redirect_uri) || %{host: nil, port: nil, path: ""}
 
     html =
       Pages.consent(%{
         csrf_token: CSRFProtection.get_csrf_token(),
         action: Routes.path("/oauth/consent/" <> id),
         client_name: Pages.client_label(snapshot["client_name"], snapshot["client_id"]),
-        redirect_host: RedirectUri.host(request.redirect_uri),
+        redirect_host: host_and_port(address),
+        redirect_path: address.path,
         loopback?: RedirectUri.loopback?(request.redirect_uri),
         unverified?: snapshot["kind"] != "preregistered",
         client_address: client_address(snapshot),
@@ -221,6 +231,9 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
 
     Responses.page(conn, conn.status || 200, html)
   end
+
+  defp host_and_port(%{host: host, port: nil}), do: host
+  defp host_and_port(%{host: host, port: port}), do: "#{host}:#{port}"
 
   # Where a metadata document client says it lives: the host of its `client_id`, shown beside
   # its self-given name so a name that borrows another brand shows another address.

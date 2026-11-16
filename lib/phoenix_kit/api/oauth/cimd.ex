@@ -45,6 +45,7 @@ defmodule PhoenixKit.API.OAuth.Cimd do
 
   alias PhoenixKit.API.OAuth.Clients
   alias PhoenixKit.API.OAuth.RedirectUri
+  alias PhoenixKit.API.OAuth.Resource
   alias PhoenixKit.Modules.Storage.RemoteFetch
 
   @max_bytes 65_536
@@ -95,6 +96,28 @@ defmodule PhoenixKit.API.OAuth.Cimd do
     # A broken percent-escape is not a form to trust.
     _ -> true
   end
+
+  @doc """
+  Whether `client_id` is a URL on the authorization server's **own host** (the host of the issuer,
+  compared in lower case and without a trailing dot). A client cannot be named by a document this
+  site serves: a path on the site's own domain (a shared pages host, a user's page) must not be
+  able to speak for a client, and the fetch would be the server asking itself.
+  `PhoenixKit.API.OAuth.Clients.resolve/2` refuses such an identifier before it counts or fetches
+  anything; this module only tells.
+  """
+  @spec own_host?(term()) :: boolean()
+  def own_host?(client_id) when is_binary(client_id) do
+    with %URI{host: host} when is_binary(host) <- URI.parse(client_id),
+         %URI{host: own} when is_binary(own) <- URI.parse(Resource.issuer()) do
+      normalize_host(host) == normalize_host(own)
+    else
+      _ -> false
+    end
+  end
+
+  def own_host?(_client_id), do: false
+
+  defp normalize_host(host), do: host |> String.downcase() |> String.trim_trailing(".")
 
   @doc "Reads a document body fetched from `client_id` (see the moduledoc for what is kept and refused)."
   @spec parse(String.t(), binary()) ::

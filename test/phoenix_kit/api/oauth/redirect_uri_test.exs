@@ -91,4 +91,15 @@ defmodule PhoenixKit.API.OAuth.RedirectUriTest do
     assert RedirectUri.loopback?("http://localhost/cb")
     refute RedirectUri.loopback?("https://client.example/cb")
   end
+
+  test "address/1 is the host, the port that is not the scheme's own, and the path" do
+    assert RedirectUri.address("https://Pages.Example/users/mallory/cb?x=1") ==
+             %{host: "pages.example", port: nil, path: "/users/mallory/cb"}
+
+    assert RedirectUri.address("https://client.example:443/cb").port == nil
+    assert RedirectUri.address("https://client.example:8443/cb").port == 8443
+    assert RedirectUri.address("http://127.0.0.1:51789/cb").port == 51_789
+    assert RedirectUri.address("https://client.example").path == ""
+    assert RedirectUri.address("nope") == nil
+  end
 end
