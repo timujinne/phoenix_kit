@@ -33,7 +33,9 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
   "start again" page. A consent id answered from the wrong browser is not found (the binding
   above), and the cookie is `SameSite=Lax`, which a cross-site form post does not carry; the
   host's `:browser` pipeline (`protect_from_forgery`), which these routes sit in, is the second
-  layer, and a host whose pipeline lacks it relies on the binding alone.
+  layer, and a host whose pipeline lacks it relies on the binding alone. A client the policy
+  (`PhoenixKit.API.OAuth.ClientPolicy`) no longer allows gets the error page instead of the
+  screen, and no code; a "no" is always taken.
 
   A person at the ceiling of connections is not served: the page lists their grants and the
   request stays unused while they disconnect one.
@@ -73,6 +75,7 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
   def show(conn, %{"id" => id}) do
     with :ok <- enabled(conn),
          {:ok, request} <- fetch(conn, id),
+         :ok <- client_allowed(conn, request),
          {:ok, user, scope} <- person(conn) do
       if Grants.count_live(user.uuid) >= Config.oauth_grants_per_person(),
         do: limit_page(conn, id, user),
@@ -153,6 +156,14 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
     end
   end
 
+  # The client policy may have changed in the minutes the request waited: the screen is not shown
+  # for a client that is no longer allowed (the answer is refused by `Consent.allow/4`).
+  defp client_allowed(conn, request) do
+    if Consent.client_allowed?(request),
+      do: :ok,
+      else: Responses.page(conn, 400, Pages.error(%{}))
+  end
+
   # The signed-in person and their full scope, or the page that refuses them.
   defp person(conn) do
     user = conn.assigns[:phoenix_kit_current_user]
@@ -201,6 +212,9 @@ defmodule PhoenixKitWeb.OAuth.ConsentController do
 
         {:error, :grant_limit} ->
           conn |> put_status(409) |> limit_page(id, user)
+
+        {:error, :client_not_allowed} ->
+          Responses.page(conn, 400, Pages.error(%{}))
 
         {:error, reason} when reason in @no_right_reasons ->
           no_right(conn, if(reason == :impersonated, do: :impersonated, else: :no_right))
