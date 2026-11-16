@@ -37,7 +37,9 @@ defmodule PhoenixKit.API.OAuth.Exchange do
       honest client never received it, so it cannot present it).
 
   The check of the grant (`PhoenixKit.API.OAuth.Grants.live?/1`) and of the person's right to
-  hold a key (`PhoenixKit.API.Keys.active_owner/1`) is made again on every refresh.
+  hold a key (`PhoenixKit.API.Keys.active_owner/1`) is made again on every refresh, and so is the
+  client policy (`PhoenixKit.API.OAuth.ClientPolicy`, here and for the code): a client that is no
+  longer allowed is `invalid_client`.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -49,6 +51,7 @@ defmodule PhoenixKit.API.OAuth.Exchange do
   alias PhoenixKit.API.OAuth.Codes
   alias PhoenixKit.API.OAuth.Grant
   alias PhoenixKit.API.OAuth.Grants
+  alias PhoenixKit.API.OAuth.Input
   alias PhoenixKit.API.OAuth.Resource
   alias PhoenixKit.API.OAuth.Token
   alias PhoenixKit.API.OAuth.Tokens
@@ -66,7 +69,7 @@ defmodule PhoenixKit.API.OAuth.Exchange do
   @doc "Answers one token request (see the moduledoc)."
   @spec token(map()) :: result()
   def token(params) when is_map(params) do
-    if Enum.all?(params, fn {_name, value} -> is_binary(value) end) do
+    if well_formed?(params) do
       case Map.get(params, "grant_type") do
         "authorization_code" -> authorization_code(params)
         "refresh_token" -> refresh(params)
@@ -79,6 +82,10 @@ defmodule PhoenixKit.API.OAuth.Exchange do
   end
 
   def token(_params), do: invalid_request("The request has no parameters.")
+
+  # Single strings only, and text the database can hold (no NUL byte).
+  defp well_formed?(params),
+    do: Enum.all?(params, fn {_name, value} -> is_binary(value) end) and Input.valid?(params)
 
   # --- authorization code ------------------------------------------------------
 
@@ -317,11 +324,19 @@ defmodule PhoenixKit.API.OAuth.Exchange do
 
   @doc """
   Ends the grant a presented token (access or refresh) belongs to: its tokens, the grant and
-  its hidden key. A client that names itself (`client_id`) must be the grant's own. Always
-  `:ok`: whether the token was known, already revoked, or never existed is not told.
+  its hidden key. A client that names itself (`client_id`) must be the grant's own. `:ok` whether
+  the token was known, already revoked, or never existed (that is not told); `{:error,
+  :invalid_request}` only for parameters that are not single strings the database can hold (a NUL
+  byte), which are never looked up.
   """
-  @spec revoke(map()) :: :ok
-  def revoke(%{"token" => presented} = params) when is_binary(presented) do
+  @spec revoke(map()) :: :ok | {:error, :invalid_request}
+  def revoke(params) when is_map(params) do
+    if well_formed?(params), do: end_grant_of(params), else: {:error, :invalid_request}
+  end
+
+  def revoke(_params), do: {:error, :invalid_request}
+
+  defp end_grant_of(%{"token" => presented} = params) when is_binary(presented) do
     with {:ok, kind, hash} <- Tokens.parse(presented),
          %Token{grant_uuid: grant_uuid} <-
            repo().one(
@@ -335,7 +350,7 @@ defmodule PhoenixKit.API.OAuth.Exchange do
     :ok
   end
 
-  def revoke(_params), do: :ok
+  defp end_grant_of(_params), do: :ok
 
   defp own_client?(%{"client_id" => client_id}, %Grant{client_uuid: client_uuid}) do
     match?(%Client{uuid: ^client_uuid}, Clients.get_by_client_id(client_id))
@@ -387,10 +402,17 @@ defmodule PhoenixKit.API.OAuth.Exchange do
      }}
   end
 
+  # The client policy is judged here too, for a code and for every refresh: a client that is no
+  # longer allowed cannot keep a connection alive.
   defp known_client(client_id) do
     case Clients.get_by_client_id(client_id) do
-      %Client{} = client -> {:ok, client}
-      nil -> {:error, "invalid_client", "The client is not known."}
+      %Client{} = client ->
+        if Clients.allowed?(client),
+          do: {:ok, client},
+          else: {:error, "invalid_client", "The client is not allowed."}
+
+      nil ->
+        {:error, "invalid_client", "The client is not known."}
     end
   end
 

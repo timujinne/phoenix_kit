@@ -31,11 +31,13 @@ defmodule PhoenixKit.API.OAuth.Authorize do
 
   A parameter that is repeated (or written as a list or a map) makes the whole request a page
   error: which of two values is meant cannot be known, and one of them may be the client's own
-  redirect.
+  redirect. So does text the database cannot hold, a NUL byte in any parameter
+  (`PhoenixKit.API.OAuth.Input`).
   """
 
   alias PhoenixKit.API.OAuth.Client
   alias PhoenixKit.API.OAuth.Clients
+  alias PhoenixKit.API.OAuth.Input
   alias PhoenixKit.API.OAuth.RedirectUri
   alias PhoenixKit.API.OAuth.Resource
   alias PhoenixKit.API.OAuth.Scopes
@@ -80,10 +82,14 @@ defmodule PhoenixKit.API.OAuth.Authorize do
 
   # --- what cannot be trusted with a redirect -------------------------------
 
-  # Every value must be a string and no name may appear twice (nor be written `a[]=`).
+  # Every value must be a string the database can hold (no NUL byte) and no name may appear twice
+  # (nor be written `a[]=`).
   defp check_plain(params, query_string) do
     cond do
       not Enum.all?(params, fn {_name, value} -> is_binary(value) end) ->
+        {:page_error, :malformed}
+
+      not Input.valid?(params) ->
         {:page_error, :malformed}
 
       repeated?(query_string) ->

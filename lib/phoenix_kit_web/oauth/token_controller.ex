@@ -14,7 +14,9 @@ defmodule PhoenixKitWeb.OAuth.TokenController do
   `api_oauth_token_per_min` (60); the routes are declared with `log: false`, so no parameter
   reaches the log.
 
-  The logic is `PhoenixKit.API.OAuth.Exchange`. `revoke/2` always answers `200 {}`.
+  The logic is `PhoenixKit.API.OAuth.Exchange`. `revoke/2` answers `200 {}` whether the token was
+  known or not, and `400 invalid_request` only for parameters the database cannot hold (a NUL
+  byte); the token endpoint refuses those the same way.
   """
   use PhoenixKitWeb, :controller
 
@@ -40,8 +42,10 @@ defmodule PhoenixKitWeb.OAuth.TokenController do
   def revoke(conn, _params) do
     with :ok <- enabled(conn),
          :ok <- within_limit(conn) do
-      conn |> body() |> Exchange.revoke()
-      json_answer(conn, 200, %{})
+      case conn |> body() |> Exchange.revoke() do
+        :ok -> json_answer(conn, 200, %{})
+        {:error, :invalid_request} -> malformed(conn)
+      end
     end
   end
 
@@ -62,6 +66,13 @@ defmodule PhoenixKitWeb.OAuth.TokenController do
           "error_description" => "Too many requests."
         })
     end
+  end
+
+  defp malformed(conn) do
+    json_answer(conn, 400, %{
+      "error" => "invalid_request",
+      "error_description" => "Every parameter must be a single string."
+    })
   end
 
   # Only what the guard read from the body.

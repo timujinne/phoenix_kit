@@ -47,7 +47,8 @@ defmodule PhoenixKit.API.OAuth.Grants do
   @doc """
   Makes a grant of `client` for the person behind `scope`, and its hidden key.
 
-  `attrs` takes `scopes` (a list of scope names), `expires_at` (required; at most
+  `attrs` takes `scopes` (a list of scope names), `client_name` (the name the hidden key gets; the
+  client's own name by default), `expires_at` (required; at most
   `PhoenixKit.API.PersonalKeysConfig.latest_expiry/0`), `resource` (default
   `PhoenixKit.API.OAuth.Resource.resource/0`) and `created_ip`. `opts` is the one of
   `PhoenixKit.API.Keys.create_oauth_key/3`: `impersonated: true | false`, with no default;
@@ -70,7 +71,7 @@ defmodule PhoenixKit.API.OAuth.Grants do
 
     key_attrs = %{
       grant_uuid: grant_uuid,
-      client_name: client.client_name || client.client_id,
+      client_name: Map.get(attrs, :client_name) || client.client_name || client.client_id,
       scopes: Map.get(attrs, :scopes, []),
       expires_at: expires_at
     }

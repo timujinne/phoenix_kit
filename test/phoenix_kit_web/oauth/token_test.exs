@@ -11,6 +11,7 @@ defmodule PhoenixKitWeb.OAuth.TokenTest do
   import PhoenixKit.Test.ApiHarness, only: [put_setting: 2, setup_api: 0]
 
   alias PhoenixKit.API.OAuth.Code
+  alias PhoenixKit.API.OAuth.Exchange
   alias PhoenixKit.API.OAuth.Grant
   alias PhoenixKit.API.OAuth.Resource
   alias PhoenixKit.API.OAuth.Token
@@ -190,6 +191,27 @@ defmodule PhoenixKitWeb.OAuth.TokenTest do
       conn = token(query)
       assert conn.status == 400
       assert error_of(conn) == "invalid_request"
+    end
+
+    test "a parameter written as a list or a map is refused, whatever it is", %{flow: flow} do
+      base = URI.encode_query(Map.delete(exchange_params(flow), "code"))
+
+      for extra <- ["code[]=a", "code[]=a&code[]=b", "code[x]=a", "scope[]=a", "foo[bar][]=1"] do
+        conn = token(base <> "&" <> extra)
+        assert conn.status == 400, extra
+        assert error_of(conn) == "invalid_request", extra
+      end
+    end
+
+    test "every value that reaches the exchange is a single string" do
+      assert {:error, "invalid_request", _} =
+               Exchange.token(%{
+                 "grant_type" => "authorization_code",
+                 "code" => ["a"]
+               })
+
+      assert {:error, "invalid_request", _} =
+               Exchange.token(%{"grant_type" => "refresh_token", "x" => %{}})
     end
 
     test "a parameter in the URL is not read", %{flow: flow} do
