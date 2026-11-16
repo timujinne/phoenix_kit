@@ -125,7 +125,8 @@ defmodule PhoenixKitWeb.OAuth.Pages do
 
   @doc """
   The consent screen. Assigns: `csrf_token`, `action`, `client_name`, `redirect_host`,
-  `loopback?`, `email`, `entries` (`PhoenixKit.API.OAuth.Scopes.describe/1`), `preselected`,
+  `loopback?`, `unverified?` (the client named itself: a notice that the name is not checked),
+  `client_address` (the host of its metadata document, or `nil`), `email`, `entries` (`PhoenixKit.API.OAuth.Scopes.describe/1`), `preselected`,
   `days` (`{default, choices}`), `error` (`nil` or `:no_scopes`).
   """
   @spec consent(map()) :: iodata()
@@ -138,6 +139,14 @@ defmodule PhoenixKitWeb.OAuth.Pages do
     <.shell title={gettext("Allow access")}>
       <h1 id="consent-title">{gettext("%{client} asks for access", client: @client_name)}</h1>
       <p>{gettext("on behalf of %{email}", email: @email)}</p>
+      <p :if={@unverified?} class="muted" id="consent-unverified">
+        {gettext(
+          "The name above is what the application calls itself. It has not been checked: allow access only if you started this connection from that application."
+        )}
+      </p>
+      <p :if={@client_address} class="muted" id="consent-client-address">
+        {gettext("The application is described at %{address}", address: @client_address)}
+      </p>
       <h2>{gettext("After you decide, your browser is sent to")}</h2>
       <p class="host" id="consent-host">{@redirect_host}</p>
       <p :if={@loopback?} class="warn" id="consent-loopback">
@@ -282,6 +291,8 @@ defmodule PhoenixKitWeb.OAuth.Pages do
     |> Map.new()
     |> Map.put_new(:reason, nil)
     |> Map.put_new(:error, nil)
+    |> Map.put_new(:unverified?, false)
+    |> Map.put_new(:client_address, nil)
     |> Map.put_new(:__changed__, nil)
   end
 
