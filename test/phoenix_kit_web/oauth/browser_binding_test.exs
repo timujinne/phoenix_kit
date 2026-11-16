@@ -153,7 +153,9 @@ defmodule PhoenixKitWeb.OAuth.BrowserBindingTest do
       code_for(victim, client!(), [@read])
       assert [grant] = Repo.all(Grant)
 
-      answer = disconnect_unbound(browser(victim), id, %{"grant" => grant.uuid})
+      answer =
+        disconnect_unbound(browser(victim), id, %{"grant" => grant.uuid, "confirm" => "yes"})
+
       assert answer.status == 400
       assert Repo.reload!(grant).revoked_at == nil
     end

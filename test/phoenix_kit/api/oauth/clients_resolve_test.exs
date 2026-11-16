@@ -10,6 +10,7 @@ defmodule PhoenixKit.API.OAuth.ClientsResolveTest do
   import PhoenixKit.API.OAuthTestSupport, only: [client!: 1]
   import PhoenixKit.Test.ApiHarness, only: [put_setting: 2, setup_api: 0, unique_ip: 0]
 
+  alias PhoenixKit.API.OAuth.Cimd
   alias PhoenixKit.API.OAuth.Client
   alias PhoenixKit.API.OAuth.Clients
   alias PhoenixKit.API.OAuth.Limits
@@ -487,6 +488,57 @@ defmodule PhoenixKit.API.OAuth.ClientsResolveTest do
 
       # A place is free again.
       assert {:error, :fetch_failed} = resolve(Enum.at(urls, 4), unique_ip())
+    end
+  end
+
+  describe "the number of downloads at once is a setting" do
+    test "a smaller number closes the places sooner, a larger one opens more" do
+      test_pid = self()
+
+      blocking = fn _opts ->
+        send(test_pid, {:started, self()})
+
+        receive do
+          :go -> {:error, {:http_status, 500}}
+        end
+      end
+
+      url = fn n -> "https://client.example/pool-#{n}-#{System.unique_integer([:positive])}" end
+      urls = for n <- 1..7, do: url.(n)
+      for u <- urls, do: Stub.put(u, blocking)
+
+      put_setting("api_oauth_cimd_concurrency", 2)
+
+      two =
+        for u <- Enum.take(urls, 2) do
+          task = Task.async(fn -> resolve(u, unique_ip()) end)
+          assert_receive {:started, _pid}, 2_000
+          task
+        end
+
+      assert {:error, :busy} = resolve(Enum.at(urls, 2), unique_ip())
+      assert Stub.calls(Enum.at(urls, 2)) == []
+
+      put_setting("api_oauth_cimd_concurrency", 6)
+
+      more =
+        for u <- Enum.slice(urls, 2, 4) do
+          task = Task.async(fn -> resolve(u, unique_ip()) end)
+          assert_receive {:started, _pid}, 2_000
+          task
+        end
+
+      assert {:error, :busy} = resolve(Enum.at(urls, 6), unique_ip())
+
+      for pid <- started_pids(), do: send(pid, :go)
+      assert Enum.map(two ++ more, &Task.await/1) == List.duplicate({:error, :fetch_failed}, 6)
+    end
+
+    test "a stored number above what the supervisor admits is held to it" do
+      put_setting("api_oauth_cimd_concurrency", 500)
+      assert Cimd.concurrency() == 64
+      put_setting("api_oauth_cimd_concurrency", 3)
+      assert Cimd.concurrency() == 3
     end
   end
 

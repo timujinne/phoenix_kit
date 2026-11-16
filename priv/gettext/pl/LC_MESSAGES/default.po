@@ -726,6 +726,7 @@ msgstr "Lista wypunktowana"
 #: lib/phoenix_kit_web/users/confirmation_instructions.html.heex:73
 #: lib/phoenix_kit_web/users/user_form.html.heex:695
 #: lib/phoenix_kit_web/users/user_form.html.heex:983
+#: lib/phoenix_kit_web/oauth/pages.ex:301
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr "Anuluj"
@@ -27600,10 +27601,45 @@ msgstr "Wybierz co najmniej jedno uprawnienie."
 msgid "What it may do"
 msgstr "Co może robić"
 
-#: lib/phoenix_kit_web/oauth/pages.ex:173
+#: lib/phoenix_kit_web/oauth/pages.ex:176
 #, elixir-autogen, elixir-format
-msgid "read"
-msgstr "odczyt"
+msgid "Reading"
+msgstr "Odczyt"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:180
+#, elixir-autogen, elixir-format
+msgid "Changing data"
+msgstr "Zmiana danych"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:328
+#, elixir-autogen, elixir-format
+msgid "What this includes"
+msgstr "Co to obejmuje"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:342
+#, elixir-autogen, elixir-format
+msgid "Read: %{resource}"
+msgstr "Odczyt: %{resource}"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:345
+#, elixir-autogen, elixir-format
+msgid "Change: %{resource} (%{action})"
+msgstr "Zmiana: %{resource} (%{action})"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:194
+#, elixir-autogen, elixir-format
+msgid "The application gets only what you tick here. If it needs other rights later, disconnect it under My API keys and connect it again."
+msgstr "Aplikacja dostaje tylko to, co tu zaznaczysz. Jeśli później potrzebuje innych uprawnień, odłącz ją w „Moje klucze API” i połącz ponownie."
+
+#: lib/phoenix_kit_web/oauth/pages.ex:292
+#, elixir-autogen, elixir-format
+msgid "It will stop working at once. To use it again you connect it again and allow access again."
+msgstr "Przestanie działać natychmiast. Aby znów z niej korzystać, połącz ją ponownie i ponownie zezwól na dostęp."
+
+#: lib/phoenix_kit_web/oauth/pages.ex:300
+#, elixir-autogen, elixir-format
+msgid "Yes, disconnect"
+msgstr "Tak, odłącz"
 
 #: lib/phoenix_kit_web/oauth/pages.ex:180
 #, elixir-autogen, elixir-format
@@ -27711,6 +27747,7 @@ msgid "Add the server's address in the application, then sign in and allow acces
 msgstr "Dodaj adres serwera w aplikacji, zaloguj się i zezwól na dostęp."
 
 #: lib/phoenix_kit_web/live/components/connected_apps.ex:382
+#: lib/phoenix_kit_web/oauth/pages.ex:282
 #, elixir-autogen, elixir-format
 msgid "Disconnect this application?"
 msgstr "Odłączyć tę aplikację?"
@@ -27955,6 +27992,11 @@ msgstr "Pobrania dokumentów metadanych na minutę, na adres"
 msgid "Metadata document downloads per minute, per application"
 msgstr "Pobrania dokumentów metadanych na minutę, na aplikację"
 
+#: lib/phoenix_kit_web/live/settings/api_oauth_panel.ex:665
+#, elixir-autogen, elixir-format
+msgid "Metadata document downloads at the same time, in all"
+msgstr "Jednoczesne pobrania dokumentów metadanych, łącznie"
+
 #: lib/phoenix_kit_web/live/settings/api_oauth_panel.ex:566
 #, elixir-autogen, elixir-format
 msgid "Registrations per hour, per address"
@@ -28099,6 +28141,11 @@ msgstr "Nazwa aplikacji i adres, pod który wraca, co może robić (odczyt jest 
 #, elixir-autogen, elixir-format
 msgid "A connection has the rights its person holds now. Take the right to personal API keys away from a role and its connections stop at the next request; give it back and they work again."
 msgstr "Połączenie ma uprawnienia, które jego osoba ma teraz. Odbierz roli prawo do osobistych kluczy API, a jej połączenia przestaną działać przy następnym żądaniu; oddaj je, a znów będą działać."
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:274
+#, elixir-autogen, elixir-format
+msgid "A connection keeps the rights that were ticked when it was made. For other rights, the person disconnects the application (under My API keys) and connects it again, choosing the new rights on the consent screen."
+msgstr "Połączenie zachowuje uprawnienia zaznaczone przy jego tworzeniu. Aby uzyskać inne uprawnienia, osoba odłącza aplikację (w „Moje klucze API”) i łączy ją ponownie, wybierając nowe uprawnienia na ekranie zgody."
 
 #: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:288
 #, elixir-autogen, elixir-format

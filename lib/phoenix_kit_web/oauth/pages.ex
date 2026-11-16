@@ -40,16 +40,20 @@ defmodule PhoenixKitWeb.OAuth.Pages do
   .scopes{list-style:none;padding:0;margin:.25rem 0}
   .scopes li{padding:.25rem 0}
   .scopes small{display:block;color:#666;margin-left:1.6rem}
+  .scopes details{margin-left:1.6rem;font-size:.9rem}
+  .module h3{margin:1rem 0 .25rem}
+  .module h4{margin:.5rem 0 0;font-size:.95rem;color:#666}
   .write{color:#a40}
   label{cursor:pointer}
   select{font:inherit;padding:.3rem;border:1px solid #bbb;border-radius:.3rem}
   .actions{display:flex;gap:.75rem;margin-top:1.25rem}
   button{font:inherit;padding:.6rem 1rem;border:0;border-radius:.4rem;cursor:pointer;background:#222;color:#fff}
-  button.deny,button.secondary{background:#e5e5e5;color:#222}
+  button.deny,button.secondary,a.button{background:#e5e5e5;color:#222}
+  a.button{font:inherit;padding:.6rem 1rem;border-radius:.4rem;text-decoration:none}
   .error{color:#a33}
   table{border-collapse:collapse;width:100%}
   td,th{border-bottom:1px solid #eee;padding:.4rem;text-align:left;vertical-align:middle}
-  @media (prefers-color-scheme:dark){body{background:#111;color:#eee}main{background:#1a1a1a;border-color:#333}.warn{background:#332a10}.muted,.scopes small{color:#aaa}select{background:#1c1c1c;color:inherit;border-color:#444}button{background:#eee;color:#111}button.deny,button.secondary{background:#333;color:#eee}td,th{border-color:#333}.write{color:#e96}}
+  @media (prefers-color-scheme:dark){body{background:#111;color:#eee}main{background:#1a1a1a;border-color:#333}.warn{background:#332a10}.muted,.scopes small,.module h4{color:#aaa}select{background:#1c1c1c;color:inherit;border-color:#444}button{background:#eee;color:#111}button.deny,button.secondary,a.button{background:#333;color:#eee}td,th{border-color:#333}.write{color:#e96}}
   """
 
   @doc "The client name as shown: stripped of control and format characters, cut to 80 characters."
@@ -129,7 +133,7 @@ defmodule PhoenixKitWeb.OAuth.Pages do
   with the port when it is not the scheme's own), `redirect_path` (shown under it: on a host that
   serves pages of many people the path says whose),
   `loopback?`, `unverified?` (the client named itself: a notice that the name is not checked),
-  `client_address` (the host of its metadata document, or `nil`), `email`, `entries` (`PhoenixKit.API.OAuth.Scopes.describe/1`), `preselected`,
+  `client_address` (the host of its metadata document, or `nil`), `email`, `sections` (the rights by module: `key`, `label`, `reads` and `writes`, lists of `PhoenixKit.API.OAuth.Scopes.describe/1` entries), `preselected`,
   `days` (`{default, choices}`), `error` (`nil` or `:no_scopes`).
   """
   @spec consent(map()) :: iodata()
@@ -166,28 +170,28 @@ defmodule PhoenixKitWeb.OAuth.Pages do
       <form method="post" action={@action} id="consent-form">
         <input type="hidden" name="_csrf_token" value={@csrf_token} />
         <h2>{gettext("What it may do")}</h2>
-        <ul class="scopes">
-          <li :for={entry <- @entries}>
-            <label>
-              <input
-                type="checkbox"
-                name="scopes[]"
-                value={entry.scope}
-                checked={entry.scope in @preselected}
-              />
-              <span class={[not entry.read? && "write"]}>
-                {entry.group}: {if entry.read?, do: gettext("read"), else: entry.action}
-              </span>
-            </label>
-            <small :if={entry.tools != []}>{Enum.join(entry.tools, ", ")}</small>
-          </li>
-        </ul>
+        <section :for={section <- @sections} class="module" id={"consent-module-#{section.key}"}>
+          <h3>{section.label}</h3>
+          <div :if={section.reads != []} id={"consent-reads-#{section.key}"}>
+            <h4>{gettext("Reading")}</h4>
+            <.rights entries={section.reads} preselected={@preselected} />
+          </div>
+          <div :if={section.writes != []} id={"consent-writes-#{section.key}"}>
+            <h4>{gettext("Changing data")}</h4>
+            <.rights entries={section.writes} preselected={@preselected} />
+          </div>
+        </section>
         <p class="muted">
           {gettext("Reading is selected by default. Anything that changes data you turn on yourself.")}
         </p>
         <p class="muted">
           {gettext(
             "Permissions are counted across all your roles, not only the one you are using now."
+          )}
+        </p>
+        <p class="muted" id="consent-reconnect">
+          {gettext(
+            "The application gets only what you tick here. If it needs other rights later, disconnect it under My API keys and connect it again."
           )}
         </p>
         <h2>{gettext("How long")}</h2>
@@ -265,6 +269,80 @@ defmodule PhoenixKitWeb.OAuth.Pages do
     </.shell>
     """)
   end
+
+  @doc """
+  The question before a connection ends. Assigns: `csrf_token`, `action` (the revoke endpoint),
+  `back` (the consent page) and `grant` (a live grant, its `client` loaded).
+  """
+  @spec confirm_disconnect(map()) :: iodata()
+  def confirm_disconnect(assigns) do
+    assigns = assign_defaults(assigns)
+
+    render(~H"""
+    <.shell title={gettext("Disconnect this application?")}>
+      <h1>{gettext("Disconnect this application?")}</h1>
+      <p class="host" id="disconnect-confirm-application">
+        {client_label(
+          @grant.client && @grant.client.client_name,
+          @grant.client && @grant.client.client_id
+        )}
+      </p>
+      <p>
+        {gettext(
+          "It will stop working at once. To use it again you connect it again and allow access again."
+        )}
+      </p>
+      <form method="post" action={@action} id="disconnect-confirm-form">
+        <input type="hidden" name="_csrf_token" value={@csrf_token} />
+        <input type="hidden" name="grant" value={@grant.uuid} />
+        <input type="hidden" name="confirm" value="yes" />
+        <div class="actions">
+          <button type="submit" id="disconnect-confirm">{gettext("Yes, disconnect")}</button>
+          <a href={@back} id="disconnect-cancel" class="button deny">{gettext("Cancel")}</a>
+        </div>
+      </form>
+    </.shell>
+    """)
+  end
+
+  attr :entries, :list, required: true
+  attr :preselected, :list, required: true
+
+  defp rights(assigns) do
+    ~H"""
+    <ul class="scopes">
+      <li :for={entry <- @entries}>
+        <label>
+          <input
+            type="checkbox"
+            name="scopes[]"
+            value={entry.scope}
+            checked={entry.scope in @preselected}
+          />
+          <span class={[not entry.read? && "write"]}>
+            {right_label(entry)}
+          </span>
+        </label>
+        <small :if={entry.details != []}>{Enum.map_join(entry.details, ", ", & &1.title)}</small>
+        <details :if={entry.details != []}>
+          <summary>{gettext("What this includes")}</summary>
+          <ul>
+            <li :for={detail <- entry.details}>
+              <strong>{detail.title}</strong>
+              <span :if={detail.description != ""}>: {detail.description}</span>
+            </li>
+          </ul>
+        </details>
+      </li>
+    </ul>
+    """
+  end
+
+  defp right_label(%{read?: true, resource: resource}),
+    do: gettext("Read: %{resource}", resource: resource)
+
+  defp right_label(%{resource: resource, action: action}),
+    do: gettext("Change: %{resource} (%{action})", resource: resource, action: action)
 
   attr :title, :string, required: true
   slot :inner_block, required: true

@@ -729,6 +729,7 @@ msgstr "Punktloend"
 #: lib/phoenix_kit_web/users/confirmation_instructions.html.heex:73
 #: lib/phoenix_kit_web/users/user_form.html.heex:695
 #: lib/phoenix_kit_web/users/user_form.html.heex:983
+#: lib/phoenix_kit_web/oauth/pages.ex:301
 #, elixir-autogen, elixir-format
 msgid "Cancel"
 msgstr "Tühista"
@@ -27528,10 +27529,45 @@ msgstr "Valige vähemalt üks õigus."
 msgid "What it may do"
 msgstr "Mida see tohib teha"
 
-#: lib/phoenix_kit_web/oauth/pages.ex:173
+#: lib/phoenix_kit_web/oauth/pages.ex:176
 #, elixir-autogen, elixir-format
-msgid "read"
-msgstr "lugemine"
+msgid "Reading"
+msgstr "Lugemine"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:180
+#, elixir-autogen, elixir-format
+msgid "Changing data"
+msgstr "Andmete muutmine"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:328
+#, elixir-autogen, elixir-format
+msgid "What this includes"
+msgstr "Mida see hõlmab"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:342
+#, elixir-autogen, elixir-format
+msgid "Read: %{resource}"
+msgstr "Lugemine: %{resource}"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:345
+#, elixir-autogen, elixir-format
+msgid "Change: %{resource} (%{action})"
+msgstr "Muutmine: %{resource} (%{action})"
+
+#: lib/phoenix_kit_web/oauth/pages.ex:194
+#, elixir-autogen, elixir-format
+msgid "The application gets only what you tick here. If it needs other rights later, disconnect it under My API keys and connect it again."
+msgstr "Rakendus saab ainult selle, mille siin märgid. Kui ta vajab hiljem muid õigusi, ühenda ta lahti jaotises „Minu API võtmed“ ja ühenda uuesti."
+
+#: lib/phoenix_kit_web/oauth/pages.ex:292
+#, elixir-autogen, elixir-format
+msgid "It will stop working at once. To use it again you connect it again and allow access again."
+msgstr "See lakkab kohe töötamast. Selle uuesti kasutamiseks ühenda see uuesti ja luba juurdepääs uuesti."
+
+#: lib/phoenix_kit_web/oauth/pages.ex:300
+#, elixir-autogen, elixir-format
+msgid "Yes, disconnect"
+msgstr "Jah, ühenda lahti"
 
 #: lib/phoenix_kit_web/oauth/pages.ex:180
 #, elixir-autogen, elixir-format
@@ -27639,6 +27675,7 @@ msgid "Add the server's address in the application, then sign in and allow acces
 msgstr "Lisa rakenduses serveri aadress, logi sisse ja luba juurdepääs."
 
 #: lib/phoenix_kit_web/live/components/connected_apps.ex:382
+#: lib/phoenix_kit_web/oauth/pages.ex:282
 #, elixir-autogen, elixir-format
 msgid "Disconnect this application?"
 msgstr "Kas ühendada see rakendus lahti?"
@@ -27883,6 +27920,11 @@ msgstr "Metaandmete dokumentide allalaadimisi minutis aadressi kohta"
 msgid "Metadata document downloads per minute, per application"
 msgstr "Metaandmete dokumentide allalaadimisi minutis rakenduse kohta"
 
+#: lib/phoenix_kit_web/live/settings/api_oauth_panel.ex:665
+#, elixir-autogen, elixir-format
+msgid "Metadata document downloads at the same time, in all"
+msgstr "Metaandmete dokumentide allalaadimisi korraga, kokku"
+
 #: lib/phoenix_kit_web/live/settings/api_oauth_panel.ex:566
 #, elixir-autogen, elixir-format
 msgid "Registrations per hour, per address"
@@ -28027,6 +28069,11 @@ msgstr "Rakenduse nimi ja aadress, kuhu see naaseb, mida see tohib teha (lugemin
 #, elixir-autogen, elixir-format
 msgid "A connection has the rights its person holds now. Take the right to personal API keys away from a role and its connections stop at the next request; give it back and they work again."
 msgstr "Ühendusel on need õigused, mis tema isikul praegu on. Võta rollilt isiklike API võtmete õigus ära ja selle ühendused peatuvad järgmisel päringul; anna see tagasi ja need töötavad taas."
+
+#: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:274
+#, elixir-autogen, elixir-format
+msgid "A connection keeps the rights that were ticked when it was made. For other rights, the person disconnects the application (under My API keys) and connects it again, choosing the new rights on the consent screen."
+msgstr "Ühendus säilitab õigused, mis selle loomisel märgiti. Muude õiguste jaoks ühendab inimene rakenduse lahti (jaotises „Minu API võtmed“) ja ühendab selle uuesti, valides uued õigused nõusolekuekraanil."
 
 #: lib/phoenix_kit_web/live/settings/api_guide_panel.html.heex:288
 #, elixir-autogen, elixir-format

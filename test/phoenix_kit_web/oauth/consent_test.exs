@@ -611,7 +611,7 @@ defmodule PhoenixKitWeb.OAuth.ConsentTest do
       id = request_id(client, challenge)
       [grant | _] = Grants.list_live(user.uuid)
 
-      conn = disconnect(browser(user), id, %{"grant" => grant.uuid})
+      conn = disconnect(browser(user), id, %{"grant" => grant.uuid, "confirm" => "yes"})
       assert redirected_to(conn, 302) == path("/consent/" <> id)
       assert %DateTime{} = Repo.reload!(grant).revoked_at
 
@@ -632,8 +632,49 @@ defmodule PhoenixKitWeb.OAuth.ConsentTest do
       [foreign] = Repo.all(from(g in Grant, where: g.user_uuid == ^other.uuid))
 
       id = request_id(client, challenge)
-      disconnect(browser(user), id, %{"grant" => foreign.uuid})
+      disconnect(browser(user), id, %{"grant" => foreign.uuid, "confirm" => "yes"})
       assert is_nil(Repo.reload!(foreign).revoked_at)
+
+      # Not even the question is asked about it: it is not this person's connection.
+      asked = disconnect(browser(user), id, %{"grant" => foreign.uuid})
+      assert redirected_to(asked, 302) == path("/consent/" <> id)
+    end
+
+    test "Disconnect asks first: nothing ends until the person says yes", %{
+      user: user,
+      client: client,
+      challenge: challenge
+    } do
+      id = request_id(client, challenge)
+      [grant | _] = Grants.list_live(user.uuid)
+
+      asked = disconnect(browser(user), id, %{"grant" => grant.uuid})
+      assert asked.status == 200
+      html = Floki.parse_document!(asked.resp_body)
+
+      assert [form] = Floki.find(html, "#disconnect-confirm-form")
+      assert Floki.attribute(form, "input[name=grant]", "value") == [grant.uuid]
+      assert Floki.attribute(form, "input[name=confirm]", "value") == ["yes"]
+      assert [_] = Floki.find(html, "#disconnect-confirm-application")
+      assert [back] = Floki.find(html, "#disconnect-cancel")
+      assert Floki.attribute(back, "href") == [path("/consent/" <> id)]
+
+      assert is_nil(Repo.reload!(grant).revoked_at)
+      assert length(Grants.list_live(user.uuid)) == 2
+    end
+
+    test "the limit page's Disconnect buttons lead to the question, not to the end", %{
+      user: user,
+      client: client,
+      challenge: challenge
+    } do
+      id = request_id(client, challenge)
+      html = browser(user) |> consent(id) |> Map.fetch!(:resp_body) |> Floki.parse_document!()
+
+      for grant <- Grants.list_live(user.uuid) do
+        assert [] = Floki.find(html, "#grant-#{grant.uuid} input[name=confirm]")
+        assert [_] = Floki.find(html, "#grant-#{grant.uuid} input[name=grant]")
+      end
     end
 
     test "a consent nobody finished stops counting when its code has run out", %{

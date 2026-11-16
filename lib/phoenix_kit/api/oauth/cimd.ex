@@ -29,7 +29,8 @@ defmodule PhoenixKit.API.OAuth.Cimd do
   (so a name that resolves to a private address, or changes its answer after the check, reaches
   nothing), **no redirect is followed**, 64 KB at most whatever the server claims, 5 seconds in
   all, and the response must say it is JSON. The download runs in a task of
-  `PhoenixKit.API.OAuth.FetchSupervisor`, at most four at a time (`{:error, :busy}` beyond that).
+  `PhoenixKit.API.OAuth.FetchSupervisor`, at most `concurrency/0` at a time (`api_oauth_cimd_concurrency`,
+  four unless an administrator set another number; `{:error, :busy}` beyond that).
   The temporary file is read and removed by the download task itself.
 
   `fetch/1` returns the document and `ttl`, the seconds it may be cached: `max-age` of
@@ -43,6 +44,7 @@ defmodule PhoenixKit.API.OAuth.Cimd do
   build ignores the setting.
   """
 
+  alias PhoenixKit.API.Config
   alias PhoenixKit.API.OAuth.Clients
   alias PhoenixKit.API.OAuth.RedirectUri
   alias PhoenixKit.API.OAuth.Resource
@@ -58,12 +60,29 @@ defmodule PhoenixKit.API.OAuth.Cimd do
   @ttl_min 300
   @ttl_max 86_400
   @supervisor PhoenixKit.API.OAuth.FetchSupervisor
+  @max_concurrency 64
 
   @type document :: %{
           client_name: String.t() | nil,
           client_uri: String.t() | nil,
           redirect_uris: [String.t()]
         }
+
+  @doc """
+  How many downloads may run at once: the setting `api_oauth_cimd_concurrency` (4 by default),
+  never more than `max_concurrency/0`.
+
+  The setting is read at each download, so a change counts at once. The count of running
+  downloads is checked just before one is started, so a burst that arrives in the same instant
+  can overshoot the number by a few; the supervisor's own limit (`max_concurrency/0`) is the
+  hard stop.
+  """
+  @spec concurrency() :: pos_integer()
+  def concurrency, do: min(Config.oauth_cimd_concurrency(), @max_concurrency)
+
+  @doc "The most downloads `PhoenixKit.API.OAuth.FetchSupervisor` ever admits, whatever the setting says."
+  @spec max_concurrency() :: pos_integer()
+  def max_concurrency, do: @max_concurrency
 
   @doc "Whether `client_id` has the form of a metadata document URL (see the moduledoc)."
   @spec validate_client_id(term()) :: :ok | {:error, :invalid_client_id}
@@ -177,8 +196,8 @@ defmodule PhoenixKit.API.OAuth.Cimd do
 
   @doc """
   Fetches and reads the document of `client_id`. `{:ok, document}` carries `ttl` besides the
-  fields of `t:document/0`. Refusals: `:invalid_client_id` (nothing was fetched), `:busy` (four
-  downloads already run), `:unavailable` (no download supervisor), `{:fetch_failed, reason}` (the
+  fields of `t:document/0`. Refusals: `:invalid_client_id` (nothing was fetched), `:busy` (as many
+  downloads as `concurrency/0` already run), `:unavailable` (no download supervisor), `{:fetch_failed, reason}` (the
   reason of `RemoteFetch`, `:too_large` for a body over the limit), `:not_json` (the response is
   not `application/json`) and the refusals of `parse/2`.
   """
@@ -233,15 +252,18 @@ defmodule PhoenixKit.API.OAuth.Cimd do
       else: RemoteFetch
   end
 
-  # The download runs in a task of its own supervisor (`max_children` is the concurrency limit).
+  # The download runs in a task of its own supervisor (`concurrency/0` is the limit; the
+  # supervisor's `max_children` is the hard stop).
   defp run(fun) do
     parent = self()
     ref = make_ref()
 
     start =
-      if Process.whereis(@supervisor),
-        do: Task.Supervisor.start_child(@supervisor, fn -> send(parent, {ref, fun.()}) end),
-        else: {:error, :unavailable}
+      cond do
+        is_nil(Process.whereis(@supervisor)) -> {:error, :unavailable}
+        running() >= concurrency() -> {:error, :max_children}
+        true -> Task.Supervisor.start_child(@supervisor, fn -> send(parent, {ref, fun.()}) end)
+      end
 
     case start do
       {:ok, pid} -> await(pid, ref)
@@ -249,6 +271,8 @@ defmodule PhoenixKit.API.OAuth.Cimd do
       _other -> {:error, :unavailable}
     end
   end
+
+  defp running, do: DynamicSupervisor.count_children(@supervisor).active
 
   defp await(pid, ref) do
     monitor = Process.monitor(pid)
