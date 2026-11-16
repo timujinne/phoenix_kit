@@ -46,6 +46,18 @@ defmodule PhoenixKit.API.OAuth.GrantsTest do
     assert key.name == "OAuth: " <> ctx.client.client_name
   end
 
+  test "a client name of combining marks makes a key, not a database error", ctx do
+    # A name `Clients` keeps whole (80 graphemes, 160 code points) is 167 code points once
+    # "OAuth: " leads it: past the 160 of the key's column.
+    client = client!(%{client_name: String.duplicate("a\u0301", 80)})
+
+    assert {:ok, %Grant{}, %Key{} = key} =
+             Grants.create(ctx.scope, client, attrs(), impersonated: false)
+
+    assert key.name |> String.to_charlist() |> length() <= 160
+    assert Repo.get!(Key, key.uuid).name == key.name
+  end
+
   test "an address longer than its column is cut, not a database error", ctx do
     long = String.duplicate("1", 80)
 
