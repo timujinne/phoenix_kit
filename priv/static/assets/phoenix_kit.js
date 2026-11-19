@@ -3602,6 +3602,9 @@
         el.style.setProperty("max-height", "none");
       }
       el.dataset.pkResized = "true";
+    }
+  };
+
   // PkFitHeight — keeps an element that hangs over the page (a menu under a
   // field, a list in a dialog) inside what the person can see: its
   // max-height is the room between its own top and the bottom of the nearest
