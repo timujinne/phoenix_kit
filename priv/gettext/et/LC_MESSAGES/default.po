@@ -28558,3 +28558,13 @@ msgstr "QR-kood"
 #, elixir-autogen, elixir-format
 msgid "or"
 msgstr "või"
+
+#: lib/phoenix_kit_web/components/media_browser/helpers.ex:325
+#, elixir-autogen, elixir-format
+msgid "Mark"
+msgstr "Märgi"
+
+#: lib/phoenix_kit_web/components/media_browser/helpers.ex:324
+#, elixir-autogen, elixir-format
+msgid "Marked"
+msgstr "Märgitud"

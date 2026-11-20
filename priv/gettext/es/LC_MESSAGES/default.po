@@ -28557,3 +28557,13 @@ msgstr "Código QR"
 #, elixir-autogen, elixir-format
 msgid "or"
 msgstr "o"
+
+#: lib/phoenix_kit_web/components/media_browser/helpers.ex:325
+#, elixir-autogen, elixir-format
+msgid "Mark"
+msgstr "Marcar"
+
+#: lib/phoenix_kit_web/components/media_browser/helpers.ex:324
+#, elixir-autogen, elixir-format
+msgid "Marked"
+msgstr "Marcado"
