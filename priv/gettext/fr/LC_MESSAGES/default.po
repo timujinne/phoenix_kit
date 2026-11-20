@@ -28468,3 +28468,14 @@ msgstr "Vous recevez ceci parce que « Commentaires » est activé."
 #, elixir-autogen, elixir-format
 msgid "You signed in from a new phone in Tallinn."
 msgstr "Vous vous êtes connecté depuis un nouveau téléphone à Tallinn."
+
+
+#: lib/phoenix_kit_web/components/media_browser/helpers.ex:325
+#, elixir-autogen, elixir-format
+msgid "Mark"
+msgstr "Marquer"
+
+#: lib/phoenix_kit_web/components/media_browser/helpers.ex:324
+#, elixir-autogen, elixir-format
+msgid "Marked"
+msgstr "Marqué"
